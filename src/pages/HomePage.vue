@@ -1,32 +1,43 @@
 # src/pages/HomePage.vue
-
 <template>
     <div class="h-screen flex flex-col overflow-hidden" ref="container">
         <!-- Top Navbar -->
-        <div class="flex justify-end items-center bg-gray-200 p-3 space-x-2 flex-shrink-0">
-            <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded" @click="handleExport">
-                Export to JSON
-            </button>
-            <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded" @click="goToStyles">
-                Styles
-            </button>
-        </div>
+        <nav class="bg-gray-100 border-b">
+            <div class="flex items-center justify-between px-4 py-2">
+                <!-- Left side -->
+                <div class="flex items-center space-x-4">
+                    <!-- View toggles -->
+                    <div class="flex space-x-2">
+                        <button @click="ui.toggleSidebar()" class="p-2 rounded hover:bg-gray-200"
+                            :class="{ 'bg-gray-200': ui.showSidebar }" title="Toggle Sidebar">
+                            📁
+                        </button>
+                        <button @click="ui.toggleEditor()" class="p-2 rounded hover:bg-gray-200"
+                            :class="{ 'bg-gray-200': ui.showEditor }" title="Toggle Editor">
+                            ✏️
+                        </button>
+                        <button @click="ui.togglePreview()" class="p-2 rounded hover:bg-gray-200"
+                            :class="{ 'bg-gray-200': ui.showPreview }" title="Toggle Preview">
+                            👁️
+                        </button>
+                    </div>
+                </div>
 
-        <!-- Toggles -->
-        <div class="flex space-x-4 p-2 border-b items-center flex-shrink-0">
-            <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showSidebar" @change="handleSidebarToggle" />
-                <span>Show Sidebar</span>
-            </label>
-            <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showEditor" @change="handleEditorToggle" />
-                <span>Show Editor</span>
-            </label>
-            <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showPreview" @change="handlePreviewToggle" />
-                <span>Show Preview</span>
-            </label>
-        </div>
+                <!-- Right side -->
+                <div class="flex items-center space-x-2">
+                    <button @click="handleExport"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        <span>📤</span>
+                        <span>Export</span>
+                    </button>
+                    <button @click="goToStyles"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        <span>🎨</span>
+                        <span>Styles</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
 
         <!-- Main content area -->
         <div class="flex flex-1 overflow-hidden" ref="mainContent">

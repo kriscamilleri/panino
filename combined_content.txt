@@ -134,6 +134,18 @@ export const router = createRouter({
             </div>
         </div>
 
+        <!-- Document Stats -->
+        <div class="flex gap-4 text-sm text-gray-600 mb-4">
+            <div class="flex items-center gap-2">
+                <span class="font-medium">Words:</span>
+                <span>{{ wordCount }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="font-medium">Characters:</span>
+                <span>{{ characterCount }}</span>
+            </div>
+        </div>
+
         <!-- Formatting toolbar -->
         <div class="flex flex-wrap gap-2 mb-4 p-2 bg-gray-100 rounded">
             <!-- Text formatting -->
@@ -193,6 +205,18 @@ const contentDraft = ref('')
 watch(originalContent, (val) => {
     contentDraft.value = val
 }, { immediate: true })
+
+// Word and character count computations
+const wordCount = computed(() => {
+    if (!contentDraft.value) return 0
+    // Split by whitespace and filter out empty strings
+    const words = contentDraft.value.trim().split(/\s+/).filter(word => word.length > 0)
+    return words.length
+})
+
+const characterCount = computed(() => {
+    return contentDraft.value.length
+})
 
 // Text formatting options
 const textFormats = [
