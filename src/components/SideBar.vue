@@ -16,6 +16,5 @@ import TreeItem from './TreeItem.vue'
 
 const docStore = useDocStore()
 
-// Root-level items in the store
 const rootItems = computed(() => docStore.rootItems)
 </script>

@@ -1,10 +1,10 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import App from './App.vue'
-import './assets/main.css' // This is where Tailwind is imported (see Tailwind docs)
+import { router } from './router'
+import AppShell from './AppShell.vue' // your new root layout
+import './assets/main.css'
 
-const pinia = createPinia()
-
-createApp(App)
-    .use(pinia)
+createApp(AppShell)
+    .use(createPinia())
+    .use(router)
     .mount('#app')

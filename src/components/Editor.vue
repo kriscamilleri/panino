@@ -1,38 +1,41 @@
+// src/components/Editor.vue
 <template>
-    <div>
-        <div v-if="file">
-            <!-- Title -->
-            <h2 class="text-2xl font-bold mb-2">{{ file.name }}</h2>
-
-            <!-- Basic metadata (type, hash, etc.) - adapt as desired -->
-            <div class="text-sm text-gray-600 mb-4">
-                <p>Type: {{ file.type }}</p>
-                <p>Hash: {{ file.hash }}</p>
-                <p>Transaction (tx): {{ file.tx }}</p>
-                <!-- You can include anything else from the file object or the content object -->
-            </div>
-
-            <!-- Plain text Markdown content -->
-            <label class="block mb-1 font-medium">Markdown Content:</label>
-            <textarea class="w-full border p-2 rounded min-h-[300px]" :value="fileContent" readonly />
+    <div v-if="file">
+        <h2 class="text-xl font-bold mb-2">{{ file.name }}</h2>
+        <div class="text-sm text-gray-600 mb-4">
+            <p>Type: {{ file.type }}</p>
+            <p>Hash: {{ file.hash }}</p>
+            <p>Transaction (tx): {{ file.tx }}</p>
         </div>
-        <div v-else>
-            <p class="text-gray-500">No file selected. Please choose a file from the sidebar.</p>
-        </div>
+
+        <!-- Edit area -->
+        <label class="font-medium mb-1 block">Edit Markdown:</label>
+        <textarea v-model="contentDraft" @input="handleInput" class="border p-2 rounded w-full h-64">
+        </textarea>
+    </div>
+    <div v-else>
+        <p class="text-gray-500">No file selected</p>
     </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useDocStore } from '@/store/docStore'
 
 const docStore = useDocStore()
 
-// The currently selected file object
 const file = computed(() => docStore.selectedFile)
+const originalContent = computed(() => docStore.selectedFileContent)
 
-// The text content of the selected file
-const fileContent = computed(() => docStore.selectedFileContent)
+const contentDraft = ref('')
+watch(originalContent, (val) => {
+    contentDraft.value = val
+}, { immediate: true })
+
+// Real-time update handler
+function handleInput() {
+    if (file.value) {
+        docStore.updateFileContent(file.value.id, contentDraft.value)
+    }
+}
 </script>
-
-<style scoped></style>
