@@ -168,10 +168,6 @@ export const router = createRouter({
             </button>
         </div>
 
-        <!-- Edit area -->
-        <label class="font-medium mb-1 block">Edit Markdown:</label>
-        <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput"
-            class="border p-2 rounded w-full h-64 font-mono"></textarea>
         <div class="flex-1 flex flex-col min-h-0">
             <label class="font-medium mb-1 block flex-shrink-0">Edit Markdown:</label>
             <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput"
@@ -328,59 +324,165 @@ const renderedHtml = computed(() => {
 
 ----- START: src/components/SideBar.vue -----
 <template>
-    <div class="h-full">
-        <h2 class="font-bold text-lg mb-4">Documents</h2>
-        <ul class="space-y-1">
-            <li v-for="item in rootItems" :key="item.id">
-                <TreeItem :item="item" />
-            </li>
-        </ul>
+    <div class="h-full flex flex-col">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="font-bold text-lg">Documents</h2>
+            <div class="flex space-x-2">
+                <button @click="showCreateFileModal" class="p-2 hover:bg-gray-100 rounded" title="New File">
+                    📄+
+                </button>
+                <button @click="showCreateFolderModal" class="p-2 hover:bg-gray-100 rounded" title="New Folder">
+                    📁+
+                </button>
+            </div>
+        </div>
+
+        <!-- File Tree -->
+        <div class="flex-1 overflow-y-auto">
+            <ul class="space-y-1">
+                <li v-for="item in rootItems" :key="item.id">
+                    <TreeItem :item="item" />
+                </li>
+            </ul>
+        </div>
+
+        <!-- Create Modal -->
+        <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-4 rounded-lg shadow-lg w-96">
+                <h3 class="text-lg font-semibold mb-4">Create New {{ createType }}</h3>
+                <input v-model="newItemName" type="text" class="w-full border rounded p-2 mb-4"
+                    :placeholder="'Enter ' + createType + ' name'" @keyup.enter="confirmCreate" />
+                <div class="flex justify-end space-x-2">
+                    <button @click="cancelCreate" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                        Cancel
+                    </button>
+                    <button @click="confirmCreate" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                        Create
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import TreeItem from './TreeItem.vue'
 
 const docStore = useDocStore()
 const rootItems = computed(() => docStore.rootItems)
+
+// Create modal state
+const showCreateModal = ref(false)
+const createType = ref('')
+const newItemName = ref('')
+
+function showCreateFileModal() {
+    createType.value = 'File'
+    showCreateModal.value = true
+}
+
+function showCreateFolderModal() {
+    createType.value = 'Folder'
+    showCreateModal.value = true
+}
+
+function confirmCreate() {
+    if (newItemName.value.trim()) {
+        if (createType.value === 'File') {
+            docStore.createFile(newItemName.value)
+        } else {
+            docStore.createFolder(newItemName.value)
+        }
+        cancelCreate()
+    }
+}
+
+function cancelCreate() {
+    showCreateModal.value = false
+    newItemName.value = ''
+    createType.value = ''
+}
 </script>
 ----- END: src/components/SideBar.vue -----
 
 ----- START: src/components/TreeItem.vue -----
 <template>
     <div>
+        <!-- Context Menu -->
+        <div v-if="showContextMenu" class="fixed bg-white shadow-lg rounded-lg border p-2 z-50"
+            :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }">
+            <button @click="handleDelete" class="w-full text-left px-3 py-1 hover:bg-red-100 text-red-600 rounded">
+                Delete
+            </button>
+            <div class="border-t my-1"></div>
+            <button v-if="isFolder" @click="handleNewFile" class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded">
+                New File
+            </button>
+            <button v-if="isFolder" @click="handleNewFolder"
+                class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded">
+                New Folder
+            </button>
+        </div>
+
         <!-- FOLDER -->
-        <div v-if="isFolder" class="flex items-center space-x-2 cursor-pointer">
+        <div v-if="isFolder" class="flex items-center space-x-2 cursor-pointer group"
+            @contextmenu.prevent="showMenu($event)">
             <span @click.stop="toggleFolderExpand(item.id)">
-                <!-- Show “▼” if expanded, “►” if collapsed -->
                 <span v-if="folderOpen">▼</span>
                 <span v-else>►</span>
             </span>
-            <span class="font-semibold" @click.stop="toggleFolderExpand(item.id)">
+            <span class="font-semibold flex-grow" @click.stop="toggleFolderExpand(item.id)">
                 📁 {{ item.name }}
             </span>
+            <button class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
+                @click.stop="showMenu($event)">
+                ⋮
+            </button>
         </div>
 
         <!-- FILE -->
-        <div v-else-if="isFile" class="flex items-center space-x-2 cursor-pointer" @click="handleFileClick(item.id)">
+        <div v-else-if="isFile" class="flex items-center space-x-2 cursor-pointer group"
+            @click="handleFileClick(item.id)" @contextmenu.prevent="showMenu($event)">
             <span>📄</span>
-            <span>{{ item.name }}</span>
+            <span class="flex-grow">{{ item.name }}</span>
+            <button class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
+                @click.stop="showMenu($event)">
+                ⋮
+            </button>
         </div>
 
-        <!-- Child items, only show if folder is open -->
+        <!-- Child items -->
         <ul v-if="isFolder && folderOpen" class="ml-6 mt-1 border-l pl-2">
             <li v-for="child in children" :key="child.id" class="mb-1">
                 <TreeItem :item="child" />
             </li>
         </ul>
+
+        <!-- Create New Modal -->
+        <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-4 rounded-lg shadow-lg w-96">
+                <h3 class="text-lg font-semibold mb-4">Create New {{ createType }}</h3>
+                <input v-model="newItemName" type="text" class="w-full border rounded p-2 mb-4"
+                    :placeholder="'Enter ' + createType + ' name'" @keyup.enter="confirmCreate" />
+                <div class="flex justify-end space-x-2">
+                    <button @click="cancelCreate" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                        Cancel
+                    </button>
+                    <button @click="confirmCreate" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                        Create
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDocStore } from '@/store/docStore'
+import { onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
     item: { type: Object, required: true }
@@ -388,22 +490,27 @@ const props = defineProps({
 
 const docStore = useDocStore()
 
-// Is this item a folder or a file?
+// Item type checks
 const isFolder = computed(() => props.item.type === 'folder')
 const isFile = computed(() => props.item.type === 'file')
 
-// Is this folder currently open?
+// Folder state
 const folderOpen = computed(() => {
     if (!isFolder.value) return false
     return docStore.openFolders.has(props.item.id)
 })
 
-// Toggle folder open/closed
-function toggleFolderExpand(folderId) {
-    docStore.toggleFolder(folderId)
-}
+// Context menu state
+const showContextMenu = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
 
-// If item is a folder, get its children
+// Create modal state
+const showCreateModal = ref(false)
+const createType = ref('')
+const newItemName = ref('')
+
+// Get child items for folders
 const children = computed(() => {
     if (isFolder.value) {
         return docStore.getChildren(props.item.id)
@@ -411,9 +518,73 @@ const children = computed(() => {
     return []
 })
 
+// Event Handlers
+function toggleFolderExpand(folderId) {
+    docStore.toggleFolder(folderId)
+}
+
 function handleFileClick(fileId) {
     docStore.selectFile(fileId)
 }
+
+function showMenu(event) {
+    // Position the context menu
+    contextMenuX.value = event.clientX
+    contextMenuY.value = event.clientY
+    showContextMenu.value = true
+}
+
+function handleDelete() {
+    if (confirm(`Are you sure you want to delete ${props.item.name}?`)) {
+        docStore.deleteItem(props.item.id)
+    }
+    showContextMenu.value = false
+}
+
+function handleNewFile() {
+    createType.value = 'File'
+    showCreateModal.value = true
+    showContextMenu.value = false
+}
+
+function handleNewFolder() {
+    createType.value = 'Folder'
+    showCreateModal.value = true
+    showContextMenu.value = false
+}
+
+function confirmCreate() {
+    if (newItemName.value.trim()) {
+        if (createType.value === 'File') {
+            docStore.createFile(newItemName.value, props.item.id)
+        } else {
+            docStore.createFolder(newItemName.value, props.item.id)
+        }
+        cancelCreate()
+    }
+}
+
+function cancelCreate() {
+    showCreateModal.value = false
+    newItemName.value = ''
+    createType.value = ''
+}
+
+// Close context menu when clicking outside
+function handleClickOutside(event) {
+    if (showContextMenu.value) {
+        showContextMenu.value = false
+    }
+}
+
+// Lifecycle hooks for click outside handler
+onMounted(() => {
+    document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+    document.removeEventListener('click', handleClickOutside)
+})
 </script>
 ----- END: src/components/TreeItem.vue -----
 
@@ -421,7 +592,7 @@ function handleFileClick(fileId) {
 # src/pages/HomePage.vue
 
 <template>
-    <div class="h-screen flex flex-col overflow-hidden">
+    <div class="h-screen flex flex-col overflow-hidden" ref="container">
         <!-- Top Navbar -->
         <div class="flex justify-end items-center bg-gray-200 p-3 space-x-2 flex-shrink-0">
             <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded" @click="handleExport">
@@ -435,21 +606,21 @@ function handleFileClick(fileId) {
         <!-- Toggles -->
         <div class="flex space-x-4 p-2 border-b items-center flex-shrink-0">
             <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showSidebar" />
+                <input type="checkbox" v-model="ui.showSidebar" @change="handleSidebarToggle" />
                 <span>Show Sidebar</span>
             </label>
             <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showEditor" />
+                <input type="checkbox" v-model="ui.showEditor" @change="handleEditorToggle" />
                 <span>Show Editor</span>
             </label>
             <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showPreview" />
+                <input type="checkbox" v-model="ui.showPreview" @change="handlePreviewToggle" />
                 <span>Show Preview</span>
             </label>
         </div>
 
         <!-- Main content area -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 overflow-hidden" ref="mainContent">
             <!-- Sidebar with resizer -->
             <template v-if="ui.showSidebar">
                 <div :style="{ width: sidebarWidth + 'px' }" class="flex-shrink-0 bg-gray-100 border-r overflow-hidden">
@@ -496,13 +667,68 @@ const docStore = useDocStore()
 const ui = useUiStore()
 const router = useRouter()
 
+// Refs for DOM elements
+const container = ref(null)
+const mainContent = ref(null)
+
+// Default widths when panels are restored
+const DEFAULT_SIDEBAR_WIDTH = 300
+const DEFAULT_EDITOR_WIDTH = 500
+const MINIMUM_PREVIEW_WIDTH = 50  // Minimum width before considering preview collapsed
+
 // Panel widths
-const sidebarWidth = ref(300)
-const editorWidth = ref(500)
+const sidebarWidth = ref(DEFAULT_SIDEBAR_WIDTH)
+const editorWidth = ref(DEFAULT_EDITOR_WIDTH)
 let isResizing = ref(false)
 let currentResizer = ref(null)
 let startX = ref(0)
 let startWidth = ref(0)
+
+// Toggle handlers
+function handleSidebarToggle(event) {
+    if (event.target.checked) {
+        sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
+        adjustEditorWidthForContainer()
+    }
+}
+
+function handleEditorToggle(event) {
+    if (event.target.checked) {
+        editorWidth.value = DEFAULT_EDITOR_WIDTH
+        adjustEditorWidthForContainer()
+    }
+}
+
+function handlePreviewToggle(event) {
+    if (event.target.checked && mainContent.value) {
+        // Calculate available width
+        const containerWidth = mainContent.value.clientWidth
+        const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
+        const availableWidth = containerWidth - sidebarTotalWidth
+
+        // Ensure minimum preview width by reducing editor width if necessary
+        const desiredPreviewWidth = Math.max(MINIMUM_PREVIEW_WIDTH * 4, availableWidth * 0.3) // At least 200px or 30% of available space
+        const maxEditorWidth = availableWidth - desiredPreviewWidth
+
+        if (editorWidth.value > maxEditorWidth) {
+            editorWidth.value = maxEditorWidth
+        }
+    }
+}
+
+// Adjust editor width based on container constraints
+function adjustEditorWidthForContainer() {
+    if (!mainContent.value || !ui.showEditor) return
+
+    const containerWidth = mainContent.value.clientWidth
+    const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0 // Including resize handle
+    const availableWidth = containerWidth - sidebarTotalWidth
+
+    // If editor is taking up almost all available space, collapse preview
+    if (editorWidth.value >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
+        ui.showPreview = false
+    }
+}
 
 // Resize functionality
 function startResize(panel, event) {
@@ -519,15 +745,37 @@ function startResize(panel, event) {
 }
 
 function handleMouseMove(event) {
-    if (!isResizing.value) return
+    if (!isResizing.value || !mainContent.value) return
 
+    const containerWidth = mainContent.value.clientWidth
     const diff = event.pageX - startX.value
+
     if (currentResizer.value === 'sidebar') {
-        const newWidth = Math.max(200, Math.min(600, startWidth.value + diff))
-        sidebarWidth.value = newWidth
+        const newWidth = startWidth.value + diff
+        if (newWidth <= 0) {
+            ui.showSidebar = false
+            stopResize()
+        } else {
+            sidebarWidth.value = newWidth
+            adjustEditorWidthForContainer()
+        }
     } else if (currentResizer.value === 'editor') {
-        const newWidth = Math.max(300, Math.min(800, startWidth.value + diff))
-        editorWidth.value = newWidth
+        const newWidth = startWidth.value + diff
+        const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
+        const availableWidth = containerWidth - sidebarTotalWidth
+
+        if (newWidth <= 0) {
+            ui.showEditor = false
+            stopResize()
+        } else if (newWidth >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
+            editorWidth.value = availableWidth
+            ui.showPreview = false
+        } else {
+            editorWidth.value = newWidth
+            if (!ui.showPreview) {
+                ui.showPreview = true
+            }
+        }
     }
 }
 
@@ -538,10 +786,24 @@ function stopResize() {
     document.body.style.userSelect = ''
 }
 
+// Watch for window resize
+let resizeTimeout
+onMounted(() => {
+    window.addEventListener('resize', () => {
+        // Debounce the resize event
+        clearTimeout(resizeTimeout)
+        resizeTimeout = setTimeout(() => {
+            adjustEditorWidthForContainer()
+        }, 100)
+    })
+})
+
 // Cleanup
 onUnmounted(() => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
+    window.removeEventListener('resize')
+    clearTimeout(resizeTimeout)
 })
 
 function handleExport() {
@@ -661,6 +923,104 @@ export const useDocStore = defineStore('docStore', () => {
         return [...sortByName(folders), ...sortByName(files)]
     })
 
+    // Generate a unique ID
+    function generateId() {
+        return Math.random().toString(36).substring(2, 15)
+    }
+
+    // Create a new file
+    function createFile(name, parentId = null) {
+        const id = generateId()
+        const newFile = {
+            id,
+            type: 'file',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        // Create the file content
+        const contentId = `${id}/content`
+        const content = {
+            id: contentId,
+            type: 'content',
+            text: '', // Empty initial content
+            properties: '\n',
+            discussions: {},
+            comments: {},
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        // Add both the file and its content to the store
+        data.value = {
+            ...data.value,
+            [id]: newFile,
+            [contentId]: content
+        }
+
+        // Select the newly created file
+        selectFile(id)
+
+        // If parent is a folder, ensure it's open
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+
+        return id
+    }
+
+    // Create a new folder
+    function createFolder(name, parentId = null) {
+        const id = generateId()
+        const newFolder = {
+            id,
+            type: 'folder',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        data.value = {
+            ...data.value,
+            [id]: newFolder
+        }
+
+        // Open the parent folder if it exists
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+
+        return id
+    }
+
+    // Delete an item (file or folder)
+    function deleteItem(id) {
+        if (!data.value[id]) return
+
+        // If it's a folder, recursively delete all children
+        if (data.value[id].type === 'folder') {
+            const children = getChildren(id)
+            children.forEach(child => deleteItem(child.id))
+            openFolders.value.delete(id)
+        }
+
+        // If it's a file, delete its content
+        if (data.value[id].type === 'file') {
+            const contentKey = `${id}/content`
+            delete data.value[contentKey]
+            if (selectedFileId.value === id) {
+                selectedFileId.value = null
+            }
+        }
+
+        // Delete the item itself
+        delete data.value[id]
+        data.value = { ...data.value } // Trigger reactivity
+    }
+
     function getChildren(parentId) {
         const folders = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'folder')
         const files = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'file')
@@ -689,13 +1049,12 @@ export const useDocStore = defineStore('docStore', () => {
     function updateFileContent(fileId, newText) {
         const contentKey = `${fileId}/content`
         if (data.value[contentKey]) {
-            // Using Vue's reactivity system to trigger updates
             data.value = {
                 ...data.value,
                 [contentKey]: {
                     ...data.value[contentKey],
                     text: newText,
-                    lastModified: new Date().toISOString() // Optional: track modifications
+                    lastModified: new Date().toISOString()
                 }
             }
         }
@@ -786,6 +1145,9 @@ export const useDocStore = defineStore('docStore', () => {
         toggleFolder,
         updateStyle,
         getMarkdownIt,
+        createFile,
+        createFolder,
+        deleteItem,
     }
 })
 ----- END: src/store/docStore.js -----
