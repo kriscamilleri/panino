@@ -1,27 +1,6 @@
 // src/components/Editor.vue
 <template>
     <div v-if="file" class="h-full flex flex-col">
-        <div class="flex-shrink-0">
-            <h2 class="text-xl font-bold mb-2">{{ file.name }}</h2>
-            <div class="text-sm text-gray-600 mb-4">
-                <p>Type: {{ file.type }}</p>
-                <p>Hash: {{ file.hash }}</p>
-                <p>Transaction (tx): {{ file.tx }}</p>
-            </div>
-        </div>
-
-        <!-- Document Stats -->
-        <div class="flex gap-4 text-sm text-gray-600 mb-4">
-            <div class="flex items-center gap-2">
-                <span class="font-medium">Words:</span>
-                <span>{{ wordCount }}</span>
-            </div>
-            <div class="flex items-center gap-2">
-                <span class="font-medium">Characters:</span>
-                <span>{{ characterCount }}</span>
-            </div>
-        </div>
-
         <!-- Formatting toolbar -->
         <div class="flex flex-wrap gap-2 mb-4 p-2 bg-gray-100 rounded">
             <!-- Text formatting -->
@@ -46,7 +25,7 @@
             <!-- Table -->
             <button @click="insertTable" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
                 title="Insert Table">
-                📊
+                |-|
             </button>
 
             <!-- Code block -->
@@ -54,12 +33,63 @@
                 title="Insert Code Block">
                 &lt;/&gt;
             </button>
+
+            <!-- Divider -->
+            <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+            <!-- Toggle buttons -->
+            <button @click="toggleStats" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                :class="{ 'bg-blue-50': showStats }" title="Toggle Document Stats">
+                📊 Stats
+            </button>
+            <button @click="toggleMetadata" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                :class="{ 'bg-blue-50': showMetadata }" title="Toggle File Metadata">
+                ℹ️ Info
+            </button>
+        </div>
+
+        <!-- Document Stats -->
+        <div v-if="showStats" class="flex gap-4 text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
+            <div class="flex items-center gap-2">
+                <span class="font-medium">Words:</span>
+                <span>{{ wordCount }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="font-medium">Characters:</span>
+                <span>{{ characterCount }}</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="font-medium">Lines:</span>
+                <span>{{ lineCount }}</span>
+            </div>
+        </div>
+
+        <!-- File Metadata -->
+        <div v-if="showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
+            <div class="flex gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="font-medium">Name:</span>
+                    <span>{{ file.name }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="font-medium">Type:</span>
+                    <span>{{ file.type }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="font-medium">Hash:</span>
+                    <span>{{ file.hash }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="font-medium">TX:</span>
+                    <span>{{ file.tx }}</span>
+                </div>
+            </div>
         </div>
 
         <div class="flex-1 flex flex-col min-h-0">
-            <label class="font-medium mb-1 block flex-shrink-0">Edit Markdown:</label>
             <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput"
-                class="flex-1 border p-2 rounded w-full font-mono resize-none"></textarea>
+                class="flex-1 border p-2 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
+                placeholder="Start writing..."></textarea>
         </div>
     </div>
     <div v-else>
@@ -73,6 +103,8 @@ import { useDocStore } from '@/store/docStore'
 
 const docStore = useDocStore()
 const textareaRef = ref(null)
+const showStats = ref(true) // Default to showing stats
+const showMetadata = ref(false) // Default to hiding metadata
 
 const file = computed(() => docStore.selectedFile)
 const originalContent = computed(() => docStore.selectedFileContent)
@@ -82,16 +114,19 @@ watch(originalContent, (val) => {
     contentDraft.value = val
 }, { immediate: true })
 
-// Word and character count computations
+// Stats computations
 const wordCount = computed(() => {
     if (!contentDraft.value) return 0
-    // Split by whitespace and filter out empty strings
-    const words = contentDraft.value.trim().split(/\s+/).filter(word => word.length > 0)
-    return words.length
+    return contentDraft.value.trim().split(/\s+/).filter(word => word.length > 0).length
 })
 
 const characterCount = computed(() => {
     return contentDraft.value.length
+})
+
+const lineCount = computed(() => {
+    if (!contentDraft.value) return 0
+    return contentDraft.value.split('\n').length
 })
 
 // Text formatting options
@@ -109,7 +144,16 @@ const listFormats = [
     { label: 'Task List', icon: '☐', prefix: '- [ ] ' },
 ]
 
-// Insert formatting around selected text or at cursor position
+// Toggle functions
+function toggleStats() {
+    showStats.value = !showStats.value
+}
+
+function toggleMetadata() {
+    showMetadata.value = !showMetadata.value
+}
+
+// Formatting functions
 function insertFormat(prefix, suffix) {
     const textarea = textareaRef.value
     const start = textarea.selectionStart
@@ -128,7 +172,6 @@ function insertFormat(prefix, suffix) {
     textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
-// Insert list item
 function insertList(prefix) {
     const textarea = textareaRef.value
     const start = textarea.selectionStart
@@ -137,7 +180,6 @@ function insertList(prefix) {
 
     let newText
     if (selected) {
-        // Convert each line to list item
         newText = selected.split('\n').map(line => prefix + line).join('\n')
         contentDraft.value = contentDraft.value.substring(0, start) + newText + contentDraft.value.substring(end)
     } else {
@@ -150,7 +192,6 @@ function insertList(prefix) {
     textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
-// Insert table template
 function insertTable() {
     const tableTemplate = `
 | Header 1 | Header 2 | Header 3 |
@@ -161,12 +202,10 @@ function insertTable() {
     insertAtCursor(tableTemplate)
 }
 
-// Insert code block
 function insertCodeBlock() {
     insertFormat('```\n', '\n```')
 }
 
-// Helper to insert text at cursor position
 function insertAtCursor(text) {
     const textarea = textareaRef.value
     const start = textarea.selectionStart
@@ -180,7 +219,6 @@ function insertAtCursor(text) {
     textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
-// Real-time update handler
 function handleInput() {
     if (file.value) {
         docStore.updateFileContent(file.value.id, contentDraft.value)
