@@ -8,12 +8,19 @@ export const router = createRouter({
         {
             path: '/',
             name: 'home',
-            component: HomePage
+            component: HomePage,
+            meta: { keepAlive: true }  // Add this
         },
         {
             path: '/styles',
             name: 'styles',
-            component: StylesPage
+            component: StylesPage,
+            meta: { keepAlive: true }  // Add this
         }
     ]
+})
+
+// Add global navigation guard
+router.beforeEach((to, from, next) => {
+    next()
 })

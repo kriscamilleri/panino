@@ -243,6 +243,7 @@ function handleExport() {
 function goToStyles() {
     router.push('/styles')
 }
+
 </script>
 
 <style scoped>

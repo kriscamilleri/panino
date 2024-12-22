@@ -1,11 +1,7 @@
 <template>
-    <!-- <header>My global header or nav</header> -->
-
-    <router-view />
-
-    <!-- <footer>My global footer</footer> -->
+    <router-view v-slot="{ Component }">
+        <keep-alive>
+            <component :is="Component" />
+        </keep-alive>
+    </router-view>
 </template>
-
-<script setup>
-// possibly some global things
-</script>
