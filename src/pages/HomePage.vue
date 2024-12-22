@@ -1,48 +1,61 @@
+# src/pages/HomePage.vue
+
 <template>
-    <div class="min-h-screen flex flex-col">
-        <!-- Top Navbar with "Export to JSON" and "Styles" -->
-        <div class="flex justify-end items-center bg-gray-200 p-3 space-x-2">
+    <div class="h-screen flex flex-col overflow-hidden" ref="container">
+        <!-- Top Navbar -->
+        <div class="flex justify-end items-center bg-gray-200 p-3 space-x-2 flex-shrink-0">
             <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded" @click="handleExport">
                 Export to JSON
             </button>
-
             <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded" @click="goToStyles">
                 Styles
             </button>
         </div>
 
-        <!-- Collapsible toggles for sidebar, editor, preview -->
-        <div class="flex space-x-4 p-2 border-b items-center">
+        <!-- Toggles -->
+        <div class="flex space-x-4 p-2 border-b items-center flex-shrink-0">
             <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showSidebar" />
+                <input type="checkbox" v-model="ui.showSidebar" @change="handleSidebarToggle" />
                 <span>Show Sidebar</span>
             </label>
             <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showEditor" />
+                <input type="checkbox" v-model="ui.showEditor" @change="handleEditorToggle" />
                 <span>Show Editor</span>
             </label>
             <label class="flex items-center space-x-2">
-                <input type="checkbox" v-model="ui.showPreview" />
+                <input type="checkbox" v-model="ui.showPreview" @change="handlePreviewToggle" />
                 <span>Show Preview</span>
             </label>
         </div>
 
         <!-- Main content area -->
-        <div class="flex flex-1">
-            <!-- Sidebar (collapsible) -->
-            <aside v-if="ui.showSidebar" class="w-64 bg-gray-100 p-4 border-r overflow-y-auto h-[calc(100vh-8rem)]">
-                <Sidebar />
-            </aside>
-
-            <!-- Editor + Preview layout -->
-            <div class="flex-1 p-4 flex" :class="ui.showSidebar ? 'flex' : 'flex'">
-                <!-- Editor (collapsible) -->
-                <div v-if="ui.showEditor" class="flex-1 mr-4 border-r pr-4">
-                    <Editor />
+        <div class="flex flex-1 overflow-hidden" ref="mainContent">
+            <!-- Sidebar with resizer -->
+            <template v-if="ui.showSidebar">
+                <div :style="{ width: sidebarWidth + 'px' }" class="flex-shrink-0 bg-gray-100 border-r overflow-hidden">
+                    <div class="h-full overflow-y-auto p-4">
+                        <Sidebar />
+                    </div>
                 </div>
+                <div class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                    @mousedown="startResize('sidebar', $event)"></div>
+            </template>
 
-                <!-- Preview (collapsible) -->
-                <div v-if="ui.showPreview" class="flex-1">
+            <!-- Editor with resizer -->
+            <template v-if="ui.showEditor">
+                <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
+                    <div class="h-full overflow-y-auto p-4">
+                        <Editor />
+                    </div>
+                </div>
+                <div v-if="ui.showPreview"
+                    class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                    @mousedown="startResize('editor', $event)"></div>
+            </template>
+
+            <!-- Preview -->
+            <div v-if="ui.showPreview" class="flex-1 overflow-hidden">
+                <div class="h-full overflow-y-auto p-4">
                     <Preview />
                 </div>
             </div>
@@ -57,10 +70,150 @@ import Sidebar from '@/components/Sidebar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
 import { useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 const docStore = useDocStore()
 const ui = useUiStore()
 const router = useRouter()
+
+// Refs for DOM elements
+const container = ref(null)
+const mainContent = ref(null)
+
+// Default widths when panels are restored
+const DEFAULT_SIDEBAR_WIDTH = 300
+const DEFAULT_EDITOR_WIDTH = 500
+const MINIMUM_PREVIEW_WIDTH = 50  // Minimum width before considering preview collapsed
+
+// Panel widths
+const sidebarWidth = ref(DEFAULT_SIDEBAR_WIDTH)
+const editorWidth = ref(DEFAULT_EDITOR_WIDTH)
+let isResizing = ref(false)
+let currentResizer = ref(null)
+let startX = ref(0)
+let startWidth = ref(0)
+
+// Toggle handlers
+function handleSidebarToggle(event) {
+    if (event.target.checked) {
+        sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
+        adjustEditorWidthForContainer()
+    }
+}
+
+function handleEditorToggle(event) {
+    if (event.target.checked) {
+        editorWidth.value = DEFAULT_EDITOR_WIDTH
+        adjustEditorWidthForContainer()
+    }
+}
+
+function handlePreviewToggle(event) {
+    if (event.target.checked && mainContent.value) {
+        // Calculate available width
+        const containerWidth = mainContent.value.clientWidth
+        const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
+        const availableWidth = containerWidth - sidebarTotalWidth
+
+        // Ensure minimum preview width by reducing editor width if necessary
+        const desiredPreviewWidth = Math.max(MINIMUM_PREVIEW_WIDTH * 4, availableWidth * 0.3) // At least 200px or 30% of available space
+        const maxEditorWidth = availableWidth - desiredPreviewWidth
+
+        if (editorWidth.value > maxEditorWidth) {
+            editorWidth.value = maxEditorWidth
+        }
+    }
+}
+
+// Adjust editor width based on container constraints
+function adjustEditorWidthForContainer() {
+    if (!mainContent.value || !ui.showEditor) return
+
+    const containerWidth = mainContent.value.clientWidth
+    const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0 // Including resize handle
+    const availableWidth = containerWidth - sidebarTotalWidth
+
+    // If editor is taking up almost all available space, collapse preview
+    if (editorWidth.value >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
+        ui.showPreview = false
+    }
+}
+
+// Resize functionality
+function startResize(panel, event) {
+    isResizing.value = true
+    currentResizer.value = panel
+    startX.value = event.pageX
+    startWidth.value = panel === 'sidebar' ? sidebarWidth.value : editorWidth.value
+
+    // Add event listeners
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', stopResize)
+    // Prevent text selection while resizing
+    document.body.style.userSelect = 'none'
+}
+
+function handleMouseMove(event) {
+    if (!isResizing.value || !mainContent.value) return
+
+    const containerWidth = mainContent.value.clientWidth
+    const diff = event.pageX - startX.value
+
+    if (currentResizer.value === 'sidebar') {
+        const newWidth = startWidth.value + diff
+        if (newWidth <= 0) {
+            ui.showSidebar = false
+            stopResize()
+        } else {
+            sidebarWidth.value = newWidth
+            adjustEditorWidthForContainer()
+        }
+    } else if (currentResizer.value === 'editor') {
+        const newWidth = startWidth.value + diff
+        const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
+        const availableWidth = containerWidth - sidebarTotalWidth
+
+        if (newWidth <= 0) {
+            ui.showEditor = false
+            stopResize()
+        } else if (newWidth >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
+            editorWidth.value = availableWidth
+            ui.showPreview = false
+        } else {
+            editorWidth.value = newWidth
+            if (!ui.showPreview) {
+                ui.showPreview = true
+            }
+        }
+    }
+}
+
+function stopResize() {
+    isResizing.value = false
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', stopResize)
+    document.body.style.userSelect = ''
+}
+
+// Watch for window resize
+let resizeTimeout
+onMounted(() => {
+    window.addEventListener('resize', () => {
+        // Debounce the resize event
+        clearTimeout(resizeTimeout)
+        resizeTimeout = setTimeout(() => {
+            adjustEditorWidthForContainer()
+        }, 100)
+    })
+})
+
+// Cleanup
+onUnmounted(() => {
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', stopResize)
+    window.removeEventListener('resize')
+    clearTimeout(resizeTimeout)
+})
 
 function handleExport() {
     const jsonString = docStore.exportJson()
@@ -80,3 +233,10 @@ function goToStyles() {
     router.push('/styles')
 }
 </script>
+
+<style scoped>
+/* Prevent text selection while resizing */
+.resize-handle {
+    user-select: none;
+}
+</style>
