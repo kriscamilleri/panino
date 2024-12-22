@@ -1,0 +1,629 @@
+----- START: package.json -----
+{
+  "name": "pn-markdown-notes",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "llm": "node ./generate-llm-file.cjs",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.3",
+    "markdown-it": "^14.1.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "pinia": "^2.3.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "vite": "^6.0.3"
+  }
+}
+----- END: package.json -----
+
+----- START: postcss.config.js -----
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+
+----- END: postcss.config.js -----
+
+----- START: tailwind.config.js -----
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{vue,js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+
+----- END: tailwind.config.js -----
+
+----- START: vite.config.js -----
+// vite.config.js
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+})
+
+----- END: vite.config.js -----
+
+----- START: src/AppShell.vue -----
+<template>
+    <header>My global header or nav</header>
+
+    <!-- Route content goes here -->
+    <router-view />
+
+    <footer>My global footer</footer>
+</template>
+
+<script setup>
+// possibly some global things
+</script>
+----- END: src/AppShell.vue -----
+
+----- START: src/main.js -----
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import { router } from './router'
+import AppShell from './AppShell.vue' // your new root layout
+import './assets/main.css'
+
+createApp(AppShell)
+    .use(createPinia())
+    .use(router)
+    .mount('#app')
+
+----- END: src/main.js -----
+
+----- START: src/router.js -----
+import { createRouter, createWebHashHistory } from 'vue-router'
+import HomePage from '@/pages/HomePage.vue'
+import StylesPage from '@/pages/StylesPage.vue'
+
+export const router = createRouter({
+    history: createWebHashHistory(),
+    routes: [
+        {
+            path: '/',
+            name: 'home',
+            component: HomePage
+        },
+        {
+            path: '/styles',
+            name: 'styles',
+            component: StylesPage
+        }
+    ]
+})
+
+----- END: src/router.js -----
+
+----- START: src/components/Editor.vue -----
+<template>
+    <div v-if="file">
+        <h2 class="text-xl font-bold mb-2">{{ file.name }}</h2>
+        <div class="text-sm text-gray-600 mb-4">
+            <p>Type: {{ file.type }}</p>
+            <p>Hash: {{ file.hash }}</p>
+            <p>Transaction (tx): {{ file.tx }}</p>
+        </div>
+
+        <!-- Edit area -->
+        <label class="font-medium mb-1 block">Edit Markdown:</label>
+        <textarea v-model="contentDraft" class="border p-2 rounded w-full h-64"></textarea>
+
+        <button class="mt-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded" @click="updateContent">
+            Save
+        </button>
+    </div>
+    <div v-else>
+        <p class="text-gray-500">No file selected</p>
+    </div>
+</template>
+
+<script setup>
+import { ref, computed, watch } from 'vue'
+import { useDocStore } from '@/store/docStore'
+
+const docStore = useDocStore()
+
+const file = computed(() => docStore.selectedFile)
+const originalContent = computed(() => docStore.selectedFileContent)
+
+const contentDraft = ref('')
+watch(originalContent, (val) => { contentDraft.value = val }, { immediate: true })
+
+function updateContent() {
+    if (file.value) {
+        docStore.updateFileContent(file.value.id, contentDraft.value)
+    }
+}
+</script>
+----- END: src/components/Editor.vue -----
+
+----- START: src/components/Preview.vue -----
+// In src/components/Preview.vue
+
+<template>
+    <div v-if="file">
+        <h2 class="text-xl font-bold mb-2">Preview: {{ file.name }}</h2>
+        <div class="mt-2" v-html="renderedHtml"></div>
+    </div>
+    <div v-else>
+        <p class="text-gray-500">No file selected</p>
+    </div>
+</template>
+
+<script setup>
+import { computed, watch } from 'vue'
+import { useDocStore } from '@/store/docStore'
+import DOMPurify from 'dompurify'
+
+const docStore = useDocStore()
+
+const file = computed(() => docStore.selectedFile)
+const text = computed(() => docStore.selectedFileContent)
+const styles = computed(() => docStore.styles)
+
+// Make renderedHtml reactive to both content and styles changes
+const renderedHtml = computed(() => {
+    const md = docStore.getMarkdownIt()
+    const raw = md.render(text.value || '')
+    return DOMPurify.sanitize(raw)
+})
+</script>
+----- END: src/components/Preview.vue -----
+
+----- START: src/components/SideBar.vue -----
+<template>
+    <div>
+        <h2 class="font-bold text-lg mb-4">Documents</h2>
+        <ul>
+            <li v-for="item in rootItems" :key="item.id" class="mb-2">
+                <TreeItem :item="item" />
+            </li>
+        </ul>
+    </div>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { useDocStore } from '@/store/docStore'
+import TreeItem from './TreeItem.vue'
+
+const docStore = useDocStore()
+
+const rootItems = computed(() => docStore.rootItems)
+</script>
+----- END: src/components/SideBar.vue -----
+
+----- START: src/components/TreeItem.vue -----
+<template>
+    <div>
+        <!-- FOLDER -->
+        <div v-if="isFolder" class="flex items-center space-x-2 cursor-pointer">
+            <span @click.stop="toggleFolderExpand(item.id)">
+                <!-- Show “▼” if expanded, “►” if collapsed -->
+                <span v-if="folderOpen">▼</span>
+                <span v-else>►</span>
+            </span>
+            <span class="font-semibold" @click.stop="toggleFolderExpand(item.id)">
+                📁 {{ item.name }}
+            </span>
+        </div>
+
+        <!-- FILE -->
+        <div v-else-if="isFile" class="flex items-center space-x-2 cursor-pointer" @click="handleFileClick(item.id)">
+            <span>📄</span>
+            <span>{{ item.name }}</span>
+        </div>
+
+        <!-- Child items, only show if folder is open -->
+        <ul v-if="isFolder && folderOpen" class="ml-6 mt-1 border-l pl-2">
+            <li v-for="child in children" :key="child.id" class="mb-1">
+                <TreeItem :item="child" />
+            </li>
+        </ul>
+    </div>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import { useDocStore } from '@/store/docStore'
+
+const props = defineProps({
+    item: { type: Object, required: true }
+})
+
+const docStore = useDocStore()
+
+// Is this item a folder or a file?
+const isFolder = computed(() => props.item.type === 'folder')
+const isFile = computed(() => props.item.type === 'file')
+
+// Is this folder currently open?
+const folderOpen = computed(() => {
+    if (!isFolder.value) return false
+    return docStore.openFolders.has(props.item.id)
+})
+
+// Toggle folder open/closed
+function toggleFolderExpand(folderId) {
+    docStore.toggleFolder(folderId)
+}
+
+// If item is a folder, get its children
+const children = computed(() => {
+    if (isFolder.value) {
+        return docStore.getChildren(props.item.id)
+    }
+    return []
+})
+
+function handleFileClick(fileId) {
+    docStore.selectFile(fileId)
+}
+</script>
+----- END: src/components/TreeItem.vue -----
+
+----- START: src/pages/HomePage.vue -----
+<template>
+    <div class="min-h-screen flex flex-col">
+        <!-- Top Navbar with "Export to JSON" and "Styles" -->
+        <div class="flex justify-end items-center bg-gray-200 p-3 space-x-2">
+            <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded" @click="handleExport">
+                Export to JSON
+            </button>
+
+            <button class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded" @click="goToStyles">
+                Styles
+            </button>
+        </div>
+
+        <!-- Collapsible toggles for sidebar, editor, preview -->
+        <div class="flex space-x-4 p-2 border-b items-center">
+            <label class="flex items-center space-x-2">
+                <input type="checkbox" v-model="ui.showSidebar" />
+                <span>Show Sidebar</span>
+            </label>
+            <label class="flex items-center space-x-2">
+                <input type="checkbox" v-model="ui.showEditor" />
+                <span>Show Editor</span>
+            </label>
+            <label class="flex items-center space-x-2">
+                <input type="checkbox" v-model="ui.showPreview" />
+                <span>Show Preview</span>
+            </label>
+        </div>
+
+        <!-- Main content area -->
+        <div class="flex flex-1">
+            <!-- Sidebar (collapsible) -->
+            <aside v-if="ui.showSidebar" class="w-64 bg-gray-100 p-4 border-r overflow-y-auto h-[calc(100vh-8rem)]">
+                <Sidebar />
+            </aside>
+
+            <!-- Editor + Preview layout -->
+            <div class="flex-1 p-4 flex" :class="ui.showSidebar ? 'flex' : 'flex'">
+                <!-- Editor (collapsible) -->
+                <div v-if="ui.showEditor" class="flex-1 mr-4 border-r pr-4">
+                    <Editor />
+                </div>
+
+                <!-- Preview (collapsible) -->
+                <div v-if="ui.showPreview" class="flex-1">
+                    <Preview />
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup>
+import { useDocStore } from '@/store/docStore'
+import { useUiStore } from '@/store/uiStore'
+import Sidebar from '@/components/Sidebar.vue'
+import Editor from '@/components/Editor.vue'
+import Preview from '@/components/Preview.vue'
+import { useRouter } from 'vue-router'
+
+const docStore = useDocStore()
+const ui = useUiStore()
+const router = useRouter()
+
+function handleExport() {
+    const jsonString = docStore.exportJson()
+    const blob = new Blob([jsonString], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'data.json'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+}
+
+function goToStyles() {
+    router.push('/styles')
+}
+</script>
+----- END: src/pages/HomePage.vue -----
+
+----- START: src/pages/StylesPage.vue -----
+<template>
+    <div class="p-4">
+        <h1 class="text-2xl font-bold mb-4">Customize Markdown Styles</h1>
+
+        <!-- Back to main -->
+        <button class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded mb-4" @click="goBack">
+            Back
+        </button>
+
+        <div class="space-y-4">
+            <div v-for="(value, key) in styleMap" :key="key" class="flex items-center space-x-4">
+                <label class="w-20 font-semibold">{{ key }}</label>
+                <input type="text" class="border p-2 rounded flex-1" v-model="styleMap[key]"
+                    @change="handleStyleChange(key, styleMap[key])" />
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup>
+import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useDocStore } from '@/store/docStore'
+
+const docStore = useDocStore()
+const router = useRouter()
+
+// We make a local copy of docStore.styles so we can edit them. 
+// If you want immediate updates, you can skip the copy and write directly to docStore.styles.
+const styleMap = computed({
+    get: () => docStore.styles,
+    set: (newVal) => { }
+})
+
+function handleStyleChange(key, newVal) {
+    docStore.updateStyle(key, newVal)
+}
+
+function goBack() {
+    router.push('/')
+}
+</script>
+----- END: src/pages/StylesPage.vue -----
+
+----- START: src/store/docStore.js -----
+// In src/store/docStore.js
+
+import { defineStore } from 'pinia'
+import MarkdownIt from 'markdown-it'
+import markdownItTaskLists from 'markdown-it-task-lists'
+import { ref, computed } from 'vue'
+import rawDataImport from '@/assets/data.json'
+
+export const useDocStore = defineStore('docStore', () => {
+    // Initialize the data store with the imported data
+    const data = ref(rawDataImport)
+    const selectedFileId = ref(null)
+    const openFolders = ref(new Set())
+
+    // Default Tailwind classes for each element
+    const styles = ref({
+        h1: 'text-3xl font-bold mt-4 mb-2 block',
+        h2: 'text-2xl font-semibold mt-3 mb-2 block',
+        h3: 'text-xl font-semibold mt-2 mb-1 block',
+        p: 'mb-2 leading-relaxed',
+        ul: 'list-disc list-inside mb-2',
+        ol: 'list-decimal list-inside mb-2',
+        li: 'ml-5 mb-1',
+        code: 'bg-gray-100 text-sm px-1 py-0.5 rounded',
+        blockquote: 'border-l-4 border-gray-300 pl-4 italic my-2',
+        hr: 'border-t my-4',
+        em: 'italic',
+        strong: 'font-bold',
+        a: 'text-blue-600 underline',
+        img: 'max-w-full h-auto',
+        table: 'border-collapse border border-gray-300 my-2',
+        tr: '',
+        th: 'border border-gray-300 bg-gray-100 px-2 py-1',
+        td: 'border border-gray-300 px-2 py-1',
+    })
+
+    const itemsArray = computed(() => Object.values(data.value))
+
+    const rootItems = computed(() => {
+        const folders = itemsArray.value.filter(i => !i.parentId && i.type === 'folder')
+        const files = itemsArray.value.filter(i => !i.parentId && i.type === 'file')
+        return [...sortByName(folders), ...sortByName(files)]
+    })
+
+    function getChildren(parentId) {
+        const folders = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'folder')
+        const files = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'file')
+        return [...sortByName(folders), ...sortByName(files)]
+    }
+
+    function sortByName(items) {
+        return items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
+
+    function selectFile(fileId) {
+        selectedFileId.value = fileId
+    }
+
+    const selectedFile = computed(() => {
+        if (!selectedFileId.value) return null
+        return data.value[selectedFileId.value] || null
+    })
+
+    const selectedFileContent = computed(() => {
+        if (!selectedFile.value) return ''
+        const contentKey = `${selectedFile.value.id}/content`
+        return data.value[contentKey]?.text || ''
+    })
+
+    function updateFileContent(fileId, newText) {
+        const contentKey = `${fileId}/content`
+        if (data.value[contentKey]) {
+            data.value = {
+                ...data.value,
+                [contentKey]: {
+                    ...data.value[contentKey],
+                    text: newText
+                }
+            }
+        }
+    }
+
+    function exportJson() {
+        return JSON.stringify(data.value, null, 2)
+    }
+
+    function toggleFolder(folderId) {
+        if (openFolders.value.has(folderId)) {
+            openFolders.value.delete(folderId)
+        } else {
+            openFolders.value.add(folderId)
+        }
+    }
+
+    function updateStyle(key, newClass) {
+        if (styles.value[key] !== undefined) {
+            styles.value[key] = newClass
+        }
+    }
+
+    // Create markdown-it instance with desired options
+    function getMarkdownIt() {
+        const md = new MarkdownIt({
+            html: true,
+            linkify: true,
+            typographer: true,
+            breaks: true
+        }).use(markdownItTaskLists)
+
+        // Customize the rendering rules to add our Tailwind classes
+        md.renderer.rules.paragraph_open = () => `<span class="${styles.value.p}">`
+        md.renderer.rules.paragraph_close = () => '</span>'
+        md.renderer.rules.heading_open = (tokens, idx) => {
+            const tag = tokens[idx].tag
+            return `<${tag} class="${styles.value[tag]}">`
+        }
+        md.renderer.rules.bullet_list_open = () => `<ul class="${styles.value.ul}">`
+        md.renderer.rules.ordered_list_open = () => `<ol class="${styles.value.ol}">`
+        md.renderer.rules.list_item_open = (tokens, idx) => {
+            if (tokens[idx].map && tokens[idx].map.length > 0) {
+                if (tokens[idx + 2]?.type === 'task_list_item_open') {
+                    const checked = tokens[idx + 2].checked
+                    return `<li class="${styles.value.li}"><input type="checkbox" ${checked ? 'checked' : ''} disabled> `
+                }
+            }
+            return `<li class="${styles.value.li}">`
+        }
+        md.renderer.rules.code_inline = (tokens, idx) =>
+            `<code class="${styles.value.code}">${tokens[idx].content}</code>`
+        md.renderer.rules.blockquote_open = () =>
+            `<blockquote class="${styles.value.blockquote}">`
+        md.renderer.rules.hr = () => `<hr class="${styles.value.hr}">`
+        md.renderer.rules.em_open = () => `<em class="${styles.value.em}">`
+        md.renderer.rules.strong_open = () => `<strong class="${styles.value.strong}">`
+        md.renderer.rules.link_open = (tokens, idx) => {
+            const href = tokens[idx].attrGet('href')
+            return `<a href="${href}" class="${styles.value.a}" target="_blank" rel="noopener">`
+        }
+        md.renderer.rules.image = (tokens, idx) => {
+            const token = tokens[idx]
+            const src = token.attrGet('src')
+            const alt = token.content
+            const title = token.attrGet('title')
+            return `<img src="${src}" alt="${alt}" title="${title || ''}" class="${styles.value.img}">`
+        }
+        md.renderer.rules.table_open = () => `<table class="${styles.value.table}">`
+        md.renderer.rules.th_open = () => `<th class="${styles.value.th}">`
+        md.renderer.rules.td_open = () => `<td class="${styles.value.td}">`
+
+        return md
+    }
+
+    return {
+        selectedFileId,
+        openFolders,
+        styles,
+        itemsArray,
+        rootItems,
+        selectedFile,
+        selectedFileContent,
+        getChildren,
+        selectFile,
+        updateFileContent,
+        exportJson,
+        toggleFolder,
+        updateStyle,
+        getMarkdownIt,
+    }
+})
+----- END: src/store/docStore.js -----
+
+----- START: src/store/uiStore.js -----
+// store/uiStore.js
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+
+export const useUiStore = defineStore('uiStore', () => {
+    // By default, everything is open
+    const showSidebar = ref(true)
+    const showEditor = ref(true)
+    const showPreview = ref(true)
+
+    function toggleSidebar() {
+        showSidebar.value = !showSidebar.value
+    }
+
+    function toggleEditor() {
+        showEditor.value = !showEditor.value
+    }
+
+    function togglePreview() {
+        showPreview.value = !showPreview.value
+    }
+
+    return {
+        showSidebar,
+        showEditor,
+        showPreview,
+        toggleSidebar,
+        toggleEditor,
+        togglePreview,
+    }
+})
+
+----- END: src/store/uiStore.js -----
+
