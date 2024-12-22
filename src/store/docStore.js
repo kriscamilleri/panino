@@ -42,6 +42,104 @@ export const useDocStore = defineStore('docStore', () => {
         return [...sortByName(folders), ...sortByName(files)]
     })
 
+    // Generate a unique ID
+    function generateId() {
+        return Math.random().toString(36).substring(2, 15)
+    }
+
+    // Create a new file
+    function createFile(name, parentId = null) {
+        const id = generateId()
+        const newFile = {
+            id,
+            type: 'file',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        // Create the file content
+        const contentId = `${id}/content`
+        const content = {
+            id: contentId,
+            type: 'content',
+            text: '', // Empty initial content
+            properties: '\n',
+            discussions: {},
+            comments: {},
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        // Add both the file and its content to the store
+        data.value = {
+            ...data.value,
+            [id]: newFile,
+            [contentId]: content
+        }
+
+        // Select the newly created file
+        selectFile(id)
+
+        // If parent is a folder, ensure it's open
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+
+        return id
+    }
+
+    // Create a new folder
+    function createFolder(name, parentId = null) {
+        const id = generateId()
+        const newFolder = {
+            id,
+            type: 'folder',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        data.value = {
+            ...data.value,
+            [id]: newFolder
+        }
+
+        // Open the parent folder if it exists
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+
+        return id
+    }
+
+    // Delete an item (file or folder)
+    function deleteItem(id) {
+        if (!data.value[id]) return
+
+        // If it's a folder, recursively delete all children
+        if (data.value[id].type === 'folder') {
+            const children = getChildren(id)
+            children.forEach(child => deleteItem(child.id))
+            openFolders.value.delete(id)
+        }
+
+        // If it's a file, delete its content
+        if (data.value[id].type === 'file') {
+            const contentKey = `${id}/content`
+            delete data.value[contentKey]
+            if (selectedFileId.value === id) {
+                selectedFileId.value = null
+            }
+        }
+
+        // Delete the item itself
+        delete data.value[id]
+        data.value = { ...data.value } // Trigger reactivity
+    }
+
     function getChildren(parentId) {
         const folders = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'folder')
         const files = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'file')
@@ -70,13 +168,12 @@ export const useDocStore = defineStore('docStore', () => {
     function updateFileContent(fileId, newText) {
         const contentKey = `${fileId}/content`
         if (data.value[contentKey]) {
-            // Using Vue's reactivity system to trigger updates
             data.value = {
                 ...data.value,
                 [contentKey]: {
                     ...data.value[contentKey],
                     text: newText,
-                    lastModified: new Date().toISOString() // Optional: track modifications
+                    lastModified: new Date().toISOString()
                 }
             }
         }
@@ -167,5 +264,8 @@ export const useDocStore = defineStore('docStore', () => {
         toggleFolder,
         updateStyle,
         getMarkdownIt,
+        createFile,
+        createFolder,
+        deleteItem,
     }
 })
