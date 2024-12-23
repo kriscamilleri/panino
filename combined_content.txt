@@ -72,16 +72,12 @@ export default defineConfig({
 
 ----- START: src/AppShell.vue -----
 <template>
-    <!-- <header>My global header or nav</header> -->
-
-    <router-view />
-
-    <!-- <footer>My global footer</footer> -->
+    <router-view v-slot="{ Component }">
+        <keep-alive>
+            <component :is="Component" />
+        </keep-alive>
+    </router-view>
 </template>
-
-<script setup>
-// possibly some global things
-</script>
 ----- END: src/AppShell.vue -----
 
 ----- START: src/main.js -----
@@ -109,16 +105,22 @@ export const router = createRouter({
         {
             path: '/',
             name: 'home',
-            component: HomePage
+            component: HomePage,
+            meta: { keepAlive: true }  // Add this
         },
         {
             path: '/styles',
             name: 'styles',
-            component: StylesPage
+            component: StylesPage,
+            meta: { keepAlive: true }  // Add this
         }
     ]
 })
 
+// Add global navigation guard
+router.beforeEach((to, from, next) => {
+    next()
+})
 ----- END: src/router.js -----
 
 ----- START: src/components/Editor.vue -----
@@ -896,6 +898,7 @@ function handleExport() {
 function goToStyles() {
     router.push('/styles')
 }
+
 </script>
 
 <style scoped>

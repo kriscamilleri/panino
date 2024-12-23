@@ -1,3 +1,4 @@
+//src/components/TreeItem.vue
 <template>
     <div>
         <!-- Context Menu -->
@@ -19,35 +20,47 @@
         <!-- FOLDER -->
         <div v-if="isFolder" class="flex items-center space-x-2 cursor-pointer group"
             @contextmenu.prevent="showMenu($event)">
-            <span @click.stop="toggleFolderExpand(item.id)">
-                <span v-if="folderOpen">▼</span>
+            <span @click.stop="toggleLocalFolderState">
+                <span v-if="isOpen">▼</span>
                 <span v-else>►</span>
             </span>
-            <span class="font-semibold flex-grow" @click.stop="toggleFolderExpand(item.id)">
+            <span class="font-semibold flex-grow" @click.stop="toggleLocalFolderState">
                 📁 {{ item.name }}
+                <span v-if="isFiltered && matchingFiles.length > 0" class="text-sm text-gray-500">
+                    ({{ matchingFiles.length }} matches)
+                </span>
             </span>
-            <button class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
+            <button v-if="!isFiltered" class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
                 @click.stop="showMenu($event)">
                 ⋮
             </button>
         </div>
 
         <!-- FILE -->
-        <div v-else-if="isFile" class="flex items-center space-x-2 cursor-pointer group"
+        <div v-else class="flex items-center space-x-2 cursor-pointer group" :class="{ 'ml-6': isFiltered }"
             @click="handleFileClick(item.id)" @contextmenu.prevent="showMenu($event)">
             <span>📄</span>
             <span class="flex-grow">{{ item.name }}</span>
-            <button class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
+            <button v-if="!isFiltered" class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
                 @click.stop="showMenu($event)">
                 ⋮
             </button>
         </div>
 
         <!-- Child items -->
-        <ul v-if="isFolder && folderOpen" class="ml-6 mt-1 border-l pl-2">
-            <li v-for="child in children" :key="child.id" class="mb-1">
-                <TreeItem :item="child" />
-            </li>
+        <ul v-if="isFolder && isOpen" class="ml-6 mt-1 border-l pl-2">
+            <template v-if="isFiltered">
+                <!-- Show only matching files when filtered -->
+                <li v-for="file in matchingFiles" :key="file.id" class="mb-1">
+                    <TreeItem :item="file" :is-filtered="true" />
+                </li>
+            </template>
+            <template v-else>
+                <!-- Show all children when not filtered -->
+                <li v-for="child in children" :key="child.id" class="mb-1">
+                    <TreeItem :item="child" :is-filtered="false" />
+                </li>
+            </template>
         </ul>
 
         <!-- Create New Modal -->
@@ -75,7 +88,9 @@ import { useDocStore } from '@/store/docStore'
 import { onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
-    item: { type: Object, required: true }
+    item: { type: Object, required: true },
+    isFiltered: { type: Boolean, default: false },
+    matchingFiles: { type: Array, default: () => [] }
 })
 
 const docStore = useDocStore()
@@ -84,10 +99,14 @@ const docStore = useDocStore()
 const isFolder = computed(() => props.item.type === 'folder')
 const isFile = computed(() => props.item.type === 'file')
 
-// Folder state
-const folderOpen = computed(() => {
+// Local folder state for filtered view
+const localFolderState = ref(true) // Start expanded
+
+// Folder open state
+const isOpen = computed(() => {
     if (!isFolder.value) return false
-    return docStore.openFolders.has(props.item.id)
+    // Use local state for filtered view, global state for normal view
+    return props.isFiltered ? localFolderState.value : docStore.openFolders.has(props.item.id)
 })
 
 // Context menu state
@@ -109,8 +128,12 @@ const children = computed(() => {
 })
 
 // Event Handlers
-function toggleFolderExpand(folderId) {
-    docStore.toggleFolder(folderId)
+function toggleLocalFolderState() {
+    if (props.isFiltered) {
+        localFolderState.value = !localFolderState.value
+    } else {
+        docStore.toggleFolder(props.item.id)
+    }
 }
 
 function handleFileClick(fileId) {
@@ -118,10 +141,11 @@ function handleFileClick(fileId) {
 }
 
 function showMenu(event) {
-    // Position the context menu
-    contextMenuX.value = event.clientX
-    contextMenuY.value = event.clientY
-    showContextMenu.value = true
+    if (!props.isFiltered) {
+        contextMenuX.value = event.clientX
+        contextMenuY.value = event.clientY
+        showContextMenu.value = true
+    }
 }
 
 function handleDelete() {
