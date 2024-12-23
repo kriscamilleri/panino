@@ -1,8 +1,8 @@
-// src/components/Editor.vue
+<!-- ----- START: src/components/Editor.vue ----- -->
 <template>
     <div v-if="file" class="h-full flex flex-col">
         <!-- Formatting toolbar -->
-        <div class="flex flex-wrap gap-2 mb-4 p-2 bg-gray-100 rounded">
+        <div class="flex flex-wrap gap-2 mb-4 p-2 bg-gray-100 rounded items-center">
             <!-- Text formatting -->
             <button v-for="format in textFormats" :key="format.label"
                 @click="insertFormat(format.prefix, format.suffix)"
@@ -46,6 +46,18 @@
                 :class="{ 'bg-blue-50': showMetadata }" title="Toggle File Metadata">
                 ℹ️ Info
             </button>
+
+            <!-- Divider -->
+            <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+            <!-- Search box: new feature -->
+            <div class="flex items-center gap-2">
+                <input type="text" placeholder="Find text..." v-model="searchTerm"
+                    class="border p-1 rounded text-sm w-36" />
+                <button @click="findNext" class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm">
+                    Next
+                </button>
+            </div>
         </div>
 
         <!-- Document Stats -->
@@ -98,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useDocStore } from '@/store/docStore'
 
 const docStore = useDocStore()
@@ -113,6 +125,9 @@ const contentDraft = ref('')
 watch(originalContent, (val) => {
     contentDraft.value = val
 }, { immediate: true })
+
+// Search term (new feature)
+const searchTerm = ref('')
 
 // Stats computations
 const wordCount = computed(() => {
@@ -168,7 +183,9 @@ function insertFormat(prefix, suffix) {
 
     // Update cursor position
     textarea.focus()
-    const newCursorPos = selected ? start + prefix.length + selected.length + suffix.length : start + prefix.length
+    const newCursorPos = selected
+        ? start + prefix.length + selected.length + suffix.length
+        : start + prefix.length
     textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
@@ -219,9 +236,43 @@ function insertAtCursor(text) {
     textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
+// Sync content to store
 function handleInput() {
     if (file.value) {
         docStore.updateFileContent(file.value.id, contentDraft.value)
     }
 }
+
+// ======================================
+// "Find" feature: simple "Next" search
+// ======================================
+function findNext() {
+    const txt = searchTerm.value.trim()
+    if (!txt) return
+
+    const textarea = textareaRef.value
+    // Start searching after the current selectionEnd
+    let fromIndex = textarea.selectionEnd
+    let foundIndex = contentDraft.value.indexOf(txt, fromIndex)
+
+    // If not found, wrap around from start
+    if (foundIndex === -1 && fromIndex !== 0) {
+        foundIndex = contentDraft.value.indexOf(txt, 0)
+    }
+
+    // If still not found, nothing to do
+    if (foundIndex === -1) return
+
+    // Select that occurrence
+    textarea.focus()
+    textarea.setSelectionRange(foundIndex, foundIndex + txt.length)
+
+    // Attempt to scroll the match into view
+    // (Usually setSelectionRange triggers a scroll, but we can ensure it by some hack.)
+    nextTick(() => {
+        // A minimal approach is to re-focus, or do nothing
+        textarea.focus()
+    })
+}
 </script>
+<!-- ----- END: src/components/Editor.vue ----- -->
