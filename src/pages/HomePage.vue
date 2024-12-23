@@ -1,4 +1,4 @@
-# src/pages/HomePage.vue
+<!-- ----- START: src/pages/HomePage.vue ----- -->
 <template>
     <div class="h-screen flex flex-col overflow-hidden" ref="container">
         <!-- Top Navbar -->
@@ -80,12 +80,13 @@ import { useUiStore } from '@/store/uiStore'
 import Sidebar from '@/components/Sidebar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
-import { useRouter } from 'vue-router'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 
 const docStore = useDocStore()
 const ui = useUiStore()
 const router = useRouter()
+const route = useRoute()
 
 // Refs for DOM elements
 const container = ref(null)
@@ -104,7 +105,31 @@ let currentResizer = ref(null)
 let startX = ref(0)
 let startWidth = ref(0)
 
-// Toggle handlers
+// ============================================
+// 1) Watch route params -> open correct file
+// ============================================
+onMounted(() => {
+    if (route.params.fileId) {
+        docStore.selectFile(route.params.fileId)
+    }
+})
+
+// If user changes the file in the store, update the URL
+watch(() => docStore.selectedFileId, (newFileId) => {
+    // If there's a new file selected, reflect that in the URL
+    // Avoid redundant pushes when already on that URL
+    if (newFileId && route.params.fileId !== newFileId) {
+        router.replace({ name: 'doc', params: { fileId: newFileId } })
+    }
+    // If no file is selected, send them back to '/' 
+    else if (!newFileId && route.name !== 'home') {
+        router.replace({ name: 'home' })
+    }
+})
+
+// ============================================
+// 2) Panel toggles and resizing
+// ============================================
 function handleSidebarToggle(event) {
     if (event.target.checked) {
         sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
@@ -126,8 +151,7 @@ function handlePreviewToggle(event) {
         const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
         const availableWidth = containerWidth - sidebarTotalWidth
 
-        // Ensure minimum preview width by reducing editor width if necessary
-        const desiredPreviewWidth = Math.max(MINIMUM_PREVIEW_WIDTH * 4, availableWidth * 0.3) // At least 200px or 30% of available space
+        const desiredPreviewWidth = Math.max(MINIMUM_PREVIEW_WIDTH * 4, availableWidth * 0.3)
         const maxEditorWidth = availableWidth - desiredPreviewWidth
 
         if (editorWidth.value > maxEditorWidth) {
@@ -136,15 +160,13 @@ function handlePreviewToggle(event) {
     }
 }
 
-// Adjust editor width based on container constraints
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor) return
 
     const containerWidth = mainContent.value.clientWidth
-    const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0 // Including resize handle
+    const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
     const availableWidth = containerWidth - sidebarTotalWidth
 
-    // If editor is taking up almost all available space, collapse preview
     if (editorWidth.value >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
         ui.showPreview = false
     }
@@ -157,10 +179,8 @@ function startResize(panel, event) {
     startX.value = event.pageX
     startWidth.value = panel === 'sidebar' ? sidebarWidth.value : editorWidth.value
 
-    // Add event listeners
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', stopResize)
-    // Prevent text selection while resizing
     document.body.style.userSelect = 'none'
 }
 
@@ -210,7 +230,6 @@ function stopResize() {
 let resizeTimeout
 onMounted(() => {
     window.addEventListener('resize', () => {
-        // Debounce the resize event
         clearTimeout(resizeTimeout)
         resizeTimeout = setTimeout(() => {
             adjustEditorWidthForContainer()
@@ -226,6 +245,7 @@ onUnmounted(() => {
     clearTimeout(resizeTimeout)
 })
 
+// Export
 function handleExport() {
     const jsonString = docStore.exportJson()
     const blob = new Blob([jsonString], { type: 'application/json' })
@@ -243,7 +263,6 @@ function handleExport() {
 function goToStyles() {
     router.push('/styles')
 }
-
 </script>
 
 <style scoped>
@@ -252,3 +271,4 @@ function goToStyles() {
     user-select: none;
 }
 </style>
+<!-- ----- END: src/pages/HomePage.vue ----- -->
