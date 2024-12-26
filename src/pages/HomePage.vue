@@ -21,10 +21,21 @@
                             👁️
                         </button>
                     </div>
+
+                    <!-- New: Toggle for Action Bar -->
+                    <button @click="ui.toggleActionBar()" class="p-2 rounded hover:bg-gray-200"
+                        :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Tools">
+                        🛠️
+                    </button>
                 </div>
 
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
+                    <button @click="showImportModal = true"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        <span>📥</span>
+                        <span>Import</span>
+                    </button>
                     <button @click="handleExport"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         <span>📤</span>
@@ -37,6 +48,73 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Collapsible Action Bar -->
+            <transition name="fade">
+                <div v-if="ui.showActionBar" class="border-t bg-gray-50 px-4 py-2">
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <!-- Text formatting -->
+                        <button v-for="format in textFormats" :key="format.label"
+                            @click="editorRef.insertFormat(format.prefix, format.suffix)"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="format.label">
+                            {{ format.icon }}
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Lists -->
+                        <button v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="list.label">
+                            {{ list.icon }}
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Table -->
+                        <button @click="editorRef.insertTable"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" title="Insert Table">
+                            |-|
+                        </button>
+
+                        <!-- Code block -->
+                        <button @click="editorRef.insertCodeBlock"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                            title="Insert Code Block">
+                            &lt;/&gt;
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Toggle stats / metadata -->
+                        <button @click="ui.toggleStats()"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                            :class="{ 'bg-blue-50': ui.showStats }" title="Toggle Document Stats">
+                            📊 Stats
+                        </button>
+                        <button @click="ui.toggleMetadata()"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                            :class="{ 'bg-blue-50': ui.showMetadata }" title="Toggle File Metadata">
+                            ℹ️ Info
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Search box -->
+                        <div class="flex items-center gap-2">
+                            <input type="text" placeholder="Find text..." v-model="searchTerm"
+                                class="border p-1 rounded text-sm w-36" />
+                            <button @click="editorRef.findNext(searchTerm)"
+                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </transition>
         </nav>
 
         <!-- Main content area -->
@@ -56,7 +134,8 @@
             <template v-if="ui.showEditor">
                 <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
                     <div class="h-full overflow-y-auto p-4">
-                        <Editor />
+                        <!-- Note the ref on the Editor -->
+                        <Editor ref="editorRef" />
                     </div>
                 </div>
                 <div v-if="ui.showPreview"
@@ -72,6 +151,7 @@
             </div>
         </div>
     </div>
+    <ImportModal :show="showImportModal" @close="showImportModal = false" @import-success="handleImportSuccess" />
 </template>
 
 <script setup>
@@ -80,6 +160,7 @@ import { useUiStore } from '@/store/uiStore'
 import Sidebar from '@/components/Sidebar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
+import ImportModal from '@/components/ImportModal.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 
@@ -88,81 +169,49 @@ const ui = useUiStore()
 const router = useRouter()
 const route = useRoute()
 
-// Refs for DOM elements
+// For panel resizing
 const container = ref(null)
 const mainContent = ref(null)
 
-// Default widths when panels are restored
+// Default widths
 const DEFAULT_SIDEBAR_WIDTH = 300
 const DEFAULT_EDITOR_WIDTH = 500
-const MINIMUM_PREVIEW_WIDTH = 50  // Minimum width before considering preview collapsed
+const MINIMUM_PREVIEW_WIDTH = 50
 
-// Panel widths
 const sidebarWidth = ref(DEFAULT_SIDEBAR_WIDTH)
 const editorWidth = ref(DEFAULT_EDITOR_WIDTH)
 let isResizing = ref(false)
 let currentResizer = ref(null)
 let startX = ref(0)
 let startWidth = ref(0)
+const showImportModal = ref(false)
 
-// ============================================
+// For Import
+function handleImportSuccess() {
+    // You could show a success message or perform other actions
+    console.log('Import successful')
+}
+
+// For search
+const searchTerm = ref('')
+
 // 1) Watch route params -> open correct file
-// ============================================
 onMounted(() => {
     if (route.params.fileId) {
         docStore.selectFile(route.params.fileId)
     }
 })
-
-// If user changes the file in the store, update the URL
 watch(() => docStore.selectedFileId, (newFileId) => {
-    // If there's a new file selected, reflect that in the URL
-    // Avoid redundant pushes when already on that URL
     if (newFileId && route.params.fileId !== newFileId) {
         router.replace({ name: 'doc', params: { fileId: newFileId } })
-    }
-    // If no file is selected, send them back to '/' 
-    else if (!newFileId && route.name !== 'home') {
+    } else if (!newFileId && route.name !== 'home') {
         router.replace({ name: 'home' })
     }
 })
 
-// ============================================
 // 2) Panel toggles and resizing
-// ============================================
-function handleSidebarToggle(event) {
-    if (event.target.checked) {
-        sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
-        adjustEditorWidthForContainer()
-    }
-}
-
-function handleEditorToggle(event) {
-    if (event.target.checked) {
-        editorWidth.value = DEFAULT_EDITOR_WIDTH
-        adjustEditorWidthForContainer()
-    }
-}
-
-function handlePreviewToggle(event) {
-    if (event.target.checked && mainContent.value) {
-        // Calculate available width
-        const containerWidth = mainContent.value.clientWidth
-        const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
-        const availableWidth = containerWidth - sidebarTotalWidth
-
-        const desiredPreviewWidth = Math.max(MINIMUM_PREVIEW_WIDTH * 4, availableWidth * 0.3)
-        const maxEditorWidth = availableWidth - desiredPreviewWidth
-
-        if (editorWidth.value > maxEditorWidth) {
-            editorWidth.value = maxEditorWidth
-        }
-    }
-}
-
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor) return
-
     const containerWidth = mainContent.value.clientWidth
     const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
     const availableWidth = containerWidth - sidebarTotalWidth
@@ -172,12 +221,11 @@ function adjustEditorWidthForContainer() {
     }
 }
 
-// Resize functionality
 function startResize(panel, event) {
     isResizing.value = true
     currentResizer.value = panel
     startX.value = event.pageX
-    startWidth.value = panel === 'sidebar' ? sidebarWidth.value : editorWidth.value
+    startWidth.value = (panel === 'sidebar') ? sidebarWidth.value : editorWidth.value
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', stopResize)
@@ -226,7 +274,6 @@ function stopResize() {
     document.body.style.userSelect = ''
 }
 
-// Watch for window resize
 let resizeTimeout
 onMounted(() => {
     window.addEventListener('resize', () => {
@@ -236,8 +283,6 @@ onMounted(() => {
         }, 100)
     })
 })
-
-// Cleanup
 onUnmounted(() => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
@@ -263,12 +308,33 @@ function handleExport() {
 function goToStyles() {
     router.push('/styles')
 }
+
+// The old Editor toolbar data (text/list formats) used by the action bar
+const textFormats = [
+    { label: 'Bold', icon: 'B', prefix: '**', suffix: '**' },
+    { label: 'Italic', icon: 'I', prefix: '_', suffix: '_' },
+    { label: 'Strike', icon: 'S̶', prefix: '~~', suffix: '~~' },
+    { label: 'Quote', icon: '💬', prefix: '> ', suffix: '\n' },
+]
+const listFormats = [
+    { label: 'Bullet List', icon: '•', prefix: '* ' },
+    { label: 'Numbered List', icon: '1.', prefix: '1. ' },
+    { label: 'Task List', icon: '☐', prefix: '- [ ] ' },
+]
+
+// We’ll access Editor’s methods via a template ref:
+const editorRef = ref(null)
 </script>
 
 <style scoped>
-/* Prevent text selection while resizing */
-.resize-handle {
-    user-select: none;
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.15s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
 }
 </style>
 <!-- ----- END: src/pages/HomePage.vue ----- -->

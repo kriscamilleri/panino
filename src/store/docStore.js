@@ -1,15 +1,35 @@
-// In src/store/docStore.js
-
+// src/store/docStore.js
 import { defineStore } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { ref, computed } from 'vue'
-import rawDataImport from '@/assets/data.json'
+
+// Initialize with empty data instead of importing
+const EMPTY_DATA = {
+    'welcome': {
+        id: 'welcome',
+        type: 'file',
+        name: 'Welcome.md',
+        parentId: null,
+        hash: Date.now(),
+        tx: Date.now()
+    },
+    'welcome/content': {
+        id: 'welcome/content',
+        type: 'content',
+        text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
+        properties: '\n',
+        discussions: {},
+        comments: {},
+        hash: Date.now(),
+        tx: Date.now()
+    }
+}
 
 export const useDocStore = defineStore('docStore', () => {
-    // Initialize the data store with the imported data
-    const data = ref(rawDataImport)
-    const selectedFileId = ref(null)
+    // Initialize with empty data
+    const data = ref(EMPTY_DATA)
+    const selectedFileId = ref('welcome')
     const openFolders = ref(new Set())
 
     // Default Tailwind classes for each element
@@ -178,10 +198,98 @@ export const useDocStore = defineStore('docStore', () => {
             }
         }
     }
-
     function exportJson() {
         return JSON.stringify(data.value, null, 2)
     }
+
+    function importData(newData) {
+        // Validate the data structure
+        try {
+            // Check if it's an object
+            if (typeof newData !== 'object' || newData === null) {
+                throw new Error('Invalid data structure: must be an object')
+            }
+
+            // Validate the structure
+            const validatedData = {}
+            const files = new Set()
+            const contentFiles = new Set()
+
+            // First pass: collect all files and validate basic structure
+            for (const [key, item] of Object.entries(newData)) {
+                if (!item || typeof item !== 'object') {
+                    throw new Error(`Invalid item structure for key ${key}`)
+                }
+
+                if (!item.id || !item.type) {
+                    throw new Error(`Missing required properties (id or type) for item ${key}`)
+                }
+
+                // Validate based on type
+                switch (item.type) {
+                    case 'file':
+                        if (!item.name) {
+                            throw new Error(`File ${item.id} missing name property`)
+                        }
+                        files.add(item.id)
+                        validatedData[key] = item
+                        break
+
+                    case 'content':
+                        if (!item.text) {
+                            throw new Error(`Content ${item.id} missing text property`)
+                        }
+                        const fileId = item.id.split('/')[0]
+                        contentFiles.add(fileId)
+                        validatedData[key] = item
+                        break
+
+                    case 'folder':
+                        if (!item.name) {
+                            throw new Error(`Folder ${item.id} missing name property`)
+                        }
+                        validatedData[key] = item
+                        break
+
+                    // Allow other types but don't validate them strictly
+                    default:
+                        validatedData[key] = item
+                }
+            }
+
+            // Second pass: validate relationships
+            files.forEach(fileId => {
+                if (!contentFiles.has(fileId)) {
+                    console.warn(`Warning: File ${fileId} has no associated content`)
+                }
+            })
+
+            contentFiles.forEach(fileId => {
+                if (!files.has(fileId)) {
+                    console.warn(`Warning: Content exists for non-existent file ${fileId}`)
+                }
+            })
+
+            // If validation passes, update the store
+            data.value = validatedData
+
+            // Reset selection and open folders
+            selectedFileId.value = null
+            openFolders.value = new Set()
+
+            // Select the first file if available
+            const firstFile = Object.values(validatedData)
+                .find(item => item.type === 'file')
+            if (firstFile) {
+                selectedFileId.value = firstFile.id
+            }
+
+        } catch (error) {
+            console.error('Import failed:', error)
+            throw error
+        }
+    }
+
 
     function toggleFolder(folderId) {
         if (openFolders.value.has(folderId)) {
@@ -261,6 +369,7 @@ export const useDocStore = defineStore('docStore', () => {
         selectFile,
         updateFileContent,
         exportJson,
+        importData,
         toggleFolder,
         updateStyle,
         getMarkdownIt,

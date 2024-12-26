@@ -8,6 +8,11 @@ export const useUiStore = defineStore('uiStore', () => {
     const showEditor = ref(true)
     const showPreview = ref(true)
 
+    // New flags for the collapsible action bar and for stats/metadata
+    const showActionBar = ref(true)
+    const showStats = ref(true)
+    const showMetadata = ref(false)
+
     function toggleSidebar() {
         showSidebar.value = !showSidebar.value
     }
@@ -20,12 +25,30 @@ export const useUiStore = defineStore('uiStore', () => {
         showPreview.value = !showPreview.value
     }
 
+    function toggleActionBar() {
+        showActionBar.value = !showActionBar.value
+    }
+
+    function toggleStats() {
+        showStats.value = !showStats.value
+    }
+
+    function toggleMetadata() {
+        showMetadata.value = !showMetadata.value
+    }
+
     return {
         showSidebar,
         showEditor,
         showPreview,
+        showActionBar,
+        showStats,
+        showMetadata,
         toggleSidebar,
         toggleEditor,
         togglePreview,
+        toggleActionBar,
+        toggleStats,
+        toggleMetadata,
     }
 })
