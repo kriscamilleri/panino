@@ -19,7 +19,6 @@ const docStore = useDocStore()
 
 const file = computed(() => docStore.selectedFile)
 const text = computed(() => docStore.selectedFileContent)
-const styles = computed(() => docStore.styles)
 
 // Make renderedHtml reactive to both content and styles changes
 const renderedHtml = computed(() => {

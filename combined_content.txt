@@ -95,10 +95,12 @@ createApp(AppShell)
 ----- END: src/main.js -----
 
 ----- START: src/router.js -----
+// ----- START: src/router.js -----
 import { createRouter, createWebHashHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import StylesPage from '@/pages/StylesPage.vue'
 
+// We add a new route named 'doc' with a fileId param:
 export const router = createRouter({
     history: createWebHashHistory(),
     routes: [
@@ -106,76 +108,60 @@ export const router = createRouter({
             path: '/',
             name: 'home',
             component: HomePage,
-            meta: { keepAlive: true }  // Add this
+            meta: { keepAlive: true }
+        },
+        {
+            path: '/doc/:fileId',
+            name: 'doc',
+            component: HomePage,
+            meta: { keepAlive: true }
         },
         {
             path: '/styles',
             name: 'styles',
             component: StylesPage,
-            meta: { keepAlive: true }  // Add this
+            meta: { keepAlive: true }
         }
     ]
 })
 
-// Add global navigation guard
+// Add global navigation guard if you need it; for now it does nothing special.
 router.beforeEach((to, from, next) => {
     next()
 })
+// ----- END: src/router.js -----
+
 ----- END: src/router.js -----
 
+----- START: src/assets/styles.json -----
+{
+    "h1": "text-3xl font-bold mt-4 mb-2 block",
+    "h2": "text-2xl font-semibold mt-3 mb-2 block",
+    "h3": "text-xl font-semibold mt-2 mb-1 block",
+    "p": "mb-2 leading-relaxed",
+    "ul": "list-disc mb-2",
+    "ol": "list-decimal mb-2",
+    "li": "ml-5 mb-1",
+    "code": "bg-gray-100 text-sm px-1 py-0.5 rounded",
+    "blockquote": "border-l-4 border-gray-300 pl-4 italic my-2",
+    "hr": "border-t my-4",
+    "em": "italic",
+    "strong": "font-bold",
+    "a": "text-blue-600 underline",
+    "img": "max-w-full h-auto",
+    "table": "border-collapse border border-gray-300 my-2",
+    "tr": "",
+    "th": "border border-gray-300 bg-gray-100 px-2 py-1",
+    "td": "border border-gray-300 px-2 py-1"
+}
+----- END: src/assets/styles.json -----
+
 ----- START: src/components/Editor.vue -----
-// src/components/Editor.vue
+<!-- ----- START: src/components/Editor.vue ----- -->
 <template>
     <div v-if="file" class="h-full flex flex-col">
-        <!-- Formatting toolbar -->
-        <div class="flex flex-wrap gap-2 mb-4 p-2 bg-gray-100 rounded">
-            <!-- Text formatting -->
-            <button v-for="format in textFormats" :key="format.label"
-                @click="insertFormat(format.prefix, format.suffix)"
-                class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="format.label">
-                {{ format.icon }}
-            </button>
-
-            <!-- Divider -->
-            <div class="w-px h-6 bg-gray-300 mx-2"></div>
-
-            <!-- Lists -->
-            <button v-for="list in listFormats" :key="list.label" @click="insertList(list.prefix)"
-                class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="list.label">
-                {{ list.icon }}
-            </button>
-
-            <!-- Divider -->
-            <div class="w-px h-6 bg-gray-300 mx-2"></div>
-
-            <!-- Table -->
-            <button @click="insertTable" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
-                title="Insert Table">
-                |-|
-            </button>
-
-            <!-- Code block -->
-            <button @click="insertCodeBlock" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
-                title="Insert Code Block">
-                &lt;/&gt;
-            </button>
-
-            <!-- Divider -->
-            <div class="w-px h-6 bg-gray-300 mx-2"></div>
-
-            <!-- Toggle buttons -->
-            <button @click="toggleStats" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
-                :class="{ 'bg-blue-50': showStats }" title="Toggle Document Stats">
-                📊 Stats
-            </button>
-            <button @click="toggleMetadata" class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
-                :class="{ 'bg-blue-50': showMetadata }" title="Toggle File Metadata">
-                ℹ️ Info
-            </button>
-        </div>
-
-        <!-- Document Stats -->
-        <div v-if="showStats" class="flex gap-4 text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
+        <!-- Document Stats (toggled via uiStore.showStats) -->
+        <div v-if="ui.showStats" class="flex gap-4 text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
             <div class="flex items-center gap-2">
                 <span class="font-medium">Words:</span>
                 <span>{{ wordCount }}</span>
@@ -190,8 +176,8 @@ router.beforeEach((to, from, next) => {
             </div>
         </div>
 
-        <!-- File Metadata -->
-        <div v-if="showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
+        <!-- File Metadata (toggled via uiStore.showMetadata) -->
+        <div v-if="ui.showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
             <div class="flex gap-4">
                 <div class="flex items-center gap-2">
                     <span class="font-medium">Name:</span>
@@ -212,6 +198,7 @@ router.beforeEach((to, from, next) => {
             </div>
         </div>
 
+        <!-- Textarea -->
         <div class="flex-1 flex flex-col min-h-0">
             <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput"
                 class="flex-1 border p-2 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
@@ -224,17 +211,21 @@ router.beforeEach((to, from, next) => {
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick, defineExpose } from 'vue'
 import { useDocStore } from '@/store/docStore'
+import { useUiStore } from '@/store/uiStore'
 
 const docStore = useDocStore()
-const textareaRef = ref(null)
-const showStats = ref(true) // Default to showing stats
-const showMetadata = ref(false) // Default to hiding metadata
+const ui = useUiStore()
 
+// References
+const textareaRef = ref(null)
+
+// We no longer store showStats / showMetadata locally; they're in uiStore.
+
+// The selected file
 const file = computed(() => docStore.selectedFile)
 const originalContent = computed(() => docStore.selectedFileContent)
-
 const contentDraft = ref('')
 watch(originalContent, (val) => {
     contentDraft.value = val
@@ -245,43 +236,27 @@ const wordCount = computed(() => {
     if (!contentDraft.value) return 0
     return contentDraft.value.trim().split(/\s+/).filter(word => word.length > 0).length
 })
-
 const characterCount = computed(() => {
     return contentDraft.value.length
 })
-
 const lineCount = computed(() => {
     if (!contentDraft.value) return 0
     return contentDraft.value.split('\n').length
 })
 
-// Text formatting options
-const textFormats = [
-    { label: 'Bold', icon: 'B', prefix: '**', suffix: '**' },
-    { label: 'Italic', icon: 'I', prefix: '_', suffix: '_' },
-    { label: 'Strike', icon: 'S̶', prefix: '~~', suffix: '~~' },
-    { label: 'Quote', icon: '💬', prefix: '> ', suffix: '\n' },
-]
-
-// List formatting options
-const listFormats = [
-    { label: 'Bullet List', icon: '•', prefix: '* ' },
-    { label: 'Numbered List', icon: '1.', prefix: '1. ' },
-    { label: 'Task List', icon: '☐', prefix: '- [ ] ' },
-]
-
-// Toggle functions
-function toggleStats() {
-    showStats.value = !showStats.value
+// Sync content to store
+function handleInput() {
+    if (file.value) {
+        docStore.updateFileContent(file.value.id, contentDraft.value)
+    }
 }
 
-function toggleMetadata() {
-    showMetadata.value = !showMetadata.value
-}
-
-// Formatting functions
+// ------------------------------------------------------
+// Expose formatting & search methods so the Nav can call
+// ------------------------------------------------------
 function insertFormat(prefix, suffix) {
     const textarea = textareaRef.value
+    if (!textarea) return
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     const selected = contentDraft.value.substring(start, end)
@@ -294,12 +269,15 @@ function insertFormat(prefix, suffix) {
 
     // Update cursor position
     textarea.focus()
-    const newCursorPos = selected ? start + prefix.length + selected.length + suffix.length : start + prefix.length
+    const newCursorPos = selected
+        ? start + prefix.length + selected.length + suffix.length
+        : start + prefix.length
     textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
 function insertList(prefix) {
     const textarea = textareaRef.value
+    if (!textarea) return
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     const selected = contentDraft.value.substring(start, end)
@@ -334,6 +312,7 @@ function insertCodeBlock() {
 
 function insertAtCursor(text) {
     const textarea = textareaRef.value
+    if (!textarea) return
     const start = textarea.selectionStart
 
     contentDraft.value = contentDraft.value.substring(0, start) +
@@ -345,12 +324,44 @@ function insertAtCursor(text) {
     textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
-function handleInput() {
-    if (file.value) {
-        docStore.updateFileContent(file.value.id, contentDraft.value)
+function findNext(term) {
+    if (!term?.trim()) return
+    const textarea = textareaRef.value
+    if (!textarea) return
+
+    // Start searching after the current selectionEnd
+    let fromIndex = textarea.selectionEnd
+    let foundIndex = contentDraft.value.indexOf(term, fromIndex)
+
+    // If not found, wrap around from start
+    if (foundIndex === -1 && fromIndex !== 0) {
+        foundIndex = contentDraft.value.indexOf(term, 0)
     }
+
+    // If still not found, nothing to do
+    if (foundIndex === -1) return
+
+    // Select that occurrence
+    textarea.focus()
+    textarea.setSelectionRange(foundIndex, foundIndex + term.length)
+
+    // Attempt to scroll into view
+    nextTick(() => {
+        textarea.focus()
+    })
 }
+
+// Expose these methods so parent can call them
+defineExpose({
+    insertFormat,
+    insertList,
+    insertTable,
+    insertCodeBlock,
+    findNext,
+})
 </script>
+<!-- ----- END: src/components/Editor.vue ----- -->
+
 ----- END: src/components/Editor.vue -----
 
 ----- START: src/components/Preview.vue -----
@@ -375,7 +386,6 @@ const docStore = useDocStore()
 
 const file = computed(() => docStore.selectedFile)
 const text = computed(() => docStore.selectedFileContent)
-const styles = computed(() => docStore.styles)
 
 // Make renderedHtml reactive to both content and styles changes
 const renderedHtml = computed(() => {
@@ -810,7 +820,7 @@ onUnmounted(() => {
 ----- END: src/components/TreeItem.vue -----
 
 ----- START: src/pages/HomePage.vue -----
-# src/pages/HomePage.vue
+<!-- ----- START: src/pages/HomePage.vue ----- -->
 <template>
     <div class="h-screen flex flex-col overflow-hidden" ref="container">
         <!-- Top Navbar -->
@@ -833,6 +843,12 @@ onUnmounted(() => {
                             👁️
                         </button>
                     </div>
+
+                    <!-- New: Toggle for Action Bar -->
+                    <button @click="ui.toggleActionBar()" class="p-2 rounded hover:bg-gray-200"
+                        :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Tools">
+                        🛠️
+                    </button>
                 </div>
 
                 <!-- Right side -->
@@ -849,6 +865,73 @@ onUnmounted(() => {
                     </button>
                 </div>
             </div>
+
+            <!-- Collapsible Action Bar -->
+            <transition name="fade">
+                <div v-if="ui.showActionBar" class="border-t bg-gray-50 px-4 py-2">
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <!-- Text formatting -->
+                        <button v-for="format in textFormats" :key="format.label"
+                            @click="editorRef.insertFormat(format.prefix, format.suffix)"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="format.label">
+                            {{ format.icon }}
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Lists -->
+                        <button v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="list.label">
+                            {{ list.icon }}
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Table -->
+                        <button @click="editorRef.insertTable"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" title="Insert Table">
+                            |-|
+                        </button>
+
+                        <!-- Code block -->
+                        <button @click="editorRef.insertCodeBlock"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                            title="Insert Code Block">
+                            &lt;/&gt;
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Toggle stats / metadata -->
+                        <button @click="ui.toggleStats()"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                            :class="{ 'bg-blue-50': ui.showStats }" title="Toggle Document Stats">
+                            📊 Stats
+                        </button>
+                        <button @click="ui.toggleMetadata()"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                            :class="{ 'bg-blue-50': ui.showMetadata }" title="Toggle File Metadata">
+                            ℹ️ Info
+                        </button>
+
+                        <!-- Divider -->
+                        <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                        <!-- Search box -->
+                        <div class="flex items-center gap-2">
+                            <input type="text" placeholder="Find text..." v-model="searchTerm"
+                                class="border p-1 rounded text-sm w-36" />
+                            <button @click="editorRef.findNext(searchTerm)"
+                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm">
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </transition>
         </nav>
 
         <!-- Main content area -->
@@ -868,7 +951,8 @@ onUnmounted(() => {
             <template v-if="ui.showEditor">
                 <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
                     <div class="h-full overflow-y-auto p-4">
-                        <Editor />
+                        <!-- Note the ref on the Editor -->
+                        <Editor ref="editorRef" />
                     </div>
                 </div>
                 <div v-if="ui.showPreview"
@@ -892,23 +976,23 @@ import { useUiStore } from '@/store/uiStore'
 import Sidebar from '@/components/Sidebar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
-import { useRouter } from 'vue-router'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 
 const docStore = useDocStore()
 const ui = useUiStore()
 const router = useRouter()
+const route = useRoute()
 
-// Refs for DOM elements
+// For panel resizing
 const container = ref(null)
 const mainContent = ref(null)
 
-// Default widths when panels are restored
+// Default widths
 const DEFAULT_SIDEBAR_WIDTH = 300
 const DEFAULT_EDITOR_WIDTH = 500
-const MINIMUM_PREVIEW_WIDTH = 50  // Minimum width before considering preview collapsed
+const MINIMUM_PREVIEW_WIDTH = 50
 
-// Panel widths
 const sidebarWidth = ref(DEFAULT_SIDEBAR_WIDTH)
 const editorWidth = ref(DEFAULT_EDITOR_WIDTH)
 let isResizing = ref(false)
@@ -916,63 +1000,43 @@ let currentResizer = ref(null)
 let startX = ref(0)
 let startWidth = ref(0)
 
-// Toggle handlers
-function handleSidebarToggle(event) {
-    if (event.target.checked) {
-        sidebarWidth.value = DEFAULT_SIDEBAR_WIDTH
-        adjustEditorWidthForContainer()
+// For search
+const searchTerm = ref('')
+
+// 1) Watch route params -> open correct file
+onMounted(() => {
+    if (route.params.fileId) {
+        docStore.selectFile(route.params.fileId)
     }
-}
-
-function handleEditorToggle(event) {
-    if (event.target.checked) {
-        editorWidth.value = DEFAULT_EDITOR_WIDTH
-        adjustEditorWidthForContainer()
+})
+watch(() => docStore.selectedFileId, (newFileId) => {
+    if (newFileId && route.params.fileId !== newFileId) {
+        router.replace({ name: 'doc', params: { fileId: newFileId } })
+    } else if (!newFileId && route.name !== 'home') {
+        router.replace({ name: 'home' })
     }
-}
+})
 
-function handlePreviewToggle(event) {
-    if (event.target.checked && mainContent.value) {
-        // Calculate available width
-        const containerWidth = mainContent.value.clientWidth
-        const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
-        const availableWidth = containerWidth - sidebarTotalWidth
-
-        // Ensure minimum preview width by reducing editor width if necessary
-        const desiredPreviewWidth = Math.max(MINIMUM_PREVIEW_WIDTH * 4, availableWidth * 0.3) // At least 200px or 30% of available space
-        const maxEditorWidth = availableWidth - desiredPreviewWidth
-
-        if (editorWidth.value > maxEditorWidth) {
-            editorWidth.value = maxEditorWidth
-        }
-    }
-}
-
-// Adjust editor width based on container constraints
+// 2) Panel toggles and resizing
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor) return
-
     const containerWidth = mainContent.value.clientWidth
-    const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0 // Including resize handle
+    const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
     const availableWidth = containerWidth - sidebarTotalWidth
 
-    // If editor is taking up almost all available space, collapse preview
     if (editorWidth.value >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
         ui.showPreview = false
     }
 }
 
-// Resize functionality
 function startResize(panel, event) {
     isResizing.value = true
     currentResizer.value = panel
     startX.value = event.pageX
-    startWidth.value = panel === 'sidebar' ? sidebarWidth.value : editorWidth.value
+    startWidth.value = (panel === 'sidebar') ? sidebarWidth.value : editorWidth.value
 
-    // Add event listeners
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', stopResize)
-    // Prevent text selection while resizing
     document.body.style.userSelect = 'none'
 }
 
@@ -1018,19 +1082,15 @@ function stopResize() {
     document.body.style.userSelect = ''
 }
 
-// Watch for window resize
 let resizeTimeout
 onMounted(() => {
     window.addEventListener('resize', () => {
-        // Debounce the resize event
         clearTimeout(resizeTimeout)
         resizeTimeout = setTimeout(() => {
             adjustEditorWidthForContainer()
         }, 100)
     })
 })
-
-// Cleanup
 onUnmounted(() => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
@@ -1038,6 +1098,7 @@ onUnmounted(() => {
     clearTimeout(resizeTimeout)
 })
 
+// Export
 function handleExport() {
     const jsonString = docStore.exportJson()
     const blob = new Blob([jsonString], { type: 'application/json' })
@@ -1056,14 +1117,36 @@ function goToStyles() {
     router.push('/styles')
 }
 
+// The old Editor toolbar data (text/list formats) used by the action bar
+const textFormats = [
+    { label: 'Bold', icon: 'B', prefix: '**', suffix: '**' },
+    { label: 'Italic', icon: 'I', prefix: '_', suffix: '_' },
+    { label: 'Strike', icon: 'S̶', prefix: '~~', suffix: '~~' },
+    { label: 'Quote', icon: '💬', prefix: '> ', suffix: '\n' },
+]
+const listFormats = [
+    { label: 'Bullet List', icon: '•', prefix: '* ' },
+    { label: 'Numbered List', icon: '1.', prefix: '1. ' },
+    { label: 'Task List', icon: '☐', prefix: '- [ ] ' },
+]
+
+// We’ll access Editor’s methods via a template ref:
+const editorRef = ref(null)
 </script>
 
 <style scoped>
-/* Prevent text selection while resizing */
-.resize-handle {
-    user-select: none;
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.15s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
 }
 </style>
+<!-- ----- END: src/pages/HomePage.vue ----- -->
+
 ----- END: src/pages/HomePage.vue -----
 
 ----- START: src/pages/StylesPage.vue -----
@@ -1396,6 +1479,11 @@ export const useUiStore = defineStore('uiStore', () => {
     const showEditor = ref(true)
     const showPreview = ref(true)
 
+    // New flags for the collapsible action bar and for stats/metadata
+    const showActionBar = ref(true)
+    const showStats = ref(true)
+    const showMetadata = ref(false)
+
     function toggleSidebar() {
         showSidebar.value = !showSidebar.value
     }
@@ -1408,13 +1496,31 @@ export const useUiStore = defineStore('uiStore', () => {
         showPreview.value = !showPreview.value
     }
 
+    function toggleActionBar() {
+        showActionBar.value = !showActionBar.value
+    }
+
+    function toggleStats() {
+        showStats.value = !showStats.value
+    }
+
+    function toggleMetadata() {
+        showMetadata.value = !showMetadata.value
+    }
+
     return {
         showSidebar,
         showEditor,
         showPreview,
+        showActionBar,
+        showStats,
+        showMetadata,
         toggleSidebar,
         toggleEditor,
         togglePreview,
+        toggleActionBar,
+        toggleStats,
+        toggleMetadata,
     }
 })
 

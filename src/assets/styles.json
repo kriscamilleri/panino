@@ -1,0 +1,20 @@
+{
+    "h1": "text-3xl font-bold mt-4 mb-2 block",
+    "h2": "text-2xl font-semibold mt-3 mb-2 block",
+    "h3": "text-xl font-semibold mt-2 mb-1 block",
+    "p": "mb-2 leading-relaxed",
+    "ul": "list-disc mb-2",
+    "ol": "list-decimal mb-2",
+    "li": "ml-5 mb-1",
+    "code": "bg-gray-100 text-sm px-1 py-0.5 rounded",
+    "blockquote": "border-l-4 border-gray-300 pl-4 italic my-2",
+    "hr": "border-t my-4",
+    "em": "italic",
+    "strong": "font-bold",
+    "a": "text-blue-600 underline",
+    "img": "max-w-full h-auto",
+    "table": "border-collapse border border-gray-300 my-2",
+    "tr": "",
+    "th": "border border-gray-300 bg-gray-100 px-2 py-1",
+    "td": "border border-gray-300 px-2 py-1"
+}
