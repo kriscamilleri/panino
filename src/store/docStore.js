@@ -1,9 +1,10 @@
-// src/store/docStore.js
 import { defineStore } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
+// [PouchDB SYNC ADDED]
+import PouchDB from 'pouchdb-browser'
 // Initialize with empty data instead of importing
 const EMPTY_DATA = {
     'welcome': {
@@ -198,6 +199,7 @@ export const useDocStore = defineStore('docStore', () => {
             }
         }
     }
+
     function exportJson() {
         return JSON.stringify(data.value, null, 2)
     }
@@ -239,8 +241,10 @@ export const useDocStore = defineStore('docStore', () => {
                         if (!item.text) {
                             throw new Error(`Content ${item.id} missing text property`)
                         }
-                        const fileId = item.id.split('/')[0]
-                        contentFiles.add(fileId)
+                        {
+                            const fileId = item.id.split('/')[0]
+                            contentFiles.add(fileId)
+                        }
                         validatedData[key] = item
                         break
 
@@ -278,18 +282,15 @@ export const useDocStore = defineStore('docStore', () => {
             openFolders.value = new Set()
 
             // Select the first file if available
-            const firstFile = Object.values(validatedData)
-                .find(item => item.type === 'file')
+            const firstFile = Object.values(validatedData).find(item => item.type === 'file')
             if (firstFile) {
                 selectedFileId.value = firstFile.id
             }
-
         } catch (error) {
             console.error('Import failed:', error)
             throw error
         }
     }
-
 
     function toggleFolder(folderId) {
         if (openFolders.value.has(folderId)) {
@@ -357,6 +358,85 @@ export const useDocStore = defineStore('docStore', () => {
         return md
     }
 
+
+    // ------------------------------------------------------------------------
+    // [PouchDB SYNC ADDED] - Local DB, load/save functions, sync initialization
+    // ------------------------------------------------------------------------
+    const localDB = new PouchDB('pn-markdown-notes')
+
+    async function loadFromPouchDB() {
+        try {
+            const doc = await localDB.get('docStoreData')
+            if (doc && doc.data) {
+                data.value = doc.data
+            }
+        } catch (err) {
+            if (err.status === 404) {
+                // docStoreData doesn't exist yet, so do nothing
+            } else {
+                console.error('Error loading from PouchDB:', err)
+            }
+        }
+    }
+
+    async function saveToPouchDB() {
+        try {
+            // Attempt to get the existing doc first
+            const existing = await localDB.get('docStoreData')
+            await localDB.put({
+                ...existing,
+                data: data.value
+            })
+        } catch (err) {
+            if (err.status === 404) {
+                // Create a new doc
+                await localDB.put({
+                    _id: 'docStoreData',
+                    data: data.value
+                })
+            } else {
+                console.error('Error saving to PouchDB:', err)
+            }
+        }
+    }
+
+    // Watch for changes in our data and save them automatically
+    watch(data, () => {
+        saveToPouchDB()
+    }, { deep: true })
+
+    function initSync() {
+        const remoteCouch = 'http://admin:password@127.0.0.1:5984/pn-markdown-notes'
+        const remoteDB = new PouchDB(remoteCouch)
+
+        localDB.sync(remoteDB, { live: true, retry: true })
+            .on('change', info => {
+                console.log('Sync change:', info)
+            })
+            .on('paused', err => {
+                if (err) {
+                    console.error('Sync paused by error:', err)
+                }
+            })
+            .on('active', () => {
+                console.log('Sync resumed')
+            })
+            .on('denied', err => {
+                console.error('Sync denied:', err)
+            })
+            .on('error', err => {
+                console.error('Sync error:', err)
+            })
+    }
+
+    // Expose an init function to be called once in main.js (or wherever you prefer)
+    async function initCouchDB() {
+        await loadFromPouchDB()
+        initSync()
+    }
+    // ------------------------------------------------------------------------
+
+
     return {
         selectedFileId,
         openFolders,
@@ -376,5 +456,8 @@ export const useDocStore = defineStore('docStore', () => {
         createFile,
         createFolder,
         deleteItem,
+
+        // [PouchDB SYNC ADDED] - initialization method
+        initCouchDB
     }
 })
