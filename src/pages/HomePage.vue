@@ -1,4 +1,3 @@
-<!-- ----- START: src/pages/HomePage.vue ----- -->
 <template>
     <div class="h-screen flex flex-col overflow-hidden" ref="container">
         <!-- Top Navbar -->
@@ -8,24 +7,37 @@
                 <div class="flex items-center space-x-4">
                     <!-- View toggles -->
                     <div class="flex space-x-2">
-                        <button @click="ui.toggleSidebar()" class="p-2 rounded hover:bg-gray-200"
+                        <button @click="ui.toggleSidebar()"
+                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
                             :class="{ 'bg-gray-200': ui.showSidebar }" title="Toggle Sidebar">
-                            📁
+                            <Folder class="w-4 h-4" />
+                            <span>Sidebar</span>
                         </button>
-                        <button @click="ui.toggleEditor()" class="p-2 rounded hover:bg-gray-200"
+
+                        <button @click="ui.toggleEditor()"
+                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
                             :class="{ 'bg-gray-200': ui.showEditor }" title="Toggle Editor">
-                            ✏️
+                            <Edit3 class="w-4 h-4" />
+                            <span>Editor</span>
                         </button>
-                        <button @click="ui.togglePreview()" class="p-2 rounded hover:bg-gray-200"
+
+                        <button @click="ui.togglePreview()"
+                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
                             :class="{ 'bg-gray-200': ui.showPreview }" title="Toggle Preview">
-                            👁️
+                            <Eye class="w-4 h-4" />
+                            <span>Preview</span>
                         </button>
                     </div>
 
-                    <!-- New: Toggle for Action Bar -->
-                    <button @click="ui.toggleActionBar()" class="p-2 rounded hover:bg-gray-200"
+                    <!-- Separator -->
+                    <div class="w-px h-6 bg-gray-300 mx-2"></div>
+
+                    <!-- Toggle Tools -->
+                    <button @click="ui.toggleActionBar()"
+                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
                         :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Tools">
-                        🛠️
+                        <Paintbrush class="w-4 h-4" />
+                        <span>Tools</span>
                     </button>
                 </div>
 
@@ -33,17 +45,17 @@
                 <div class="flex items-center space-x-2">
                     <button @click="showImportModal = true"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <span>📥</span>
+                        <Upload class="w-4 h-4" />
                         <span>Import</span>
                     </button>
                     <button @click="handleExport"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <span>📤</span>
+                        <Download class="w-4 h-4" />
                         <span>Export</span>
                     </button>
                     <button @click="goToStyles"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <span>🎨</span>
+                        <Palette class="w-4 h-4" />
                         <span>Styles</span>
                     </button>
                 </div>
@@ -56,8 +68,10 @@
                         <!-- Text formatting -->
                         <button v-for="format in textFormats" :key="format.label"
                             @click="editorRef.insertFormat(format.prefix, format.suffix)"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="format.label">
-                            {{ format.icon }}
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                            :title="format.label">
+                            <component :is="format.icon" class="w-4 h-4" />
+                            <span>{{ format.label }}</span>
                         </button>
 
                         <!-- Divider -->
@@ -65,8 +79,10 @@
 
                         <!-- Lists -->
                         <button v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" :title="list.label">
-                            {{ list.icon }}
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                            :title="list.label">
+                            <component :is="list.icon" class="w-4 h-4" />
+                            <span>{{ list.label }}</span>
                         </button>
 
                         <!-- Divider -->
@@ -74,15 +90,18 @@
 
                         <!-- Table -->
                         <button @click="editorRef.insertTable"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm" title="Insert Table">
-                            |-|
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                            title="Insert Table">
+                            <Table class="w-4 h-4" />
+                            <span>Table</span>
                         </button>
 
                         <!-- Code block -->
                         <button @click="editorRef.insertCodeBlock"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
                             title="Insert Code Block">
-                            &lt;/&gt;
+                            <Code2 class="w-4 h-4" />
+                            <span>Code</span>
                         </button>
 
                         <!-- Divider -->
@@ -90,14 +109,16 @@
 
                         <!-- Toggle stats / metadata -->
                         <button @click="ui.toggleStats()"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
-                            :class="{ 'bg-blue-50': ui.showStats }" title="Toggle Document Stats">
-                            📊 Stats
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
+                            :class="{ 'bg-gray-200': ui.showStats }" title="Toggle Document Stats">
+                            <BarChart2 class="w-4 h-4" />
+                            <span>Stats</span>
                         </button>
                         <button @click="ui.toggleMetadata()"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm"
-                            :class="{ 'bg-blue-50': ui.showMetadata }" title="Toggle File Metadata">
-                            ℹ️ Info
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
+                            :class="{ 'bg-gray-200': ui.showMetadata }" title="Toggle File Metadata">
+                            <Info class="w-4 h-4" />
+                            <span>Info</span>
                         </button>
 
                         <!-- Divider -->
@@ -105,11 +126,15 @@
 
                         <!-- Search box -->
                         <div class="flex items-center gap-2">
-                            <input type="text" placeholder="Find text..." v-model="searchTerm"
-                                class="border p-1 rounded text-sm w-36" />
+                            <div class="relative">
+                                <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
+                                <input type="text" placeholder="Find text..." v-model="searchTerm"
+                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-blue-500" />
+                            </div>
                             <button @click="editorRef.findNext(searchTerm)"
-                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm">
-                                Next
+                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1">
+                                <ArrowRight class="w-4 h-4" />
+                                <span>Next</span>
                             </button>
                         </div>
                     </div>
@@ -155,14 +180,38 @@
 </template>
 
 <script setup>
+import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import Sidebar from '@/components/Sidebar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
 import ImportModal from '@/components/ImportModal.vue'
-import { useRouter, useRoute } from 'vue-router'
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+
+// Import only the icons you need from lucide-vue:
+import {
+    Folder,
+    Edit3,
+    Eye,
+    Paintbrush,
+    Upload,
+    Download,
+    Palette,
+    Bold,
+    Italic,
+    Strikethrough,
+    MessageSquare,
+    List,
+    ListOrdered,
+    CheckSquare,
+    Table,
+    Code2,
+    BarChart2,
+    Info,
+    Search,
+    ArrowRight
+} from 'lucide-vue-next'
 
 const docStore = useDocStore()
 const ui = useUiStore()
@@ -172,27 +221,13 @@ const route = useRoute()
 // For panel resizing
 const container = ref(null)
 const mainContent = ref(null)
-
-// Default widths
-const DEFAULT_SIDEBAR_WIDTH = 300
-const DEFAULT_EDITOR_WIDTH = 500
-const MINIMUM_PREVIEW_WIDTH = 50
-
-const sidebarWidth = ref(DEFAULT_SIDEBAR_WIDTH)
-const editorWidth = ref(DEFAULT_EDITOR_WIDTH)
-let isResizing = ref(false)
-let currentResizer = ref(null)
-let startX = ref(0)
-let startWidth = ref(0)
+const sidebarWidth = ref(300)
+const editorWidth = ref(500)
+const isResizing = ref(false)
+const currentResizer = ref(null)
+const startX = ref(0)
+const startWidth = ref(0)
 const showImportModal = ref(false)
-
-// For Import
-function handleImportSuccess() {
-    // You could show a success message or perform other actions
-    console.log('Import successful')
-}
-
-// For search
 const searchTerm = ref('')
 
 // 1) Watch route params -> open correct file
@@ -215,8 +250,8 @@ function adjustEditorWidthForContainer() {
     const containerWidth = mainContent.value.clientWidth
     const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
     const availableWidth = containerWidth - sidebarTotalWidth
-
-    if (editorWidth.value >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
+    // Force preview off if editor tries to fill container
+    if (editorWidth.value >= availableWidth - 50) {
         ui.showPreview = false
     }
 }
@@ -255,7 +290,7 @@ function handleMouseMove(event) {
         if (newWidth <= 0) {
             ui.showEditor = false
             stopResize()
-        } else if (newWidth >= availableWidth - MINIMUM_PREVIEW_WIDTH) {
+        } else if (newWidth >= availableWidth - 50) {
             editorWidth.value = availableWidth
             ui.showPreview = false
         } else {
@@ -311,19 +346,23 @@ function goToStyles() {
 
 // The old Editor toolbar data (text/list formats) used by the action bar
 const textFormats = [
-    { label: 'Bold', icon: 'B', prefix: '**', suffix: '**' },
-    { label: 'Italic', icon: 'I', prefix: '_', suffix: '_' },
-    { label: 'Strike', icon: 'S̶', prefix: '~~', suffix: '~~' },
-    { label: 'Quote', icon: '💬', prefix: '> ', suffix: '\n' },
+    { label: 'Bold', icon: Bold, prefix: '**', suffix: '**' },
+    { label: 'Italic', icon: Italic, prefix: '_', suffix: '_' },
+    { label: 'Strike', icon: Strikethrough, prefix: '~~', suffix: '~~' },
+    { label: 'Quote', icon: MessageSquare, prefix: '> ', suffix: '\n' },
 ]
 const listFormats = [
-    { label: 'Bullet List', icon: '•', prefix: '* ' },
-    { label: 'Numbered List', icon: '1.', prefix: '1. ' },
-    { label: 'Task List', icon: '☐', prefix: '- [ ] ' },
+    { label: 'Bullet List', icon: List, prefix: '* ' },
+    { label: 'Numbered List', icon: ListOrdered, prefix: '1. ' },
+    { label: 'Task List', icon: CheckSquare, prefix: '- [ ] ' },
 ]
 
 // We’ll access Editor’s methods via a template ref:
 const editorRef = ref(null)
+
+function handleImportSuccess() {
+    console.log('Import successful')
+}
 </script>
 
 <style scoped>
@@ -337,4 +376,3 @@ const editorRef = ref(null)
     opacity: 0;
 }
 </style>
-<!-- ----- END: src/pages/HomePage.vue ----- -->

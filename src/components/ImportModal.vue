@@ -1,10 +1,11 @@
-<!-- src/components/ImportModal.vue -->
 <template>
     <div v-if="show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div class="bg-white p-6 rounded-lg shadow-lg w-[600px] max-h-[80vh] flex flex-col">
             <div class="flex justify-between items-center mb-4">
                 <h3 class="text-lg font-semibold">Import Data</h3>
-                <button @click="$emit('close')" class="text-gray-500 hover:text-gray-700">✕</button>
+                <button @click="$emit('close')" class="text-gray-500 hover:text-gray-700">
+                    <X class="w-5 h-5" />
+                </button>
             </div>
 
             <!-- Drag and drop zone -->
@@ -54,6 +55,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useDocStore } from '@/store/docStore'
+import { X } from 'lucide-vue-next'
 
 const props = defineProps({
     show: Boolean
@@ -92,7 +94,6 @@ function readFile(file) {
     reader.onload = (e) => {
         try {
             const content = e.target.result
-            // Just store the content, don't parse yet
             jsonData.value = content
             error.value = ''
         } catch (err) {
@@ -107,15 +108,11 @@ function importData() {
         error.value = 'Please provide JSON data'
         return
     }
-
     try {
         const data = JSON.parse(jsonData.value)
-        // Basic validation - check if it's an object with at least one entry
         if (typeof data !== 'object' || data === null) {
             throw new Error('Invalid data structure')
         }
-
-        // Additional validation could be added here
         docStore.importData(data)
         emit('import-success')
         emit('close')
