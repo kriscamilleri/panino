@@ -364,6 +364,135 @@ defineExpose({
 
 ----- END: src/components/Editor.vue -----
 
+----- START: src/components/ImportModal.vue -----
+<!-- src/components/ImportModal.vue -->
+<template>
+    <div v-if="show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-lg shadow-lg w-[600px] max-h-[80vh] flex flex-col">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">Import Data</h3>
+                <button @click="$emit('close')" class="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+
+            <!-- Drag and drop zone -->
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 mb-4 text-center"
+                :class="{ 'border-blue-500 bg-blue-50': isDragging }" @dragenter.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false" @dragover.prevent @drop.prevent="handleDrop">
+                <div v-if="isDragging">Drop your file here</div>
+                <div v-else>
+                    <p class="mb-2">Drag and drop your JSON file here</p>
+                    <p class="text-sm text-gray-500">or</p>
+                    <input type="file" accept=".json" @change="handleFileSelect" class="hidden" ref="fileInput" />
+                    <button @click="$refs.fileInput.click()"
+                        class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                        Choose File
+                    </button>
+                </div>
+            </div>
+
+            <!-- Manual JSON input -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Or paste your JSON data here:
+                </label>
+                <textarea v-model="jsonData" rows="8" class="w-full border rounded-lg p-2 font-mono text-sm"
+                    placeholder="Paste your JSON data here..."></textarea>
+            </div>
+
+            <!-- Error message -->
+            <div v-if="error" class="text-red-500 text-sm mb-4">
+                {{ error }}
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex justify-end space-x-2 mt-auto">
+                <button @click="$emit('close')" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Cancel
+                </button>
+                <button @click="importData" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    :disabled="!jsonData">
+                    Import
+                </button>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { useDocStore } from '@/store/docStore'
+
+const props = defineProps({
+    show: Boolean
+})
+
+const emit = defineEmits(['close', 'import-success'])
+const docStore = useDocStore()
+
+const isDragging = ref(false)
+const jsonData = ref('')
+const error = ref('')
+const fileInput = ref(null)
+
+function handleDrop(e) {
+    isDragging.value = false
+    const file = e.dataTransfer.files[0]
+    if (file) {
+        readFile(file)
+    }
+}
+
+function handleFileSelect(e) {
+    const file = e.target.files[0]
+    if (file) {
+        readFile(file)
+    }
+}
+
+function readFile(file) {
+    if (file.type !== 'application/json') {
+        error.value = 'Please select a JSON file'
+        return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+        try {
+            const content = e.target.result
+            // Just store the content, don't parse yet
+            jsonData.value = content
+            error.value = ''
+        } catch (err) {
+            error.value = 'Error reading file'
+        }
+    }
+    reader.readAsText(file)
+}
+
+function importData() {
+    if (!jsonData.value) {
+        error.value = 'Please provide JSON data'
+        return
+    }
+
+    try {
+        const data = JSON.parse(jsonData.value)
+        // Basic validation - check if it's an object with at least one entry
+        if (typeof data !== 'object' || data === null) {
+            throw new Error('Invalid data structure')
+        }
+
+        // Additional validation could be added here
+        docStore.importData(data)
+        emit('import-success')
+        emit('close')
+    } catch (err) {
+        error.value = 'Invalid JSON data: ' + err.message
+    }
+}
+</script>
+----- END: src/components/ImportModal.vue -----
+
 ----- START: src/components/Preview.vue -----
 // In src/components/Preview.vue
 
@@ -853,6 +982,11 @@ onUnmounted(() => {
 
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
+                    <button @click="showImportModal = true"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        <span>📥</span>
+                        <span>Import</span>
+                    </button>
                     <button @click="handleExport"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         <span>📤</span>
@@ -968,6 +1102,7 @@ onUnmounted(() => {
             </div>
         </div>
     </div>
+    <ImportModal :show="showImportModal" @close="showImportModal = false" @import-success="handleImportSuccess" />
 </template>
 
 <script setup>
@@ -976,6 +1111,7 @@ import { useUiStore } from '@/store/uiStore'
 import Sidebar from '@/components/Sidebar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
+import ImportModal from '@/components/ImportModal.vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 
@@ -999,6 +1135,13 @@ let isResizing = ref(false)
 let currentResizer = ref(null)
 let startX = ref(0)
 let startWidth = ref(0)
+const showImportModal = ref(false)
+
+// For Import
+function handleImportSuccess() {
+    // You could show a success message or perform other actions
+    console.log('Import successful')
+}
 
 // For search
 const searchTerm = ref('')
@@ -1195,18 +1338,38 @@ function goBack() {
 ----- END: src/pages/StylesPage.vue -----
 
 ----- START: src/store/docStore.js -----
-// In src/store/docStore.js
-
+// src/store/docStore.js
 import { defineStore } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { ref, computed } from 'vue'
-import rawDataImport from '@/assets/data.json'
+
+// Initialize with empty data instead of importing
+const EMPTY_DATA = {
+    'welcome': {
+        id: 'welcome',
+        type: 'file',
+        name: 'Welcome.md',
+        parentId: null,
+        hash: Date.now(),
+        tx: Date.now()
+    },
+    'welcome/content': {
+        id: 'welcome/content',
+        type: 'content',
+        text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
+        properties: '\n',
+        discussions: {},
+        comments: {},
+        hash: Date.now(),
+        tx: Date.now()
+    }
+}
 
 export const useDocStore = defineStore('docStore', () => {
-    // Initialize the data store with the imported data
-    const data = ref(rawDataImport)
-    const selectedFileId = ref(null)
+    // Initialize with empty data
+    const data = ref(EMPTY_DATA)
+    const selectedFileId = ref('welcome')
     const openFolders = ref(new Set())
 
     // Default Tailwind classes for each element
@@ -1375,10 +1538,98 @@ export const useDocStore = defineStore('docStore', () => {
             }
         }
     }
-
     function exportJson() {
         return JSON.stringify(data.value, null, 2)
     }
+
+    function importData(newData) {
+        // Validate the data structure
+        try {
+            // Check if it's an object
+            if (typeof newData !== 'object' || newData === null) {
+                throw new Error('Invalid data structure: must be an object')
+            }
+
+            // Validate the structure
+            const validatedData = {}
+            const files = new Set()
+            const contentFiles = new Set()
+
+            // First pass: collect all files and validate basic structure
+            for (const [key, item] of Object.entries(newData)) {
+                if (!item || typeof item !== 'object') {
+                    throw new Error(`Invalid item structure for key ${key}`)
+                }
+
+                if (!item.id || !item.type) {
+                    throw new Error(`Missing required properties (id or type) for item ${key}`)
+                }
+
+                // Validate based on type
+                switch (item.type) {
+                    case 'file':
+                        if (!item.name) {
+                            throw new Error(`File ${item.id} missing name property`)
+                        }
+                        files.add(item.id)
+                        validatedData[key] = item
+                        break
+
+                    case 'content':
+                        if (!item.text) {
+                            throw new Error(`Content ${item.id} missing text property`)
+                        }
+                        const fileId = item.id.split('/')[0]
+                        contentFiles.add(fileId)
+                        validatedData[key] = item
+                        break
+
+                    case 'folder':
+                        if (!item.name) {
+                            throw new Error(`Folder ${item.id} missing name property`)
+                        }
+                        validatedData[key] = item
+                        break
+
+                    // Allow other types but don't validate them strictly
+                    default:
+                        validatedData[key] = item
+                }
+            }
+
+            // Second pass: validate relationships
+            files.forEach(fileId => {
+                if (!contentFiles.has(fileId)) {
+                    console.warn(`Warning: File ${fileId} has no associated content`)
+                }
+            })
+
+            contentFiles.forEach(fileId => {
+                if (!files.has(fileId)) {
+                    console.warn(`Warning: Content exists for non-existent file ${fileId}`)
+                }
+            })
+
+            // If validation passes, update the store
+            data.value = validatedData
+
+            // Reset selection and open folders
+            selectedFileId.value = null
+            openFolders.value = new Set()
+
+            // Select the first file if available
+            const firstFile = Object.values(validatedData)
+                .find(item => item.type === 'file')
+            if (firstFile) {
+                selectedFileId.value = firstFile.id
+            }
+
+        } catch (error) {
+            console.error('Import failed:', error)
+            throw error
+        }
+    }
+
 
     function toggleFolder(folderId) {
         if (openFolders.value.has(folderId)) {
@@ -1458,6 +1709,7 @@ export const useDocStore = defineStore('docStore', () => {
         selectFile,
         updateFileContent,
         exportJson,
+        importData,
         toggleFolder,
         updateStyle,
         getMarkdownIt,

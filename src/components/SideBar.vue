@@ -1,4 +1,3 @@
-//src/components/SideBar.vue
 <template>
     <div class="h-full flex flex-col">
         <!-- Header with action buttons -->
@@ -7,13 +6,15 @@
             <div class="flex space-x-2">
                 <button @click="toggleSearch" class="p-2 hover:bg-gray-100 rounded"
                     :class="{ 'bg-gray-200': showSearch }" title="Toggle Search">
-                    🔍
+                    <Search class="w-4 h-4" />
                 </button>
-                <button @click="showCreateFileModal" class="p-2 hover:bg-gray-100 rounded" title="New File">
-                    📄+
+                <button @click="showCreateFileModal" class="p-2 hover:bg-gray-100 rounded flex items-center space-x-1"
+                    title="New File">
+                    <FilePlus class="w-4 h-4" />
                 </button>
-                <button @click="showCreateFolderModal" class="p-2 hover:bg-gray-100 rounded" title="New Folder">
-                    📁+
+                <button @click="showCreateFolderModal" class="p-2 hover:bg-gray-100 rounded flex items-center space-x-1"
+                    title="New Folder">
+                    <FolderPlus class="w-4 h-4" />
                 </button>
             </div>
         </div>
@@ -22,13 +23,13 @@
         <div v-if="showSearch" class="mb-4 overflow-hidden transition-all duration-200"
             :class="{ 'opacity-100': showSearch, 'opacity-0': !showSearch }">
             <div class="relative">
+                <Search class="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
                 <input v-model="searchQuery" type="text" placeholder="Search files and folders..."
-                    class="w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-blue-500 pl-8"
+                    class="w-full px-8 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
                     ref="searchInput" />
-                <span class="absolute left-2.5 top-2.5 text-gray-400">🔍</span>
                 <button v-if="searchQuery" @click="clearSearch"
                     class="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600">
-                    ✕
+                    <X class="w-4 h-4" />
                 </button>
             </div>
         </div>
@@ -60,7 +61,9 @@
         <!-- Create Modal -->
         <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-4 rounded-lg shadow-lg w-96">
-                <h3 class="text-lg font-semibold mb-4">Create New {{ createType }}</h3>
+                <h3 class="text-lg font-semibold mb-4">
+                    Create New {{ createType }}
+                </h3>
                 <input v-model="newItemName" type="text" class="w-full border rounded p-2 mb-4"
                     :placeholder="'Enter ' + createType + ' name'" @keyup.enter="confirmCreate" />
                 <div class="flex justify-end space-x-2">
@@ -81,6 +84,14 @@ import { computed, ref, nextTick } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import TreeItem from './TreeItem.vue'
 
+// Import only necessary Lucide icons
+import {
+    Search,
+    X,
+    FilePlus,
+    FolderPlus
+} from 'lucide-vue-next'
+
 const docStore = useDocStore()
 const rootItems = computed(() => docStore.rootItems)
 
@@ -92,12 +103,10 @@ const searchInput = ref(null)
 function toggleSearch() {
     showSearch.value = !showSearch.value
     if (showSearch.value) {
-        // Focus the search input when showing
         nextTick(() => {
             searchInput.value?.focus()
         })
     } else {
-        // Clear search when hiding
         clearSearch()
     }
 }
@@ -106,14 +115,10 @@ function clearSearch() {
     searchQuery.value = ''
 }
 
-// Rest of the script stays the same...
-// [Previous search-related functions remain unchanged]
-
 // Helper function to get all files in a folder and its subfolders
 function getAllFilesInFolder(folder) {
     const result = []
     const children = docStore.getChildren(folder.id)
-
     children.forEach(child => {
         if (child.type === 'file') {
             result.push(child)
@@ -121,7 +126,6 @@ function getAllFilesInFolder(folder) {
             result.push(...getAllFilesInFolder(child))
         }
     })
-
     return result
 }
 
@@ -138,43 +142,30 @@ function matchesSearch(text) {
 // Get matching files for a specific folder
 function getMatchingFilesForFolder(folder) {
     if (!searchQuery.value || !folder) return []
-
-    // If the folder name matches the search, return all immediate files
     if (matchesSearch(folder.name)) {
         return getImmediateFiles(folder)
     }
-
-    // Otherwise, only return files that match the search
     return getAllFilesInFolder(folder).filter(file => matchesSearch(file.name))
 }
 
-// Helper function to check if a folder or its children match the search
+// Check if a folder or its children match the search
 function folderMatchesSearch(folder) {
-    // Check if folder name matches
     if (matchesSearch(folder.name)) return true
-
-    // Check if any children match
     const matchingFiles = getAllFilesInFolder(folder).filter(file => matchesSearch(file.name))
     if (matchingFiles.length > 0) return true
-
-    // Check if any subfolders match
     const children = docStore.getChildren(folder.id)
     const subfolders = children.filter(child => child.type === 'folder')
     return subfolders.some(subfolder => folderMatchesSearch(subfolder))
 }
 
-// Compute the filtered structure
 const filteredStructure = computed(() => {
     if (!searchQuery.value) return []
-
     return rootItems.value.reduce((acc, item) => {
         if (item.type === 'folder') {
-            // Include folder if it matches by name or has matching content
             if (folderMatchesSearch(item)) {
                 acc.push(item)
             }
         } else if (item.type === 'file' && matchesSearch(item.name)) {
-            // Include root-level files that match
             acc.push(item)
         }
         return acc
