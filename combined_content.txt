@@ -649,55 +649,91 @@ defineExpose({
 ----- END: src/components/Editor.vue -----
 
 ----- START: src/components/ImportModal.vue -----
-<template>
-    <div v-if="show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div class="bg-white p-6 rounded-lg shadow-lg w-[600px] max-h-[80vh] flex flex-col">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-semibold">Import Data</h3>
-                <button @click="$emit('close')" class="text-gray-500 hover:text-gray-700">
-                    <X class="w-5 h-5" />
-                </button>
-            </div>
+# In src/components/ImportModal.vue
 
-            <!-- Drag and drop zone -->
-            <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 mb-4 text-center"
-                :class="{ 'border-blue-500 bg-blue-50': isDragging }" @dragenter.prevent="isDragging = true"
-                @dragleave.prevent="isDragging = false" @dragover.prevent @drop.prevent="handleDrop">
-                <div v-if="isDragging">Drop your file here</div>
-                <div v-else>
-                    <p class="mb-2">Drag and drop your JSON file here</p>
-                    <p class="text-sm text-gray-500">or</p>
-                    <input type="file" accept=".json" @change="handleFileSelect" class="hidden" ref="fileInput" />
-                    <button @click="$refs.fileInput.click()"
-                        class="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                        Choose File
+<template>
+    <div v-if="show" class="fixed inset-0 flex items-center justify-center z-50">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"></div>
+
+        <!-- Modal -->
+        <div class="relative bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-xl font-semibold text-gray-800">Import Data</h3>
+                    <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 transition-colors">
+                        <X class="w-5 h-5" />
                     </button>
                 </div>
             </div>
 
-            <!-- Manual JSON input -->
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                    Or paste your JSON data here:
-                </label>
-                <textarea v-model="jsonData" rows="8" class="w-full border rounded-lg p-2 font-mono text-sm"
-                    placeholder="Paste your JSON data here..."></textarea>
+            <!-- Content -->
+            <div class="px-6 py-4 flex-1 overflow-y-auto">
+                <!-- Drag and drop zone -->
+                <div class="mb-6">
+                    <div class="border-2 border-dashed rounded-lg p-8 text-center transition-colors" :class="[
+                        isDragging
+                            ? 'border-gray-800 bg-gray-50'
+                            : 'border-gray-300 hover:border-gray-400'
+                    ]" @dragenter.prevent="isDragging = true" @dragleave.prevent="isDragging = false"
+                        @dragover.prevent @drop.prevent="handleDrop">
+
+                        <div v-if="isDragging" class="text-gray-800 font-medium">
+                            Drop your file here
+                        </div>
+                        <div v-else class="space-y-2">
+                            <Upload class="w-12 h-12 mx-auto text-gray-400" />
+                            <p class="text-gray-600 font-medium">
+                                Drag and drop your JSON file here
+                            </p>
+                            <p class="text-sm text-gray-500">or</p>
+                            <input type="file" accept=".json" @change="handleFileSelect" class="hidden"
+                                ref="fileInput" />
+                            <button @click="$refs.fileInput.click()" class="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-900 
+                                           text-white text-sm font-medium rounded-md shadow-sm 
+                                           transition-colors">
+                                Choose File
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Manual JSON input -->
+                <div class="space-y-2">
+                    <label class="block text-sm font-medium text-gray-700">
+                        Or paste your JSON data here:
+                    </label>
+                    <textarea v-model="jsonData" rows="8" placeholder="Paste your JSON data here..." class="w-full px-3 py-2 border border-gray-300 rounded-lg 
+                                     font-mono text-sm resize-none focus:ring-1 focus:ring-blue-500 
+                                     focus:border-blue-500"></textarea>
+                </div>
+
+                <!-- Error message -->
+                <div v-if="error" class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                    <div class="flex">
+                        <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
+                        <p class="text-sm text-red-600">{{ error }}</p>
+                    </div>
+                </div>
             </div>
 
-            <!-- Error message -->
-            <div v-if="error" class="text-red-500 text-sm mb-4">
-                {{ error }}
-            </div>
-
-            <!-- Action buttons -->
-            <div class="flex justify-end space-x-2 mt-auto">
-                <button @click="$emit('close')" class="px-4 py-2 border rounded hover:bg-gray-100">
-                    Cancel
-                </button>
-                <button @click="importData" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                    :disabled="!jsonData">
-                    Import
-                </button>
+            <!-- Footer -->
+            <div class="px-6 py-4 bg-gray-50 rounded-b-lg border-t">
+                <div class="flex justify-end space-x-3">
+                    <button @click="$emit('close')" class="px-4 py-2 text-sm font-medium text-gray-700 
+                                   bg-white border border-gray-300 rounded-md 
+                                   hover:bg-gray-50 transition-colors">
+                        Cancel
+                    </button>
+                    <button @click="importData" :disabled="!jsonData" class="px-4 py-2 text-sm font-medium text-white 
+                                   bg-gray-800 rounded-md hover:bg-gray-900 
+                                   disabled:opacity-50 disabled:cursor-not-allowed
+                                   transition-colors focus:outline-none focus:ring-2 
+                                   focus:ring-offset-2 focus:ring-gray-500">
+                        Import
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -706,7 +742,7 @@ defineExpose({
 <script setup>
 import { ref } from 'vue'
 import { useDocStore } from '@/store/docStore'
-import { X } from 'lucide-vue-next'
+import { X, Upload, AlertCircle } from 'lucide-vue-next'
 
 const props = defineProps({
     show: Boolean
@@ -745,26 +781,28 @@ function readFile(file) {
     reader.onload = (e) => {
         try {
             const content = e.target.result
+            // Try to parse JSON to validate it
+            JSON.parse(content)
             jsonData.value = content
             error.value = ''
         } catch (err) {
-            error.value = 'Error reading file'
+            error.value = 'Invalid JSON format'
         }
+    }
+    reader.onerror = () => {
+        error.value = 'Error reading file'
     }
     reader.readAsText(file)
 }
 
-function importData() {
+async function importData() {
     if (!jsonData.value) {
         error.value = 'Please provide JSON data'
         return
     }
     try {
         const data = JSON.parse(jsonData.value)
-        if (typeof data !== 'object' || data === null) {
-            throw new Error('Invalid data structure')
-        }
-        docStore.importData(data)
+        await docStore.importData(data)
         emit('import-success')
         emit('close')
     } catch (err) {
@@ -772,52 +810,84 @@ function importData() {
     }
 }
 </script>
-
 ----- END: src/components/ImportModal.vue -----
 
 ----- START: src/components/LoginForm.vue -----
+# In src/components/LoginForm.vue
+
 <template>
-    <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <div class="max-w-md w-full space-y-8">
-            <div>
-                <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                    Sign in to your account
-                </h2>
+    <div class="min-h-screen bg-gray-50 flex flex-col">
+        <!-- Top Navigation Bar -->
+        <nav class="bg-gray-100 border-b">
+            <div class="flex items-center justify-between px-4 py-2">
+                <h1 class="text-xl font-semibold text-gray-800">Sign In</h1>
             </div>
-            <form class="mt-8 space-y-6" @submit.prevent="handleSubmit">
-                <div class="rounded-md shadow-sm -space-y-px">
+        </nav>
+
+        <!-- Main Content -->
+        <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
+            <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+                <!-- Form -->
+                <form class="space-y-6" @submit.prevent="handleSubmit">
+                    <!-- Username -->
                     <div>
-                        <label for="username" class="sr-only">Username</label>
-                        <input id="username" v-model="username" name="username" type="text" required
-                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                            placeholder="Username">
+                        <label for="username" class="block text-sm font-medium text-gray-700">
+                            Username
+                        </label>
+                        <div class="mt-1">
+                            <input id="username" v-model="username" name="username" type="text" required
+                                class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                                :disabled="loading" />
+                        </div>
                     </div>
+
+                    <!-- Password -->
                     <div>
-                        <label for="password" class="sr-only">Password</label>
-                        <input id="password" v-model="password" name="password" type="password" required
-                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                            placeholder="Password">
+                        <label for="password" class="block text-sm font-medium text-gray-700">
+                            Password
+                        </label>
+                        <div class="mt-1">
+                            <input id="password" v-model="password" name="password" type="password" required
+                                class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                                :disabled="loading" />
+                        </div>
                     </div>
-                </div>
 
-                <div>
-                    <button type="submit"
-                        class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                        :disabled="loading">
-                        {{ loading ? 'Signing in...' : 'Sign in' }}
-                    </button>
-                </div>
+                    <!-- Error Message -->
+                    <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
+                        {{ error }}
+                    </div>
 
-                <div v-if="error" class="text-red-500 text-center text-sm">
-                    {{ error }}
-                </div>
+                    <!-- Submit Button -->
+                    <div>
+                        <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            :disabled="loading">
+                            <template v-if="loading">
+                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                        stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                Signing in...
+                            </template>
+                            <template v-else>
+                                Sign in
+                            </template>
+                        </button>
+                    </div>
 
-                <div class="text-sm text-center mt-4">
-                    <router-link to="/signup" class="font-medium text-indigo-600 hover:text-indigo-500">
-                        Don't have an account? Sign up
-                    </router-link>
-                </div>
-            </form>
+                    <!-- Sign Up Link -->
+                    <div class="text-sm text-center">
+                        <router-link to="/signup" class="font-medium text-gray-600 hover:text-gray-900">
+                            Don't have an account? Sign up
+                        </router-link>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </template>
@@ -1097,61 +1167,123 @@ function cancelCreate() {
 ----- END: src/components/SideBar.vue -----
 
 ----- START: src/components/SignupForm.vue -----
+# In src/components/SignupForm.vue
+
 <template>
-    <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <div class="max-w-md w-full space-y-8">
-            <div>
-                <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
-                    Create your account
-                </h2>
+    <div class="min-h-screen bg-gray-50 flex flex-col">
+        <!-- Top Navigation Bar -->
+        <nav class="bg-gray-100 border-b">
+            <div class="flex items-center justify-between px-4 py-2">
+                <h1 class="text-xl font-semibold text-gray-800">Create Account</h1>
             </div>
-            <form class="mt-8 space-y-6" @submit.prevent="handleSubmit">
-                <div class="rounded-md shadow-sm -space-y-px">
-                    <div>
-                        <label for="username" class="sr-only">Username</label>
-                        <input id="username" v-model="username" name="username" type="text" required
-                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                            placeholder="Username">
-                    </div>
-                    <div>
-                        <label for="password" class="sr-only">Password</label>
-                        <input id="password" v-model="password" name="password" type="password" required
-                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                            placeholder="Password">
-                    </div>
-                    <div>
-                        <label for="confirmPassword" class="sr-only">Confirm Password</label>
-                        <input id="confirmPassword" v-model="confirmPassword" name="confirmPassword" type="password"
-                            required
-                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                            placeholder="Confirm Password">
-                    </div>
-                </div>
+        </nav>
 
-                <div>
-                    <button type="submit"
-                        class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                        :disabled="loading">
-                        {{ loading ? 'Creating account...' : 'Sign up' }}
-                    </button>
-                </div>
+        <!-- Main Content -->
+        <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
+            <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
+                <!-- Form -->
+                <form class="space-y-6" @submit.prevent="handleSubmit">
+                    <!-- Username -->
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-gray-700">
+                            Username
+                        </label>
+                        <div class="mt-1">
+                            <input id="username" v-model="username" name="username" type="text" required
+                                class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.username }" />
+                            <p v-if="formErrors.username" class="mt-1 text-sm text-red-600">
+                                {{ formErrors.username }}
+                            </p>
+                        </div>
+                    </div>
 
-                <div v-if="error" class="text-red-500 text-center text-sm">
-                    {{ error }}
-                </div>
+                    <!-- Password -->
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-700">
+                            Password
+                        </label>
+                        <div class="mt-1">
+                            <input id="password" v-model="password" name="password" type="password" required
+                                class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.password }" />
+                            <p v-if="formErrors.password" class="mt-1 text-sm text-red-600">
+                                {{ formErrors.password }}
+                            </p>
+                        </div>
+                    </div>
 
-                <div class="text-sm text-center">
-                    <router-link to="/login" class="font-medium text-indigo-600 hover:text-indigo-500">
-                        Already have an account? Sign in
-                    </router-link>
-                </div>
-            </form>
+                    <!-- Confirm Password -->
+                    <div>
+                        <label for="confirmPassword" class="block text-sm font-medium text-gray-700">
+                            Confirm Password
+                        </label>
+                        <div class="mt-1">
+                            <input id="confirmPassword" v-model="confirmPassword" name="confirmPassword" type="password"
+                                required
+                                class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.confirmPassword }" />
+                            <p v-if="formErrors.confirmPassword" class="mt-1 text-sm text-red-600">
+                                {{ formErrors.confirmPassword }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Password Requirements -->
+                    <div class="rounded-md bg-gray-50 p-4">
+                        <div class="text-sm text-gray-700">
+                            <h4 class="font-medium mb-2">Password Requirements:</h4>
+                            <ul class="space-y-1">
+                                <li class="flex items-center gap-2">
+                                    <span class="text-lg"
+                                        :class="password.length >= 6 ? 'text-green-700' : 'text-gray-300'">●</span>
+                                    At least 6 characters
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Error Message -->
+                    <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
+                        {{ error }}
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div>
+                        <button type="submit"
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            :disabled="loading || !isValid">
+                            <template v-if="loading">
+                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                        stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                Creating account...
+                            </template>
+                            <template v-else>
+                                Create account
+                            </template>
+                        </button>
+                    </div>
+
+                    <!-- Sign In Link -->
+                    <div class="text-sm text-center">
+                        <router-link to="/login" class="font-medium text-gray-600 hover:text-gray-900">
+                            Already have an account? Sign in
+                        </router-link>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useAuthStore } from '../store/authStore'
 import { useDocStore } from '../store/docStore'
 import { useRouter } from 'vue-router'
@@ -1165,38 +1297,49 @@ const password = ref('')
 const confirmPassword = ref('')
 const loading = ref(false)
 const error = ref('')
+const formErrors = ref({})
+
+// Form validation
+watch([username, password, confirmPassword], () => {
+    formErrors.value = {}
+
+    if (username.value.length > 0 && username.value.length < 3) {
+        formErrors.value.username = 'Username must be at least 3 characters'
+    }
+
+    if (password.value.length > 0 && password.value.length < 6) {
+        formErrors.value.password = 'Password must be at least 6 characters'
+    }
+
+    if (confirmPassword.value.length > 0 && password.value !== confirmPassword.value) {
+        formErrors.value.confirmPassword = 'Passwords do not match'
+    }
+})
 
 const isValid = computed(() => {
     return username.value.length >= 3 &&
         password.value.length >= 6 &&
-        password.value === confirmPassword.value
+        password.value === confirmPassword.value &&
+        Object.keys(formErrors.value).length === 0
 })
 
 async function handleSubmit() {
-    if (!isValid.value) {
-        error.value = password.value !== confirmPassword.value
-            ? 'Passwords do not match'
-            : 'Username must be at least 3 characters and password at least 6 characters'
-        return
-    }
+    if (!isValid.value) return
 
     loading.value = true
     error.value = ''
 
     try {
-        console.log('Starting signup process...')
         await authStore.signup(username.value, password.value)
-        console.log('Signup successful, attempting login...')
         await authStore.login(username.value, password.value)
-        console.log('Login successful, initializing CouchDB...')
         await docStore.initCouchDB()
-        console.log('All steps completed, redirecting...')
         router.push('/')
     } catch (err) {
         console.error('Signup process error:', err)
-        error.value = err.message || 'Failed to create account. Please try again.'
         if (err.message.includes('conflict')) {
             error.value = 'Username already exists. Please choose another.'
+        } else {
+            error.value = err.message || 'Failed to create account. Please try again.'
         }
     } finally {
         loading.value = false
@@ -1438,60 +1581,39 @@ onUnmounted(() => {
                 <!-- Left side -->
                 <div class="flex items-center space-x-4">
                     <!-- View toggles -->
-                    <div class="flex space-x-2">
-                        <button @click="ui.toggleSidebar()"
-                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showSidebar }" title="Toggle Sidebar">
-                            <Folder class="w-4 h-4" />
-                            <span>Sidebar</span>
-                        </button>
+                    <button @click="ui.toggleViewMenu()"
+                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                        :class="{ 'bg-gray-200': ui.showViewMenu }" title="Toggle View Menu">
+                        <Layout class="w-4 h-4" />
+                        <span>View</span>
+                    </button>
 
-                        <button @click="ui.toggleEditor()"
-                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showEditor }" title="Toggle Editor">
-                            <Edit3 class="w-4 h-4" />
-                            <span>Editor</span>
-                        </button>
-
-                        <button @click="ui.togglePreview()"
-                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showPreview }" title="Toggle Preview">
-                            <Eye class="w-4 h-4" />
-                            <span>Preview</span>
-                        </button>
-                    </div>
-
-                    <!-- Separator -->
-                    <div class="w-px h-6 bg-gray-300 mx-2"></div>
-
-                    <!-- Toggle Tools -->
+                    <!-- Tools Menu -->
                     <button @click="ui.toggleActionBar()"
                         class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
                         :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Tools">
                         <Paintbrush class="w-4 h-4" />
                         <span>Tools</span>
                     </button>
+
+                    <!-- File Menu -->
+                    <button @click="ui.toggleFileMenu()"
+                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                        :class="{ 'bg-gray-200': ui.showFileMenu }" title="Toggle File Menu">
+                        <FileIcon class="w-4 h-4" />
+                        <span>File</span>
+                    </button>
                 </div>
 
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
-                    <button @click="showImportModal = true"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <Upload class="w-4 h-4" />
-                        <span>Import</span>
-                    </button>
-                    <button @click="handleExport"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <Download class="w-4 h-4" />
-                        <span>Export</span>
-                    </button>
                     <button @click="goToStyles"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         <Palette class="w-4 h-4" />
                         <span>Styles</span>
                     </button>
 
-                    <!-- NEW LOGIN / LOGOUT BUTTONS -->
+                    <!-- Login/Logout button -->
                     <button v-if="!authStore.isAuthenticated" @click="goToLogin"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         Login
@@ -1503,34 +1625,55 @@ onUnmounted(() => {
                 </div>
             </div>
 
-            <!-- Collapsible Action Bar -->
-            <transition name="fade">
-                <div v-if="ui.showActionBar" class="border-t bg-gray-50 px-4 py-2">
-                    <div class="flex flex-wrap gap-2 items-center">
-                        <!-- Text formatting -->
-                        <button v-for="format in textFormats" :key="format.label"
+            <!-- Persistent Submenu Bar -->
+            <div class="border-t bg-gray-50 px-4 py-2">
+                <transition name="fade-fast" mode="out-in">
+                    <!-- View Menu Content -->
+                    <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2" key="view">
+                        <button @click="ui.toggleSidebar()"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                            :class="{ 'bg-gray-200': ui.showSidebar }">
+                            <Folder class="w-4 h-4" />
+                            <span>Sidebar</span>
+                        </button>
+
+                        <button @click="ui.toggleEditor()"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                            :class="{ 'bg-gray-200': ui.showEditor }">
+                            <Edit3 class="w-4 h-4" />
+                            <span>Editor</span>
+                        </button>
+
+                        <button @click="ui.togglePreview()"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                            :class="{ 'bg-gray-200': ui.showPreview }">
+                            <Eye class="w-4 h-4" />
+                            <span>Preview</span>
+                        </button>
+                    </div>
+
+                    <!-- Tools Menu Content -->
+                    <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="tools">
+                        <!-- Existing tools content -->
+                        <div v-for="format in textFormats" :key="format.label"
                             @click="editorRef.insertFormat(format.prefix, format.suffix)"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
                             :title="format.label">
                             <component :is="format.icon" class="w-4 h-4" />
                             <span>{{ format.label }}</span>
-                        </button>
+                        </div>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Lists -->
-                        <button v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                        <div v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
                             :title="list.label">
                             <component :is="list.icon" class="w-4 h-4" />
                             <span>{{ list.label }}</span>
-                        </button>
+                        </div>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Table -->
                         <button @click="editorRef.insertTable"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
                             title="Insert Table">
@@ -1538,7 +1681,6 @@ onUnmounted(() => {
                             <span>Table</span>
                         </button>
 
-                        <!-- Code block -->
                         <button @click="editorRef.insertCodeBlock"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
                             title="Insert Code Block">
@@ -1546,32 +1688,29 @@ onUnmounted(() => {
                             <span>Code</span>
                         </button>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Toggle stats / metadata -->
                         <button @click="ui.toggleStats()"
                             class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
-                            :class="{ 'bg-gray-200': ui.showStats }" title="Toggle Document Stats">
+                            :class="{ 'bg-gray-200': ui.showStats }">
                             <BarChart2 class="w-4 h-4" />
                             <span>Stats</span>
                         </button>
+
                         <button @click="ui.toggleMetadata()"
                             class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
-                            :class="{ 'bg-gray-200': ui.showMetadata }" title="Toggle File Metadata">
+                            :class="{ 'bg-gray-200': ui.showMetadata }">
                             <Info class="w-4 h-4" />
                             <span>Info</span>
                         </button>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Search box -->
                         <div class="flex items-center gap-2">
                             <div class="relative">
                                 <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
                                 <input type="text" placeholder="Find text..." v-model="searchTerm"
-                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-blue-500" />
+                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500" />
                             </div>
                             <button @click="editorRef.findNext(searchTerm)"
                                 class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1">
@@ -1580,10 +1719,26 @@ onUnmounted(() => {
                             </button>
                         </div>
                     </div>
-                </div>
-            </transition>
-        </nav>
 
+                    <!-- File Menu Content -->
+                    <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
+                        <button @click="showImportModal = true"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                            <Upload class="w-4 h-4" />
+                            <span>Import</span>
+                        </button>
+                        <button @click="handleExport"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                            <Download class="w-4 h-4" />
+                            <span>Export</span>
+                        </button>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div v-else key="empty" class="h-8"></div>
+                </transition>
+            </div>
+        </nav>
         <!-- Main content area -->
         <div class="flex flex-1 overflow-hidden" ref="mainContent">
             <!-- Sidebar with resizer -->
@@ -1652,7 +1807,9 @@ import {
     BarChart2,
     Info,
     Search,
-    ArrowRight
+    ArrowRight,
+    FileIcon,
+    Layout
 } from 'lucide-vue-next'
 
 const docStore = useDocStore()
@@ -1837,20 +1994,48 @@ function goToLogin() {
 ----- END: src/pages/HomePage.vue -----
 
 ----- START: src/pages/StylesPage.vue -----
+# In src/pages/StylesPage.vue
+
 <template>
-    <div class="p-4">
-        <h1 class="text-2xl font-bold mb-4">Customize Markdown Styles</h1>
+    <div class="min-h-screen bg-gray-50 flex flex-col">
+        <!-- Top Navigation Bar -->
+        <nav class="bg-gray-100 border-b">
+            <div class="flex items-center justify-between px-4 py-2">
+                <h1 class="text-xl font-semibold text-gray-800">Customize Markdown Styles</h1>
+                <button @click="goBack"
+                    class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-2">
+                    <ArrowLeft class="w-4 h-4" />
+                    <span>Back</span>
+                </button>
+            </div>
+        </nav>
 
-        <!-- Back to main -->
-        <button class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded mb-4" @click="goBack">
-            Back
-        </button>
+        <!-- Main Content -->
+        <div class="flex-1 flex">
+            <!-- Styles Form -->
+            <div class="w-1/2 p-8" style="height: calc(100vh - 56px);">
+                <div class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto">
+                    <div class="space-y-6">
+                        <!-- Organize styles by category -->
+                        <div v-for="(styles, category) in categorizedStyles" :key="category" class="space-y-4">
+                            <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">{{ category }}</h2>
+                            <div v-for="(value, key) in styles" :key="key" class="space-y-2">
+                                <label :for="key" class="block text-sm font-medium text-gray-700">
+                                    {{ key }}
+                                </label>
+                                <input :id="key" type="text" v-model="styleMap[key]"
+                                    @input="handleStyleChange(key, styleMap[key])" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
+                                           focus:outline-none focus:ring-gray-500 focus:border-gray-500 
+                                           sm:text-sm font-mono" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-        <div class="space-y-4">
-            <div v-for="(value, key) in styleMap" :key="key" class="flex items-center space-x-4">
-                <label class="w-20 font-semibold">{{ key }}</label>
-                <input type="text" class="border p-2 rounded flex-1" v-model="styleMap[key]"
-                    @change="handleStyleChange(key, styleMap[key])" />
+            <!-- Preview Pane -->
+            <div class="w-1/2 bg-white border-l p-8 overflow-y-auto">
+                <div class="prose max-w-none" v-html="previewHtml"></div>
             </div>
         </div>
     </div>
@@ -1858,17 +2043,74 @@ function goToLogin() {
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDocStore } from '@/store/docStore'
+import { ArrowLeft } from 'lucide-vue-next'
 
 const docStore = useDocStore()
 const router = useRouter()
 
-// We make a local copy of docStore.styles so we can edit them. 
-// If you want immediate updates, you can skip the copy and write directly to docStore.styles.
+// We make a local copy of docStore.styles so we can edit them
 const styleMap = computed({
     get: () => docStore.styles,
-    set: (newVal) => { }
+    set: () => { }
+})
+
+// Organize styles into categories
+const categorizedStyles = computed(() => {
+    const categories = {
+        'Headings': ['h1', 'h2', 'h3'],
+        'Text': ['p', 'em', 'strong', 'code', 'blockquote'],
+        'Lists': ['ul', 'ol', 'li'],
+        'Links & Media': ['a', 'img'],
+        'Tables': ['table', 'tr', 'th', 'td'],
+        'Other': ['hr']
+    }
+
+    return Object.entries(categories).reduce((acc, [category, keys]) => {
+        acc[category] = Object.fromEntries(
+            keys.map(key => [key, styleMap.value[key]])
+        )
+        return acc
+    }, {})
+})
+
+// Sample markdown for preview
+const sampleMarkdown = `
+# Heading 1
+## Heading 2
+### Heading 3
+
+Normal paragraph with **bold** and _italic_ text. Here's some \`inline code\`.
+
+> A blockquote with some thoughtful text.
+
+* Unordered list item 1
+* Unordered list item 2
+  * Nested item
+
+1. Ordered list item 1
+2. Ordered list item 2
+
+[A link](https://example.com)
+
+![Image placeholder](https://via.placeholder.com/150)
+
+| Header 1 | Header 2 |
+|----------|----------|
+| Cell 1   | Cell 2   |
+
+---
+
+\`\`\`
+Code block
+\`\`\`
+`
+
+// Generate preview HTML
+const previewHtml = computed(() => {
+    const md = docStore.getMarkdownIt()
+    return md.render(sampleMarkdown)
 })
 
 function handleStyleChange(key, newVal) {
@@ -1882,6 +2124,7 @@ function goBack() {
 ----- END: src/pages/StylesPage.vue -----
 
 ----- START: src/store/authStore.js -----
+// src/store/authStore.js
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import PouchDB from 'pouchdb-browser'
@@ -1890,19 +2133,19 @@ import { useDocStore } from '@/store/docStore'
 export const useAuthStore = defineStore('authStore', () => {
     const user = ref(null)
     const isAuthenticated = ref(false)
-    // Keep track of the last logged-in username to handle switching between users
     const lastLoggedInUser = ref(null)
 
-    const authDB = new PouchDB('_users')
+    // Track active databases to ensure proper cleanup
+    const activeDatabases = new Set()
 
     async function login(username, password) {
         try {
-            // If we have a different user logging in than the last known user, destroy the old local DB
+            // First, check if we need to clean up previous user's data
             if (lastLoggedInUser.value && lastLoggedInUser.value !== username) {
-                const docStore = useDocStore()
-                await docStore.destroyLocalDB(lastLoggedInUser.value)
+                await cleanupPreviousUserData(lastLoggedInUser.value)
             }
 
+            // Attempt login with CouchDB
             const response = await fetch('http://localhost:5984/_session', {
                 method: 'POST',
                 headers: {
@@ -1917,6 +2160,8 @@ export const useAuthStore = defineStore('authStore', () => {
             }
 
             const data = await response.json()
+
+            // Update user state
             user.value = {
                 name: username,
                 roles: data.roles,
@@ -1936,30 +2181,69 @@ export const useAuthStore = defineStore('authStore', () => {
         }
     }
 
+    async function cleanupPreviousUserData(previousUsername) {
+        console.log(`Cleaning up data for previous user: ${previousUsername}`)
+
+        // Destroy local PouchDB databases
+        const dbNames = [
+            `pn-markdown-notes-${previousUsername}`,
+            `_pouch_pn-markdown-notes-${previousUsername}`
+        ]
+
+        for (const dbName of dbNames) {
+            if (activeDatabases.has(dbName)) {
+                try {
+                    const db = new PouchDB(dbName)
+                    await db.destroy()
+                    activeDatabases.delete(dbName)
+                    console.log(`Successfully destroyed database: ${dbName}`)
+                } catch (err) {
+                    console.error(`Error destroying database ${dbName}:`, err)
+                }
+            }
+        }
+
+        // Clear IndexedDB data
+        try {
+            const dbs = await window.indexedDB.databases()
+            for (const db of dbs) {
+                if (db.name.includes(previousUsername)) {
+                    await window.indexedDB.deleteDatabase(db.name)
+                    console.log(`Deleted IndexedDB database: ${db.name}`)
+                }
+            }
+        } catch (err) {
+            console.error('Error cleaning IndexedDB:', err)
+        }
+    }
+
     async function logout() {
         try {
-            // 1) Destroy session on the server
+            // 1. End CouchDB session
             await fetch('http://localhost:5984/_session', {
                 method: 'DELETE',
                 credentials: 'include'
             })
 
-            // 2) Destroy the local DB for the user who is logging out
+            // 2. Clean up the current user's data
             if (user.value?.name) {
-                const docStore = useDocStore()
-                await docStore.destroyLocalDB(user.value.name)
+                await cleanupPreviousUserData(user.value.name)
             }
 
-            // 3) Clear user info in auth store
+            // 3. Reset auth store state
             user.value = null
             isAuthenticated.value = false
+            const previousUser = lastLoggedInUser.value
             lastLoggedInUser.value = null
 
-            // 4) Reset the docStore in "guest" mode
+            // 4. Reset the docStore
             const docStore = useDocStore()
             docStore.resetStore()
+
+            // 5. Initialize fresh guest mode
             await docStore.initCouchDB()
 
+            console.log(`Logout complete. Cleaned up data for: ${previousUser}`)
         } catch (error) {
             console.error('Logout error:', error)
             throw error
@@ -1974,10 +2258,9 @@ export const useAuthStore = defineStore('authStore', () => {
             const data = await response.json()
 
             if (data.userCtx.name) {
-                // If a different user is discovered via cookies, destroy old DB
+                // If a different user is detected, clean up previous data
                 if (lastLoggedInUser.value && lastLoggedInUser.value !== data.userCtx.name) {
-                    const docStore = useDocStore()
-                    await docStore.destroyLocalDB(lastLoggedInUser.value)
+                    await cleanupPreviousUserData(lastLoggedInUser.value)
                 }
 
                 user.value = {
@@ -1988,23 +2271,19 @@ export const useAuthStore = defineStore('authStore', () => {
                 isAuthenticated.value = true
                 lastLoggedInUser.value = data.userCtx.name
 
-                // Make sure docStore is initialized for this user
+                // Ensure docStore is initialized for this user
                 const docStore = useDocStore()
                 await docStore.initCouchDB()
 
                 return true
-            } else {
-                return false
             }
+            return false
         } catch (error) {
             console.error('Auth check error:', error)
             return false
         }
     }
 
-    /**
-     * Updated signup function calls our new signup-service instead of CouchDB directly with admin creds.
-     */
     async function signup(username, password) {
         try {
             const response = await fetch('http://localhost:3000/signup', {
@@ -2026,6 +2305,11 @@ export const useAuthStore = defineStore('authStore', () => {
         }
     }
 
+    // Track database creation
+    function registerDatabase(dbName) {
+        activeDatabases.add(dbName)
+    }
+
     return {
         user,
         isAuthenticated,
@@ -2033,47 +2317,57 @@ export const useAuthStore = defineStore('authStore', () => {
         login,
         logout,
         checkAuth,
-        signup
+        signup,
+        registerDatabase
     }
 })
-
 ----- END: src/store/authStore.js -----
 
 ----- START: src/store/docStore.js -----
+// src/store/docStore.js
 import { defineStore } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { ref, computed, watch } from 'vue'
 import PouchDB from 'pouchdb-browser'
-import { useAuthStore } from '@/store/authStore'  // <--- ADDED
+import { useAuthStore } from '@/store/authStore'
 
-// Initialize with a default doc
+// Initialize with a default welcome document that users see when first accessing the app
 const EMPTY_DATA = {
-    'welcome': {
-        id: 'welcome',
-        type: 'file',
-        name: 'Welcome.md',
-        parentId: null,
-        hash: Date.now(),
-        tx: Date.now()
+    structure: {
+        'welcome': {
+            id: 'welcome',
+            type: 'file',
+            name: 'Welcome.md',
+            parentId: null,
+            hash: Date.now(),
+            tx: Date.now()
+        }
     },
-    'welcome/content': {
-        id: 'welcome/content',
-        type: 'content',
-        text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
-        properties: '\n',
-        discussions: {},
-        comments: {},
-        hash: Date.now(),
-        tx: Date.now()
+    ui: {
+        openFolders: new Set()
     }
 }
 
+const WELCOME_CONTENT = {
+    _id: 'file:welcome',
+    type: 'content',
+    text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
+    properties: '\n',
+    discussions: {},
+    comments: {},
+    hash: Date.now(),
+    tx: Date.now()
+}
+
 export const useDocStore = defineStore('docStore', () => {
+    // Core state management
     const data = ref({ ...EMPTY_DATA })
     const selectedFileId = ref('welcome')
     const openFolders = ref(new Set())
+    const contentCache = ref(new Map()) // Cache for file contents
 
+    // Default styles for markdown rendering
     const styles = ref({
         h1: 'text-3xl font-bold mt-4 mb-2 block',
         h2: 'text-2xl font-semibold mt-3 mb-2 block',
@@ -2095,12 +2389,12 @@ export const useDocStore = defineStore('docStore', () => {
         td: 'border border-gray-300 px-2 py-1',
     })
 
-    let localDB = null  // <- We'll store the current local PouchDB instance here
+    // Database connection management
+    let localDB = null
+    let syncHandler = null  // Track sync handler for cleanup
 
-    // ----------------------------------------------------
-    // Basic getters
-    // ----------------------------------------------------
-    const itemsArray = computed(() => Object.values(data.value))
+    // ---------- Basic getters ----------
+    const itemsArray = computed(() => Object.values(data.value.structure))
 
     const rootItems = computed(() => {
         const folders = itemsArray.value.filter(i => !i.parentId && i.type === 'folder')
@@ -2108,8 +2402,23 @@ export const useDocStore = defineStore('docStore', () => {
         return [...sortByName(folders), ...sortByName(files)]
     })
 
+    const selectedFile = computed(() => {
+        if (!selectedFileId.value) return null
+        return data.value.structure[selectedFileId.value] || null
+    })
+
+    const selectedFileContent = computed(() => {
+        if (!selectedFile.value) return ''
+        return contentCache.value.get(selectedFile.value.id)?.text || ''
+    })
+
+    // ---------- Helper functions ----------
     function sortByName(items) {
         return items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
+
+    function generateId() {
+        return Math.random().toString(36).substring(2, 15)
     }
 
     function getChildren(parentId) {
@@ -2118,21 +2427,54 @@ export const useDocStore = defineStore('docStore', () => {
         return [...sortByName(folders), ...sortByName(files)]
     }
 
-    const selectedFile = computed(() => {
-        if (!selectedFileId.value) return null
-        return data.value[selectedFileId.value] || null
-    })
+    // ---------- Content Management ----------
+    async function loadFileContent(fileId) {
+        try {
+            const doc = await localDB.get(`file:${fileId}`)
+            contentCache.value.set(fileId, doc)
+            return doc.text
+        } catch (err) {
+            console.error(`Error loading content for file ${fileId}:`, err)
+            return ''
+        }
+    }
 
-    const selectedFileContent = computed(() => {
-        if (!selectedFile.value) return ''
-        const contentKey = `${selectedFile.value.id}/content`
-        return data.value[contentKey]?.text || ''
-    })
+    async function saveFileContent(fileId, content) {
+        try {
+            let doc
+            try {
+                doc = await localDB.get(`file:${fileId}`)
+            } catch (err) {
+                if (err.status === 404) {
+                    doc = {
+                        _id: `file:${fileId}`,
+                        type: 'content',
+                        text: '',
+                        properties: '\n',
+                        discussions: {},
+                        comments: {},
+                    }
+                } else {
+                    throw err
+                }
+            }
 
-    // ----------------------------------------------------
-    // CRUD operations
-    // ----------------------------------------------------
-    function createFile(name, parentId = null) {
+            doc.text = content
+            doc.lastModified = new Date().toISOString()
+            const response = await localDB.put(doc)
+
+            if (response.ok) {
+                doc._rev = response.rev
+                contentCache.value.set(fileId, doc)
+            }
+        } catch (err) {
+            console.error(`Error saving content for file ${fileId}:`, err)
+            throw err
+        }
+    }
+
+    // ---------- CRUD Operations ----------
+    async function createFile(name, parentId = null) {
         const id = generateId()
         const newFile = {
             id,
@@ -2142,27 +2484,24 @@ export const useDocStore = defineStore('docStore', () => {
             hash: Date.now(),
             tx: Date.now()
         }
-        const contentId = `${id}/content`
-        const content = {
-            id: contentId,
-            type: 'content',
-            text: '',
-            properties: '\n',
-            discussions: {},
-            comments: {},
-            hash: Date.now(),
-            tx: Date.now()
-        }
 
+        // Update structure
         data.value = {
             ...data.value,
-            [id]: newFile,
-            [contentId]: content
+            structure: {
+                ...data.value.structure,
+                [id]: newFile
+            }
         }
+
+        // Create content document
+        await saveFileContent(id, '')
+
         selectFile(id)
         if (parentId) {
             openFolders.value.add(parentId)
         }
+        await saveStructure()
         return id
     }
 
@@ -2176,71 +2515,289 @@ export const useDocStore = defineStore('docStore', () => {
             hash: Date.now(),
             tx: Date.now()
         }
+
         data.value = {
             ...data.value,
-            [id]: newFolder
+            structure: {
+                ...data.value.structure,
+                [id]: newFolder
+            }
         }
+
         if (parentId) {
             openFolders.value.add(parentId)
         }
+        saveStructure()
         return id
     }
 
-    function deleteItem(id) {
-        if (!data.value[id]) return
+    async function deleteItem(id) {
+        if (!data.value.structure[id]) return
 
-        if (data.value[id].type === 'folder') {
+        if (data.value.structure[id].type === 'folder') {
             const children = getChildren(id)
-            children.forEach(child => deleteItem(child.id))
+            for (const child of children) {
+                await deleteItem(child.id)
+            }
             openFolders.value.delete(id)
         }
 
-        if (data.value[id].type === 'file') {
-            const contentKey = `${id}/content`
-            delete data.value[contentKey]
+        if (data.value.structure[id].type === 'file') {
+            // Delete content document
+            try {
+                const doc = await localDB.get(`file:${id}`)
+                await localDB.remove(doc)
+                contentCache.value.delete(id)
+            } catch (err) {
+                console.error(`Error deleting content for file ${id}:`, err)
+            }
+
             if (selectedFileId.value === id) {
                 selectedFileId.value = null
             }
         }
 
-        delete data.value[id]
-        data.value = { ...data.value }
+        const newStructure = { ...data.value.structure }
+        delete newStructure[id]
+        data.value = {
+            ...data.value,
+            structure: newStructure
+        }
+        await saveStructure()
     }
 
-    function selectFile(fileId) {
+    async function selectFile(fileId) {
+        if (fileId && !contentCache.value.has(fileId)) {
+            await loadFileContent(fileId)
+        }
         selectedFileId.value = fileId
     }
 
-    function updateFileContent(fileId, newText) {
-        const contentKey = `${fileId}/content`
-        if (data.value[contentKey]) {
-            data.value = {
-                ...data.value,
-                [contentKey]: {
-                    ...data.value[contentKey],
-                    text: newText,
-                    lastModified: new Date().toISOString()
+    async function updateFileContent(fileId, newText) {
+        await saveFileContent(fileId, newText)
+    }
+
+    // ---------- Structure Management ----------
+    async function saveStructure() {
+        try {
+            let doc
+            try {
+                doc = await localDB.get('docStoreData')
+            } catch (err) {
+                if (err.status === 404) {
+                    doc = { _id: 'docStoreData' }
+                } else {
+                    throw err
                 }
+            }
+
+            doc.structure = data.value.structure
+            doc.lastModified = new Date().toISOString()
+            await localDB.put(doc)
+        } catch (err) {
+            console.error('Error saving structure:', err)
+            throw err
+        }
+    }
+
+    async function loadStructure() {
+        try {
+            const doc = await localDB.get('docStoreData')
+            if (doc && doc.structure) {
+                data.value = {
+                    ...data.value,
+                    structure: JSON.parse(JSON.stringify(doc.structure))
+                }
+            }
+        } catch (err) {
+            if (err.status !== 404) {
+                console.error('Error loading structure:', err)
             }
         }
     }
 
-    // ----------------------------------------------------
-    // Export / Import
-    // ----------------------------------------------------
-    function exportJson() {
-        return JSON.stringify(data.value, null, 2)
+    // ---------- PouchDB Management ----------
+    async function destroyLocalDB(username) {
+        try {
+            if (syncHandler) {
+                syncHandler.cancel()
+                syncHandler = null
+            }
+
+            if (localDB) {
+                await localDB.close()
+            }
+
+            const dbName = `pn-markdown-notes-${username}`
+            const db = new PouchDB(dbName)
+            await db.destroy()
+            console.log(`Successfully destroyed database: ${dbName}`)
+        } catch (err) {
+            console.error('Error destroying local DB:', err)
+            throw err
+        }
     }
 
-    function importData(newData) {
+    function initSync() {
+        const authStore = useAuthStore()
+        if (!authStore.isAuthenticated) {
+            console.log('User not authenticated; skipping remote sync.')
+            return
+        }
+
+        if (syncHandler) {
+            syncHandler.cancel()
+            syncHandler = null
+        }
+
+        const remoteCouch = `http://localhost:5984/${authStore.user.dbName}`
+
+        syncHandler = localDB.sync(remoteCouch, {
+            live: true,
+            retry: true,
+            batch_size: 10,
+            back_off_function: function (delay) {
+                if (delay === 0) {
+                    return 1000
+                }
+                return delay * 1.5
+            },
+            fetch: (url, opts) => {
+                return fetch(url, {
+                    ...opts,
+                    credentials: 'include'
+                })
+            }
+        })
+            .on('change', async info => {
+                console.log('Sync change:', info)
+                if (info.direction === 'pull' && info.change.docs.length > 0) {
+                    // Handle structure updates
+                    const structureDoc = info.change.docs.find(doc => doc._id === 'docStoreData')
+                    if (structureDoc) {
+                        await loadStructure()
+                    }
+
+                    // Handle content updates
+                    const contentDocs = info.change.docs.filter(doc => doc._id.startsWith('file:'))
+                    for (const doc of contentDocs) {
+                        const fileId = doc._id.replace('file:', '')
+                        contentCache.value.set(fileId, doc)
+                    }
+                }
+            })
+            .on('paused', err => {
+                if (err) {
+                    console.error('Sync paused with error:', err)
+                }
+            })
+            .on('active', () => {
+                console.log('Sync active')
+            })
+            .on('denied', err => {
+                console.error('Sync denied:', err)
+            })
+            .on('error', err => {
+                console.error('Sync error:', err)
+                setTimeout(() => {
+                    if (syncHandler) {
+                        console.log('Attempting to restart sync after error...')
+                        initSync()
+                    }
+                }, 5000)
+            })
+    }
+
+    async function initCouchDB() {
+        const authStore = useAuthStore()
+
+        if (syncHandler) {
+            syncHandler.cancel()
+            syncHandler = null
+        }
+
+        if (localDB) {
+            await localDB.close()
+            localDB = null
+        }
+
+        const dbName = authStore.isAuthenticated
+            ? `pn-markdown-notes-${authStore.user.name}`
+            : 'pn-markdown-notes-guest'
+
+        localDB = new PouchDB(dbName, {
+            auto_compaction: true,
+        })
+
+        authStore.registerDatabase(dbName)
+
+        // Initialize with welcome document if empty
+        try {
+            await localDB.get('docStoreData')
+        } catch (err) {
+            if (err.status === 404) {
+                await localDB.put({
+                    _id: 'docStoreData',
+                    structure: EMPTY_DATA.structure,
+                    lastModified: new Date().toISOString()
+                })
+                await localDB.put(WELCOME_CONTENT)
+            }
+        }
+
+        // Load structure and selected file content
+        await loadStructure()
+        if (selectedFileId.value) {
+            await loadFileContent(selectedFileId.value)
+        }
+
+        if (authStore.isAuthenticated) {
+            initSync()
+        }
+    }
+
+    // ---------- Import/Export ----------
+    async function exportJson() {
+        // Export in the old format for backward compatibility
+        const exportData = {}
+
+        // Export structure items
+        for (const [id, item] of Object.entries(data.value.structure)) {
+            exportData[id] = item
+
+            // For files, also export their content in the old format
+            if (item.type === 'file') {
+                try {
+                    const content = await localDB.get(`file:${id}`)
+                    exportData[`${id}/content`] = {
+                        id: `${id}/content`,
+                        type: 'content',
+                        text: content.text,
+                        properties: content.properties || '\n',
+                        discussions: content.discussions || {},
+                        comments: content.comments || {},
+                        hash: content.hash || Date.now(),
+                        tx: content.tx || Date.now()
+                    }
+                } catch (err) {
+                    console.error(`Error exporting content for file ${id}:`, err)
+                }
+            }
+        }
+
+        return JSON.stringify(exportData, null, 2)
+    }
+
+    async function importData(newData) {
         try {
             if (typeof newData !== 'object' || newData === null) {
                 throw new Error('Invalid data structure')
             }
-            const validatedData = {}
-            const files = new Set()
-            const contentFiles = new Set()
 
+            const validatedStructure = {}
+            const contentPromises = []
+
+            // First pass: validate and collect structure items
             for (const [key, item] of Object.entries(newData)) {
                 if (!item || typeof item !== 'object') {
                     throw new Error(`Invalid item for key ${key}`)
@@ -2248,55 +2805,64 @@ export const useDocStore = defineStore('docStore', () => {
                 if (!item.id || !item.type) {
                     throw new Error(`Missing id or type for ${key}`)
                 }
-                switch (item.type) {
-                    case 'file':
-                        if (!item.name) {
-                            throw new Error(`File ${item.id} missing name`)
+
+                // Handle structure items (files and folders)
+                if (item.type === 'file' || item.type === 'folder') {
+                    if (!item.name) {
+                        throw new Error(`${item.type} ${item.id} missing name`)
+                    }
+                    validatedStructure[item.id] = {
+                        ...item,
+                        hash: item.hash || Date.now(),
+                        tx: item.tx || Date.now()
+                    }
+
+                    // Look for corresponding content
+                    if (item.type === 'file') {
+                        const contentKey = `${item.id}/content`
+                        const contentItem = newData[contentKey]
+
+                        if (contentItem && contentItem.type === 'content') {
+                            contentPromises.push(
+                                saveFileContent(item.id, contentItem.text || '')
+                            )
+                        } else {
+                            // If no content found, create empty content
+                            contentPromises.push(
+                                saveFileContent(item.id, '')
+                            )
                         }
-                        files.add(item.id)
-                        validatedData[key] = item
-                        break
-                    case 'content':
-                        if (typeof item.text === 'undefined') {
-                            throw new Error(`Content ${item.id} missing text`)
-                        }
-                        contentFiles.add(item.id.split('/')[0])
-                        validatedData[key] = item
-                        break
-                    case 'folder':
-                        if (!item.name) {
-                            throw new Error(`Folder ${item.id} missing name`)
-                        }
-                        validatedData[key] = item
-                        break
-                    default:
-                        validatedData[key] = item
+                    }
                 }
             }
 
-            files.forEach(fileId => {
-                if (!contentFiles.has(fileId)) {
-                    console.warn(`Warning: File ${fileId} has no content`)
-                }
-            })
+            // Update structure first
+            data.value = {
+                ...data.value,
+                structure: validatedStructure
+            }
+            await saveStructure()
 
-            data.value = validatedData
+            // Wait for all content to be saved
+            await Promise.all(contentPromises)
+
+            // Reset UI state
             selectedFileId.value = null
             openFolders.value = new Set()
 
-            const firstFile = Object.values(validatedData).find(item => item.type === 'file')
+            // Select the first file if available
+            const firstFile = Object.values(validatedStructure).find(item => item.type === 'file')
             if (firstFile) {
-                selectedFileId.value = firstFile.id
+                await selectFile(firstFile.id)
             }
+
+            console.log('Import completed successfully')
         } catch (error) {
             console.error('Import failed:', error)
             throw error
         }
     }
-
-    // ----------------------------------------------------
-    // Additional helpers
-    // ----------------------------------------------------
+    // ---------- UI State Management ----------
     function toggleFolder(folderId) {
         if (openFolders.value.has(folderId)) {
             openFolders.value.delete(folderId)
@@ -2311,6 +2877,7 @@ export const useDocStore = defineStore('docStore', () => {
         }
     }
 
+    // ---------- Markdown Rendering ----------
     function getMarkdownIt() {
         const md = new MarkdownIt({
             html: true,
@@ -2319,17 +2886,21 @@ export const useDocStore = defineStore('docStore', () => {
             breaks: true
         }).use(markdownItTaskLists)
 
+        // Configure markdown renderer to apply our Tailwind CSS styles
         md.renderer.rules.paragraph_open = () => `<span class="${styles.value.p}">`
         md.renderer.rules.paragraph_close = () => '</span>'
+
         md.renderer.rules.heading_open = (tokens, idx) => {
             const tag = tokens[idx].tag
             return `<${tag} class="${styles.value[tag]}">`
         }
+
         md.renderer.rules.bullet_list_open = () => `<ul class="${styles.value.ul}">`
         md.renderer.rules.ordered_list_open = () => `<ol class="${styles.value.ol}">`
+
         md.renderer.rules.list_item_open = (tokens, idx) => {
+            // Special handling for task lists
             if (tokens[idx].map && tokens[idx].map.length > 0) {
-                // Check for task list
                 if (tokens[idx + 2]?.type === 'task_list_item_open') {
                     const checked = tokens[idx + 2].checked
                     return `<li class="${styles.value.li}"><input type="checkbox" ${checked ? 'checked' : ''} disabled> `
@@ -2337,17 +2908,23 @@ export const useDocStore = defineStore('docStore', () => {
             }
             return `<li class="${styles.value.li}">`
         }
+
         md.renderer.rules.code_inline = (tokens, idx) =>
             `<code class="${styles.value.code}">${tokens[idx].content}</code>`
+
         md.renderer.rules.blockquote_open = () =>
             `<blockquote class="${styles.value.blockquote}">`
+
         md.renderer.rules.hr = () => `<hr class="${styles.value.hr}">`
+
         md.renderer.rules.em_open = () => `<em class="${styles.value.em}">`
         md.renderer.rules.strong_open = () => `<strong class="${styles.value.strong}">`
+
         md.renderer.rules.link_open = (tokens, idx) => {
             const href = tokens[idx].attrGet('href')
             return `<a href="${href}" class="${styles.value.a}" target="_blank" rel="noopener">`
         }
+
         md.renderer.rules.image = (tokens, idx) => {
             const token = tokens[idx]
             const src = token.attrGet('src')
@@ -2355,6 +2932,7 @@ export const useDocStore = defineStore('docStore', () => {
             const title = token.attrGet('title')
             return `<img src="${src}" alt="${alt}" title="${title || ''}" class="${styles.value.img}">`
         }
+
         md.renderer.rules.table_open = () => `<table class="${styles.value.table}">`
         md.renderer.rules.th_open = () => `<th class="${styles.value.th}">`
         md.renderer.rules.td_open = () => `<td class="${styles.value.td}">`
@@ -2362,179 +2940,28 @@ export const useDocStore = defineStore('docStore', () => {
         return md
     }
 
-    function generateId() {
-        return Math.random().toString(36).substring(2, 15)
-    }
-
-    // ----------------------------------------------------
-    // Local PouchDB & sync
-    // ----------------------------------------------------
-
-    /**
-     * Close the current localDB instance, if any.
-     */
-    function closeLocalDB() {
-        if (localDB) {
-            localDB.close()
-            localDB = null
-        }
-    }
-
-    /**
-     * Reset data to initial state. 
-     * Use this when switching users so the old data doesn't linger.
-     */
     function resetStore() {
         data.value = { ...EMPTY_DATA }
         selectedFileId.value = 'welcome'
         openFolders.value = new Set()
+        contentCache.value.clear()
     }
 
-    async function loadFromPouchDB() {
-        try {
-            const doc = await localDB.get('docStoreData')
-            if (doc && doc.data) {
-                data.value = doc.data
-            }
-        } catch (err) {
-            if (err.status !== 404) {
-                console.error('Error loading from PouchDB:', err)
-            }
-        }
-    }
-
-    async function _saveWithRetry(existing) {
-        try {
-            await localDB.put({
-                ...existing,
-                data: data.value
-            })
-        } catch (err) {
-            if (err.name === 'conflict') {
-                console.warn('docStoreData conflict detected. Fetching the latest _rev and retrying...')
-                const freshDoc = await localDB.get('docStoreData')
-                await localDB.put({
-                    ...freshDoc,
-                    data: data.value
-                })
-            } else {
-                throw err
-            }
-        }
-    }
-
-    async function saveToPouchDB() {
-        try {
-            const existing = await localDB.get('docStoreData')
-            await _saveWithRetry(existing)
-        } catch (err) {
-            if (err.status === 404) {
-                // docStoreData doesn't exist, create it
-                try {
-                    await localDB.put({
-                        _id: 'docStoreData',
-                        data: data.value
-                    })
-                } catch (innerErr) {
-                    if (innerErr.name === 'conflict') {
-                        console.warn('Conflict on first put, fetching docStoreData again...')
-                        const freshDoc = await localDB.get('docStoreData')
-                        await localDB.put({
-                            ...freshDoc,
-                            data: data.value
-                        })
-                    } else {
-                        console.error('Error saving to PouchDB (404 path):', innerErr)
-                    }
-                }
-            } else {
-                console.error('Error saving to PouchDB:', err)
-            }
-        }
-    }
-
-    function initSync() {
-        const authStore = useAuthStore()
-        if (!authStore.isAuthenticated) {
-            console.log('User not authenticated; skipping remote sync.')
-            return
-        }
-        const remoteCouch = `http://localhost:5984/${authStore.user.dbName}`
-
-        localDB.sync(remoteCouch, {
-            live: true,
-            retry: true,
-            fetch: (url, opts) => {
-                return fetch(url, {
-                    ...opts,
-                    credentials: 'include'
-                })
-            }
-        })
-            .on('change', info => {
-                console.log('Sync change:', info)
-            })
-            .on('paused', err => {
-                if (err) {
-                    console.error('Sync paused:', err)
-                }
-            })
-            .on('active', () => {
-                console.log('Sync active')
-            })
-            .on('denied', err => {
-                console.error('Sync denied:', err)
-            })
-            .on('error', err => {
-                console.error('Sync error:', err)
-            })
-    }
-
-    /**
-     * Initializes the local DB name based on whether user is authenticated.
-     * Loads data, sets watchers, and starts sync if user is logged in.
-     */
-    async function initCouchDB() {
-        const authStore = useAuthStore()
-
-        // 1) Close any existing DB
-        closeLocalDB()
-
-        // 2) Choose DB name
-        const localDBName = authStore.isAuthenticated
-            ? `pn-markdown-notes-${authStore.user.name}`
-            : 'pn-markdown-notes-guest'
-
-        // 3) Open a new local DB instance
-        localDB = new PouchDB(localDBName)
-
-        // 4) Load data from local DB if it exists
-        await loadFromPouchDB()
-
-        // 5) Watch "data" so it saves to local PouchDB on changes
-        watch(data, () => {
-            saveToPouchDB()
-        }, { deep: true })
-
-        // 6) Attempt to sync (cookie-based) if logged in
-        initSync()
-    }
-    // ----------------------------------------------------
-
+    // Return all the functions and reactive data that should be accessible from outside the store
     return {
-        // state
+        // State
         data,
         selectedFileId,
         openFolders,
         styles,
 
-        // getters
+        // Getters
         itemsArray,
         rootItems,
         selectedFile,
         selectedFileContent,
 
-        // file/folder ops
+        // File/Folder Operations
         getChildren,
         selectFile,
         createFile,
@@ -2542,26 +2969,23 @@ export const useDocStore = defineStore('docStore', () => {
         deleteItem,
         updateFileContent,
 
-        // import/export
+        // Import/Export
         exportJson,
         importData,
 
-        // folder toggling
+        // UI State Management
         toggleFolder,
-
-        // style updates
         updateStyle,
 
-        // markdown
+        // Markdown Rendering
         getMarkdownIt,
 
-        // main couchdb logic
+        // Database Management
         initCouchDB,
-        closeLocalDB,
+        destroyLocalDB,
         resetStore
     }
 })
-
 ----- END: src/store/docStore.js -----
 
 ----- START: src/store/uiStore.js -----
@@ -2570,16 +2994,21 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 export const useUiStore = defineStore('uiStore', () => {
-    // By default, everything is open
+    // Panel visibility
     const showSidebar = ref(true)
     const showEditor = ref(true)
     const showPreview = ref(true)
 
-    // New flags for the collapsible action bar and for stats/metadata
-    const showActionBar = ref(true)
-    const showStats = ref(true)
+    // Menu visibility
+    const showViewMenu = ref(false)
+    const showActionBar = ref(false)
+    const showFileMenu = ref(false)
+
+    // Stats and metadata
+    const showStats = ref(false)
     const showMetadata = ref(false)
 
+    // Panel toggles
     function toggleSidebar() {
         showSidebar.value = !showSidebar.value
     }
@@ -2592,8 +3021,41 @@ export const useUiStore = defineStore('uiStore', () => {
         showPreview.value = !showPreview.value
     }
 
-    function toggleActionBar() {
+    // Menu toggles with smooth transitions
+    async function toggleViewMenu() {
+        // If opening this menu, close others first
+        if (!showViewMenu.value) {
+            await closeAllMenus()
+            // Small delay before opening new menu
+            await new Promise(resolve => setTimeout(resolve, 50))
+        }
+        showViewMenu.value = !showViewMenu.value
+    }
+
+    async function toggleActionBar() {
+        if (!showActionBar.value) {
+            await closeAllMenus()
+            await new Promise(resolve => setTimeout(resolve, 50))
+        }
         showActionBar.value = !showActionBar.value
+    }
+
+    async function toggleFileMenu() {
+        if (!showFileMenu.value) {
+            await closeAllMenus()
+            await new Promise(resolve => setTimeout(resolve, 50))
+        }
+        showFileMenu.value = !showFileMenu.value
+    }
+
+    async function closeAllMenus() {
+        // Add small delay to allow animation to complete
+        if (showViewMenu.value || showActionBar.value || showFileMenu.value) {
+            showViewMenu.value = false
+            showActionBar.value = false
+            showFileMenu.value = false
+            await new Promise(resolve => setTimeout(resolve, 150))
+        }
     }
 
     function toggleStats() {
@@ -2605,20 +3067,30 @@ export const useUiStore = defineStore('uiStore', () => {
     }
 
     return {
+        // Panel visibility
         showSidebar,
         showEditor,
         showPreview,
+
+        // Menu visibility
+        showViewMenu,
         showActionBar,
+        showFileMenu,
+
+        // Stats and metadata
         showStats,
         showMetadata,
+
+        // Toggle functions
         toggleSidebar,
         toggleEditor,
         togglePreview,
+        toggleViewMenu,
         toggleActionBar,
+        toggleFileMenu,
         toggleStats,
         toggleMetadata,
     }
 })
-
 ----- END: src/store/uiStore.js -----
 
