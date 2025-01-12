@@ -8,24 +8,30 @@ import { useAuthStore } from '@/store/authStore'
 
 // Initialize with a default welcome document that users see when first accessing the app
 const EMPTY_DATA = {
-    'welcome': {
-        id: 'welcome',
-        type: 'file',
-        name: 'Welcome.md',
-        parentId: null,
-        hash: Date.now(),
-        tx: Date.now()
+    structure: {
+        'welcome': {
+            id: 'welcome',
+            type: 'file',
+            name: 'Welcome.md',
+            parentId: null,
+            hash: Date.now(),
+            tx: Date.now()
+        }
     },
-    'welcome/content': {
-        id: 'welcome/content',
-        type: 'content',
-        text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
-        properties: '\n',
-        discussions: {},
-        comments: {},
-        hash: Date.now(),
-        tx: Date.now()
+    ui: {
+        openFolders: new Set()
     }
+}
+
+const WELCOME_CONTENT = {
+    _id: 'file:welcome',
+    type: 'content',
+    text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
+    properties: '\n',
+    discussions: {},
+    comments: {},
+    hash: Date.now(),
+    tx: Date.now()
 }
 
 export const useDocStore = defineStore('docStore', () => {
@@ -33,6 +39,7 @@ export const useDocStore = defineStore('docStore', () => {
     const data = ref({ ...EMPTY_DATA })
     const selectedFileId = ref('welcome')
     const openFolders = ref(new Set())
+    const contentCache = ref(new Map()) // Cache for file contents
 
     // Default styles for markdown rendering
     const styles = ref({
@@ -61,7 +68,7 @@ export const useDocStore = defineStore('docStore', () => {
     let syncHandler = null  // Track sync handler for cleanup
 
     // ---------- Basic getters ----------
-    const itemsArray = computed(() => Object.values(data.value))
+    const itemsArray = computed(() => Object.values(data.value.structure))
 
     const rootItems = computed(() => {
         const folders = itemsArray.value.filter(i => !i.parentId && i.type === 'folder')
@@ -71,13 +78,12 @@ export const useDocStore = defineStore('docStore', () => {
 
     const selectedFile = computed(() => {
         if (!selectedFileId.value) return null
-        return data.value[selectedFileId.value] || null
+        return data.value.structure[selectedFileId.value] || null
     })
 
     const selectedFileContent = computed(() => {
         if (!selectedFile.value) return ''
-        const contentKey = `${selectedFile.value.id}/content`
-        return data.value[contentKey]?.text || ''
+        return contentCache.value.get(selectedFile.value.id)?.text || ''
     })
 
     // ---------- Helper functions ----------
@@ -95,8 +101,54 @@ export const useDocStore = defineStore('docStore', () => {
         return [...sortByName(folders), ...sortByName(files)]
     }
 
+    // ---------- Content Management ----------
+    async function loadFileContent(fileId) {
+        try {
+            const doc = await localDB.get(`file:${fileId}`)
+            contentCache.value.set(fileId, doc)
+            return doc.text
+        } catch (err) {
+            console.error(`Error loading content for file ${fileId}:`, err)
+            return ''
+        }
+    }
+
+    async function saveFileContent(fileId, content) {
+        try {
+            let doc
+            try {
+                doc = await localDB.get(`file:${fileId}`)
+            } catch (err) {
+                if (err.status === 404) {
+                    doc = {
+                        _id: `file:${fileId}`,
+                        type: 'content',
+                        text: '',
+                        properties: '\n',
+                        discussions: {},
+                        comments: {},
+                    }
+                } else {
+                    throw err
+                }
+            }
+
+            doc.text = content
+            doc.lastModified = new Date().toISOString()
+            const response = await localDB.put(doc)
+
+            if (response.ok) {
+                doc._rev = response.rev
+                contentCache.value.set(fileId, doc)
+            }
+        } catch (err) {
+            console.error(`Error saving content for file ${fileId}:`, err)
+            throw err
+        }
+    }
+
     // ---------- CRUD Operations ----------
-    function createFile(name, parentId = null) {
+    async function createFile(name, parentId = null) {
         const id = generateId()
         const newFile = {
             id,
@@ -106,27 +158,24 @@ export const useDocStore = defineStore('docStore', () => {
             hash: Date.now(),
             tx: Date.now()
         }
-        const contentId = `${id}/content`
-        const content = {
-            id: contentId,
-            type: 'content',
-            text: '',
-            properties: '\n',
-            discussions: {},
-            comments: {},
-            hash: Date.now(),
-            tx: Date.now()
-        }
 
+        // Update structure
         data.value = {
             ...data.value,
-            [id]: newFile,
-            [contentId]: content
+            structure: {
+                ...data.value.structure,
+                [id]: newFile
+            }
         }
+
+        // Create content document
+        await saveFileContent(id, '')
+
         selectFile(id)
         if (parentId) {
             openFolders.value.add(parentId)
         }
+        await saveStructure()
         return id
     }
 
@@ -140,51 +189,103 @@ export const useDocStore = defineStore('docStore', () => {
             hash: Date.now(),
             tx: Date.now()
         }
+
         data.value = {
             ...data.value,
-            [id]: newFolder
+            structure: {
+                ...data.value.structure,
+                [id]: newFolder
+            }
         }
+
         if (parentId) {
             openFolders.value.add(parentId)
         }
+        saveStructure()
         return id
     }
 
-    function deleteItem(id) {
-        if (!data.value[id]) return
+    async function deleteItem(id) {
+        if (!data.value.structure[id]) return
 
-        if (data.value[id].type === 'folder') {
+        if (data.value.structure[id].type === 'folder') {
             const children = getChildren(id)
-            children.forEach(child => deleteItem(child.id))
+            for (const child of children) {
+                await deleteItem(child.id)
+            }
             openFolders.value.delete(id)
         }
 
-        if (data.value[id].type === 'file') {
-            const contentKey = `${id}/content`
-            delete data.value[contentKey]
+        if (data.value.structure[id].type === 'file') {
+            // Delete content document
+            try {
+                const doc = await localDB.get(`file:${id}`)
+                await localDB.remove(doc)
+                contentCache.value.delete(id)
+            } catch (err) {
+                console.error(`Error deleting content for file ${id}:`, err)
+            }
+
             if (selectedFileId.value === id) {
                 selectedFileId.value = null
             }
         }
 
-        delete data.value[id]
-        data.value = { ...data.value }  // Trigger reactivity
+        const newStructure = { ...data.value.structure }
+        delete newStructure[id]
+        data.value = {
+            ...data.value,
+            structure: newStructure
+        }
+        await saveStructure()
     }
 
-    function selectFile(fileId) {
+    async function selectFile(fileId) {
+        if (fileId && !contentCache.value.has(fileId)) {
+            await loadFileContent(fileId)
+        }
         selectedFileId.value = fileId
     }
 
-    function updateFileContent(fileId, newText) {
-        const contentKey = `${fileId}/content`
-        if (data.value[contentKey]) {
-            data.value = {
-                ...data.value,
-                [contentKey]: {
-                    ...data.value[contentKey],
-                    text: newText,
-                    lastModified: new Date().toISOString()
+    async function updateFileContent(fileId, newText) {
+        await saveFileContent(fileId, newText)
+    }
+
+    // ---------- Structure Management ----------
+    async function saveStructure() {
+        try {
+            let doc
+            try {
+                doc = await localDB.get('docStoreData')
+            } catch (err) {
+                if (err.status === 404) {
+                    doc = { _id: 'docStoreData' }
+                } else {
+                    throw err
                 }
+            }
+
+            doc.structure = data.value.structure
+            doc.lastModified = new Date().toISOString()
+            await localDB.put(doc)
+        } catch (err) {
+            console.error('Error saving structure:', err)
+            throw err
+        }
+    }
+
+    async function loadStructure() {
+        try {
+            const doc = await localDB.get('docStoreData')
+            if (doc && doc.structure) {
+                data.value = {
+                    ...data.value,
+                    structure: JSON.parse(JSON.stringify(doc.structure))
+                }
+            }
+        } catch (err) {
+            if (err.status !== 404) {
+                console.error('Error loading structure:', err)
             }
         }
     }
@@ -192,18 +293,15 @@ export const useDocStore = defineStore('docStore', () => {
     // ---------- PouchDB Management ----------
     async function destroyLocalDB(username) {
         try {
-            // Cancel any existing sync
             if (syncHandler) {
                 syncHandler.cancel()
                 syncHandler = null
             }
 
-            // Close current DB connection
             if (localDB) {
                 await localDB.close()
             }
 
-            // Destroy the database
             const dbName = `pn-markdown-notes-${username}`
             const db = new PouchDB(dbName)
             await db.destroy()
@@ -214,63 +312,6 @@ export const useDocStore = defineStore('docStore', () => {
         }
     }
 
-    async function loadFromPouchDB() {
-        try {
-            const doc = await localDB.get('docStoreData')
-            if (doc && doc.data) {
-                // Deep clone the data to prevent reference issues
-                data.value = JSON.parse(JSON.stringify(doc.data))
-            }
-        } catch (err) {
-            if (err.status !== 404) {
-                console.error('Error loading from PouchDB:', err)
-            }
-        }
-    }
-
-    async function saveToPouchDB() {
-        const retries = 3
-        let attempt = 0
-
-        while (attempt < retries) {
-            try {
-                const existing = await localDB.get('docStoreData')
-                await localDB.put({
-                    ...existing,
-                    data: JSON.parse(JSON.stringify(data.value)),  // Deep clone to prevent conflicts
-                    lastModified: new Date().toISOString()
-                })
-                break
-            } catch (err) {
-                if (err.status === 404) {
-                    try {
-                        await localDB.put({
-                            _id: 'docStoreData',
-                            data: JSON.parse(JSON.stringify(data.value)),
-                            lastModified: new Date().toISOString()
-                        })
-                        break
-                    } catch (innerErr) {
-                        if (innerErr.name === 'conflict' && attempt < retries - 1) {
-                            console.warn(`Conflict on attempt ${attempt + 1}, retrying...`)
-                            await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt)))
-                            attempt++
-                            continue
-                        }
-                        throw innerErr
-                    }
-                }
-                if (err.name === 'conflict' && attempt < retries - 1) {
-                    console.warn(`Conflict on attempt ${attempt + 1}, retrying...`)
-                    await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt)))
-                    attempt++
-                    continue
-                }
-                throw err
-            }
-        }
-    }
-
     function initSync() {
         const authStore = useAuthStore()
         if (!authStore.isAuthenticated) {
@@ -278,7 +319,6 @@ export const useDocStore = defineStore('docStore', () => {
             return
         }
 
-        // Cancel any existing sync
         if (syncHandler) {
             syncHandler.cancel()
             syncHandler = null
@@ -289,7 +329,7 @@ export const useDocStore = defineStore('docStore', () => {
         syncHandler = localDB.sync(remoteCouch, {
             live: true,
             retry: true,
-            batch_size: 10,  // Reduce batch size to minimize conflicts
+            batch_size: 10,
             back_off_function: function (delay) {
                 if (delay === 0) {
                     return 1000
@@ -303,10 +343,21 @@ export const useDocStore = defineStore('docStore', () => {
                 })
             }
         })
-            .on('change', info => {
+            .on('change', async info => {
                 console.log('Sync change:', info)
                 if (info.direction === 'pull' && info.change.docs.length > 0) {
-                    loadFromPouchDB()  // Reload data on remote changes
+                    // Handle structure updates
+                    const structureDoc = info.change.docs.find(doc => doc._id === 'docStoreData')
+                    if (structureDoc) {
+                        await loadStructure()
+                    }
+
+                    // Handle content updates
+                    const contentDocs = info.change.docs.filter(doc => doc._id.startsWith('file:'))
+                    for (const doc of contentDocs) {
+                        const fileId = doc._id.replace('file:', '')
+                        contentCache.value.set(fileId, doc)
+                    }
                 }
             })
             .on('paused', err => {
@@ -322,7 +373,6 @@ export const useDocStore = defineStore('docStore', () => {
             })
             .on('error', err => {
                 console.error('Sync error:', err)
-                // Attempt to reconnect after error
                 setTimeout(() => {
                     if (syncHandler) {
                         console.log('Attempting to restart sync after error...')
@@ -335,62 +385,93 @@ export const useDocStore = defineStore('docStore', () => {
     async function initCouchDB() {
         const authStore = useAuthStore()
 
-        // 1) Cancel any existing sync
         if (syncHandler) {
             syncHandler.cancel()
             syncHandler = null
         }
 
-        // 2) Close any existing DB connection
         if (localDB) {
             await localDB.close()
             localDB = null
         }
 
-        // 3) Choose and create new DB
         const dbName = authStore.isAuthenticated
             ? `pn-markdown-notes-${authStore.user.name}`
             : 'pn-markdown-notes-guest'
 
         localDB = new PouchDB(dbName, {
-            auto_compaction: true,  // Enable automatic compaction
+            auto_compaction: true,
         })
 
-        // Register this database with authStore for tracking
         authStore.registerDatabase(dbName)
 
-        // 4) Load existing data
-        await loadFromPouchDB()
+        // Initialize with welcome document if empty
+        try {
+            await localDB.get('docStoreData')
+        } catch (err) {
+            if (err.status === 404) {
+                await localDB.put({
+                    _id: 'docStoreData',
+                    structure: EMPTY_DATA.structure,
+                    lastModified: new Date().toISOString()
+                })
+                await localDB.put(WELCOME_CONTENT)
+            }
+        }
 
-        // 5) Set up data watching with debounce
-        let saveTimeout
-        watch(data, () => {
-            clearTimeout(saveTimeout)
-            saveTimeout = setTimeout(() => {
-                saveToPouchDB()
-            }, 1000)  // Debounce saves by 1 second
-        }, { deep: true })
+        // Load structure and selected file content
+        await loadStructure()
+        if (selectedFileId.value) {
+            await loadFileContent(selectedFileId.value)
+        }
 
-        // 6) Initialize sync if authenticated
         if (authStore.isAuthenticated) {
             initSync()
         }
     }
 
     // ---------- Import/Export ----------
-    function exportJson() {
-        return JSON.stringify(data.value, null, 2)
+    async function exportJson() {
+        // Export in the old format for backward compatibility
+        const exportData = {}
+
+        // Export structure items
+        for (const [id, item] of Object.entries(data.value.structure)) {
+            exportData[id] = item
+
+            // For files, also export their content in the old format
+            if (item.type === 'file') {
+                try {
+                    const content = await localDB.get(`file:${id}`)
+                    exportData[`${id}/content`] = {
+                        id: `${id}/content`,
+                        type: 'content',
+                        text: content.text,
+                        properties: content.properties || '\n',
+                        discussions: content.discussions || {},
+                        comments: content.comments || {},
+                        hash: content.hash || Date.now(),
+                        tx: content.tx || Date.now()
+                    }
+                } catch (err) {
+                    console.error(`Error exporting content for file ${id}:`, err)
+                }
+            }
+        }
+
+        return JSON.stringify(exportData, null, 2)
     }
 
-    function importData(newData) {
+    async function importData(newData) {
         try {
             if (typeof newData !== 'object' || newData === null) {
                 throw new Error('Invalid data structure')
             }
-            const validatedData = {}
-            const files = new Set()
-            const contentFiles = new Set()
 
+            const validatedStructure = {}
+            const contentPromises = []
+
+            // First pass: validate and collect structure items
             for (const [key, item] of Object.entries(newData)) {
                 if (!item || typeof item !== 'object') {
                     throw new Error(`Invalid item for key ${key}`)
@@ -398,52 +479,63 @@ export const useDocStore = defineStore('docStore', () => {
                 if (!item.id || !item.type) {
                     throw new Error(`Missing id or type for ${key}`)
                 }
-                switch (item.type) {
-                    case 'file':
-                        if (!item.name) {
-                            throw new Error(`File ${item.id} missing name`)
+
+                // Handle structure items (files and folders)
+                if (item.type === 'file' || item.type === 'folder') {
+                    if (!item.name) {
+                        throw new Error(`${item.type} ${item.id} missing name`)
+                    }
+                    validatedStructure[item.id] = {
+                        ...item,
+                        hash: item.hash || Date.now(),
+                        tx: item.tx || Date.now()
+                    }
+
+                    // Look for corresponding content
+                    if (item.type === 'file') {
+                        const contentKey = `${item.id}/content`
+                        const contentItem = newData[contentKey]
+
+                        if (contentItem && contentItem.type === 'content') {
+                            contentPromises.push(
+                                saveFileContent(item.id, contentItem.text || '')
+                            )
+                        } else {
+                            // If no content found, create empty content
+                            contentPromises.push(
+                                saveFileContent(item.id, '')
+                            )
                         }
-                        files.add(item.id)
-                        validatedData[key] = item
-                        break
-                    case 'content':
-                        if (typeof item.text === 'undefined') {
-                            throw new Error(`Content ${item.id} missing text`)
-                        }
-                        contentFiles.add(item.id.split('/')[0])
-                        validatedData[key] = item
-                        break
-                    case 'folder':
-                        if (!item.name) {
-                            throw new Error(`Folder ${item.id} missing name`)
-                        }
-                        validatedData[key] = item
-                        break
-                    default:
-                        validatedData[key] = item
+                    }
                 }
             }
 
-            files.forEach(fileId => {
-                if (!contentFiles.has(fileId)) {
-                    console.warn(`Warning: File ${fileId} has no content`)
-                }
-            })
+            // Update structure first
+            data.value = {
+                ...data.value,
+                structure: validatedStructure
+            }
+            await saveStructure()
 
-            data.value = validatedData
+            // Wait for all content to be saved
+            await Promise.all(contentPromises)
+
+            // Reset UI state
             selectedFileId.value = null
             openFolders.value = new Set()
 
-            const firstFile = Object.values(validatedData).find(item => item.type === 'file')
+            // Select the first file if available
+            const firstFile = Object.values(validatedStructure).find(item => item.type === 'file')
             if (firstFile) {
-                selectedFileId.value = firstFile.id
+                await selectFile(firstFile.id)
             }
+
+            console.log('Import completed successfully')
         } catch (error) {
             console.error('Import failed:', error)
             throw error
         }
     }
-
     // ---------- UI State Management ----------
     function toggleFolder(folderId) {
         if (openFolders.value.has(folderId)) {
@@ -468,9 +560,30 @@ export const useDocStore = defineStore('docStore', () => {
             breaks: true
         }).use(markdownItTaskLists)
 
-        // Configure markdown renderer to apply our Tailwind CSS styles
-        md.renderer.rules.paragraph_open = () => `<span class="${styles.value.p}">`
-        md.renderer.rules.paragraph_close = () => '</span>'
+        // Use a div for paragraphs, but only when not in a list
+        md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
+            const inList = tokens.some((token, i) => {
+                if (i < idx) {
+                    return token.type === 'list_item_open' && !token.hidden
+                }
+                return false
+            })
+
+            return inList
+                ? `<span class="${styles.value.p}">`
+                : `<div class="${styles.value.p}">`
+        }
+
+        md.renderer.rules.paragraph_close = (tokens, idx, options, env, self) => {
+            const inList = tokens.some((token, i) => {
+                if (i < idx) {
+                    return token.type === 'list_item_open' && !token.hidden
+                }
+                return false
+            })
+
+            return inList ? '</span>' : '</div>'
+        }
 
         md.renderer.rules.heading_open = (tokens, idx) => {
             const tag = tokens[idx].tag
@@ -526,6 +639,7 @@ export const useDocStore = defineStore('docStore', () => {
         data.value = { ...EMPTY_DATA }
         selectedFileId.value = 'welcome'
         openFolders.value = new Set()
+        contentCache.value.clear()
     }
 
     // Return all the functions and reactive data that should be accessible from outside the store

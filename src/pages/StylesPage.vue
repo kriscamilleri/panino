@@ -1,17 +1,45 @@
+# In src/pages/StylesPage.vue
+
 <template>
-    <div class="p-4">
-        <h1 class="text-2xl font-bold mb-4">Customize Markdown Styles</h1>
+    <div class="min-h-screen bg-gray-50 flex flex-col">
+        <!-- Top Navigation Bar -->
+        <nav class="bg-gray-100 border-b">
+            <div class="flex items-center justify-between px-4 py-2">
+                <h1 class="text-xl font-semibold text-gray-800">Customize Markdown Styles</h1>
+                <button @click="goBack"
+                    class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-2">
+                    <ArrowLeft class="w-4 h-4" />
+                    <span>Back</span>
+                </button>
+            </div>
+        </nav>
 
-        <!-- Back to main -->
-        <button class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded mb-4" @click="goBack">
-            Back
-        </button>
+        <!-- Main Content -->
+        <div class="flex-1 flex">
+            <!-- Styles Form -->
+            <div class="w-1/2 p-8" style="height: calc(100vh - 56px);">
+                <div class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto">
+                    <div class="space-y-6">
+                        <!-- Organize styles by category -->
+                        <div v-for="(styles, category) in categorizedStyles" :key="category" class="space-y-4">
+                            <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">{{ category }}</h2>
+                            <div v-for="(value, key) in styles" :key="key" class="space-y-2">
+                                <label :for="key" class="block text-sm font-medium text-gray-700">
+                                    {{ key }}
+                                </label>
+                                <input :id="key" type="text" v-model="styleMap[key]"
+                                    @input="handleStyleChange(key, styleMap[key])" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
+                                           focus:outline-none focus:ring-gray-500 focus:border-gray-500 
+                                           sm:text-sm font-mono" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-        <div class="space-y-4">
-            <div v-for="(value, key) in styleMap" :key="key" class="flex items-center space-x-4">
-                <label class="w-20 font-semibold">{{ key }}</label>
-                <input type="text" class="border p-2 rounded flex-1" v-model="styleMap[key]"
-                    @change="handleStyleChange(key, styleMap[key])" />
+            <!-- Preview Pane -->
+            <div class="w-1/2 bg-white border-l p-8 overflow-y-auto">
+                <div class="prose max-w-none" v-html="previewHtml"></div>
             </div>
         </div>
     </div>
@@ -19,17 +47,74 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDocStore } from '@/store/docStore'
+import { ArrowLeft } from 'lucide-vue-next'
 
 const docStore = useDocStore()
 const router = useRouter()
 
-// We make a local copy of docStore.styles so we can edit them. 
-// If you want immediate updates, you can skip the copy and write directly to docStore.styles.
+// We make a local copy of docStore.styles so we can edit them
 const styleMap = computed({
     get: () => docStore.styles,
-    set: (newVal) => { }
+    set: () => { }
+})
+
+// Organize styles into categories
+const categorizedStyles = computed(() => {
+    const categories = {
+        'Headings': ['h1', 'h2', 'h3'],
+        'Text': ['p', 'em', 'strong', 'code', 'blockquote'],
+        'Lists': ['ul', 'ol', 'li'],
+        'Links & Media': ['a', 'img'],
+        'Tables': ['table', 'tr', 'th', 'td'],
+        'Other': ['hr']
+    }
+
+    return Object.entries(categories).reduce((acc, [category, keys]) => {
+        acc[category] = Object.fromEntries(
+            keys.map(key => [key, styleMap.value[key]])
+        )
+        return acc
+    }, {})
+})
+
+// Sample markdown for preview
+const sampleMarkdown = `
+# Heading 1
+## Heading 2
+### Heading 3
+
+Normal paragraph with **bold** and _italic_ text. Here's some \`inline code\`.
+
+> A blockquote with some thoughtful text.
+
+* Unordered list item 1
+* Unordered list item 2
+  * Nested item
+
+1. Ordered list item 1
+2. Ordered list item 2
+
+[A link](https://example.com)
+
+![Image placeholder](https://via.placeholder.com/150)
+
+| Header 1 | Header 2 |
+|----------|----------|
+| Cell 1   | Cell 2   |
+
+---
+
+\`\`\`
+Code block
+\`\`\`
+`
+
+// Generate preview HTML
+const previewHtml = computed(() => {
+    const md = docStore.getMarkdownIt()
+    return md.render(sampleMarkdown)
 })
 
 function handleStyleChange(key, newVal) {

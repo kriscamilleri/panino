@@ -1,65 +1,44 @@
 <template>
     <div class="h-screen flex flex-col overflow-hidden" ref="container">
-        <!-- Top Navbar -->
+        <!-- Top Navbar --><!-- Top Navbar -->
         <nav class="bg-gray-100 border-b">
             <div class="flex items-center justify-between px-4 py-2">
                 <!-- Left side -->
                 <div class="flex items-center space-x-4">
                     <!-- View toggles -->
-                    <div class="flex space-x-2">
-                        <button @click="ui.toggleSidebar()"
-                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showSidebar }" title="Toggle Sidebar">
-                            <Folder class="w-4 h-4" />
-                            <span>Sidebar</span>
-                        </button>
+                    <button @click="ui.toggleViewMenu()"
+                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                        :class="{ 'bg-gray-200': ui.showViewMenu }" title="Toggle View Menu">
+                        <Layout class="w-4 h-4" />
+                        <span>View</span>
+                    </button>
 
-                        <button @click="ui.toggleEditor()"
-                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showEditor }" title="Toggle Editor">
-                            <Edit3 class="w-4 h-4" />
-                            <span>Editor</span>
-                        </button>
-
-                        <button @click="ui.togglePreview()"
-                            class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showPreview }" title="Toggle Preview">
-                            <Eye class="w-4 h-4" />
-                            <span>Preview</span>
-                        </button>
-                    </div>
-
-                    <!-- Separator -->
-                    <div class="w-px h-6 bg-gray-300 mx-2"></div>
-
-                    <!-- Toggle Tools -->
+                    <!-- Tools Menu -->
                     <button @click="ui.toggleActionBar()"
                         class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
                         :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Tools">
                         <Paintbrush class="w-4 h-4" />
+                        <span>Format</span>
+                    </button>
+
+                    <!-- File Menu -->
+                    <button @click="ui.toggleFileMenu()"
+                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                        :class="{ 'bg-gray-200': ui.showFileMenu }" title="Toggle File Menu">
+                        <FileIcon class="w-4 h-4" />
                         <span>Tools</span>
                     </button>
                 </div>
 
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
-                    <button @click="showImportModal = true"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <Upload class="w-4 h-4" />
-                        <span>Import</span>
-                    </button>
-                    <button @click="handleExport"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <Download class="w-4 h-4" />
-                        <span>Export</span>
-                    </button>
                     <button @click="goToStyles"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         <Palette class="w-4 h-4" />
                         <span>Styles</span>
                     </button>
 
-                    <!-- NEW LOGIN / LOGOUT BUTTONS -->
+                    <!-- Login/Logout button -->
                     <button v-if="!authStore.isAuthenticated" @click="goToLogin"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         Login
@@ -71,34 +50,57 @@
                 </div>
             </div>
 
-            <!-- Collapsible Action Bar -->
-            <transition name="fade">
-                <div v-if="ui.showActionBar" class="border-t bg-gray-50 px-4 py-2">
-                    <div class="flex flex-wrap gap-2 items-center">
-                        <!-- Text formatting -->
-                        <button v-for="format in textFormats" :key="format.label"
+            <!-- Submenu Bar -->
+            <transition name="fade-fast" mode="out-in">
+                <div v-if="ui.isAnyMenuOpen" class="border-t bg-gray-50 px-4 py-2">
+                    <!-- View Menu Content -->
+                    <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2" key="view">
+                        <button @click="ui.toggleSidebar()"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                            :class="{ 'bg-gray-200': ui.showSidebar }">
+                            <Folder class="w-4 h-4" />
+                            <span>Sidebar</span>
+                        </button>
+
+                        <button @click="ui.toggleEditor()"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                            :class="{ 'bg-gray-200': ui.showEditor }">
+                            <Edit3 class="w-4 h-4" />
+                            <span>Editor</span>
+                        </button>
+
+                        <button @click="ui.togglePreview()"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                            :class="{ 'bg-gray-200': ui.showPreview }">
+                            <Eye class="w-4 h-4" />
+                            <span>Preview</span>
+                        </button>
+                    </div>
+
+                    <!-- Tools Menu Content -->
+                    <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="tools">
+                        <!-- Text formatting tools -->
+                        <div v-for="format in textFormats" :key="format.label"
                             @click="editorRef.insertFormat(format.prefix, format.suffix)"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
                             :title="format.label">
                             <component :is="format.icon" class="w-4 h-4" />
                             <span>{{ format.label }}</span>
-                        </button>
+                        </div>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Lists -->
-                        <button v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
-                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                        <!-- List formatting tools -->
+                        <div v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
+                            class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
                             :title="list.label">
                             <component :is="list.icon" class="w-4 h-4" />
                             <span>{{ list.label }}</span>
-                        </button>
+                        </div>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Table -->
+                        <!-- Table and Code tools -->
                         <button @click="editorRef.insertTable"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
                             title="Insert Table">
@@ -106,7 +108,6 @@
                             <span>Table</span>
                         </button>
 
-                        <!-- Code block -->
                         <button @click="editorRef.insertCodeBlock"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
                             title="Insert Code Block">
@@ -114,32 +115,31 @@
                             <span>Code</span>
                         </button>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Toggle stats / metadata -->
+                        <!-- Stats and Metadata toggles -->
                         <button @click="ui.toggleStats()"
                             class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
-                            :class="{ 'bg-gray-200': ui.showStats }" title="Toggle Document Stats">
+                            :class="{ 'bg-gray-200': ui.showStats }">
                             <BarChart2 class="w-4 h-4" />
                             <span>Stats</span>
                         </button>
+
                         <button @click="ui.toggleMetadata()"
                             class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
-                            :class="{ 'bg-gray-200': ui.showMetadata }" title="Toggle File Metadata">
+                            :class="{ 'bg-gray-200': ui.showMetadata }">
                             <Info class="w-4 h-4" />
                             <span>Info</span>
                         </button>
 
-                        <!-- Divider -->
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Search box -->
+                        <!-- Search functionality -->
                         <div class="flex items-center gap-2">
                             <div class="relative">
                                 <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
                                 <input type="text" placeholder="Find text..." v-model="searchTerm"
-                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-blue-500" />
+                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500" />
                             </div>
                             <button @click="editorRef.findNext(searchTerm)"
                                 class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1">
@@ -148,10 +148,23 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- File Menu Content -->
+                    <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
+                        <button @click="showImportModal = true"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                            <Upload class="w-4 h-4" />
+                            <span>Import</span>
+                        </button>
+                        <button @click="handleExport"
+                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                            <Download class="w-4 h-4" />
+                            <span>Export</span>
+                        </button>
+                    </div>
                 </div>
             </transition>
         </nav>
-
         <!-- Main content area -->
         <div class="flex flex-1 overflow-hidden" ref="mainContent">
             <!-- Sidebar with resizer -->
@@ -220,7 +233,9 @@ import {
     BarChart2,
     Info,
     Search,
-    ArrowRight
+    ArrowRight,
+    FileIcon,
+    Layout
 } from 'lucide-vue-next'
 
 const docStore = useDocStore()
