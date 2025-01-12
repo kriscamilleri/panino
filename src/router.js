@@ -1,9 +1,14 @@
-// ----- START: src/router.js -----
 import { createRouter, createWebHashHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import StylesPage from '@/pages/StylesPage.vue'
 
-// We add a new route named 'doc' with a fileId param:
+// NEW imports:
+import LoginForm from '@/components/LoginForm.vue'
+import SignupForm from '@/components/SignupForm.vue'
+
+// ADD this import:
+import { useAuthStore } from '@/store/authStore.js'
+
 export const router = createRouter({
     history: createWebHashHistory(),
     routes: [
@@ -24,12 +29,31 @@ export const router = createRouter({
             name: 'styles',
             component: StylesPage,
             meta: { keepAlive: true }
-        }
+        },
+        // NEW routes:
+        {
+            path: '/login',
+            name: 'login',
+            component: LoginForm,
+        },
+        {
+            path: '/signup',
+            name: 'signup',
+            component: SignupForm,
+        },
     ]
 })
 
-// Add global navigation guard if you need it; for now it does nothing special.
-router.beforeEach((to, from, next) => {
-    next()
+// AMENDED global navigation guard:
+router.beforeEach(async (to, from, next) => {
+    const authStore = useAuthStore()
+    // Attempt to check if user is logged in (based on existing session cookie, if any)
+    await authStore.checkAuth()
+
+    // If NOT authenticated and trying to access anything except login/signup, redirect to login
+    if (!authStore.isAuthenticated && to.name !== 'login' && to.name !== 'signup') {
+        next({ name: 'login' })
+    } else {
+        next()
+    }
 })
-// ----- END: src/router.js -----

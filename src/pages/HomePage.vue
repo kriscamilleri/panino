@@ -58,6 +58,16 @@
                         <Palette class="w-4 h-4" />
                         <span>Styles</span>
                     </button>
+
+                    <!-- NEW LOGIN / LOGOUT BUTTONS -->
+                    <button v-if="!authStore.isAuthenticated" @click="goToLogin"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        Login
+                    </button>
+                    <button v-else @click="handleLogout"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        Logout
+                    </button>
                 </div>
             </div>
 
@@ -184,12 +194,12 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
+import { useAuthStore } from '@/store/authStore' // <--- ADDED
 import Sidebar from '@/components/SideBar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
 import ImportModal from '@/components/ImportModal.vue'
 
-// Import only the icons you need from lucide-vue:
 import {
     Folder,
     Edit3,
@@ -215,10 +225,11 @@ import {
 
 const docStore = useDocStore()
 const ui = useUiStore()
+const authStore = useAuthStore() // <--- ADDED
+
 const router = useRouter()
 const route = useRoute()
 
-// For panel resizing
 const container = ref(null)
 const mainContent = ref(null)
 const sidebarWidth = ref(300)
@@ -362,6 +373,20 @@ const editorRef = ref(null)
 
 function handleImportSuccess() {
     console.log('Import successful')
+}
+
+// NEW: handleLogout and goToLogin
+async function handleLogout() {
+    try {
+        await authStore.logout()
+        router.push('/login')
+    } catch (err) {
+        console.error('Error logging out:', err)
+    }
+}
+
+function goToLogin() {
+    router.push('/login')
 }
 </script>
 

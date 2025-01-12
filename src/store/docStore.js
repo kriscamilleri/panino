@@ -1,11 +1,12 @@
+// src/store/docStore.js
 import { defineStore } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { ref, computed, watch } from 'vue'
-
-// [PouchDB SYNC ADDED]
 import PouchDB from 'pouchdb-browser'
-// Initialize with empty data instead of importing
+import { useAuthStore } from '@/store/authStore'
+
+// Initialize with a default welcome document that users see when first accessing the app
 const EMPTY_DATA = {
     'welcome': {
         id: 'welcome',
@@ -28,12 +29,12 @@ const EMPTY_DATA = {
 }
 
 export const useDocStore = defineStore('docStore', () => {
-    // Initialize with empty data
-    const data = ref(EMPTY_DATA)
+    // Core state management
+    const data = ref({ ...EMPTY_DATA })
     const selectedFileId = ref('welcome')
     const openFolders = ref(new Set())
 
-    // Default Tailwind classes for each element
+    // Default styles for markdown rendering
     const styles = ref({
         h1: 'text-3xl font-bold mt-4 mb-2 block',
         h2: 'text-2xl font-semibold mt-3 mb-2 block',
@@ -55,6 +56,11 @@ export const useDocStore = defineStore('docStore', () => {
         td: 'border border-gray-300 px-2 py-1',
     })
 
+    // Database connection management
+    let localDB = null
+    let syncHandler = null  // Track sync handler for cleanup
+
+    // ---------- Basic getters ----------
     const itemsArray = computed(() => Object.values(data.value))
 
     const rootItems = computed(() => {
@@ -62,118 +68,6 @@ export const useDocStore = defineStore('docStore', () => {
         const files = itemsArray.value.filter(i => !i.parentId && i.type === 'file')
         return [...sortByName(folders), ...sortByName(files)]
     })
-
-    // Generate a unique ID
-    function generateId() {
-        return Math.random().toString(36).substring(2, 15)
-    }
-
-    // Create a new file
-    function createFile(name, parentId = null) {
-        const id = generateId()
-        const newFile = {
-            id,
-            type: 'file',
-            name,
-            parentId,
-            hash: Date.now(),
-            tx: Date.now()
-        }
-
-        // Create the file content
-        const contentId = `${id}/content`
-        const content = {
-            id: contentId,
-            type: 'content',
-            text: '', // Empty initial content
-            properties: '\n',
-            discussions: {},
-            comments: {},
-            hash: Date.now(),
-            tx: Date.now()
-        }
-
-        // Add both the file and its content to the store
-        data.value = {
-            ...data.value,
-            [id]: newFile,
-            [contentId]: content
-        }
-
-        // Select the newly created file
-        selectFile(id)
-
-        // If parent is a folder, ensure it's open
-        if (parentId) {
-            openFolders.value.add(parentId)
-        }
-
-        return id
-    }
-
-    // Create a new folder
-    function createFolder(name, parentId = null) {
-        const id = generateId()
-        const newFolder = {
-            id,
-            type: 'folder',
-            name,
-            parentId,
-            hash: Date.now(),
-            tx: Date.now()
-        }
-
-        data.value = {
-            ...data.value,
-            [id]: newFolder
-        }
-
-        // Open the parent folder if it exists
-        if (parentId) {
-            openFolders.value.add(parentId)
-        }
-
-        return id
-    }
-
-    // Delete an item (file or folder)
-    function deleteItem(id) {
-        if (!data.value[id]) return
-
-        // If it's a folder, recursively delete all children
-        if (data.value[id].type === 'folder') {
-            const children = getChildren(id)
-            children.forEach(child => deleteItem(child.id))
-            openFolders.value.delete(id)
-        }
-
-        // If it's a file, delete its content
-        if (data.value[id].type === 'file') {
-            const contentKey = `${id}/content`
-            delete data.value[contentKey]
-            if (selectedFileId.value === id) {
-                selectedFileId.value = null
-            }
-        }
-
-        // Delete the item itself
-        delete data.value[id]
-        data.value = { ...data.value } // Trigger reactivity
-    }
-
-    function getChildren(parentId) {
-        const folders = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'folder')
-        const files = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'file')
-        return [...sortByName(folders), ...sortByName(files)]
-    }
-
-    function sortByName(items) {
-        return items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-    }
-
-    function selectFile(fileId) {
-        selectedFileId.value = fileId
-    }
 
     const selectedFile = computed(() => {
         if (!selectedFileId.value) return null
@@ -185,6 +79,101 @@ export const useDocStore = defineStore('docStore', () => {
         const contentKey = `${selectedFile.value.id}/content`
         return data.value[contentKey]?.text || ''
     })
+
+    // ---------- Helper functions ----------
+    function sortByName(items) {
+        return items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    }
+
+    function generateId() {
+        return Math.random().toString(36).substring(2, 15)
+    }
+
+    function getChildren(parentId) {
+        const folders = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'folder')
+        const files = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'file')
+        return [...sortByName(folders), ...sortByName(files)]
+    }
+
+    // ---------- CRUD Operations ----------
+    function createFile(name, parentId = null) {
+        const id = generateId()
+        const newFile = {
+            id,
+            type: 'file',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+        const contentId = `${id}/content`
+        const content = {
+            id: contentId,
+            type: 'content',
+            text: '',
+            properties: '\n',
+            discussions: {},
+            comments: {},
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        data.value = {
+            ...data.value,
+            [id]: newFile,
+            [contentId]: content
+        }
+        selectFile(id)
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+        return id
+    }
+
+    function createFolder(name, parentId = null) {
+        const id = generateId()
+        const newFolder = {
+            id,
+            type: 'folder',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+        data.value = {
+            ...data.value,
+            [id]: newFolder
+        }
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+        return id
+    }
+
+    function deleteItem(id) {
+        if (!data.value[id]) return
+
+        if (data.value[id].type === 'folder') {
+            const children = getChildren(id)
+            children.forEach(child => deleteItem(child.id))
+            openFolders.value.delete(id)
+        }
+
+        if (data.value[id].type === 'file') {
+            const contentKey = `${id}/content`
+            delete data.value[contentKey]
+            if (selectedFileId.value === id) {
+                selectedFileId.value = null
+            }
+        }
+
+        delete data.value[id]
+        data.value = { ...data.value }  // Trigger reactivity
+    }
+
+    function selectFile(fileId) {
+        selectedFileId.value = fileId
+    }
 
     function updateFileContent(fileId, newText) {
         const contentKey = `${fileId}/content`
@@ -200,88 +189,251 @@ export const useDocStore = defineStore('docStore', () => {
         }
     }
 
+    // ---------- PouchDB Management ----------
+    async function destroyLocalDB(username) {
+        try {
+            // Cancel any existing sync
+            if (syncHandler) {
+                syncHandler.cancel()
+                syncHandler = null
+            }
+
+            // Close current DB connection
+            if (localDB) {
+                await localDB.close()
+            }
+
+            // Destroy the database
+            const dbName = `pn-markdown-notes-${username}`
+            const db = new PouchDB(dbName)
+            await db.destroy()
+            console.log(`Successfully destroyed database: ${dbName}`)
+        } catch (err) {
+            console.error('Error destroying local DB:', err)
+            throw err
+        }
+    }
+
+    async function loadFromPouchDB() {
+        try {
+            const doc = await localDB.get('docStoreData')
+            if (doc && doc.data) {
+                // Deep clone the data to prevent reference issues
+                data.value = JSON.parse(JSON.stringify(doc.data))
+            }
+        } catch (err) {
+            if (err.status !== 404) {
+                console.error('Error loading from PouchDB:', err)
+            }
+        }
+    }
+
+    async function saveToPouchDB() {
+        const retries = 3
+        let attempt = 0
+
+        while (attempt < retries) {
+            try {
+                const existing = await localDB.get('docStoreData')
+                await localDB.put({
+                    ...existing,
+                    data: JSON.parse(JSON.stringify(data.value)),  // Deep clone to prevent conflicts
+                    lastModified: new Date().toISOString()
+                })
+                break
+            } catch (err) {
+                if (err.status === 404) {
+                    try {
+                        await localDB.put({
+                            _id: 'docStoreData',
+                            data: JSON.parse(JSON.stringify(data.value)),
+                            lastModified: new Date().toISOString()
+                        })
+                        break
+                    } catch (innerErr) {
+                        if (innerErr.name === 'conflict' && attempt < retries - 1) {
+                            console.warn(`Conflict on attempt ${attempt + 1}, retrying...`)
+                            await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt)))
+                            attempt++
+                            continue
+                        }
+                        throw innerErr
+                    }
+                }
+                if (err.name === 'conflict' && attempt < retries - 1) {
+                    console.warn(`Conflict on attempt ${attempt + 1}, retrying...`)
+                    await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt)))
+                    attempt++
+                    continue
+                }
+                throw err
+            }
+        }
+    }
+
+    function initSync() {
+        const authStore = useAuthStore()
+        if (!authStore.isAuthenticated) {
+            console.log('User not authenticated; skipping remote sync.')
+            return
+        }
+
+        // Cancel any existing sync
+        if (syncHandler) {
+            syncHandler.cancel()
+            syncHandler = null
+        }
+
+        const remoteCouch = `http://localhost:5984/${authStore.user.dbName}`
+
+        syncHandler = localDB.sync(remoteCouch, {
+            live: true,
+            retry: true,
+            batch_size: 10,  // Reduce batch size to minimize conflicts
+            back_off_function: function (delay) {
+                if (delay === 0) {
+                    return 1000
+                }
+                return delay * 1.5
+            },
+            fetch: (url, opts) => {
+                return fetch(url, {
+                    ...opts,
+                    credentials: 'include'
+                })
+            }
+        })
+            .on('change', info => {
+                console.log('Sync change:', info)
+                if (info.direction === 'pull' && info.change.docs.length > 0) {
+                    loadFromPouchDB()  // Reload data on remote changes
+                }
+            })
+            .on('paused', err => {
+                if (err) {
+                    console.error('Sync paused with error:', err)
+                }
+            })
+            .on('active', () => {
+                console.log('Sync active')
+            })
+            .on('denied', err => {
+                console.error('Sync denied:', err)
+            })
+            .on('error', err => {
+                console.error('Sync error:', err)
+                // Attempt to reconnect after error
+                setTimeout(() => {
+                    if (syncHandler) {
+                        console.log('Attempting to restart sync after error...')
+                        initSync()
+                    }
+                }, 5000)
+            })
+    }
+
+    async function initCouchDB() {
+        const authStore = useAuthStore()
+
+        // 1) Cancel any existing sync
+        if (syncHandler) {
+            syncHandler.cancel()
+            syncHandler = null
+        }
+
+        // 2) Close any existing DB connection
+        if (localDB) {
+            await localDB.close()
+            localDB = null
+        }
+
+        // 3) Choose and create new DB
+        const dbName = authStore.isAuthenticated
+            ? `pn-markdown-notes-${authStore.user.name}`
+            : 'pn-markdown-notes-guest'
+
+        localDB = new PouchDB(dbName, {
+            auto_compaction: true,  // Enable automatic compaction
+        })
+
+        // Register this database with authStore for tracking
+        authStore.registerDatabase(dbName)
+
+        // 4) Load existing data
+        await loadFromPouchDB()
+
+        // 5) Set up data watching with debounce
+        let saveTimeout
+        watch(data, () => {
+            clearTimeout(saveTimeout)
+            saveTimeout = setTimeout(() => {
+                saveToPouchDB()
+            }, 1000)  // Debounce saves by 1 second
+        }, { deep: true })
+
+        // 6) Initialize sync if authenticated
+        if (authStore.isAuthenticated) {
+            initSync()
+        }
+    }
+
+    // ---------- Import/Export ----------
     function exportJson() {
         return JSON.stringify(data.value, null, 2)
     }
 
     function importData(newData) {
-        // Validate the data structure
         try {
-            // Check if it's an object
             if (typeof newData !== 'object' || newData === null) {
-                throw new Error('Invalid data structure: must be an object')
+                throw new Error('Invalid data structure')
             }
-
-            // Validate the structure
             const validatedData = {}
             const files = new Set()
             const contentFiles = new Set()
 
-            // First pass: collect all files and validate basic structure
             for (const [key, item] of Object.entries(newData)) {
                 if (!item || typeof item !== 'object') {
-                    throw new Error(`Invalid item structure for key ${key}`)
+                    throw new Error(`Invalid item for key ${key}`)
                 }
-
                 if (!item.id || !item.type) {
-                    throw new Error(`Missing required properties (id or type) for item ${key}`)
+                    throw new Error(`Missing id or type for ${key}`)
                 }
-
-                // Validate based on type
                 switch (item.type) {
                     case 'file':
                         if (!item.name) {
-                            throw new Error(`File ${item.id} missing name property`)
+                            throw new Error(`File ${item.id} missing name`)
                         }
                         files.add(item.id)
                         validatedData[key] = item
                         break
-
                     case 'content':
-                        if (!item.text) {
-                            throw new Error(`Content ${item.id} missing text property`)
+                        if (typeof item.text === 'undefined') {
+                            throw new Error(`Content ${item.id} missing text`)
                         }
-                        {
-                            const fileId = item.id.split('/')[0]
-                            contentFiles.add(fileId)
-                        }
+                        contentFiles.add(item.id.split('/')[0])
                         validatedData[key] = item
                         break
-
                     case 'folder':
                         if (!item.name) {
-                            throw new Error(`Folder ${item.id} missing name property`)
+                            throw new Error(`Folder ${item.id} missing name`)
                         }
                         validatedData[key] = item
                         break
-
-                    // Allow other types but don't validate them strictly
                     default:
                         validatedData[key] = item
                 }
             }
 
-            // Second pass: validate relationships
             files.forEach(fileId => {
                 if (!contentFiles.has(fileId)) {
-                    console.warn(`Warning: File ${fileId} has no associated content`)
+                    console.warn(`Warning: File ${fileId} has no content`)
                 }
             })
 
-            contentFiles.forEach(fileId => {
-                if (!files.has(fileId)) {
-                    console.warn(`Warning: Content exists for non-existent file ${fileId}`)
-                }
-            })
-
-            // If validation passes, update the store
             data.value = validatedData
-
-            // Reset selection and open folders
             selectedFileId.value = null
             openFolders.value = new Set()
 
-            // Select the first file if available
             const firstFile = Object.values(validatedData).find(item => item.type === 'file')
             if (firstFile) {
                 selectedFileId.value = firstFile.id
@@ -292,6 +444,7 @@ export const useDocStore = defineStore('docStore', () => {
         }
     }
 
+    // ---------- UI State Management ----------
     function toggleFolder(folderId) {
         if (openFolders.value.has(folderId)) {
             openFolders.value.delete(folderId)
@@ -306,7 +459,7 @@ export const useDocStore = defineStore('docStore', () => {
         }
     }
 
-    // Create markdown-it instance with desired options
+    // ---------- Markdown Rendering ----------
     function getMarkdownIt() {
         const md = new MarkdownIt({
             html: true,
@@ -315,16 +468,20 @@ export const useDocStore = defineStore('docStore', () => {
             breaks: true
         }).use(markdownItTaskLists)
 
-        // Customize the rendering rules to add our Tailwind classes
+        // Configure markdown renderer to apply our Tailwind CSS styles
         md.renderer.rules.paragraph_open = () => `<span class="${styles.value.p}">`
         md.renderer.rules.paragraph_close = () => '</span>'
+
         md.renderer.rules.heading_open = (tokens, idx) => {
             const tag = tokens[idx].tag
             return `<${tag} class="${styles.value[tag]}">`
         }
+
         md.renderer.rules.bullet_list_open = () => `<ul class="${styles.value.ul}">`
         md.renderer.rules.ordered_list_open = () => `<ol class="${styles.value.ol}">`
+
         md.renderer.rules.list_item_open = (tokens, idx) => {
+            // Special handling for task lists
             if (tokens[idx].map && tokens[idx].map.length > 0) {
                 if (tokens[idx + 2]?.type === 'task_list_item_open') {
                     const checked = tokens[idx + 2].checked
@@ -333,17 +490,23 @@ export const useDocStore = defineStore('docStore', () => {
             }
             return `<li class="${styles.value.li}">`
         }
+
         md.renderer.rules.code_inline = (tokens, idx) =>
             `<code class="${styles.value.code}">${tokens[idx].content}</code>`
+
         md.renderer.rules.blockquote_open = () =>
             `<blockquote class="${styles.value.blockquote}">`
+
         md.renderer.rules.hr = () => `<hr class="${styles.value.hr}">`
+
         md.renderer.rules.em_open = () => `<em class="${styles.value.em}">`
         md.renderer.rules.strong_open = () => `<strong class="${styles.value.strong}">`
+
         md.renderer.rules.link_open = (tokens, idx) => {
             const href = tokens[idx].attrGet('href')
             return `<a href="${href}" class="${styles.value.a}" target="_blank" rel="noopener">`
         }
+
         md.renderer.rules.image = (tokens, idx) => {
             const token = tokens[idx]
             const src = token.attrGet('src')
@@ -351,6 +514,7 @@ export const useDocStore = defineStore('docStore', () => {
             const title = token.attrGet('title')
             return `<img src="${src}" alt="${alt}" title="${title || ''}" class="${styles.value.img}">`
         }
+
         md.renderer.rules.table_open = () => `<table class="${styles.value.table}">`
         md.renderer.rules.th_open = () => `<th class="${styles.value.th}">`
         md.renderer.rules.td_open = () => `<td class="${styles.value.td}">`
@@ -358,106 +522,48 @@ export const useDocStore = defineStore('docStore', () => {
         return md
     }
 
-
-    // ------------------------------------------------------------------------
-    // [PouchDB SYNC ADDED] - Local DB, load/save functions, sync initialization
-    // ------------------------------------------------------------------------
-    const localDB = new PouchDB('pn-markdown-notes')
-
-    async function loadFromPouchDB() {
-        try {
-            const doc = await localDB.get('docStoreData')
-            if (doc && doc.data) {
-                data.value = doc.data
-            }
-        } catch (err) {
-            if (err.status === 404) {
-                // docStoreData doesn't exist yet, so do nothing
-            } else {
-                console.error('Error loading from PouchDB:', err)
-            }
-        }
+    function resetStore() {
+        data.value = { ...EMPTY_DATA }
+        selectedFileId.value = 'welcome'
+        openFolders.value = new Set()
     }
 
-    async function saveToPouchDB() {
-        try {
-            // Attempt to get the existing doc first
-            const existing = await localDB.get('docStoreData')
-            await localDB.put({
-                ...existing,
-                data: data.value
-            })
-        } catch (err) {
-            if (err.status === 404) {
-                // Create a new doc
-                await localDB.put({
-                    _id: 'docStoreData',
-                    data: data.value
-                })
-            } else {
-                console.error('Error saving to PouchDB:', err)
-            }
-        }
-    }
-
-    // Watch for changes in our data and save them automatically
-    watch(data, () => {
-        saveToPouchDB()
-    }, { deep: true })
-
-    function initSync() {
-        const remoteCouch = 'http://admin:password@127.0.0.1:5984/pn-markdown-notes'
-        const remoteDB = new PouchDB(remoteCouch)
-
-        localDB.sync(remoteDB, { live: true, retry: true })
-            .on('change', info => {
-                console.log('Sync change:', info)
-            })
-            .on('paused', err => {
-                if (err) {
-                    console.error('Sync paused by error:', err)
-                }
-            })
-            .on('active', () => {
-                console.log('Sync resumed')
-            })
-            .on('denied', err => {
-                console.error('Sync denied:', err)
-            })
-            .on('error', err => {
-                console.error('Sync error:', err)
-            })
-    }
-
-    // Expose an init function to be called once in main.js (or wherever you prefer)
-    async function initCouchDB() {
-        await loadFromPouchDB()
-        initSync()
-    }
-    // ------------------------------------------------------------------------
-
-
+    // Return all the functions and reactive data that should be accessible from outside the store
     return {
+        // State
+        data,
         selectedFileId,
         openFolders,
         styles,
+
+        // Getters
         itemsArray,
         rootItems,
         selectedFile,
         selectedFileContent,
+
+        // File/Folder Operations
         getChildren,
         selectFile,
-        updateFileContent,
-        exportJson,
-        importData,
-        toggleFolder,
-        updateStyle,
-        getMarkdownIt,
         createFile,
         createFolder,
         deleteItem,
+        updateFileContent,
 
-        // [PouchDB SYNC ADDED] - initialization method
-        initCouchDB
+        // Import/Export
+        exportJson,
+        importData,
+
+        // UI State Management
+        toggleFolder,
+        updateStyle,
+
+        // Markdown Rendering
+        getMarkdownIt,
+
+        // Database Management
+        initCouchDB,
+        destroyLocalDB,
+        resetStore
     }
 })

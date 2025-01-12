@@ -1,11 +1,48 @@
-version: '3'
+version: '3.8'
 services:
   couchdb:
-    image: couchdb:latest
+    image: couchdb:3
     container_name: couchdb
-    restart: unless-stopped
+    restart: always
     ports:
       - "5984:5984"
     environment:
       - COUCHDB_USER=admin
       - COUCHDB_PASSWORD=password
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5984/_up" ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  signup-service:
+    build: ./signup-service
+    container_name: signup-service
+    depends_on:
+      - couchdb
+    ports:
+      - "3000:3000"
+    environment:
+      - COUCHDB_URL=http://couchdb:5984
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=password
+
+  # NEW couchdb-init service
+  couchdb-init:
+    build: ./couchdb-init
+    container_name: couchdb-init
+    depends_on:
+      couchdb:
+        condition: service_healthy
+    environment:
+      - COUCHDB_HOST=couchdb
+      - COUCHDB_PORT=5984
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=password
+    command: [ "npm", "start" ]
+
+volumes:
+  couchdb_data:

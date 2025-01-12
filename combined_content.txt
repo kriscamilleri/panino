@@ -5,6 +5,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "couch": "node ./couchdb-setup.js",
     "llm": "node ./generate-llm-file.cjs",
     "dev": "vite",
     "build": "vite build",
@@ -12,10 +13,12 @@
   },
   "dependencies": {
     "dompurify": "^3.2.3",
+    "events": "^3.3.0",
     "lucide-vue-next": "^0.469.0",
     "markdown-it": "^14.1.0",
     "markdown-it-task-lists": "^2.1.1",
     "pinia": "^2.3.0",
+    "pouchdb-browser": "^9.0.0",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },
@@ -67,9 +70,256 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  define: {
+    global: 'globalThis'
+  },
+  optimizeDeps: {
+    allowNodeBuiltins: ['pouchdb-browser', 'pouchdb-utils']
+}
 })
 
 ----- END: vite.config.js -----
+
+----- START: couchdb-init/index.js -----
+import fetch from 'node-fetch';
+
+const COUCHDB_HOST = process.env.COUCHDB_HOST || '127.0.0.1';
+const COUCHDB_PORT = process.env.COUCHDB_PORT || '5984';
+const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password';
+// const NODENAME = process.env.NODENAME || 'couchdb@localhost';
+
+async function putConfig(path, value) {
+    const url = `http://${COUCHDB_HOST}:${COUCHDB_PORT}/_node/_local/_config/${path}`;
+    const authHeader = 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64');
+
+    const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': authHeader,
+        },
+        body: JSON.stringify(value)
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Failed to PUT ${path}: ${res.status} - ${text}`);
+    }
+}
+
+async function createDatabase(dbName) {
+    const url = `http://${COUCHDB_HOST}:${COUCHDB_PORT}/${dbName}`;
+    const authHeader = 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64');
+
+    const res = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'Authorization': authHeader,
+        }
+    });
+    if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Failed to create database ${dbName}: ${res.status} - ${text}`);
+    }
+}
+
+async function main() {
+    console.log('Enabling CORS on CouchDB...');
+    await putConfig('httpd/enable_cors', 'true');
+    await putConfig('cors/origins', '*');
+    await putConfig('cors/credentials', 'true');
+    await putConfig('cors/methods', 'GET, PUT, POST, HEAD, DELETE');
+    await putConfig('cors/headers', 'accept, authorization, content-type, origin, referer, x-csrf-token');
+    console.log('CORS setup complete.');
+
+    console.log('Creating _users database...');
+    await createDatabase('_users');
+    console.log('_users database created.');
+
+    // REMOVED: PerUser auto-creation lines to avoid conflicts with the signup service:
+    // console.log('Configuring Couch PerUser...');
+    // await putConfig('chttpd/require_valid_user', 'true');
+    // await putConfig('couch_peruser/enable', 'true');
+    // await putConfig('couch_peruser/delayed_commits', 'false');
+    // console.log('Couch PerUser setup complete.');
+
+    console.log('Done!');
+}
+
+main().catch(err => {
+    console.error('Error during CouchDB setup:', err);
+    process.exit(1);
+});
+
+----- END: couchdb-init/index.js -----
+
+----- START: couchdb-init/package.json -----
+{
+    "name": "couchdb-init",
+    "version": "1.0.0",
+    "description": "A simple Node.js script to configure CORS (and optional setup) for CouchDB",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "node-fetch": "^3.3.1"
+    }
+}
+----- END: couchdb-init/package.json -----
+
+----- START: signup-service/index.js -----
+import express from 'express'
+import fetch from 'node-fetch'
+import cors from 'cors'
+
+// Pull credentials from environment variables (provided by docker-compose)
+const COUCHDB_URL = process.env.COUCHDB_URL || 'http://127.0.0.1:5984'
+const ADMIN_USER = process.env.ADMIN_USER || 'admin'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password'
+
+const app = express()
+app.use(cors()) // This allows all origins
+app.use(express.json())
+
+// Health check
+app.get('/', (req, res) => {
+   res.send('Sign-up service is running.')
+})
+
+/**
+ * POST /signup
+ * Creates a user in CouchDB.
+ * Expects JSON body: { username: string, password: string }
+ */
+app.post('/signup', async (req, res) => {
+   try {
+      const { username, password } = req.body
+      if (!username || !password) {
+         return res.status(400).json({
+            error: 'Missing username or password'
+         })
+      }
+
+      // Create user in _users database
+      const userDoc = {
+         _id: `org.couchdb.user:${username}`,
+         name: username,
+         roles: [],
+         type: 'user',
+         password: password
+      }
+
+      // Create user in _users database
+      const userResponse = await fetch(`${COUCHDB_URL}/_users/org.couchdb.user:${username}`, {
+         method: 'PUT',
+         headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64')
+         },
+         body: JSON.stringify(userDoc)
+      })
+
+      const userData = await userResponse.json()
+      if (!userResponse.ok) {
+         console.error('Failed to create user:', userData)
+         return res.status(userResponse.status).json({
+            error: userData.error,
+            reason: userData.reason
+         })
+      }
+
+      // Create user database
+      const dbName = `userdb-${username}`
+      const createDbResponse = await fetch(`${COUCHDB_URL}/${dbName}`, {
+         method: 'PUT',
+         headers: {
+            'Authorization': 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64')
+         }
+      })
+
+      if (!createDbResponse.ok) {
+         const dbError = await createDbResponse.json()
+         // If database already exists, that's okay - continue
+         if (dbError.error !== 'file_exists') {
+            console.error('Failed to create database:', dbError)
+            return res.status(createDbResponse.status).json({
+               error: dbError.error,
+               reason: dbError.reason
+            })
+         }
+      }
+
+      // Set security permissions for the database
+      const securityDoc = {
+         admins: {
+            names: [],
+            roles: []
+         },
+         members: {
+            names: [username],
+            roles: []
+         }
+      }
+
+      const securityResponse = await fetch(`${COUCHDB_URL}/${dbName}/_security`, {
+         method: 'PUT',
+         headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64')
+         },
+         body: JSON.stringify(securityDoc)
+      })
+
+      if (!securityResponse.ok) {
+         const secError = await securityResponse.json()
+         console.error('Failed to set security:', secError)
+         return res.status(securityResponse.status).json({
+            error: secError.error,
+            reason: secError.reason
+         })
+      }
+
+      return res.json({
+         ok: true,
+         id: userData.id,
+         rev: userData.rev,
+         database: dbName
+      })
+   } catch (err) {
+      console.error('Signup service error:', err)
+      res.status(500).json({
+         error: 'Internal Server Error',
+         reason: err.message
+      })
+   }
+})
+
+// Start server
+const port = process.env.PORT || 3000
+app.listen(port, () => {
+   console.log(`Signup service listening on port ${port}`)
+})
+
+----- END: signup-service/index.js -----
+
+----- START: signup-service/package.json -----
+{
+    "name": "signup-service",
+    "version": "1.0.0",
+    "description": "Secure sign-up service for creating CouchDB users",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "express": "^4.18.2",
+        "node-fetch": "^3.3.1"
+    }
+}
+----- END: signup-service/package.json -----
 
 ----- START: src/AppShell.vue -----
 <template>
@@ -85,23 +335,38 @@ export default defineConfig({
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import { router } from './router'
-import AppShell from './AppShell.vue' // your new root layout
+import AppShell from './AppShell.vue'
 import './assets/main.css'
 
-createApp(AppShell)
-    .use(createPinia())
-    .use(router)
-    .mount('#app')
+// 1) Import the docStore
+import { useDocStore } from '@/store/docStore'
 
+const pinia = createPinia()
+const app = createApp(AppShell)
+app.use(pinia)
+app.use(router)
+
+// 2) Initialize the docStore *before* you mount the app
+//    This ensures the data is loaded from local DB and
+//    remote sync is started in every tab:
+const docStore = useDocStore()
+docStore.initCouchDB() // <---- The key!
+
+app.mount('#app')
 ----- END: src/main.js -----
 
 ----- START: src/router.js -----
-// ----- START: src/router.js -----
 import { createRouter, createWebHashHistory } from 'vue-router'
 import HomePage from '@/pages/HomePage.vue'
 import StylesPage from '@/pages/StylesPage.vue'
 
-// We add a new route named 'doc' with a fileId param:
+// NEW imports:
+import LoginForm from '@/components/LoginForm.vue'
+import SignupForm from '@/components/SignupForm.vue'
+
+// ADD this import:
+import { useAuthStore } from '@/store/authStore.js'
+
 export const router = createRouter({
     history: createWebHashHistory(),
     routes: [
@@ -122,16 +387,34 @@ export const router = createRouter({
             name: 'styles',
             component: StylesPage,
             meta: { keepAlive: true }
-        }
+        },
+        // NEW routes:
+        {
+            path: '/login',
+            name: 'login',
+            component: LoginForm,
+        },
+        {
+            path: '/signup',
+            name: 'signup',
+            component: SignupForm,
+        },
     ]
 })
 
-// Add global navigation guard if you need it; for now it does nothing special.
-router.beforeEach((to, from, next) => {
-    next()
-})
-// ----- END: src/router.js -----
+// AMENDED global navigation guard:
+router.beforeEach(async (to, from, next) => {
+    const authStore = useAuthStore()
+    // Attempt to check if user is logged in (based on existing session cookie, if any)
+    await authStore.checkAuth()
 
+    // If NOT authenticated and trying to access anything except login/signup, redirect to login
+    if (!authStore.isAuthenticated && to.name !== 'login' && to.name !== 'signup') {
+        next({ name: 'login' })
+    } else {
+        next()
+    }
+})
 ----- END: src/router.js -----
 
 ----- START: src/assets/styles.json -----
@@ -492,6 +775,85 @@ function importData() {
 
 ----- END: src/components/ImportModal.vue -----
 
+----- START: src/components/LoginForm.vue -----
+<template>
+    <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-md w-full space-y-8">
+            <div>
+                <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                    Sign in to your account
+                </h2>
+            </div>
+            <form class="mt-8 space-y-6" @submit.prevent="handleSubmit">
+                <div class="rounded-md shadow-sm -space-y-px">
+                    <div>
+                        <label for="username" class="sr-only">Username</label>
+                        <input id="username" v-model="username" name="username" type="text" required
+                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                            placeholder="Username">
+                    </div>
+                    <div>
+                        <label for="password" class="sr-only">Password</label>
+                        <input id="password" v-model="password" name="password" type="password" required
+                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                            placeholder="Password">
+                    </div>
+                </div>
+
+                <div>
+                    <button type="submit"
+                        class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        :disabled="loading">
+                        {{ loading ? 'Signing in...' : 'Sign in' }}
+                    </button>
+                </div>
+
+                <div v-if="error" class="text-red-500 text-center text-sm">
+                    {{ error }}
+                </div>
+
+                <div class="text-sm text-center mt-4">
+                    <router-link to="/signup" class="font-medium text-indigo-600 hover:text-indigo-500">
+                        Don't have an account? Sign up
+                    </router-link>
+                </div>
+            </form>
+        </div>
+    </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { useAuthStore } from '../store/authStore'
+import { useDocStore } from '../store/docStore'
+import { useRouter } from 'vue-router'
+
+const authStore = useAuthStore()
+const docStore = useDocStore()
+const router = useRouter()
+
+const username = ref('')
+const password = ref('')
+const loading = ref(false)
+const error = ref('')
+
+async function handleSubmit() {
+    loading.value = true
+    error.value = ''
+
+    try {
+        await authStore.login(username.value, password.value)
+        await docStore.initCouchDB()
+        router.push('/')
+    } catch (err) {
+        error.value = 'Invalid username or password'
+    } finally {
+        loading.value = false
+    }
+}
+</script>
+----- END: src/components/LoginForm.vue -----
+
 ----- START: src/components/Preview.vue -----
 // In src/components/Preview.vue
 
@@ -733,6 +1095,115 @@ function cancelCreate() {
 </script>
 
 ----- END: src/components/SideBar.vue -----
+
+----- START: src/components/SignupForm.vue -----
+<template>
+    <div class="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-md w-full space-y-8">
+            <div>
+                <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                    Create your account
+                </h2>
+            </div>
+            <form class="mt-8 space-y-6" @submit.prevent="handleSubmit">
+                <div class="rounded-md shadow-sm -space-y-px">
+                    <div>
+                        <label for="username" class="sr-only">Username</label>
+                        <input id="username" v-model="username" name="username" type="text" required
+                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                            placeholder="Username">
+                    </div>
+                    <div>
+                        <label for="password" class="sr-only">Password</label>
+                        <input id="password" v-model="password" name="password" type="password" required
+                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                            placeholder="Password">
+                    </div>
+                    <div>
+                        <label for="confirmPassword" class="sr-only">Confirm Password</label>
+                        <input id="confirmPassword" v-model="confirmPassword" name="confirmPassword" type="password"
+                            required
+                            class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                            placeholder="Confirm Password">
+                    </div>
+                </div>
+
+                <div>
+                    <button type="submit"
+                        class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                        :disabled="loading">
+                        {{ loading ? 'Creating account...' : 'Sign up' }}
+                    </button>
+                </div>
+
+                <div v-if="error" class="text-red-500 text-center text-sm">
+                    {{ error }}
+                </div>
+
+                <div class="text-sm text-center">
+                    <router-link to="/login" class="font-medium text-indigo-600 hover:text-indigo-500">
+                        Already have an account? Sign in
+                    </router-link>
+                </div>
+            </form>
+        </div>
+    </div>
+</template>
+
+<script setup>
+import { ref, computed } from 'vue'
+import { useAuthStore } from '../store/authStore'
+import { useDocStore } from '../store/docStore'
+import { useRouter } from 'vue-router'
+
+const authStore = useAuthStore()
+const docStore = useDocStore()
+const router = useRouter()
+
+const username = ref('')
+const password = ref('')
+const confirmPassword = ref('')
+const loading = ref(false)
+const error = ref('')
+
+const isValid = computed(() => {
+    return username.value.length >= 3 &&
+        password.value.length >= 6 &&
+        password.value === confirmPassword.value
+})
+
+async function handleSubmit() {
+    if (!isValid.value) {
+        error.value = password.value !== confirmPassword.value
+            ? 'Passwords do not match'
+            : 'Username must be at least 3 characters and password at least 6 characters'
+        return
+    }
+
+    loading.value = true
+    error.value = ''
+
+    try {
+        console.log('Starting signup process...')
+        await authStore.signup(username.value, password.value)
+        console.log('Signup successful, attempting login...')
+        await authStore.login(username.value, password.value)
+        console.log('Login successful, initializing CouchDB...')
+        await docStore.initCouchDB()
+        console.log('All steps completed, redirecting...')
+        router.push('/')
+    } catch (err) {
+        console.error('Signup process error:', err)
+        error.value = err.message || 'Failed to create account. Please try again.'
+        if (err.message.includes('conflict')) {
+            error.value = 'Username already exists. Please choose another.'
+        }
+    } finally {
+        loading.value = false
+    }
+}
+</script>
+----- END: src/components/SignupForm.vue -----
 
 ----- START: src/components/TreeItem.vue -----
 <template>
@@ -1019,6 +1490,16 @@ onUnmounted(() => {
                         <Palette class="w-4 h-4" />
                         <span>Styles</span>
                     </button>
+
+                    <!-- NEW LOGIN / LOGOUT BUTTONS -->
+                    <button v-if="!authStore.isAuthenticated" @click="goToLogin"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        Login
+                    </button>
+                    <button v-else @click="handleLogout"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        Logout
+                    </button>
                 </div>
             </div>
 
@@ -1145,12 +1626,12 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
+import { useAuthStore } from '@/store/authStore' // <--- ADDED
 import Sidebar from '@/components/SideBar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
 import ImportModal from '@/components/ImportModal.vue'
 
-// Import only the icons you need from lucide-vue:
 import {
     Folder,
     Edit3,
@@ -1176,10 +1657,11 @@ import {
 
 const docStore = useDocStore()
 const ui = useUiStore()
+const authStore = useAuthStore() // <--- ADDED
+
 const router = useRouter()
 const route = useRoute()
 
-// For panel resizing
 const container = ref(null)
 const mainContent = ref(null)
 const sidebarWidth = ref(300)
@@ -1324,6 +1806,20 @@ const editorRef = ref(null)
 function handleImportSuccess() {
     console.log('Import successful')
 }
+
+// NEW: handleLogout and goToLogin
+async function handleLogout() {
+    try {
+        await authStore.logout()
+        router.push('/login')
+    } catch (err) {
+        console.error('Error logging out:', err)
+    }
+}
+
+function goToLogin() {
+    router.push('/login')
+}
 </script>
 
 <style scoped>
@@ -1385,14 +1881,173 @@ function goBack() {
 </script>
 ----- END: src/pages/StylesPage.vue -----
 
+----- START: src/store/authStore.js -----
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import PouchDB from 'pouchdb-browser'
+import { useDocStore } from '@/store/docStore'
+
+export const useAuthStore = defineStore('authStore', () => {
+    const user = ref(null)
+    const isAuthenticated = ref(false)
+    // Keep track of the last logged-in username to handle switching between users
+    const lastLoggedInUser = ref(null)
+
+    const authDB = new PouchDB('_users')
+
+    async function login(username, password) {
+        try {
+            // If we have a different user logging in than the last known user, destroy the old local DB
+            if (lastLoggedInUser.value && lastLoggedInUser.value !== username) {
+                const docStore = useDocStore()
+                await docStore.destroyLocalDB(lastLoggedInUser.value)
+            }
+
+            const response = await fetch('http://localhost:5984/_session', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: username, password }),
+                credentials: 'include'
+            })
+
+            if (!response.ok) {
+                throw new Error('Login failed')
+            }
+
+            const data = await response.json()
+            user.value = {
+                name: username,
+                roles: data.roles,
+                dbName: `userdb-${username.toLowerCase()}`
+            }
+            isAuthenticated.value = true
+            lastLoggedInUser.value = username
+
+            // Initialize docStore for the newly logged-in user
+            const docStore = useDocStore()
+            await docStore.initCouchDB()
+
+            return true
+        } catch (error) {
+            console.error('Login error:', error)
+            throw error
+        }
+    }
+
+    async function logout() {
+        try {
+            // 1) Destroy session on the server
+            await fetch('http://localhost:5984/_session', {
+                method: 'DELETE',
+                credentials: 'include'
+            })
+
+            // 2) Destroy the local DB for the user who is logging out
+            if (user.value?.name) {
+                const docStore = useDocStore()
+                await docStore.destroyLocalDB(user.value.name)
+            }
+
+            // 3) Clear user info in auth store
+            user.value = null
+            isAuthenticated.value = false
+            lastLoggedInUser.value = null
+
+            // 4) Reset the docStore in "guest" mode
+            const docStore = useDocStore()
+            docStore.resetStore()
+            await docStore.initCouchDB()
+
+        } catch (error) {
+            console.error('Logout error:', error)
+            throw error
+        }
+    }
+
+    async function checkAuth() {
+        try {
+            const response = await fetch('http://localhost:5984/_session', {
+                credentials: 'include'
+            })
+            const data = await response.json()
+
+            if (data.userCtx.name) {
+                // If a different user is discovered via cookies, destroy old DB
+                if (lastLoggedInUser.value && lastLoggedInUser.value !== data.userCtx.name) {
+                    const docStore = useDocStore()
+                    await docStore.destroyLocalDB(lastLoggedInUser.value)
+                }
+
+                user.value = {
+                    name: data.userCtx.name,
+                    roles: data.userCtx.roles,
+                    dbName: `userdb-${data.userCtx.name.toLowerCase()}`
+                }
+                isAuthenticated.value = true
+                lastLoggedInUser.value = data.userCtx.name
+
+                // Make sure docStore is initialized for this user
+                const docStore = useDocStore()
+                await docStore.initCouchDB()
+
+                return true
+            } else {
+                return false
+            }
+        } catch (error) {
+            console.error('Auth check error:', error)
+            return false
+        }
+    }
+
+    /**
+     * Updated signup function calls our new signup-service instead of CouchDB directly with admin creds.
+     */
+    async function signup(username, password) {
+        try {
+            const response = await fetch('http://localhost:3000/signup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            })
+
+            const data = await response.json()
+            if (!response.ok) {
+                console.error('Signup error (from signup-service):', data)
+                throw new Error(data.reason || data.error || 'Signup service failed')
+            }
+
+            return true
+        } catch (error) {
+            console.error('Signup error:', error)
+            throw error
+        }
+    }
+
+    return {
+        user,
+        isAuthenticated,
+        lastLoggedInUser,
+        login,
+        logout,
+        checkAuth,
+        signup
+    }
+})
+
+----- END: src/store/authStore.js -----
+
 ----- START: src/store/docStore.js -----
-// src/store/docStore.js
 import { defineStore } from 'pinia'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import PouchDB from 'pouchdb-browser'
+import { useAuthStore } from '@/store/authStore'  // <--- ADDED
 
-// Initialize with empty data instead of importing
+// Initialize with a default doc
 const EMPTY_DATA = {
     'welcome': {
         id: 'welcome',
@@ -1415,12 +2070,10 @@ const EMPTY_DATA = {
 }
 
 export const useDocStore = defineStore('docStore', () => {
-    // Initialize with empty data
-    const data = ref(EMPTY_DATA)
+    const data = ref({ ...EMPTY_DATA })
     const selectedFileId = ref('welcome')
     const openFolders = ref(new Set())
 
-    // Default Tailwind classes for each element
     const styles = ref({
         h1: 'text-3xl font-bold mt-4 mb-2 block',
         h2: 'text-2xl font-semibold mt-3 mb-2 block',
@@ -1442,6 +2095,11 @@ export const useDocStore = defineStore('docStore', () => {
         td: 'border border-gray-300 px-2 py-1',
     })
 
+    let localDB = null  // <- We'll store the current local PouchDB instance here
+
+    // ----------------------------------------------------
+    // Basic getters
+    // ----------------------------------------------------
     const itemsArray = computed(() => Object.values(data.value))
 
     const rootItems = computed(() => {
@@ -1450,116 +2108,14 @@ export const useDocStore = defineStore('docStore', () => {
         return [...sortByName(folders), ...sortByName(files)]
     })
 
-    // Generate a unique ID
-    function generateId() {
-        return Math.random().toString(36).substring(2, 15)
-    }
-
-    // Create a new file
-    function createFile(name, parentId = null) {
-        const id = generateId()
-        const newFile = {
-            id,
-            type: 'file',
-            name,
-            parentId,
-            hash: Date.now(),
-            tx: Date.now()
-        }
-
-        // Create the file content
-        const contentId = `${id}/content`
-        const content = {
-            id: contentId,
-            type: 'content',
-            text: '', // Empty initial content
-            properties: '\n',
-            discussions: {},
-            comments: {},
-            hash: Date.now(),
-            tx: Date.now()
-        }
-
-        // Add both the file and its content to the store
-        data.value = {
-            ...data.value,
-            [id]: newFile,
-            [contentId]: content
-        }
-
-        // Select the newly created file
-        selectFile(id)
-
-        // If parent is a folder, ensure it's open
-        if (parentId) {
-            openFolders.value.add(parentId)
-        }
-
-        return id
-    }
-
-    // Create a new folder
-    function createFolder(name, parentId = null) {
-        const id = generateId()
-        const newFolder = {
-            id,
-            type: 'folder',
-            name,
-            parentId,
-            hash: Date.now(),
-            tx: Date.now()
-        }
-
-        data.value = {
-            ...data.value,
-            [id]: newFolder
-        }
-
-        // Open the parent folder if it exists
-        if (parentId) {
-            openFolders.value.add(parentId)
-        }
-
-        return id
-    }
-
-    // Delete an item (file or folder)
-    function deleteItem(id) {
-        if (!data.value[id]) return
-
-        // If it's a folder, recursively delete all children
-        if (data.value[id].type === 'folder') {
-            const children = getChildren(id)
-            children.forEach(child => deleteItem(child.id))
-            openFolders.value.delete(id)
-        }
-
-        // If it's a file, delete its content
-        if (data.value[id].type === 'file') {
-            const contentKey = `${id}/content`
-            delete data.value[contentKey]
-            if (selectedFileId.value === id) {
-                selectedFileId.value = null
-            }
-        }
-
-        // Delete the item itself
-        delete data.value[id]
-        data.value = { ...data.value } // Trigger reactivity
+    function sortByName(items) {
+        return items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
     }
 
     function getChildren(parentId) {
         const folders = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'folder')
         const files = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'file')
         return [...sortByName(folders), ...sortByName(files)]
-    }
-
-    function sortByName(items) {
-        return items.slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-    }
-
-    function selectFile(fileId) {
-        selectedFileId.value = fileId
     }
 
     const selectedFile = computed(() => {
@@ -1572,6 +2128,88 @@ export const useDocStore = defineStore('docStore', () => {
         const contentKey = `${selectedFile.value.id}/content`
         return data.value[contentKey]?.text || ''
     })
+
+    // ----------------------------------------------------
+    // CRUD operations
+    // ----------------------------------------------------
+    function createFile(name, parentId = null) {
+        const id = generateId()
+        const newFile = {
+            id,
+            type: 'file',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+        const contentId = `${id}/content`
+        const content = {
+            id: contentId,
+            type: 'content',
+            text: '',
+            properties: '\n',
+            discussions: {},
+            comments: {},
+            hash: Date.now(),
+            tx: Date.now()
+        }
+
+        data.value = {
+            ...data.value,
+            [id]: newFile,
+            [contentId]: content
+        }
+        selectFile(id)
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+        return id
+    }
+
+    function createFolder(name, parentId = null) {
+        const id = generateId()
+        const newFolder = {
+            id,
+            type: 'folder',
+            name,
+            parentId,
+            hash: Date.now(),
+            tx: Date.now()
+        }
+        data.value = {
+            ...data.value,
+            [id]: newFolder
+        }
+        if (parentId) {
+            openFolders.value.add(parentId)
+        }
+        return id
+    }
+
+    function deleteItem(id) {
+        if (!data.value[id]) return
+
+        if (data.value[id].type === 'folder') {
+            const children = getChildren(id)
+            children.forEach(child => deleteItem(child.id))
+            openFolders.value.delete(id)
+        }
+
+        if (data.value[id].type === 'file') {
+            const contentKey = `${id}/content`
+            delete data.value[contentKey]
+            if (selectedFileId.value === id) {
+                selectedFileId.value = null
+            }
+        }
+
+        delete data.value[id]
+        data.value = { ...data.value }
+    }
+
+    function selectFile(fileId) {
+        selectedFileId.value = fileId
+    }
 
     function updateFileContent(fileId, newText) {
         const contentKey = `${fileId}/content`
@@ -1586,99 +2224,79 @@ export const useDocStore = defineStore('docStore', () => {
             }
         }
     }
+
+    // ----------------------------------------------------
+    // Export / Import
+    // ----------------------------------------------------
     function exportJson() {
         return JSON.stringify(data.value, null, 2)
     }
 
     function importData(newData) {
-        // Validate the data structure
         try {
-            // Check if it's an object
             if (typeof newData !== 'object' || newData === null) {
-                throw new Error('Invalid data structure: must be an object')
+                throw new Error('Invalid data structure')
             }
-
-            // Validate the structure
             const validatedData = {}
             const files = new Set()
             const contentFiles = new Set()
 
-            // First pass: collect all files and validate basic structure
             for (const [key, item] of Object.entries(newData)) {
                 if (!item || typeof item !== 'object') {
-                    throw new Error(`Invalid item structure for key ${key}`)
+                    throw new Error(`Invalid item for key ${key}`)
                 }
-
                 if (!item.id || !item.type) {
-                    throw new Error(`Missing required properties (id or type) for item ${key}`)
+                    throw new Error(`Missing id or type for ${key}`)
                 }
-
-                // Validate based on type
                 switch (item.type) {
                     case 'file':
                         if (!item.name) {
-                            throw new Error(`File ${item.id} missing name property`)
+                            throw new Error(`File ${item.id} missing name`)
                         }
                         files.add(item.id)
                         validatedData[key] = item
                         break
-
                     case 'content':
-                        if (!item.text) {
-                            throw new Error(`Content ${item.id} missing text property`)
+                        if (typeof item.text === 'undefined') {
+                            throw new Error(`Content ${item.id} missing text`)
                         }
-                        const fileId = item.id.split('/')[0]
-                        contentFiles.add(fileId)
+                        contentFiles.add(item.id.split('/')[0])
                         validatedData[key] = item
                         break
-
                     case 'folder':
                         if (!item.name) {
-                            throw new Error(`Folder ${item.id} missing name property`)
+                            throw new Error(`Folder ${item.id} missing name`)
                         }
                         validatedData[key] = item
                         break
-
-                    // Allow other types but don't validate them strictly
                     default:
                         validatedData[key] = item
                 }
             }
 
-            // Second pass: validate relationships
             files.forEach(fileId => {
                 if (!contentFiles.has(fileId)) {
-                    console.warn(`Warning: File ${fileId} has no associated content`)
+                    console.warn(`Warning: File ${fileId} has no content`)
                 }
             })
 
-            contentFiles.forEach(fileId => {
-                if (!files.has(fileId)) {
-                    console.warn(`Warning: Content exists for non-existent file ${fileId}`)
-                }
-            })
-
-            // If validation passes, update the store
             data.value = validatedData
-
-            // Reset selection and open folders
             selectedFileId.value = null
             openFolders.value = new Set()
 
-            // Select the first file if available
-            const firstFile = Object.values(validatedData)
-                .find(item => item.type === 'file')
+            const firstFile = Object.values(validatedData).find(item => item.type === 'file')
             if (firstFile) {
                 selectedFileId.value = firstFile.id
             }
-
         } catch (error) {
             console.error('Import failed:', error)
             throw error
         }
     }
 
-
+    // ----------------------------------------------------
+    // Additional helpers
+    // ----------------------------------------------------
     function toggleFolder(folderId) {
         if (openFolders.value.has(folderId)) {
             openFolders.value.delete(folderId)
@@ -1693,7 +2311,6 @@ export const useDocStore = defineStore('docStore', () => {
         }
     }
 
-    // Create markdown-it instance with desired options
     function getMarkdownIt() {
         const md = new MarkdownIt({
             html: true,
@@ -1702,7 +2319,6 @@ export const useDocStore = defineStore('docStore', () => {
             breaks: true
         }).use(markdownItTaskLists)
 
-        // Customize the rendering rules to add our Tailwind classes
         md.renderer.rules.paragraph_open = () => `<span class="${styles.value.p}">`
         md.renderer.rules.paragraph_close = () => '</span>'
         md.renderer.rules.heading_open = (tokens, idx) => {
@@ -1713,6 +2329,7 @@ export const useDocStore = defineStore('docStore', () => {
         md.renderer.rules.ordered_list_open = () => `<ol class="${styles.value.ol}">`
         md.renderer.rules.list_item_open = (tokens, idx) => {
             if (tokens[idx].map && tokens[idx].map.length > 0) {
+                // Check for task list
                 if (tokens[idx + 2]?.type === 'task_list_item_open') {
                     const checked = tokens[idx + 2].checked
                     return `<li class="${styles.value.li}"><input type="checkbox" ${checked ? 'checked' : ''} disabled> `
@@ -1745,27 +2362,206 @@ export const useDocStore = defineStore('docStore', () => {
         return md
     }
 
+    function generateId() {
+        return Math.random().toString(36).substring(2, 15)
+    }
+
+    // ----------------------------------------------------
+    // Local PouchDB & sync
+    // ----------------------------------------------------
+
+    /**
+     * Close the current localDB instance, if any.
+     */
+    function closeLocalDB() {
+        if (localDB) {
+            localDB.close()
+            localDB = null
+        }
+    }
+
+    /**
+     * Reset data to initial state. 
+     * Use this when switching users so the old data doesn't linger.
+     */
+    function resetStore() {
+        data.value = { ...EMPTY_DATA }
+        selectedFileId.value = 'welcome'
+        openFolders.value = new Set()
+    }
+
+    async function loadFromPouchDB() {
+        try {
+            const doc = await localDB.get('docStoreData')
+            if (doc && doc.data) {
+                data.value = doc.data
+            }
+        } catch (err) {
+            if (err.status !== 404) {
+                console.error('Error loading from PouchDB:', err)
+            }
+        }
+    }
+
+    async function _saveWithRetry(existing) {
+        try {
+            await localDB.put({
+                ...existing,
+                data: data.value
+            })
+        } catch (err) {
+            if (err.name === 'conflict') {
+                console.warn('docStoreData conflict detected. Fetching the latest _rev and retrying...')
+                const freshDoc = await localDB.get('docStoreData')
+                await localDB.put({
+                    ...freshDoc,
+                    data: data.value
+                })
+            } else {
+                throw err
+            }
+        }
+    }
+
+    async function saveToPouchDB() {
+        try {
+            const existing = await localDB.get('docStoreData')
+            await _saveWithRetry(existing)
+        } catch (err) {
+            if (err.status === 404) {
+                // docStoreData doesn't exist, create it
+                try {
+                    await localDB.put({
+                        _id: 'docStoreData',
+                        data: data.value
+                    })
+                } catch (innerErr) {
+                    if (innerErr.name === 'conflict') {
+                        console.warn('Conflict on first put, fetching docStoreData again...')
+                        const freshDoc = await localDB.get('docStoreData')
+                        await localDB.put({
+                            ...freshDoc,
+                            data: data.value
+                        })
+                    } else {
+                        console.error('Error saving to PouchDB (404 path):', innerErr)
+                    }
+                }
+            } else {
+                console.error('Error saving to PouchDB:', err)
+            }
+        }
+    }
+
+    function initSync() {
+        const authStore = useAuthStore()
+        if (!authStore.isAuthenticated) {
+            console.log('User not authenticated; skipping remote sync.')
+            return
+        }
+        const remoteCouch = `http://localhost:5984/${authStore.user.dbName}`
+
+        localDB.sync(remoteCouch, {
+            live: true,
+            retry: true,
+            fetch: (url, opts) => {
+                return fetch(url, {
+                    ...opts,
+                    credentials: 'include'
+                })
+            }
+        })
+            .on('change', info => {
+                console.log('Sync change:', info)
+            })
+            .on('paused', err => {
+                if (err) {
+                    console.error('Sync paused:', err)
+                }
+            })
+            .on('active', () => {
+                console.log('Sync active')
+            })
+            .on('denied', err => {
+                console.error('Sync denied:', err)
+            })
+            .on('error', err => {
+                console.error('Sync error:', err)
+            })
+    }
+
+    /**
+     * Initializes the local DB name based on whether user is authenticated.
+     * Loads data, sets watchers, and starts sync if user is logged in.
+     */
+    async function initCouchDB() {
+        const authStore = useAuthStore()
+
+        // 1) Close any existing DB
+        closeLocalDB()
+
+        // 2) Choose DB name
+        const localDBName = authStore.isAuthenticated
+            ? `pn-markdown-notes-${authStore.user.name}`
+            : 'pn-markdown-notes-guest'
+
+        // 3) Open a new local DB instance
+        localDB = new PouchDB(localDBName)
+
+        // 4) Load data from local DB if it exists
+        await loadFromPouchDB()
+
+        // 5) Watch "data" so it saves to local PouchDB on changes
+        watch(data, () => {
+            saveToPouchDB()
+        }, { deep: true })
+
+        // 6) Attempt to sync (cookie-based) if logged in
+        initSync()
+    }
+    // ----------------------------------------------------
+
     return {
+        // state
+        data,
         selectedFileId,
         openFolders,
         styles,
+
+        // getters
         itemsArray,
         rootItems,
         selectedFile,
         selectedFileContent,
+
+        // file/folder ops
         getChildren,
         selectFile,
-        updateFileContent,
-        exportJson,
-        importData,
-        toggleFolder,
-        updateStyle,
-        getMarkdownIt,
         createFile,
         createFolder,
         deleteItem,
+        updateFileContent,
+
+        // import/export
+        exportJson,
+        importData,
+
+        // folder toggling
+        toggleFolder,
+
+        // style updates
+        updateStyle,
+
+        // markdown
+        getMarkdownIt,
+
+        // main couchdb logic
+        initCouchDB,
+        closeLocalDB,
+        resetStore
     }
 })
+
 ----- END: src/store/docStore.js -----
 
 ----- START: src/store/uiStore.js -----
