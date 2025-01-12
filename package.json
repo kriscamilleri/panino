@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "couch": "node ./couchdb-setup.js",
     "llm": "node ./generate-llm-file.cjs",
     "dev": "vite",
     "build": "vite build",

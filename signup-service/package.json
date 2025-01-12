@@ -1,0 +1,15 @@
+{
+    "name": "signup-service",
+    "version": "1.0.0",
+    "description": "Secure sign-up service for creating CouchDB users",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "express": "^4.18.2",
+        "node-fetch": "^3.3.1"
+    }
+}
