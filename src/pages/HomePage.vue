@@ -1,6 +1,8 @@
+# In src/pages/HomePage.vue
+
 <template>
     <div class="h-screen flex flex-col overflow-hidden" ref="container">
-        <!-- Top Navbar --><!-- Top Navbar -->
+        <!-- Top Navbar -->
         <nav class="bg-gray-100 border-b">
             <div class="flex items-center justify-between px-4 py-2">
                 <!-- Left side -->
@@ -36,6 +38,13 @@
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         <Palette class="w-4 h-4" />
                         <span>Styles</span>
+                    </button>
+
+                    <!-- Print button -->
+                    <button @click="handlePrint"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        <Printer class="w-4 h-4" />
+                        <span>Print</span>
                     </button>
 
                     <!-- Login/Logout button -->
@@ -165,6 +174,7 @@
                 </div>
             </transition>
         </nav>
+
         <!-- Main content area -->
         <div class="flex flex-1 overflow-hidden" ref="mainContent">
             <!-- Sidebar with resizer -->
@@ -182,7 +192,6 @@
             <template v-if="ui.showEditor">
                 <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
                     <div class="h-full overflow-y-auto p-4">
-                        <!-- Note the ref on the Editor -->
                         <Editor ref="editorRef" />
                     </div>
                 </div>
@@ -194,10 +203,13 @@
             <!-- Preview -->
             <div v-if="ui.showPreview" class="flex-1 overflow-hidden">
                 <div class="h-full overflow-y-auto p-4">
-                    <Preview />
+                    <Preview ref="previewRef" />
                 </div>
             </div>
         </div>
+
+        <!-- Hidden print container -->
+        <div ref="printContainer" class="hidden"></div>
     </div>
     <ImportModal :show="showImportModal" @close="showImportModal = false" @import-success="handleImportSuccess" />
 </template>
@@ -207,7 +219,7 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
-import { useAuthStore } from '@/store/authStore' // <--- ADDED
+import { useAuthStore } from '@/store/authStore'
 import Sidebar from '@/components/SideBar.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
@@ -235,18 +247,20 @@ import {
     Search,
     ArrowRight,
     FileIcon,
-    Layout
+    Layout,
+    Printer
 } from 'lucide-vue-next'
 
 const docStore = useDocStore()
 const ui = useUiStore()
-const authStore = useAuthStore() // <--- ADDED
-
+const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
 const container = ref(null)
 const mainContent = ref(null)
+const printContainer = ref(null)
+const previewRef = ref(null)
 const sidebarWidth = ref(300)
 const editorWidth = ref(500)
 const isResizing = ref(false)
@@ -255,6 +269,108 @@ const startX = ref(0)
 const startWidth = ref(0)
 const showImportModal = ref(false)
 const searchTerm = ref('')
+
+// Print functionality
+async function handlePrint() {
+    if (!docStore.selectedFile) {
+        alert('Please select a file to print')
+        return
+    }
+
+    // Create a new window for printing
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+        alert('Please allow popup windows for printing')
+        return
+    }
+
+    // Get the rendered content
+    const content = previewRef.value.$el.innerHTML
+
+    // Create print-friendly styles
+    const printStyles = `
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                line-height: 1.6;
+                max-width: 800px;
+                margin: 40px auto;
+                padding: 0 20px;
+            }
+            h1 { font-size: 2.5em; margin-bottom: 0.5em; }
+            h2 { font-size: 2em; margin-bottom: 0.5em; }
+            h3 { font-size: 1.5em; margin-bottom: 0.5em; }
+            p { margin-bottom: 1em; }
+            pre { 
+                background: #f5f5f5;
+                padding: 1em;
+                border-radius: 4px;
+                overflow-x: auto;
+            }
+            code {
+                background: #f5f5f5;
+                padding: 0.2em 0.4em;
+                border-radius: 3px;
+            }
+            blockquote {
+                border-left: 4px solid #ddd;
+                padding-left: 1em;
+                margin: 1em 0;
+                color: #666;
+            }
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 1em 0;
+            }
+            th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }
+            th {
+                background-color: #f5f5f5;
+            }
+            img {
+                max-width: 100%;
+                height: auto;
+            }
+            @media print {
+                body { margin: 1.6cm; }
+                pre, code { white-space: pre-wrap; }
+            }
+        </style>
+    `
+
+    // Write content to print window
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${docStore.selectedFile.name}</title>
+            ${printStyles}
+        </head>
+        <body>
+            ${content}
+        </body>
+        </html>
+    `)
+
+    // Close the document writing
+    printWindow.document.close()
+
+    // Wait for all content to load
+    printWindow.onload = () => {
+        // Additional delay to ensure styles are applied and content is rendered
+        setTimeout(() => {
+            printWindow.print()
+            // Handle closing after print
+            printWindow.onafterprint = () => {
+                printWindow.close()
+            }
+        }, 1000)
+    }
+}
 
 // 1) Watch route params -> open correct file
 onMounted(() => {
@@ -383,14 +499,13 @@ const listFormats = [
     { label: 'Task List', icon: CheckSquare, prefix: '- [ ] ' },
 ]
 
-// We’ll access Editor’s methods via a template ref:
+// Editor's methods via template ref:
 const editorRef = ref(null)
 
 function handleImportSuccess() {
     console.log('Import successful')
 }
 
-// NEW: handleLogout and goToLogin
 async function handleLogout() {
     try {
         await authStore.logout()

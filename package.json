@@ -1,10 +1,9 @@
 {
   "name": "pn-markdown-notes",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "couch": "node ./couchdb-setup.js",
     "llm": "node ./generate-llm-file.cjs",
     "dev": "vite",
     "build": "vite build",
