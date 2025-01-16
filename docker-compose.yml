@@ -1,14 +1,36 @@
 version: '3.8'
 services:
+  # vue-app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - .:/app
+  #     - /app/node_modules
+  #   command: npm run serve
+
+  # nginx:
+  #   build:
+  #     context: ./nginx
+  #     dockerfile: Dockerfile
+  #     args:
+  #       NODE_ENV: production
+  #   depends_on:
+  #     - vue-app
+  #   ports:
+  #     - "8080:80"
+
   couchdb:
     image: couchdb:3
-    container_name: couchdb
+    container_name: ${COUCHDB_HOST}
     restart: always
     ports:
       - "5984:5984"
     environment:
-      - COUCHDB_USER=admin
-      - COUCHDB_PASSWORD=password
+      - COUCHDB_USER=${COUCHDB_USER}
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
     volumes:
       - couchdb_data:/opt/couchdb/data
     healthcheck:
@@ -26,11 +48,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - COUCHDB_URL=http://couchdb:5984
-      - ADMIN_USER=admin
-      - ADMIN_PASSWORD=password
+      - COUCHDB_URL=${COUCHDB_URL}
+      - ADMIN_USER=${COUCHDB_USER}
+      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
 
-  # NEW couchdb-init service
   couchdb-init:
     build: ./couchdb-init
     container_name: couchdb-init
@@ -38,10 +59,10 @@ services:
       couchdb:
         condition: service_healthy
     environment:
-      - COUCHDB_HOST=couchdb
+      - COUCHDB_HOST=${COUCHDB_HOST}
       - COUCHDB_PORT=5984
-      - ADMIN_USER=admin
-      - ADMIN_PASSWORD=password
+      - ADMIN_USER=${COUCHDB_USER}
+      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
     command: [ "npm", "start" ]
 
 volumes:

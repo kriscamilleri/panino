@@ -2,7 +2,6 @@ import express from 'express'
 import fetch from 'node-fetch'
 import cors from 'cors'
 
-// Pull credentials from environment variables (provided by docker-compose)
 const COUCHDB_URL = process.env.COUCHDB_URL || 'http://127.0.0.1:5984'
 const ADMIN_USER = process.env.ADMIN_USER || 'admin'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password'
@@ -69,7 +68,7 @@ app.post('/signup', async (req, res) => {
 
       if (!createDbResponse.ok) {
          const dbError = await createDbResponse.json()
-         // If database already exists, that's okay - continue
+         // If database already exists, continue
          if (dbError.error !== 'file_exists') {
             console.error('Failed to create database:', dbError)
             return res.status(createDbResponse.status).json({

@@ -1,5 +1,50 @@
-# Vue 3 + Vite
+# Pretty Neat Notes
+A simple self-hostable markdown editor, heavily inspired by StackEdit. 
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+## Features
+- Simple markdown formatting including text formatting, table insertion, and list creation 
+- Workspace synchronization using CouchDB and PouchDB
+- Stackedit compatible import and export
+- Multi-level folder support
+- Workspace and local document search
+- Print to PDF 
+- Self-hostable with minimal configuration
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+## Tech Stack
+### Frontend 
+- Vue 3 
+- Markdown-it
+- PouchDB 
+
+### Backend
+- CouchDB 
+- Docker compose
+- NodeJS signup container
+- CouchDB initial configuration container
+
+## Getting Started
+### Prerequisites
+1. Docker & Docker Compose
+2. NodeJS 18.0+
+
+### Environment Variables
+Create a .env file in the root directory of the project with the below properties. Don't forget to change the admin username and password.
+```
+COUCHDB_USER=admin
+COUCHDB_PASSWORD=password
+COUCHDB_URL=http://couchdb:5984
+COUCHDB_HOST=couchdb
+```
+
+### Backend
+1. Create .env file in the root folder of the project with the above variables.
+2. Spin up the containers with the below command.
+```
+docker compose up
+```
+### Frontend
+
+```
+ npm i
+ npm run dev
+ ``
