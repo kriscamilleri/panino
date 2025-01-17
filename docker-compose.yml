@@ -1,69 +1,55 @@
+# --- docker-compose.yml ---
 version: '3.8'
+
 services:
-  # vue-app:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "80:80"
-  #   volumes:
-  #     - .:/app
-  #     - /app/node_modules
-  #   command: npm run serve
-
-  # nginx:
-  #   build:
-  #     context: ./nginx
-  #     dockerfile: Dockerfile
-  #     args:
-  #       NODE_ENV: production
-  #   depends_on:
-  #     - vue-app
-  #   ports:
-  #     - "8080:80"
-
   couchdb:
-    image: couchdb:3
-    container_name: ${COUCHDB_HOST}
-    restart: always
+    image: couchdb:3.3.2
     ports:
       - "5984:5984"
     environment:
-      - COUCHDB_USER=${COUCHDB_USER}
-      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=password
     volumes:
       - couchdb_data:/opt/couchdb/data
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5984/_up" ]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-      start_period: 5s
-
-  signup-service:
-    build: ./signup-service
-    container_name: signup-service
-    depends_on:
-      - couchdb
-    ports:
-      - "3000:3000"
-    environment:
-      - COUCHDB_URL=${COUCHDB_URL}
-      - ADMIN_USER=${COUCHDB_USER}
-      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
+      test: [ "CMD", "curl", "-f", "http://localhost:5984" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   couchdb-init:
-    build: ./couchdb-init
-    container_name: couchdb-init
+    build:
+      context: ./couchdb-init
+    environment:
+      - COUCHDB_HOST=couchdb
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=password
     depends_on:
       couchdb:
         condition: service_healthy
+
+  signup-service:
+    build:
+      context: ./signup-service
+    ports:
+      - "3000:3000"
     environment:
-      - COUCHDB_HOST=${COUCHDB_HOST}
-      - COUCHDB_PORT=5984
-      - ADMIN_USER=${COUCHDB_USER}
-      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
-    command: [ "npm", "start" ]
+      - COUCHDB_URL=http://couchdb:5984
+      - ADMIN_USER=admin
+      - ADMIN_PASSWORD=password
+    depends_on:
+      - couchdb-init
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - signup-service
+    environment:
+      - NODE_ENV=production
 
 volumes:
   couchdb_data:

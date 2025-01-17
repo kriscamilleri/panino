@@ -1,17 +1,29 @@
-# Use the official Node.js image as a parent image
-FROM node:14-alpine AS builder
+# Dockerfile
+FROM node:20-alpine as build-stage
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy package.json and package-lock.json
+# Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
-# Bundle app source inside Docker image
+# Copy project files
 COPY . .
 
-# Build the Vue.js application
+# Build the project
 RUN npm run build
+
+# Production stage
+FROM nginx:alpine
+
+# Copy built files from build stage
+COPY --from=build-stage /app/dist /usr/share/nginx/html
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
