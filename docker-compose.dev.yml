@@ -1,0 +1,68 @@
+# --- docker-compose.dev.yml ---
+version: '3.8'
+
+services:
+  couchdb:
+    image: couchdb:3.3.2
+    ports:
+      - "5984:5984"
+    environment:
+      - COUCHDB_USER=${COUCHDB_USER}
+      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5984" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  couchdb-init:
+    build:
+      context: ./couchdb-init
+    environment:
+      - COUCHDB_HOST=${COUCHDB_HOST}
+      - ADMIN_USER=${COUCHDB_USER}
+      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
+    volumes:
+      - ./couchdb-init:/app
+      - /app/node_modules
+    depends_on:
+      couchdb:
+        condition: service_healthy
+
+  signup-service:
+    build:
+      context: ./signup-service
+    ports:
+      - "3000:3000"
+    environment:
+      - COUCHDB_URL=${COUCHDB_URL}
+      - ADMIN_USER=${COUCHDB_USER}
+      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
+      - NODE_ENV=development
+    volumes:
+      - ./signup-service:/app
+      - /app/node_modules
+    command: npm run start
+    depends_on:
+      - couchdb-init
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173" # Default Vite dev server port
+    environment:
+      - NODE_ENV=development
+      - VITE_COUCHDB_URL=${COUCHDB_URL}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run dev
+    depends_on:
+      - signup-service
+
+volumes:
+  couchdb_data:

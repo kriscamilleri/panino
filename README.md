@@ -36,15 +36,16 @@ COUCHDB_URL=http://couchdb:5984
 COUCHDB_HOST=couchdb
 ```
 
-### Backend
+### Production
 1. Create .env file in the root folder of the project with the above variables.
 2. Spin up the containers with the below command.
 ```
 docker compose up
 ```
-### Frontend
 
+### Development
+1. Create .env file in the root folder of the project with the above variables.
+2. Spin up the containers with the below command.
 ```
- npm i
- npm run dev
- ``
+docker-compose -f docker-compose.dev.yml up --build
+```
