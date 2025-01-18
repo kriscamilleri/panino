@@ -19,7 +19,7 @@ services:
 
   couchdb-init:
     build:
-      context: ./couchdb-init
+      context: ./backend/couchdb-init
     environment:
       - COUCHDB_HOST=${COUCHDB_HOST}
       - ADMIN_USER=${COUCHDB_USER}
@@ -33,7 +33,7 @@ services:
 
   signup-service:
     build:
-      context: ./signup-service
+      context: ./backend/signup-service
     ports:
       - "3000:3000"
     environment:
@@ -50,7 +50,7 @@ services:
 
   frontend:
     build:
-      context: .
+      context: ./frontend
       dockerfile: Dockerfile.dev
     ports:
       - "5173:5173" # Default Vite dev server port
