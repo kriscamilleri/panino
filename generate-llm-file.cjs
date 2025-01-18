@@ -84,7 +84,7 @@ async function processFiles(fileTypes) {
 
 // Main function
 async function main() {
-    const fileTypes = ['.vue', '.js', '.json'];
+    const fileTypes = ['.vue', '.js', '.json', 'yml'];
     await processFiles(fileTypes);
     console.log(`Combined content written to ${outputFile}`);
 }
