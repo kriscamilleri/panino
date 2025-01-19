@@ -15,9 +15,10 @@ export const useDocStore = defineStore('docStore', () => {
     const syncStore = useSyncStore()
     const importExportStore = useImportExportStore()
 
-    // Expose necessary getters with original names for backward compatibility
+    // Expose necessary getters
     const data = computed(() => structureStore.data)
     const selectedFileId = computed(() => structureStore.selectedFileId)
+    const selectedFolderId = computed(() => structureStore.selectedFolderId)
     const openFolders = computed(() => structureStore.openFolders)
     const styles = computed(() => markdownStore.styles)
     const itemsArray = computed(() => structureStore.itemsArray)
@@ -43,11 +44,23 @@ export const useDocStore = defineStore('docStore', () => {
         contentStore.clearCache()
     }
 
-    // Re-export all necessary functions with original names
+    // Re-export structure operations
+    function renameItem(itemId, newName) {
+        return structureStore.renameItem(itemId, newName)
+    }
+
+    function selectFolder(folderId) {
+        structureStore.selectFolder(folderId)
+    }
+    function selectFile(fileId) {
+        structureStore.selectFile(fileId)
+    }
+
     return {
         // State & Getters
         data,
         selectedFileId,
+        selectedFolderId,
         openFolders,
         styles,
         itemsArray,
@@ -55,12 +68,16 @@ export const useDocStore = defineStore('docStore', () => {
         selectedFile,
         selectedFileContent,
 
-        // File/Folder Operations (from structureStore)
+        // File/Folder Operations
         getChildren: structureStore.getChildren,
-        selectFile: structureStore.selectFile,
         createFile: structureStore.createFile,
         createFolder: structureStore.createFolder,
         deleteItem: structureStore.deleteItem,
+        renameItem,
+        selectFolder,
+        selectFile,
+
+        // Update content
         updateFileContent: contentStore.updateContent,
 
         // Import/Export
@@ -71,10 +88,10 @@ export const useDocStore = defineStore('docStore', () => {
         toggleFolder: structureStore.toggleFolder,
         updateStyle: markdownStore.updateStyle,
 
-        // Markdown Rendering
+        // Markdown
         getMarkdownIt: markdownStore.getMarkdownIt,
 
-        // Database Management
+        // DB
         initCouchDB,
         destroyLocalDB,
         resetStore

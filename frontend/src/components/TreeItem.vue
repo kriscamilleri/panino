@@ -3,12 +3,26 @@
         <!-- Context Menu -->
         <div v-if="showContextMenu" class="fixed bg-white shadow-lg rounded-lg border p-2 z-50"
             :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }">
+
+            <!-- Rename -->
+            <button @click="handleRename"
+                class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1">
+                <Edit class="w-4 h-4" />
+                <span>Rename</span>
+            </button>
+
+            <div class="border-t my-1"></div>
+
+            <!-- Delete -->
             <button @click="handleDelete"
                 class="w-full text-left px-3 py-1 hover:bg-red-100 text-red-600 rounded flex items-center space-x-1">
                 <Trash2 class="w-4 h-4" />
                 <span>Delete</span>
             </button>
+
             <div class="border-t my-1"></div>
+
+            <!-- New File / New Folder -->
             <button v-if="isFolder" @click="handleNewFile"
                 class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1">
                 <FilePlus class="w-4 h-4" />
@@ -22,21 +36,25 @@
         </div>
 
         <!-- FOLDER -->
-        <div v-if="isFolder" class="flex items-center space-x-2 cursor-pointer group"
-            @contextmenu.prevent="showMenu($event)">
-            <span @click.stop="toggleLocalFolderState" class="flex items-center">
+        <div v-if="isFolder" class="flex items-center space-x-2 group">
+            <!-- Arrow toggles open/close -->
+            <span @click.stop="toggleLocalFolderState" class="cursor-pointer">
                 <ChevronDown v-if="isOpen" class="w-4 h-4" />
                 <ChevronRight v-else class="w-4 h-4" />
             </span>
-            <span class="font-semibold flex-grow" @click.stop="toggleLocalFolderState">
+            <!-- Clicking the name will select the folder -->
+            <span class="font-semibold flex-grow cursor-pointer" @click.stop="handleFolderClick">
                 <Folder class="inline-block w-4 h-4 mr-1" />
                 {{ item.name }}
-                <span v-if="isFiltered && matchingFiles.length > 0" class="text-sm text-gray-500">
-                    ({{ matchingFiles.length }} matches)
-                </span>
             </span>
-            <button v-if="!isFiltered" class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
-                @click.stop="showMenu($event)">
+            <!-- "More" button:
+                 - visible if this folder is "selected" or
+                   is the parent of the currently selected file
+                 - or if hovered, as before -->
+            <button v-if="!isFiltered" class="transition-opacity px-2 rounded" :class="{
+                'opacity-100': shouldShowContextButton,
+                'opacity-0 group-hover:opacity-100': !shouldShowContextButton
+            }" @click.stop="showMenu($event)">
                 <MoreHorizontal class="w-4 h-4" />
             </button>
         </div>
@@ -48,8 +66,13 @@
             <span class="flex-grow">
                 {{ item.name }}
             </span>
-            <button v-if="!isFiltered" class="opacity-0 group-hover:opacity-100 px-2 hover:bg-gray-200 rounded"
-                @click.stop="showMenu($event)">
+            <!-- "More" button:
+                 - always visible if file is selected
+                 - otherwise visible on hover -->
+            <button v-if="!isFiltered" class="transition-opacity px-2 rounded" :class="{
+                'opacity-100': isSelectedFile,
+                'opacity-0 group-hover:opacity-100': !isSelectedFile
+            }" @click.stop="showMenu($event)">
                 <MoreHorizontal class="w-4 h-4" />
             </button>
         </div>
@@ -86,6 +109,23 @@
                 </div>
             </div>
         </div>
+
+        <!-- Rename Modal -->
+        <div v-if="showRenameModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-4 rounded-lg shadow-lg w-96">
+                <h3 class="text-lg font-semibold mb-4">Rename {{ renameType }}</h3>
+                <input v-model="renameItemName" type="text" class="w-full border rounded p-2 mb-4"
+                    @keyup.enter="confirmRename" :placeholder="'Enter new ' + renameType + ' name'" />
+                <div class="flex justify-end space-x-2">
+                    <button @click="cancelRename" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                        Cancel
+                    </button>
+                    <button @click="confirmRename" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                        Rename
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -94,7 +134,6 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import TreeItem from './TreeItem.vue'
 
-// Import necessary Lucide icons
 import {
     Trash2,
     FilePlus,
@@ -103,7 +142,8 @@ import {
     ChevronRight,
     ChevronDown,
     Folder,
-    File
+    File,
+    Edit
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -116,12 +156,10 @@ const docStore = useDocStore()
 
 // Type checks
 const isFolder = computed(() => props.item.type === 'folder')
-const isFile = computed(() => props.item.type === 'file')
 
-// Local folder state for filtered view
+// Local open state for folder in filtered mode
 const localFolderState = ref(true)
 
-// Folder open state
 const isOpen = computed(() => {
     if (!isFolder.value) return false
     return props.isFiltered
@@ -129,17 +167,34 @@ const isOpen = computed(() => {
         : docStore.openFolders.has(props.item.id)
 })
 
+// Return true if the user is “selecting” this file
+const isSelectedFile = computed(() => {
+    return !isFolder.value && docStore.selectedFileId === props.item.id
+})
+
+// Return true if this folder is “selected” OR is the parent of the selected file
+const isSelectedFolder = computed(() => {
+    return isFolder.value && docStore.selectedFolderId === props.item.id
+})
+
+const isParentOfSelectedFile = computed(() => {
+    if (!isFolder.value) return false
+    const selFile = docStore.selectedFile
+    if (!selFile) return false
+    return selFile.parentId === props.item.id
+})
+
+// We only show the “More” button for a folder if it is either selected or is the parent of the selected file
+const shouldShowContextButton = computed(() => {
+    return isSelectedFolder.value || isParentOfSelectedFile.value
+})
+
 // Context menu state
 const showContextMenu = ref(false)
 const contextMenuX = ref(0)
 const contextMenuY = ref(0)
 
-// Create modal state
-const showCreateModal = ref(false)
-const createType = ref('')
-const newItemName = ref('')
-
-// Get child items for folders
+// Child items
 const children = computed(() => {
     if (isFolder.value) {
         return docStore.getChildren(props.item.id)
@@ -147,7 +202,17 @@ const children = computed(() => {
     return []
 })
 
-// Event Handlers
+// Create modal
+const showCreateModal = ref(false)
+const createType = ref('')
+const newItemName = ref('')
+
+// Rename modal
+const showRenameModal = ref(false)
+const renameType = ref('')
+const renameItemName = ref('')
+
+// Folder toggling / selection
 function toggleLocalFolderState() {
     if (props.isFiltered) {
         localFolderState.value = !localFolderState.value
@@ -155,21 +220,28 @@ function toggleLocalFolderState() {
         docStore.toggleFolder(props.item.id)
     }
 }
+function handleFolderClick() {
+    // Mark the folder as selected
+    docStore.selectFolder(props.item.id)
+}
 
+// File selection
 function handleFileClick(fileId) {
     docStore.selectFile(fileId)
 }
 
+// Context menu
 function showMenu(event) {
-    if (!props.isFiltered) {
-        contextMenuX.value = event.clientX
-        contextMenuY.value = event.clientY
-        showContextMenu.value = true
-    }
+    // For filtered search results, we skip context menu
+    if (props.isFiltered) return
+
+    contextMenuX.value = event.clientX
+    contextMenuY.value = event.clientY
+    showContextMenu.value = true
 }
 
 function handleDelete() {
-    if (confirm(`Are you sure you want to delete ${props.item.name}?`)) {
+    if (confirm(`Are you sure you want to delete "${props.item.name}"?`)) {
         docStore.deleteItem(props.item.id)
     }
     showContextMenu.value = false
@@ -204,7 +276,28 @@ function cancelCreate() {
     createType.value = ''
 }
 
-// Close context menu when clicking outside
+// Rename
+function handleRename() {
+    renameType.value = props.item.type
+    renameItemName.value = props.item.name
+    showRenameModal.value = true
+    showContextMenu.value = false
+}
+
+function confirmRename() {
+    if (renameItemName.value.trim()) {
+        docStore.renameItem(props.item.id, renameItemName.value.trim())
+    }
+    cancelRename()
+}
+
+function cancelRename() {
+    showRenameModal.value = false
+    renameItemName.value = ''
+    renameType.value = ''
+}
+
+// Close context menu when clicking anywhere else
 function handleClickOutside() {
     if (showContextMenu.value) {
         showContextMenu.value = false

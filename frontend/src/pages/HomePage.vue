@@ -47,6 +47,13 @@
                         <span>Print</span>
                     </button>
 
+                    <!-- Print button -->
+                    <a target="_blank" href="https://github.com/kriscamilleri/pn-markdown-notes"
+                        class=" px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                        <Info class="w-4 h-4" />
+                        <span>About</span>
+                    </a>
+
                     <!-- Login/Logout button -->
                     <button v-if="!authStore.isAuthenticated" @click="goToLogin"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
