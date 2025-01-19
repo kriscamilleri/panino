@@ -21,6 +21,8 @@ export const useStructureStore = defineStore('structureStore', () => {
     // Core state
     const data = ref({ ...EMPTY_DATA })
     const selectedFileId = ref('welcome')
+    // NEW: track a selected folder separately
+    const selectedFolderId = ref(null)
     const openFolders = ref(new Set())
 
     // Stores
@@ -36,6 +38,7 @@ export const useStructureStore = defineStore('structureStore', () => {
         return [...sortByName(folders), ...sortByName(files)]
     })
 
+    // If a file is selected, fetch its record
     const selectedFile = computed(() => {
         if (!selectedFileId.value) return null
         return data.value.structure[selectedFileId.value] || null
@@ -122,6 +125,9 @@ export const useStructureStore = defineStore('structureStore', () => {
                 await deleteItem(child.id)
             }
             openFolders.value.delete(id)
+            if (selectedFolderId.value === id) {
+                selectedFolderId.value = null
+            }
         }
 
         if (data.value.structure[id].type === 'file') {
@@ -141,8 +147,37 @@ export const useStructureStore = defineStore('structureStore', () => {
     }
 
     async function selectFile(fileId) {
+        // When selecting a file, unselect any folder
+        selectedFolderId.value = null
+
         await contentStore.loadContent(fileId)
         selectedFileId.value = fileId
+    }
+
+    // NEW: selectFolder
+    function selectFolder(folderId) {
+        // Unselect any file
+        selectedFileId.value = null
+        selectedFolderId.value = folderId
+    }
+
+    // NEW: rename operation
+    async function renameItem(itemId, newName) {
+        if (!data.value.structure[itemId]) return
+        const item = data.value.structure[itemId]
+
+        item.name = newName
+        item.tx = Date.now()
+        item.hash = Date.now()
+
+        data.value = {
+            ...data.value,
+            structure: {
+                ...data.value.structure,
+                [itemId]: item
+            }
+        }
+        await saveStructure()
     }
 
     // Folder state management
@@ -172,6 +207,7 @@ export const useStructureStore = defineStore('structureStore', () => {
     function resetStore() {
         data.value = { ...EMPTY_DATA }
         selectedFileId.value = 'welcome'
+        selectedFolderId.value = null
         openFolders.value = new Set()
     }
 
@@ -179,6 +215,7 @@ export const useStructureStore = defineStore('structureStore', () => {
         // State
         data,
         selectedFileId,
+        selectedFolderId, // new
         openFolders,
 
         // Getters
@@ -189,12 +226,14 @@ export const useStructureStore = defineStore('structureStore', () => {
         // Operations
         getChildren,
         selectFile,
+        selectFolder,
         createFile,
         createFolder,
         deleteItem,
         toggleFolder,
+        renameItem,
 
-        // Structure management
+        // Persistence
         saveStructure,
         loadStructure,
         resetStore
