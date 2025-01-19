@@ -9,6 +9,7 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         h1: 'text-3xl font-bold mt-4 mb-2 block',
         h2: 'text-2xl font-semibold mt-3 mb-2 block',
         h3: 'text-xl font-semibold mt-2 mb-1 block',
+        h4: 'text-lg font-semibold mt-2 mb-1 block text-gray-600',
         p: 'mb-2 leading-relaxed',
         ul: 'list-disc list-inside mb-2',
         ol: 'list-decimal list-inside mb-2',

@@ -1,14 +1,13 @@
-# --- docker-compose.yml ---
 version: '3.8'
 
 services:
   couchdb:
     image: couchdb:3.3.2
+    environment:
+      - COUCHDB_USER=${ADMIN_USER:-admin}
+      - COUCHDB_PASSWORD=${ADMIN_PASSWORD:-password}
     ports:
       - "5984:5984"
-    environment:
-      - COUCHDB_USER=${COUCHDB_USER}
-      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
     volumes:
       - couchdb_data:/opt/couchdb/data
     healthcheck:
@@ -21,9 +20,9 @@ services:
     build:
       context: ./backend/couchdb-init
     environment:
-      - COUCHDB_HOST=${COUCHDB_HOST}
-      - ADMIN_USER=${COUCHDB_USER}
-      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
+      - COUCHDB_HOST=couchdb
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
     depends_on:
       couchdb:
         condition: service_healthy
@@ -34,21 +33,42 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - COUCHDB_URL=${COUCHDB_URL}
-      - ADMIN_USER=${COUCHDB_USER}
-      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
+      - COUCHDB_URL=http://couchdb:5984
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
     depends_on:
-      - couchdb-init
+      couchdb:
+        condition: service_healthy
+
+  image-service:
+    build:
+      context: ./backend/image-service
+    ports:
+      - "3001:3001"
+    environment:
+      - COUCHDB_URL=http://couchdb:5984
+      - PORT=3001
+    depends_on:
+      couchdb:
+        condition: service_healthy
 
   frontend:
     build:
-      context: ./frontend/
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "80:80"
+      - "5173:5173"
     environment:
-      - NODE_ENV=production
-      - VITE_COUCHDB_URL=${COUCHDB_URL}
+      - VITE_COUCHDB_URL=http://localhost:5984
+      - VITE_SIGNUP_URL=http://localhost:3000
+      - VITE_IMAGE_SERVICE_URL=http://localhost:3001
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
     depends_on:
+      - couchdb
       - signup-service
+      - image-service
+
 volumes:
   couchdb_data:
