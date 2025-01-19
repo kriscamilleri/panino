@@ -1,4 +1,3 @@
-<!-- ----- START: src/components/Editor.vue ----- -->
 <template>
     <div v-if="file" class="h-full flex flex-col">
         <!-- Document Stats (toggled via uiStore.showStats) -->
@@ -39,9 +38,20 @@
             </div>
         </div>
 
+        <!-- Upload Progress -->
+        <div v-if="isUploading" class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center">
+            <span class="mr-2">Uploading image...</span>
+            <div class="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
+        </div>
+
+        <!-- Upload Error -->
+        <div v-if="uploadError" class="mb-4 p-2 bg-red-50 text-red-700 rounded">
+            {{ uploadError }}
+        </div>
+
         <!-- Textarea -->
         <div class="flex-1 flex flex-col min-h-0">
-            <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput"
+            <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput" @paste="handlePaste"
                 class="flex-1 border p-2 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
                 placeholder="Start writing..."></textarea>
         </div>
@@ -62,7 +72,9 @@ const ui = useUiStore()
 // References
 const textareaRef = ref(null)
 
-// We no longer store showStats / showMetadata locally; they're in uiStore.
+// Upload state
+const isUploading = ref(false)
+const uploadError = ref('')
 
 // The selected file
 const file = computed(() => docStore.selectedFile)
@@ -84,6 +96,77 @@ const lineCount = computed(() => {
     if (!contentDraft.value) return 0
     return contentDraft.value.split('\n').length
 })
+
+// Handle paste events
+async function handlePaste(event) {
+    const items = event.clipboardData?.items
+    if (!items) return
+
+    for (const item of items) {
+        if (item.type.indexOf('image') === 0) {
+            event.preventDefault()
+            const file = item.getAsFile()
+            if (file) {
+                await uploadImage(file)
+            }
+            break
+        }
+    }
+}
+async function uploadImage(file) {
+    isUploading.value = true
+    uploadError.value = ''
+
+    const formData = new FormData()
+    formData.append('image', file)
+
+    try {
+        const response = await fetch('http://localhost:3001/upload', {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+        })
+
+        if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.message || 'Upload failed')
+        }
+
+        const data = await response.json()
+
+        // Insert image markdown at cursor position or at the end
+        const textarea = textareaRef.value
+        const imageUrl = `http://localhost:3001${data.url}`  // Construct full URL to our image service
+        const imageMarkdown = `![Image](${imageUrl})\n`
+
+        if (textarea) {
+            const start = textarea.selectionStart
+            const end = textarea.selectionEnd
+
+            contentDraft.value =
+                contentDraft.value.substring(0, start) +
+                imageMarkdown +
+                contentDraft.value.substring(end)
+
+            // Update cursor position
+            nextTick(() => {
+                const newPosition = start + imageMarkdown.length
+                textarea.setSelectionRange(newPosition, newPosition)
+                textarea.focus()
+            })
+        } else {
+            contentDraft.value += imageMarkdown
+        }
+
+        handleInput()
+    } catch (error) {
+        console.error('Image upload error:', error)
+        uploadError.value = error.message || 'Failed to upload image'
+    } finally {
+        isUploading.value = false
+    }
+}
+
 
 // Sync content to store
 function handleInput() {
