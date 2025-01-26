@@ -3,7 +3,6 @@
         <!-- Context Menu -->
         <div v-if="showContextMenu" class="fixed bg-white shadow-lg rounded-lg border p-2 z-50"
             :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }">
-
             <!-- Rename -->
             <button @click="handleRename"
                 class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1">
@@ -36,9 +35,12 @@
         </div>
 
         <!-- FOLDER -->
-        <div v-if="isFolder" class="flex items-center space-x-2 group">
+        <div v-if="isFolder" class="flex items-center space-x-2 group rounded-md" :class="{
+            'bg-gray-700 text-white': isSelectedFolder,
+            'bg-gray-600 text-white': isParentOfSelectedFile
+        }">
             <!-- Arrow toggles open/close -->
-            <span @click.stop="toggleLocalFolderState" class="cursor-pointer">
+            <span @click.stop="toggleLocalFolderState" class="cursor-pointer ml-1">
                 <ChevronDown v-if="isOpen" class="w-4 h-4" />
                 <ChevronRight v-else class="w-4 h-4" />
             </span>
@@ -47,10 +49,7 @@
                 <Folder class="inline-block w-4 h-4 mr-1" />
                 {{ item.name }}
             </span>
-            <!-- "More" button:
-                 - visible if this folder is "selected" or
-                   is the parent of the currently selected file
-                 - or if hovered, as before -->
+            <!-- "More" button -->
             <button v-if="!isFiltered" class="transition-opacity px-2 rounded" :class="{
                 'opacity-100': shouldShowContextButton,
                 'opacity-0 group-hover:opacity-100': !shouldShowContextButton
@@ -60,15 +59,15 @@
         </div>
 
         <!-- FILE -->
-        <div v-else class="flex items-center space-x-2 cursor-pointer group" :class="{ 'ml-6': isFiltered }"
-            @click="handleFileClick(item.id)" @contextmenu.prevent="showMenu($event)">
+        <div v-else class="flex items-center space-x-2 cursor-pointer group rounded-md pl-1" :class="{
+            'ml-6': isFiltered,
+            'bg-gray-200': isSelectedFile
+        }" @click="handleFileClick(item.id)" @contextmenu.prevent="showMenu($event)">
             <File class="w-4 h-4" />
             <span class="flex-grow">
                 {{ item.name }}
             </span>
-            <!-- "More" button:
-                 - always visible if file is selected
-                 - otherwise visible on hover -->
+            <!-- "More" button for file -->
             <button v-if="!isFiltered" class="transition-opacity px-2 rounded" :class="{
                 'opacity-100': isSelectedFile,
                 'opacity-0 group-hover:opacity-100': !isSelectedFile
@@ -172,11 +171,12 @@ const isSelectedFile = computed(() => {
     return !isFolder.value && docStore.selectedFileId === props.item.id
 })
 
-// Return true if this folder is “selected” OR is the parent of the selected file
+// Return true if this folder is “selected”
 const isSelectedFolder = computed(() => {
     return isFolder.value && docStore.selectedFolderId === props.item.id
 })
 
+// Return true if it is the parent of the currently selected file
 const isParentOfSelectedFile = computed(() => {
     if (!isFolder.value) return false
     const selFile = docStore.selectedFile
@@ -221,7 +221,6 @@ function toggleLocalFolderState() {
     }
 }
 function handleFolderClick() {
-    // Mark the folder as selected
     docStore.selectFolder(props.item.id)
 }
 
@@ -232,9 +231,7 @@ function handleFileClick(fileId) {
 
 // Context menu
 function showMenu(event) {
-    // For filtered search results, we skip context menu
     if (props.isFiltered) return
-
     contextMenuX.value = event.clientX
     contextMenuY.value = event.clientY
     showContextMenu.value = true
@@ -283,27 +280,24 @@ function handleRename() {
     showRenameModal.value = true
     showContextMenu.value = false
 }
-
 function confirmRename() {
     if (renameItemName.value.trim()) {
         docStore.renameItem(props.item.id, renameItemName.value.trim())
     }
     cancelRename()
 }
-
 function cancelRename() {
     showRenameModal.value = false
     renameItemName.value = ''
     renameType.value = ''
 }
 
-// Close context menu when clicking anywhere else
+// Close context menu on outside click
 function handleClickOutside() {
     if (showContextMenu.value) {
         showContextMenu.value = false
     }
 }
-
 onMounted(() => {
     document.addEventListener('click', handleClickOutside)
 })

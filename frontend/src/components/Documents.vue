@@ -4,18 +4,20 @@
         <div class="flex justify-between items-center mb-4">
             <h2 class="font-bold text-lg">Documents</h2>
             <div class="flex space-x-2">
-                <button @click="toggleSearch" class="p-2 hover:bg-gray-100 rounded"
-                    :class="{ 'bg-gray-200': showSearch }" title="Toggle Search">
+                <!-- Search Toggle -->
+                <BaseButton :isActive="showSearch" @click="toggleSearch" title="Toggle Search">
                     <Search class="w-4 h-4" />
-                </button>
-                <button @click="showCreateFileModal" class="p-2 hover:bg-gray-100 rounded flex items-center space-x-1"
-                    title="New File">
+                </BaseButton>
+
+                <!-- New File -->
+                <BaseButton @click="showCreateFileModal" title="New File">
                     <FilePlus class="w-4 h-4" />
-                </button>
-                <button @click="showCreateFolderModal" class="p-2 hover:bg-gray-100 rounded flex items-center space-x-1"
-                    title="New Folder">
+                </BaseButton>
+
+                <!-- New Folder -->
+                <BaseButton @click="showCreateFolderModal" title="New Folder">
                     <FolderPlus class="w-4 h-4" />
-                </button>
+                </BaseButton>
             </div>
         </div>
 
@@ -83,6 +85,7 @@
 import { computed, ref, nextTick } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import TreeItem from './TreeItem.vue'
+import BaseButton from './BaseButton.vue'
 
 // Import only necessary Lucide icons
 import {
