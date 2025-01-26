@@ -20,7 +20,8 @@ export const useDocStore = defineStore('docStore', () => {
     const selectedFileId = computed(() => structureStore.selectedFileId)
     const selectedFolderId = computed(() => structureStore.selectedFolderId)
     const openFolders = computed(() => structureStore.openFolders)
-    const styles = computed(() => markdownStore.styles)
+    const styles = computed(() => markdownStore.styles) // preview styles
+    const printStyles = computed(() => markdownStore.printStyles) // print styles
     const itemsArray = computed(() => structureStore.itemsArray)
     const rootItems = computed(() => structureStore.rootItems)
     const selectedFile = computed(() => structureStore.selectedFile)
@@ -56,19 +57,40 @@ export const useDocStore = defineStore('docStore', () => {
         structureStore.selectFile(fileId)
     }
 
+    //
+    // For preview styling
+    //
+    function updateStyle(key, newVal) {
+        markdownStore.updateStyle(key, newVal)
+    }
+    function getMarkdownIt() {
+        return markdownStore.getMarkdownIt()
+    }
+
+    //
+    // For print styling
+    //
+    function updatePrintStyle(key, newVal) {
+        markdownStore.updatePrintStyle(key, newVal)
+    }
+    function getPrintMarkdownIt() {
+        return markdownStore.getPrintMarkdownIt()
+    }
+
     return {
-        // State & Getters
+        // State & getters
         data,
         selectedFileId,
         selectedFolderId,
         openFolders,
         styles,
+        printStyles, // separate print styles
         itemsArray,
         rootItems,
         selectedFile,
         selectedFileContent,
 
-        // File/Folder Operations
+        // Structure methods
         getChildren: structureStore.getChildren,
         createFile: structureStore.createFile,
         createFolder: structureStore.createFolder,
@@ -76,24 +98,26 @@ export const useDocStore = defineStore('docStore', () => {
         renameItem,
         selectFolder,
         selectFile,
+        toggleFolder: structureStore.toggleFolder,
 
-        // Update content
+        // Content updates
         updateFileContent: contentStore.updateContent,
 
         // Import/Export
         exportJson: importExportStore.exportData,
         importData: importExportStore.importData,
 
-        // UI State Management
-        toggleFolder: structureStore.toggleFolder,
-        updateStyle: markdownStore.updateStyle,
+        // Style updates (preview)
+        updateStyle,
+        getMarkdownIt,
 
-        // Markdown
-        getMarkdownIt: markdownStore.getMarkdownIt,
+        // Print style updates
+        updatePrintStyle,
+        getPrintMarkdownIt,
 
-        // DB
+        // DB operations
         initCouchDB,
         destroyLocalDB,
-        resetStore
+        resetStore,
     }
 })
