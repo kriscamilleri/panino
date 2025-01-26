@@ -57,7 +57,7 @@
         </div>
     </div>
     <div v-else>
-        <p class="text-gray-500">No file selected</p>
+        <p class="text-gray-500 mt-3 ml-3">No file selected</p>
     </div>
 </template>
 

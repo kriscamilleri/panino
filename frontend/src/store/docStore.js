@@ -104,7 +104,8 @@ export const useDocStore = defineStore('docStore', () => {
         updateFileContent: contentStore.updateContent,
 
         // Import/Export
-        exportJson: importExportStore.exportData,
+        exportJson: importExportStore.exportDataAsJsonString,
+        exportZip: importExportStore.exportDataAsZip,
         importData: importExportStore.importData,
 
         // Style updates (preview)
