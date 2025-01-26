@@ -27,18 +27,18 @@
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
                     <!-- About link -->
-                    <BaseButton
-                        @click="() => window.open('https://github.com/kriscamilleri/pn-markdown-notes', '_blank')"
-                        title="About">
-                        <Info class="w-4 h-4" />
+                    <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank" class="flex items-center space-x-1 transition">
+                        <Info class="w-4 h-4" title="About" />
                         <span>About</span>
-                    </BaseButton>
-
+                    </a>
                     <!-- Login/Logout -->
                     <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin">
+                        <LogIn class="w-4 h-4" title="About" />
                         <span>Login</span>
                     </BaseButton>
                     <BaseButton v-else @click="handleLogout">
+
+                        <LogOut class="w-4 h-4" title="About" />
                         <span>Logout</span>
                     </BaseButton>
                 </div>
@@ -72,7 +72,6 @@
 
                     <!-- Format Menu Content -->
                     <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="tools">
-                        <!-- Text formatting tools -->
                         <div v-for="format in textFormats" :key="format.label"
                             @click="editorRef.insertFormat(format.prefix, format.suffix)"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
@@ -83,7 +82,6 @@
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- List formatting tools -->
                         <div v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
                             :title="list.label">
@@ -93,7 +91,6 @@
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Table and Code tools -->
                         <button @click="editorRef.insertTable"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
                             title="Insert Table">
@@ -110,7 +107,6 @@
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <!-- Stats and Metadata toggles -->
                         <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()">
                             <BarChart2 class="w-4 h-4" />
                             <span>Stats</span>
@@ -142,17 +138,24 @@
                     <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
                         <BaseButton @click="showImportModal = true">
                             <Upload class="w-4 h-4" />
-                            <span>Import</span>
+                            <span>Import JSON</span>
                         </BaseButton>
 
+                        <!-- Existing JSON Export -->
                         <BaseButton @click="handleExport">
-                            <Download class="w-4 h-4" />
-                            <span>Export</span>
+                            <FileJson class="w-4 h-4" />
+                            <span>Export JSON</span>
+                        </BaseButton>
+
+                        <!-- NEW: Export as ZIP -->
+                        <BaseButton @click="handleExportZip">
+                            <FolderArchive class="w-4 h-4" />
+                            <span>Export Markdown</span>
                         </BaseButton>
 
                         <BaseButton @click="handlePrint">
                             <Printer class="w-4 h-4" />
-                            <span>Print</span>
+                            <span>Print Document</span>
                         </BaseButton>
 
                         <BaseButton @click="goToPrintStyles">
@@ -240,7 +243,11 @@ import {
     ArrowRight,
     FileIcon,
     Layout,
-    Printer
+    Printer,
+    LogIn,
+    LogOut,
+    FolderArchive,
+    FileJson
 } from 'lucide-vue-next'
 
 const docStore = useDocStore()
@@ -423,7 +430,7 @@ onUnmounted(() => {
     clearTimeout(resizeTimeout)
 })
 
-// Export
+// Export as JSON
 function handleExport() {
     const jsonString = docStore.exportJson()
     const blob = new Blob([jsonString], { type: 'application/json' })
@@ -435,6 +442,17 @@ function handleExport() {
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
+}
+
+// NEW: Export as ZIP
+async function handleExportZip() {
+    try {
+        // Reuse the importExportStore's function
+        await docStore.exportZip()
+    } catch (err) {
+        console.error('Error exporting zip:', err)
+        alert('Failed to export ZIP. Check console for details.')
+    }
 }
 
 function goToStyles() {

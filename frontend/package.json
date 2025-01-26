@@ -12,6 +12,8 @@
   "dependencies": {
     "dompurify": "^3.2.3",
     "events": "^3.3.0",
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
     "lucide-vue-next": "^0.469.0",
     "markdown-it": "^14.1.0",
     "markdown-it-task-lists": "^2.1.1",

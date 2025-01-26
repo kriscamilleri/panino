@@ -4,6 +4,10 @@ import { useStructureStore } from './structureStore'
 import { useContentStore } from './contentStore'
 import { useSyncStore } from './syncStore'
 
+// ADD these imports:
+import JSZip from 'jszip'
+import { saveAs } from 'file-saver'
+
 export const useImportExportStore = defineStore('importExportStore', () => {
     const structureStore = useStructureStore()
     const contentStore = useContentStore()
@@ -114,8 +118,52 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         }
     }
 
+    /**
+     * NEW: Export entire workspace as a ZIP file with actual folder structure
+     */
+    async function exportDataAsZip() {
+        // 1. Build an in-memory tree of all items from structure store
+        const structure = structureStore.data.structure
+
+        // 2. Create a new JSZip instance
+        const zip = new JSZip()
+
+        // A helper function to walk the structure tree
+        async function addFolderOrFileToZip(parentZipFolder, item) {
+            if (item.type === 'folder') {
+                // Create a folder in the ZIP
+                const newFolder = parentZipFolder.folder(item.name)
+                // Then add each child
+                const children = Object.values(structure).filter(
+                    (child) => child.parentId === item.id
+                )
+                for (const child of children) {
+                    await addFolderOrFileToZip(newFolder, child)
+                }
+            } else if (item.type === 'file') {
+                // Load the file content
+                const contentDoc = await syncStore.loadContent(item.id)
+                const content = contentDoc?.text ?? ''
+                // Create a .md file in the ZIP
+                parentZipFolder.file(item.name, content)
+            }
+        }
+
+        // 3. Find "root" items (no parentId) and add them
+        const rootItems = Object.values(structure).filter((i) => !i.parentId)
+        for (const rootItem of rootItems) {
+            await addFolderOrFileToZip(zip, rootItem)
+        }
+
+        // 4. Generate the ZIP as a Blob
+        const blob = await zip.generateAsync({ type: 'blob' })
+        // 5. Trigger a download via file-saver
+        saveAs(blob, 'markdown-notes.zip')
+    }
+
     return {
         exportData,
-        importData
+        importData,
+        exportDataAsZip // <--- EXPORTED
     }
 })
