@@ -1,5 +1,3 @@
-# In src/pages/HomePage.vue
-
 <template>
     <div class="h-screen flex flex-col overflow-hidden" ref="container">
         <!-- Top Navbar -->
@@ -18,7 +16,7 @@
                     <!-- Tools Menu -->
                     <button @click="ui.toggleActionBar()"
                         class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                        :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Tools">
+                        :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Format">
                         <Paintbrush class="w-4 h-4" />
                         <span>Format</span>
                     </button>
@@ -34,20 +32,7 @@
 
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
-                    <button @click="goToStyles"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <Palette class="w-4 h-4" />
-                        <span>Styles</span>
-                    </button>
-
-                    <!-- Print button -->
-                    <button @click="handlePrint"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        <Printer class="w-4 h-4" />
-                        <span>Print</span>
-                    </button>
-
-                    <!-- Print button -->
+                    <!-- About link -->
                     <a target="_blank" href="https://github.com/kriscamilleri/pn-markdown-notes"
                         class=" px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
                         <Info class="w-4 h-4" />
@@ -70,30 +55,39 @@
             <transition name="fade-fast" mode="out-in">
                 <div v-if="ui.isAnyMenuOpen" class="border-t bg-gray-50 px-4 py-2">
                     <!-- View Menu Content -->
-                    <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2" key="view">
-                        <button @click="ui.toggleSidebar()"
-                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showSidebar }">
-                            <Folder class="w-4 h-4" />
-                            <span>Sidebar</span>
-                        </button>
+                    <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2 justify-between" key="view">
+                        <div class="flex items-center space-x-2">
+                            <button @click="ui.toggleSidebar()"
+                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                                :class="{ 'bg-gray-200': ui.showSidebar }">
+                                <Folder class="w-4 h-4" />
+                                <span>Sidebar</span>
+                            </button>
 
-                        <button @click="ui.toggleEditor()"
-                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showEditor }">
-                            <Edit3 class="w-4 h-4" />
-                            <span>Editor</span>
-                        </button>
+                            <button @click="ui.toggleEditor()"
+                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                                :class="{ 'bg-gray-200': ui.showEditor }">
+                                <Edit3 class="w-4 h-4" />
+                                <span>Editor</span>
+                            </button>
 
-                        <button @click="ui.togglePreview()"
-                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                            :class="{ 'bg-gray-200': ui.showPreview }">
-                            <Eye class="w-4 h-4" />
-                            <span>Preview</span>
-                        </button>
+                            <button @click="ui.togglePreview()"
+                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
+                                :class="{ 'bg-gray-200': ui.showPreview }">
+                                <Eye class="w-4 h-4" />
+                                <span>Preview</span>
+                            </button>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button @click="goToStyles"
+                                class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                                <Palette class="w-4 h-4" />
+                                <span>Preview Styles</span>
+                            </button>
+                        </div>
                     </div>
 
-                    <!-- Tools Menu Content -->
+                    <!-- Format Menu Content -->
                     <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="tools">
                         <!-- Text formatting tools -->
                         <div v-for="format in textFormats" :key="format.label"
@@ -165,18 +159,35 @@
                         </div>
                     </div>
 
-                    <!-- File Menu Content -->
-                    <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
-                        <button @click="showImportModal = true"
-                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                            <Upload class="w-4 h-4" />
-                            <span>Import</span>
-                        </button>
-                        <button @click="handleExport"
-                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                            <Download class="w-4 h-4" />
-                            <span>Export</span>
-                        </button>
+                    <!-- Tool Menu Content -->
+                    <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2 justify-between" key="file">
+                        <div class="flex items-center space-x-2">
+                            <button @click="showImportModal = true"
+                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                                <Upload class="w-4 h-4" />
+                                <span>Import</span>
+                            </button>
+                            <button @click="handleExport"
+                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                                <Download class="w-4 h-4" />
+                                <span>Export</span>
+                            </button>
+                            <!-- Print button -->
+                            <button @click="handlePrint"
+                                class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                                <Printer class="w-4 h-4" />
+                                <span>Print</span>
+                            </button>
+                        </div>
+
+                        <div class="flex items-center space-x-2">
+                            <!-- Print Styles button -->
+                            <button @click="goToPrintStyles"
+                                class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                                <Printer class="w-4 h-4" />
+                                <span>Print Styles</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </transition>
@@ -217,8 +228,9 @@
 
         <!-- Hidden print container -->
         <div ref="printContainer" class="hidden"></div>
+
+        <ImportModal :show="showImportModal" @close="showImportModal = false" @import-success="handleImportSuccess" />
     </div>
-    <ImportModal :show="showImportModal" @close="showImportModal = false" @import-success="handleImportSuccess" />
 </template>
 
 <script setup>
@@ -291,11 +303,19 @@ async function handlePrint() {
         return
     }
 
-    // Get the rendered content
-    const content = previewRef.value.$el.innerHTML
+    // Instead of relying on preview HTML, render fresh with print styles:
+    const printMd = docStore.getPrintMarkdownIt()
+    const content = printMd.render(docStore.selectedFileContent || '')
 
-    // Create print-friendly styles
-    const printStyles = `
+    // Access user-defined header/footer from print styles
+    const { printHeaderHtml = '', printFooterHtml = '' } = docStore.printStyles
+
+    // Attempt to locate an existing tailwind/main.css link:
+    const tailwindLink = [...document.querySelectorAll('link[rel="stylesheet"]')]
+        .find(link => link.href.includes('tailwind') || link.href.includes('main.css'))
+
+    // Base print styles (layout, etc.)
+    const basePrintStyles = `
         <style>
             body {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -304,44 +324,6 @@ async function handlePrint() {
                 margin: 40px auto;
                 padding: 0 20px;
             }
-            h1 { font-size: 2.5em; margin-bottom: 0.5em; }
-            h2 { font-size: 2em; margin-bottom: 0.5em; }
-            h3 { font-size: 1.5em; margin-bottom: 0.5em; }
-            p { margin-bottom: 1em; }
-            pre { 
-                background: #f5f5f5;
-                padding: 1em;
-                border-radius: 4px;
-                overflow-x: auto;
-            }
-            code {
-                background: #f5f5f5;
-                padding: 0.2em 0.4em;
-                border-radius: 3px;
-            }
-            blockquote {
-                border-left: 4px solid #ddd;
-                padding-left: 1em;
-                margin: 1em 0;
-                color: #666;
-            }
-            table {
-                border-collapse: collapse;
-                width: 100%;
-                margin: 1em 0;
-            }
-            th, td {
-                border: 1px solid #ddd;
-                padding: 8px;
-                text-align: left;
-            }
-            th {
-                background-color: #f5f5f5;
-            }
-            img {
-                max-width: 100%;
-                height: auto;
-            }
             @media print {
                 body { margin: 1.6cm; }
                 pre, code { white-space: pre-wrap; }
@@ -349,37 +331,37 @@ async function handlePrint() {
         </style>
     `
 
-    // Write content to print window
+    // Construct final HTML
     printWindow.document.write(`
         <!DOCTYPE html>
         <html>
         <head>
             <title>${docStore.selectedFile.name}</title>
-            ${printStyles}
+            ${tailwindLink ? `<link rel="stylesheet" href="${tailwindLink.href}" />` : ''}
+            ${basePrintStyles}
         </head>
         <body>
+            ${printHeaderHtml}
             ${content}
+            ${printFooterHtml}
         </body>
         </html>
     `)
 
-    // Close the document writing
     printWindow.document.close()
 
-    // Wait for all content to load
+    // Wait for content to load
     printWindow.onload = () => {
-        // Additional delay to ensure styles are applied and content is rendered
         setTimeout(() => {
             printWindow.print()
-            // Handle closing after print
             printWindow.onafterprint = () => {
                 printWindow.close()
             }
-        }, 1000)
+        }, 500)
     }
 }
 
-// 1) Watch route params -> open correct file
+// Watch route params -> open correct file
 onMounted(() => {
     if (route.params.fileId) {
         docStore.selectFile(route.params.fileId)
@@ -393,13 +375,12 @@ watch(() => docStore.selectedFileId, (newFileId) => {
     }
 })
 
-// 2) Panel toggles and resizing
+// Panel resizing & toggles
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor) return
     const containerWidth = mainContent.value.clientWidth
     const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
     const availableWidth = containerWidth - sidebarTotalWidth
-    // Force preview off if editor tries to fill container
     if (editorWidth.value >= availableWidth - 50) {
         ui.showPreview = false
     }
@@ -479,7 +460,6 @@ function handleExport() {
     const jsonString = docStore.exportJson()
     const blob = new Blob([jsonString], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
-
     const link = document.createElement('a')
     link.href = url
     link.download = 'data.json'
@@ -493,7 +473,6 @@ function goToStyles() {
     router.push('/styles')
 }
 
-// The old Editor toolbar data (text/list formats) used by the action bar
 const textFormats = [
     { label: 'Bold', icon: Bold, prefix: '**', suffix: '**' },
     { label: 'Italic', icon: Italic, prefix: '_', suffix: '_' },
@@ -506,7 +485,6 @@ const listFormats = [
     { label: 'Task List', icon: CheckSquare, prefix: '- [ ] ' },
 ]
 
-// Editor's methods via template ref:
 const editorRef = ref(null)
 
 function handleImportSuccess() {
@@ -524,6 +502,10 @@ async function handleLogout() {
 
 function goToLogin() {
     router.push('/login')
+}
+
+function goToPrintStyles() {
+    router.push('/print-styles')
 }
 </script>
 

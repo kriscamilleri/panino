@@ -9,6 +9,9 @@ import SignupForm from '@/components/SignupForm.vue'
 // ADD this import:
 import { useAuthStore } from '@/store/authStore.js'
 
+// ADD PrintStylesPage import:
+import PrintStylesPage from '@/pages/PrintStylesPage.vue'
+
 export const router = createRouter({
     history: createWebHashHistory(),
     routes: [
@@ -28,6 +31,13 @@ export const router = createRouter({
             path: '/styles',
             name: 'styles',
             component: StylesPage,
+            meta: { keepAlive: true }
+        },
+        // NEW route for Print Styles:
+        {
+            path: '/print-styles',
+            name: 'print-styles',
+            component: PrintStylesPage,
             meta: { keepAlive: true }
         },
         // NEW routes:
