@@ -1,6 +1,6 @@
 <template>
     <div v-if="file" class="h-full flex flex-col">
-        <!-- Document Stats (toggled via uiStore.showStats) -->
+        <!-- Document Stats -->
         <div v-if="ui.showStats" class="flex gap-4 text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
             <div class="flex items-center gap-2">
                 <span class="font-medium">Words:</span>
@@ -16,7 +16,7 @@
             </div>
         </div>
 
-        <!-- File Metadata (toggled via uiStore.showMetadata) -->
+        <!-- File Metadata -->
         <div v-if="ui.showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
             <div class="flex gap-4">
                 <div class="flex items-center gap-2">
@@ -52,7 +52,7 @@
         <!-- Textarea -->
         <div class="flex-1 flex flex-col min-h-0">
             <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput" @paste="handlePaste"
-                class="flex-1 border p-2 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
+                class="flex-1 border p-4 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
                 placeholder="Start writing..."></textarea>
         </div>
     </div>
@@ -136,7 +136,7 @@ async function uploadImage(file) {
 
         // Insert image markdown at cursor position or at the end
         const textarea = textareaRef.value
-        const imageUrl = `http://localhost:3001${data.url}`  // Construct full URL to our image service
+        const imageUrl = `http://localhost:3001${data.url}`
         const imageMarkdown = `![Image](${imageUrl})\n`
 
         if (textarea) {
@@ -167,17 +167,13 @@ async function uploadImage(file) {
     }
 }
 
-
-// Sync content to store
 function handleInput() {
     if (file.value) {
         docStore.updateFileContent(file.value.id, contentDraft.value)
     }
 }
 
-// ------------------------------------------------------
 // Expose formatting & search methods so the Nav can call
-// ------------------------------------------------------
 function insertFormat(prefix, suffix) {
     const textarea = textareaRef.value
     if (!textarea) return
@@ -262,20 +258,15 @@ function findNext(term) {
         foundIndex = contentDraft.value.indexOf(term, 0)
     }
 
-    // If still not found, nothing to do
     if (foundIndex === -1) return
 
-    // Select that occurrence
     textarea.focus()
     textarea.setSelectionRange(foundIndex, foundIndex + term.length)
-
-    // Attempt to scroll into view
     nextTick(() => {
         textarea.focus()
     })
 }
 
-// Expose these methods so parent can call them
 defineExpose({
     insertFormat,
     insertList,
@@ -284,4 +275,3 @@ defineExpose({
     findNext,
 })
 </script>
-<!-- ----- END: src/components/Editor.vue ----- -->

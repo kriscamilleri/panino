@@ -4,7 +4,7 @@ import { ref, computed } from 'vue'
 
 export const useUiStore = defineStore('uiStore', () => {
     // Panel visibility
-    const showSidebar = ref(true)
+    const showDocuments = ref(true)  // Renamed from showSidebar
     const showEditor = ref(true)
     const showPreview = ref(true)
 
@@ -23,8 +23,8 @@ export const useUiStore = defineStore('uiStore', () => {
     const showMetadata = ref(false)
 
     // Panel toggles
-    function toggleSidebar() {
-        showSidebar.value = !showSidebar.value
+    function toggleDocuments() {
+        showDocuments.value = !showDocuments.value
     }
 
     function toggleEditor() {
@@ -82,11 +82,11 @@ export const useUiStore = defineStore('uiStore', () => {
 
     return {
         // Panel visibility
-        showSidebar,
+        showDocuments,
         showEditor,
         showPreview,
 
-        // Menu visibility
+        // Menus
         showViewMenu,
         showActionBar,
         showFileMenu,
@@ -96,8 +96,8 @@ export const useUiStore = defineStore('uiStore', () => {
         showStats,
         showMetadata,
 
-        // Toggle functions
-        toggleSidebar,
+        // Toggles
+        toggleDocuments,
         toggleEditor,
         togglePreview,
         toggleViewMenu,

@@ -1,8 +1,6 @@
-// In src/components/Preview.vue
-
 <template>
     <div v-if="file">
-        <h2 class="text-xl font-bold mb-2">Preview: {{ file.name }}</h2>
+        <!-- Removed the "Preview: {{ file.name }}" heading -->
         <div class="mt-2" v-html="renderedHtml"></div>
     </div>
     <div v-else>
@@ -11,7 +9,7 @@
 </template>
 
 <script setup>
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import DOMPurify from 'dompurify'
 

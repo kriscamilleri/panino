@@ -5,86 +5,69 @@
             <div class="flex items-center justify-between px-4 py-2">
                 <!-- Left side -->
                 <div class="flex items-center space-x-4">
-                    <!-- View toggles -->
-                    <button @click="ui.toggleViewMenu()"
-                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                        :class="{ 'bg-gray-200': ui.showViewMenu }" title="Toggle View Menu">
-                        <Layout class="w-4 h-4" />
-                        <span>View</span>
-                    </button>
-
-                    <!-- Tools Menu -->
-                    <button @click="ui.toggleActionBar()"
-                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                        :class="{ 'bg-gray-200': ui.showActionBar }" title="Toggle Format">
+                    <!-- Format -->
+                    <BaseButton :isActive="ui.showActionBar" @click="ui.toggleActionBar()" title="Toggle Format">
                         <Paintbrush class="w-4 h-4" />
                         <span>Format</span>
-                    </button>
+                    </BaseButton>
 
-                    <!-- File Menu -->
-                    <button @click="ui.toggleFileMenu()"
-                        class="px-3 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                        :class="{ 'bg-gray-200': ui.showFileMenu }" title="Toggle File Menu">
+                    <!-- View -->
+                    <BaseButton :isActive="ui.showViewMenu" @click="ui.toggleViewMenu()" title="Toggle View Menu">
+                        <Layout class="w-4 h-4" />
+                        <span>View</span>
+                    </BaseButton>
+
+                    <!-- Tools -->
+                    <BaseButton :isActive="ui.showFileMenu" @click="ui.toggleFileMenu()" title="Toggle File Menu">
                         <FileIcon class="w-4 h-4" />
                         <span>Tools</span>
-                    </button>
+                    </BaseButton>
                 </div>
 
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
                     <!-- About link -->
-                    <a target="_blank" href="https://github.com/kriscamilleri/pn-markdown-notes"
-                        class=" px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
+                    <BaseButton
+                        @click="() => window.open('https://github.com/kriscamilleri/pn-markdown-notes', '_blank')"
+                        title="About">
                         <Info class="w-4 h-4" />
                         <span>About</span>
-                    </a>
+                    </BaseButton>
 
-                    <!-- Login/Logout button -->
-                    <button v-if="!authStore.isAuthenticated" @click="goToLogin"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        Login
-                    </button>
-                    <button v-else @click="handleLogout"
-                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                        Logout
-                    </button>
+                    <!-- Login/Logout -->
+                    <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin">
+                        <span>Login</span>
+                    </BaseButton>
+                    <BaseButton v-else @click="handleLogout">
+                        <span>Logout</span>
+                    </BaseButton>
                 </div>
             </div>
 
             <!-- Submenu Bar -->
             <transition name="fade-fast" mode="out-in">
-                <div v-if="ui.isAnyMenuOpen" class="border-t bg-gray-50 px-4 py-2">
+                <div v-if="ui.isAnyMenuOpen" class="border-t bg-gray-50 px-4 py-2 min-h-[40px] flex items-center">
                     <!-- View Menu Content -->
-                    <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2 justify-between" key="view">
-                        <div class="flex items-center space-x-2">
-                            <button @click="ui.toggleSidebar()"
-                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                                :class="{ 'bg-gray-200': ui.showSidebar }">
-                                <Folder class="w-4 h-4" />
-                                <span>Sidebar</span>
-                            </button>
+                    <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2" key="view">
+                        <BaseButton :isActive="ui.showDocuments" @click="ui.toggleDocuments()">
+                            <Folder class="w-4 h-4" />
+                            <span>Documents</span>
+                        </BaseButton>
 
-                            <button @click="ui.toggleEditor()"
-                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                                :class="{ 'bg-gray-200': ui.showEditor }">
-                                <Edit3 class="w-4 h-4" />
-                                <span>Editor</span>
-                            </button>
+                        <BaseButton :isActive="ui.showEditor" @click="ui.toggleEditor()">
+                            <Edit3 class="w-4 h-4" />
+                            <span>Editor</span>
+                        </BaseButton>
 
-                            <button @click="ui.togglePreview()"
-                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1"
-                                :class="{ 'bg-gray-200': ui.showPreview }">
-                                <Eye class="w-4 h-4" />
-                                <span>Preview</span>
-                            </button>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <button @click="goToStyles"
-                                class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                                <Palette class="w-4 h-4" />
-                                <span>Preview Styles</span>
-                            </button>
-                        </div>
+                        <BaseButton :isActive="ui.showPreview" @click="ui.togglePreview()">
+                            <Eye class="w-4 h-4" />
+                            <span>Preview</span>
+                        </BaseButton>
+
+                        <BaseButton @click="goToStyles">
+                            <Palette class="w-4 h-4" />
+                            <span>Preview Styles</span>
+                        </BaseButton>
                     </div>
 
                     <!-- Format Menu Content -->
@@ -128,19 +111,15 @@
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
                         <!-- Stats and Metadata toggles -->
-                        <button @click="ui.toggleStats()"
-                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
-                            :class="{ 'bg-gray-200': ui.showStats }">
+                        <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()">
                             <BarChart2 class="w-4 h-4" />
                             <span>Stats</span>
-                        </button>
+                        </BaseButton>
 
-                        <button @click="ui.toggleMetadata()"
-                            class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center gap-1"
-                            :class="{ 'bg-gray-200': ui.showMetadata }">
+                        <BaseButton :isActive="ui.showMetadata" @click="ui.toggleMetadata()">
                             <Info class="w-4 h-4" />
                             <span>Info</span>
-                        </button>
+                        </BaseButton>
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
@@ -159,35 +138,27 @@
                         </div>
                     </div>
 
-                    <!-- Tool Menu Content -->
-                    <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2 justify-between" key="file">
-                        <div class="flex items-center space-x-2">
-                            <button @click="showImportModal = true"
-                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                                <Upload class="w-4 h-4" />
-                                <span>Import</span>
-                            </button>
-                            <button @click="handleExport"
-                                class="px-3 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                                <Download class="w-4 h-4" />
-                                <span>Export</span>
-                            </button>
-                            <!-- Print button -->
-                            <button @click="handlePrint"
-                                class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                                <Printer class="w-4 h-4" />
-                                <span>Print</span>
-                            </button>
-                        </div>
+                    <!-- Tools Menu Content -->
+                    <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
+                        <BaseButton @click="showImportModal = true">
+                            <Upload class="w-4 h-4" />
+                            <span>Import</span>
+                        </BaseButton>
 
-                        <div class="flex items-center space-x-2">
-                            <!-- Print Styles button -->
-                            <button @click="goToPrintStyles"
-                                class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1">
-                                <Printer class="w-4 h-4" />
-                                <span>Print Styles</span>
-                            </button>
-                        </div>
+                        <BaseButton @click="handleExport">
+                            <Download class="w-4 h-4" />
+                            <span>Export</span>
+                        </BaseButton>
+
+                        <BaseButton @click="handlePrint">
+                            <Printer class="w-4 h-4" />
+                            <span>Print</span>
+                        </BaseButton>
+
+                        <BaseButton @click="goToPrintStyles">
+                            <Printer class="w-4 h-4" />
+                            <span>Print Styles</span>
+                        </BaseButton>
                     </div>
                 </div>
             </transition>
@@ -195,11 +166,12 @@
 
         <!-- Main content area -->
         <div class="flex flex-1 overflow-hidden" ref="mainContent">
-            <!-- Sidebar with resizer -->
-            <template v-if="ui.showSidebar">
-                <div :style="{ width: sidebarWidth + 'px' }" class="flex-shrink-0 bg-gray-100 border-r overflow-hidden">
+            <!-- Documents (formerly Sidebar) with resizer -->
+            <template v-if="ui.showDocuments">
+                <div :style="{ width: documentsWidth + 'px' }"
+                    class="flex-shrink-0 bg-gray-100 border-r overflow-hidden">
                     <div class="h-full overflow-y-auto p-4">
-                        <Sidebar />
+                        <Documents />
                     </div>
                 </div>
                 <div class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
@@ -209,7 +181,7 @@
             <!-- Editor with resizer -->
             <template v-if="ui.showEditor">
                 <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
-                    <div class="h-full overflow-y-auto p-4">
+                    <div class="h-full overflow-y-auto">
                         <Editor ref="editorRef" />
                     </div>
                 </div>
@@ -239,10 +211,11 @@ import { useRouter, useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
-import Sidebar from '@/components/SideBar.vue'
+import Documents from '@/components/Documents.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
 import ImportModal from '@/components/ImportModal.vue'
+import BaseButton from '@/components/BaseButton.vue'
 
 import {
     Folder,
@@ -280,7 +253,8 @@ const container = ref(null)
 const mainContent = ref(null)
 const printContainer = ref(null)
 const previewRef = ref(null)
-const sidebarWidth = ref(300)
+
+const documentsWidth = ref(300)
 const editorWidth = ref(500)
 const isResizing = ref(false)
 const currentResizer = ref(null)
@@ -310,11 +284,7 @@ async function handlePrint() {
     // Access user-defined header/footer from print styles
     const { printHeaderHtml = '', printFooterHtml = '' } = docStore.printStyles
 
-    // Attempt to locate an existing tailwind/main.css link:
-    const tailwindLink = [...document.querySelectorAll('link[rel="stylesheet"]')]
-        .find(link => link.href.includes('tailwind') || link.href.includes('main.css'))
-
-    // Base print styles (layout, etc.)
+    // Base print styles
     const basePrintStyles = `
         <style>
             body {
@@ -331,7 +301,6 @@ async function handlePrint() {
         </style>
     `
 
-    // Construct final HTML
     printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -350,7 +319,6 @@ async function handlePrint() {
 
     printWindow.document.close()
 
-    // Wait for content to load
     printWindow.onload = () => {
         setTimeout(() => {
             printWindow.print()
@@ -379,8 +347,8 @@ watch(() => docStore.selectedFileId, (newFileId) => {
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor) return
     const containerWidth = mainContent.value.clientWidth
-    const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
-    const availableWidth = containerWidth - sidebarTotalWidth
+    const documentsTotalWidth = ui.showDocuments ? documentsWidth.value + 4 : 0
+    const availableWidth = containerWidth - documentsTotalWidth
     if (editorWidth.value >= availableWidth - 50) {
         ui.showPreview = false
     }
@@ -390,7 +358,7 @@ function startResize(panel, event) {
     isResizing.value = true
     currentResizer.value = panel
     startX.value = event.pageX
-    startWidth.value = (panel === 'sidebar') ? sidebarWidth.value : editorWidth.value
+    startWidth.value = (panel === 'sidebar') ? documentsWidth.value : editorWidth.value
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', stopResize)
@@ -406,16 +374,16 @@ function handleMouseMove(event) {
     if (currentResizer.value === 'sidebar') {
         const newWidth = startWidth.value + diff
         if (newWidth <= 0) {
-            ui.showSidebar = false
+            ui.showDocuments = false
             stopResize()
         } else {
-            sidebarWidth.value = newWidth
+            documentsWidth.value = newWidth
             adjustEditorWidthForContainer()
         }
     } else if (currentResizer.value === 'editor') {
         const newWidth = startWidth.value + diff
-        const sidebarTotalWidth = ui.showSidebar ? sidebarWidth.value + 4 : 0
-        const availableWidth = containerWidth - sidebarTotalWidth
+        const documentsTotalWidth = ui.showDocuments ? documentsWidth.value + 4 : 0
+        const availableWidth = containerWidth - documentsTotalWidth
 
         if (newWidth <= 0) {
             ui.showEditor = false
