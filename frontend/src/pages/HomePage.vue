@@ -27,18 +27,21 @@
                 <!-- Right side -->
                 <div class="flex items-center space-x-2">
                     <!-- About link -->
-                    <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank" class="flex items-center space-x-1 transition">
+                    <a
+                        href="https://github.com/kriscamilleri/pn-markdown-notes"
+                        target="_blank"
+                        class="flex items-center space-x-1 transition"
+                    >
                         <Info class="w-4 h-4" title="About" />
                         <span>About</span>
                     </a>
                     <!-- Login/Logout -->
                     <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin">
-                        <LogIn class="w-4 h-4" title="About" />
+                        <LogIn class="w-4 h-4" title="Login" />
                         <span>Login</span>
                     </BaseButton>
                     <BaseButton v-else @click="handleLogout">
-
-                        <LogOut class="w-4 h-4" title="About" />
+                        <LogOut class="w-4 h-4" title="Logout" />
                         <span>Logout</span>
                     </BaseButton>
                 </div>
@@ -72,35 +75,46 @@
 
                     <!-- Format Menu Content -->
                     <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="tools">
-                        <div v-for="format in textFormats" :key="format.label"
+                        <div
+                            v-for="format in textFormats"
+                            :key="format.label"
                             @click="editorRef.insertFormat(format.prefix, format.suffix)"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                            :title="format.label">
+                            :title="format.label"
+                        >
                             <component :is="format.icon" class="w-4 h-4" />
                             <span>{{ format.label }}</span>
                         </div>
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <div v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
+                        <div
+                            v-for="list in listFormats"
+                            :key="list.label"
+                            @click="editorRef.insertList(list.prefix)"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                            :title="list.label">
+                            :title="list.label"
+                        >
                             <component :is="list.icon" class="w-4 h-4" />
                             <span>{{ list.label }}</span>
                         </div>
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <button @click="editorRef.insertTable"
+                        <button
+                            @click="editorRef.insertTable"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            title="Insert Table">
+                            title="Insert Table"
+                        >
                             <Table class="w-4 h-4" />
                             <span>Table</span>
                         </button>
 
-                        <button @click="editorRef.insertCodeBlock"
+                        <button
+                            @click="editorRef.insertCodeBlock"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            title="Insert Code Block">
+                            title="Insert Code Block"
+                        >
                             <Code2 class="w-4 h-4" />
                             <span>Code</span>
                         </button>
@@ -123,11 +137,17 @@
                         <div class="flex items-center gap-2">
                             <div class="relative">
                                 <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
-                                <input type="text" placeholder="Find text..." v-model="searchTerm"
-                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500" />
+                                <input
+                                    type="text"
+                                    placeholder="Find text..."
+                                    v-model="searchTerm"
+                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500"
+                                />
                             </div>
-                            <button @click="editorRef.findNext(searchTerm)"
-                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1">
+                            <button
+                                @click="editorRef.findNext(searchTerm)"
+                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                            >
                                 <ArrowRight class="w-4 h-4" />
                                 <span>Next</span>
                             </button>
@@ -169,36 +189,49 @@
 
         <!-- Main content area -->
         <div class="flex flex-1 overflow-hidden" ref="mainContent">
-            <!-- Documents (formerly Sidebar) with resizer -->
+            <!-- Documents (sidebar) with resizer -->
             <template v-if="ui.showDocuments">
-                <div :style="{ width: documentsWidth + 'px' }"
-                    class="flex-shrink-0 bg-gray-100 border-r overflow-hidden">
+                <div
+                    :style="{ width: documentsWidth + 'px' }"
+                    class="flex-shrink-0 bg-gray-100 border-r overflow-hidden"
+                >
                     <div class="h-full overflow-y-auto p-4">
                         <Documents />
                     </div>
                 </div>
-                <div class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
-                    @mousedown="startResize('sidebar', $event)"></div>
+                <div
+                    class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                    @mousedown="startResize('sidebar', $event)"
+                ></div>
             </template>
 
-            <!-- Editor with resizer -->
-            <template v-if="ui.showEditor">
-                <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
-                    <div class="h-full overflow-y-auto">
-                        <Editor ref="editorRef" />
+            <!-- If a folder is selected and no file, show FolderPreview -->
+            <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
+                <FolderPreview :folderId="docStore.selectedFolderId" />
+            </template>
+            <!-- Otherwise, show normal Editor/Preview -->
+            <template v-else>
+                <!-- Editor with resizer -->
+                <template v-if="ui.showEditor">
+                    <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
+                        <div class="h-full overflow-y-auto">
+                            <Editor ref="editorRef" />
+                        </div>
+                    </div>
+                    <div
+                        v-if="ui.showPreview"
+                        class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                        @mousedown="startResize('editor', $event)"
+                    ></div>
+                </template>
+
+                <!-- Preview -->
+                <div v-if="ui.showPreview" class="flex-1 overflow-hidden">
+                    <div class="h-full overflow-y-auto p-4">
+                        <Preview ref="previewRef" />
                     </div>
                 </div>
-                <div v-if="ui.showPreview"
-                    class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
-                    @mousedown="startResize('editor', $event)"></div>
             </template>
-
-            <!-- Preview -->
-            <div v-if="ui.showPreview" class="flex-1 overflow-hidden">
-                <div class="h-full overflow-y-auto p-4">
-                    <Preview ref="previewRef" />
-                </div>
-            </div>
         </div>
 
         <!-- Hidden print container -->
@@ -209,7 +242,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
@@ -217,6 +250,7 @@ import { useAuthStore } from '@/store/authStore'
 import Documents from '@/components/Documents.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
+import FolderPreview from '@/components/FolderPreview.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
 
@@ -270,6 +304,18 @@ const startWidth = ref(0)
 const showImportModal = ref(false)
 const searchTerm = ref('')
 
+watch(
+    () => route.params.fileId,
+    (fileId) => {
+        if (fileId) {
+            docStore.selectFile(fileId)
+        } else {
+            docStore.selectFile(null)
+        }
+    },
+    { immediate: true }
+)
+
 // Print functionality
 async function handlePrint() {
     if (!docStore.selectedFile) {
@@ -277,21 +323,18 @@ async function handlePrint() {
         return
     }
 
-    // Create a new window for printing
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
         alert('Please allow popup windows for printing')
         return
     }
 
-    // Instead of relying on preview HTML, render fresh with print styles:
+    // Render fresh with print styles:
     const printMd = docStore.getPrintMarkdownIt()
     const content = printMd.render(docStore.selectedFileContent || '')
 
-    // Access user-defined header/footer from print styles
     const { printHeaderHtml = '', printFooterHtml = '' } = docStore.printStyles
 
-    // Base print styles
     const basePrintStyles = `
         <style>
             body {
@@ -313,7 +356,13 @@ async function handlePrint() {
         <html>
         <head>
             <title>${docStore.selectedFile.name}</title>
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" integrity="sha512-wnea99uKIC3TJF7v4eKk4Y+lMz2Mklv18+r4na2Gn1abDRPPOeef95xTzdwGD9e6zXJBteMIhZ1+68QC5byJZw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <link
+                rel="stylesheet"
+                href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css"
+                integrity="sha512-wnea99uKIC3TJF7v4eKk4Y+lMz2Mklv18+r4na2Gn1abDRPPOeef95xTzdwGD9e6zXJBteMIhZ1+68QC5byJZw=="
+                crossorigin="anonymous"
+                referrerpolicy="no-referrer"
+            />
             ${basePrintStyles}
         </head>
         <body>
@@ -336,20 +385,6 @@ async function handlePrint() {
     }
 }
 
-// Watch route params -> open correct file
-onMounted(() => {
-    if (route.params.fileId) {
-        docStore.selectFile(route.params.fileId)
-    }
-})
-watch(() => docStore.selectedFileId, (newFileId) => {
-    if (newFileId && route.params.fileId !== newFileId) {
-        router.replace({ name: 'doc', params: { fileId: newFileId } })
-    } else if (!newFileId && route.name !== 'home') {
-        router.replace({ name: 'home' })
-    }
-})
-
 // Panel resizing & toggles
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor) return
@@ -365,7 +400,7 @@ function startResize(panel, event) {
     isResizing.value = true
     currentResizer.value = panel
     startX.value = event.pageX
-    startWidth.value = (panel === 'sidebar') ? documentsWidth.value : editorWidth.value
+    startWidth.value = panel === 'sidebar' ? documentsWidth.value : editorWidth.value
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', stopResize)
@@ -426,7 +461,7 @@ onMounted(() => {
 onUnmounted(() => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
-    window.removeEventListener('resize')
+    window.removeEventListener('resize', null)
     clearTimeout(resizeTimeout)
 })
 
@@ -444,10 +479,9 @@ function handleExport() {
     URL.revokeObjectURL(url)
 }
 
-// NEW: Export as ZIP
+// Export as ZIP
 async function handleExportZip() {
     try {
-        // Reuse the importExportStore's function
         await docStore.exportZip()
     } catch (err) {
         console.error('Error exporting zip:', err)
@@ -463,12 +497,12 @@ const textFormats = [
     { label: 'Bold', icon: Bold, prefix: '**', suffix: '**' },
     { label: 'Italic', icon: Italic, prefix: '_', suffix: '_' },
     { label: 'Strike', icon: Strikethrough, prefix: '~~', suffix: '~~' },
-    { label: 'Quote', icon: MessageSquare, prefix: '> ', suffix: '\n' },
+    { label: 'Quote', icon: MessageSquare, prefix: '> ', suffix: '\n' }
 ]
 const listFormats = [
     { label: 'Bullet List', icon: List, prefix: '* ' },
     { label: 'Numbered List', icon: ListOrdered, prefix: '1. ' },
-    { label: 'Task List', icon: CheckSquare, prefix: '- [ ] ' },
+    { label: 'Task List', icon: CheckSquare, prefix: '- [ ] ' }
 ]
 
 const editorRef = ref(null)

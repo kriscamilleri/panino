@@ -76,21 +76,28 @@ export const useSyncStore = defineStore('syncStore', () => {
                 doc = await localDB.get(`file:${fileId}`)
             } catch (err) {
                 if (err.status === 404) {
+                    // New file content doc
                     doc = {
                         _id: `file:${fileId}`,
                         type: 'content',
                         text: '',
                         properties: '\n',
                         discussions: {},
-                        comments: {},
+                        comments: {}
                     }
                 } else {
                     throw err
                 }
             }
 
-            doc.text = text
+            // If the document is new, set createdTime
+            if (!doc.createdTime) {
+                doc.createdTime = new Date().toISOString()
+            }
+            // Always update lastModified
             doc.lastModified = new Date().toISOString()
+
+            doc.text = text
             const response = await localDB.put(doc)
 
             if (response.ok) {
@@ -166,13 +173,11 @@ export const useSyncStore = defineStore('syncStore', () => {
         })
             .on('change', async (info) => {
                 console.log('Sync change:', info)
-                // Handle incoming changes if needed
                 if (info.direction === 'pull' && info.change.docs.length > 0) {
-                    // You might want to emit an event or update some state here
                     console.log('Received changes:', info.change.docs.length)
                 }
             })
-            .on('paused', err => {
+            .on('paused', (err) => {
                 if (err) {
                     console.error('Sync paused with error:', err)
                 } else {
@@ -182,10 +187,10 @@ export const useSyncStore = defineStore('syncStore', () => {
             .on('active', () => {
                 console.log('Sync active')
             })
-            .on('denied', err => {
+            .on('denied', (err) => {
                 console.error('Sync denied:', err)
             })
-            .on('error', err => {
+            .on('error', (err) => {
                 console.error('Sync error:', err)
                 setTimeout(() => {
                     if (syncHandler) {
@@ -194,14 +199,13 @@ export const useSyncStore = defineStore('syncStore', () => {
                     }
                 }, 5000)
             })
-            .on('complete', info => {
+            .on('complete', (info) => {
                 console.log('Sync completed:', info)
             })
     }
 
     async function initializeDB() {
         try {
-            // Clean up existing connections
             if (syncHandler) {
                 syncHandler.cancel()
                 syncHandler = null
@@ -212,27 +216,25 @@ export const useSyncStore = defineStore('syncStore', () => {
                 localDB = null
             }
 
-            // Create new database
             const dbName = authStore.isAuthenticated
                 ? `pn-markdown-notes-${authStore.user.name}`
                 : 'pn-markdown-notes-guest'
 
             localDB = new PouchDB(dbName, {
-                auto_compaction: true,
+                auto_compaction: true
             })
 
             authStore.registerDatabase(dbName)
 
-            // Initialize with welcome document if empty
+            // Initialize with welcome doc if empty
             try {
                 await localDB.get('docStoreData')
             } catch (err) {
                 if (err.status === 404) {
-                    // Database is empty, initialize with welcome content
                     await localDB.put({
                         _id: 'docStoreData',
                         structure: {
-                            'welcome': {
+                            welcome: {
                                 id: 'welcome',
                                 type: 'file',
                                 name: 'Welcome.md',
@@ -249,7 +251,6 @@ export const useSyncStore = defineStore('syncStore', () => {
                 }
             }
 
-            // Start sync if authenticated
             if (authStore.isAuthenticated) {
                 initSync()
             }
@@ -264,7 +265,6 @@ export const useSyncStore = defineStore('syncStore', () => {
 
     async function destroyDB(username) {
         try {
-            // Clean up existing connections
             if (syncHandler) {
                 syncHandler.cancel()
                 syncHandler = null
@@ -275,7 +275,6 @@ export const useSyncStore = defineStore('syncStore', () => {
                 localDB = null
             }
 
-            // Destroy the database
             const dbName = `pn-markdown-notes-${username}`
             const db = new PouchDB(dbName)
             await db.destroy()
@@ -288,18 +287,15 @@ export const useSyncStore = defineStore('syncStore', () => {
         }
     }
 
-    // Cleanup function for when the store is no longer needed
     function cleanup() {
         if (syncHandler) {
             syncHandler.cancel()
             syncHandler = null
         }
-
         if (localDB) {
             localDB.close()
             localDB = null
         }
-
         isInitialized.value = false
     }
 
