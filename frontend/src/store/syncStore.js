@@ -4,7 +4,6 @@ import { ref } from 'vue'
 import PouchDB from 'pouchdb-browser'
 import { useAuthStore } from './authStore'
 
-// A default "welcome" file content
 const WELCOME_CONTENT = {
   _id: 'file:welcome',
   type: 'content',
@@ -23,8 +22,6 @@ export const useSyncStore = defineStore('syncStore', () => {
 
   const authStore = useAuthStore()
 
-  // ----- Core DB setup -----
-
   async function initializeDB() {
     if (syncHandler) {
       syncHandler.cancel()
@@ -35,7 +32,6 @@ export const useSyncStore = defineStore('syncStore', () => {
       localDB = null
     }
 
-    // Decide the local DB name
     const dbName = authStore.isAuthenticated
       ? `pn-markdown-notes-${authStore.user.name.toLowerCase()}`
       : 'pn-markdown-notes-guest'
@@ -44,7 +40,6 @@ export const useSyncStore = defineStore('syncStore', () => {
       auto_compaction: true
     })
 
-    // Register with authStore so it can be destroyed on logout, etc.
     authStore.registerDatabase(dbName)
 
     // Ensure we have a docStoreData doc
@@ -78,11 +73,11 @@ export const useSyncStore = defineStore('syncStore', () => {
 
   /**
    * Perform a one-time pull from remote to local to test connectivity.
-   * If the remote is unreachable, this will throw an error.
+   * Skip if the user is 'guest' or not authenticated.
    */
   async function oneTimePull() {
-    if (!authStore.isAuthenticated) {
-      console.log('Not authenticated, skipping oneTimePull')
+    if (!authStore.isAuthenticated || authStore.user?.name === 'guest') {
+      console.log('Skipping remote sync in guest mode or when not authenticated.')
       return
     }
     if (!isInitialized.value || !localDB) {
@@ -92,11 +87,10 @@ export const useSyncStore = defineStore('syncStore', () => {
     const remoteCouch = `http://localhost:5984/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
 
     console.log('[oneTimePull] Trying single pull replication from remote:', remoteCouch)
-    // Replicate once from remote => local
     const result = await localDB.replicate.from(remoteCouch, {
       live: false,
       retry: false,
-      timeout: 10000, // e.g. 10 sec; adjust as needed
+      timeout: 10000,
       fetch: (url, opts) => {
         return fetch(url, {
           ...opts,
@@ -108,11 +102,11 @@ export const useSyncStore = defineStore('syncStore', () => {
   }
 
   /**
-   * Start a continuous live sync in the background.
+   * Start a continuous live sync in the background, unless it's guest mode.
    */
   function startLiveSync() {
-    if (!authStore.isAuthenticated) {
-      console.log('Not authenticated, skipping live sync.')
+    if (!authStore.isAuthenticated || authStore.user?.name === 'guest') {
+      console.log('Skipping live sync in guest mode or when not authenticated.')
       return
     }
     if (!isInitialized.value || !localDB) {
@@ -150,7 +144,6 @@ export const useSyncStore = defineStore('syncStore', () => {
       })
       .on('error', (err) => {
         console.error('[liveSync] error:', err)
-        // Attempt to re-init after a delay
         setTimeout(() => {
           console.log('[liveSync] Trying to restart after error...')
           if (syncHandler) {
@@ -164,8 +157,6 @@ export const useSyncStore = defineStore('syncStore', () => {
         console.log('[liveSync] complete:', info)
       })
   }
-
-  // ----- CRUD-ish methods -----
 
   async function saveStructure(structure) {
     if (!isInitialized.value || !localDB) {
@@ -279,7 +270,20 @@ export const useSyncStore = defineStore('syncStore', () => {
     }
   }
 
-  // ----- teardown -----
+  /**
+   * NEW: Return all docs that start with "file:", including their doc content
+   */
+  async function allFileDocs() {
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Database not initialized')
+    }
+    return localDB.allDocs({
+      startkey: 'file:',
+      endkey: 'file:\ufff0',
+      include_docs: true
+    })
+  }
+
   async function destroyDB(username) {
     if (!username) return
     if (syncHandler) {
@@ -319,6 +323,7 @@ export const useSyncStore = defineStore('syncStore', () => {
     saveContent,
     loadContent,
     deleteContent,
+    allFileDocs,    // <-- NEW method
     destroyDB,
     cleanup
   }

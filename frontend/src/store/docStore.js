@@ -8,20 +8,17 @@ import { useSyncStore } from './syncStore'
 import { useImportExportStore } from './importExportStore'
 
 export const useDocStore = defineStore('docStore', () => {
-  // sub-stores
   const structureStore = useStructureStore()
   const contentStore = useContentStore()
   const markdownStore = useMarkdownStore()
   const syncStore = useSyncStore()
   const importExportStore = useImportExportStore()
 
-  // Computed from structure
   const data = computed(() => structureStore.data)
   const selectedFileId = computed(() => structureStore.selectedFileId)
   const selectedFolderId = computed(() => structureStore.selectedFolderId)
   const openFolders = computed(() => structureStore.openFolders)
 
-  // For rendering
   const styles = computed(() => markdownStore.styles)
   const printStyles = computed(() => markdownStore.printStyles)
 
@@ -30,21 +27,13 @@ export const useDocStore = defineStore('docStore', () => {
   const selectedFile = computed(() => structureStore.selectedFile)
   const selectedFileContent = computed(() => contentStore.selectedFileContent)
 
-  /**
-   * The "big" initialization that occurs after login or signup:
-   *  1. Initialize local DB (if not done)
-   *  2. Attempt one-time pull from remote (throws if unreachable)
-   *  3. Start live sync in background
-   *  4. Load structure from local
-   */
   async function initCouchDB() {
-    await syncStore.initializeDB()          // 1) local DB
-    await syncStore.oneTimePull()           // 2) single pull => throws if remote down
-    syncStore.startLiveSync()               // 3) background sync
-    await structureStore.loadStructure()    // 4) read docStoreData into memory
+    await syncStore.initializeDB()
+    await syncStore.oneTimePull()
+    syncStore.startLiveSync()
+    await structureStore.loadStructure()
   }
 
-  // For deleting local DB, resetting store, etc.
   async function destroyLocalDB(username) {
     await syncStore.destroyDB(username)
   }
@@ -54,7 +43,6 @@ export const useDocStore = defineStore('docStore', () => {
     contentStore.clearCache()
   }
 
-  // Re-export structure ops
   function renameItem(itemId, newName) {
     return structureStore.renameItem(itemId, newName)
   }
@@ -65,7 +53,6 @@ export const useDocStore = defineStore('docStore', () => {
     structureStore.selectFile(fileId)
   }
 
-  // For preview styling
   function updateStyle(key, newVal) {
     markdownStore.updateStyle(key, newVal)
   }
@@ -73,12 +60,39 @@ export const useDocStore = defineStore('docStore', () => {
     return markdownStore.getMarkdownIt()
   }
 
-  // For print styling
   function updatePrintStyle(key, newVal) {
     markdownStore.updatePrintStyle(key, newVal)
   }
   function getPrintMarkdownIt() {
     return markdownStore.getPrintMarkdownIt()
+  }
+
+  /**
+   * NEW: Return up to `limit` most recently edited files,
+   * based on each file's `lastModified` from the content docs.
+   */
+  async function getRecentDocuments(limit = 10) {
+    const fileDocs = await syncStore.allFileDocs()
+    const items = []
+
+    for (const row of fileDocs.rows) {
+      const doc = row.doc
+      if (doc && doc._id.startsWith('file:')) {
+        const fileId = doc._id.substring(5)
+        const structureItem = data.value.structure[fileId]
+        if (structureItem) {
+          const displayedDate = doc.lastModified || doc.createdTime || ''
+          items.push({
+            id: fileId,
+            name: structureItem.name,
+            displayedDate
+          })
+        }
+      }
+    }
+
+    items.sort((a, b) => new Date(b.displayedDate) - new Date(a.displayedDate))
+    return items.slice(0, limit)
   }
 
   return {
@@ -112,9 +126,10 @@ export const useDocStore = defineStore('docStore', () => {
     updatePrintStyle,
     getPrintMarkdownIt,
 
-    // The key "fix": do a one-time pull, then start live sync
     initCouchDB,
     destroyLocalDB,
-    resetStore
+    resetStore,
+
+    getRecentDocuments // <-- NEW function
   }
 })
