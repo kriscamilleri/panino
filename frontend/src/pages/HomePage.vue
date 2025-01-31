@@ -3,6 +3,7 @@
         <!-- Top Navbar -->
         <nav class="bg-gray-100 border-b">
             <div class="flex items-center justify-between px-4 py-2">
+
                 <!-- Left side -->
                 <div class="flex items-center space-x-4">
                     <!-- Format -->
@@ -25,16 +26,19 @@
                 </div>
 
                 <!-- Right side -->
-                <div class="flex items-center space-x-2">
+                <div class="flex items-center space-x-4">
+                    <!-- Show user name if authenticated. If user is "guest", label as Guest -->
+                    <div v-if="authStore.isAuthenticated" class=" mx-2 text-gray-500">
+                        {{ authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest' }}
+                    </div>
+
                     <!-- About link -->
-                    <a
-                        href="https://github.com/kriscamilleri/pn-markdown-notes"
-                        target="_blank"
-                        class="flex items-center space-x-1 transition"
-                    >
+                    <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
+                        class="flex items-center space-x-1 transition">
                         <Info class="w-4 h-4" title="About" />
                         <span>About</span>
                     </a>
+
                     <!-- Login/Logout -->
                     <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin">
                         <LogIn class="w-4 h-4" title="Login" />
@@ -75,46 +79,35 @@
 
                     <!-- Format Menu Content -->
                     <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="tools">
-                        <div
-                            v-for="format in textFormats"
-                            :key="format.label"
+                        <div v-for="format in textFormats" :key="format.label"
                             @click="editorRef.insertFormat(format.prefix, format.suffix)"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                            :title="format.label"
-                        >
+                            :title="format.label">
                             <component :is="format.icon" class="w-4 h-4" />
                             <span>{{ format.label }}</span>
                         </div>
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <div
-                            v-for="list in listFormats"
-                            :key="list.label"
-                            @click="editorRef.insertList(list.prefix)"
+                        <div v-for="list in listFormats" :key="list.label" @click="editorRef.insertList(list.prefix)"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                            :title="list.label"
-                        >
+                            :title="list.label">
                             <component :is="list.icon" class="w-4 h-4" />
                             <span>{{ list.label }}</span>
                         </div>
 
                         <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
-                        <button
-                            @click="editorRef.insertTable"
+                        <button @click="editorRef.insertTable"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            title="Insert Table"
-                        >
+                            title="Insert Table">
                             <Table class="w-4 h-4" />
                             <span>Table</span>
                         </button>
 
-                        <button
-                            @click="editorRef.insertCodeBlock"
+                        <button @click="editorRef.insertCodeBlock"
                             class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            title="Insert Code Block"
-                        >
+                            title="Insert Code Block">
                             <Code2 class="w-4 h-4" />
                             <span>Code</span>
                         </button>
@@ -137,17 +130,11 @@
                         <div class="flex items-center gap-2">
                             <div class="relative">
                                 <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
-                                <input
-                                    type="text"
-                                    placeholder="Find text..."
-                                    v-model="searchTerm"
-                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500"
-                                />
+                                <input type="text" placeholder="Find text..." v-model="searchTerm"
+                                    class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500" />
                             </div>
-                            <button
-                                @click="editorRef.findNext(searchTerm)"
-                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            >
+                            <button @click="editorRef.findNext(searchTerm)"
+                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1">
                                 <ArrowRight class="w-4 h-4" />
                                 <span>Next</span>
                             </button>
@@ -161,13 +148,11 @@
                             <span>Import JSON</span>
                         </BaseButton>
 
-                        <!-- Existing JSON Export -->
                         <BaseButton @click="handleExport">
                             <FileJson class="w-4 h-4" />
                             <span>Export JSON</span>
                         </BaseButton>
 
-                        <!-- NEW: Export as ZIP -->
                         <BaseButton @click="handleExportZip">
                             <FolderArchive class="w-4 h-4" />
                             <span>Export Markdown</span>
@@ -191,23 +176,23 @@
         <div class="flex flex-1 overflow-hidden" ref="mainContent">
             <!-- Documents (sidebar) with resizer -->
             <template v-if="ui.showDocuments">
-                <div
-                    :style="{ width: documentsWidth + 'px' }"
-                    class="flex-shrink-0 bg-gray-100 border-r overflow-hidden"
-                >
+                <div :style="{ width: documentsWidth + 'px' }"
+                    class="flex-shrink-0 bg-gray-100 border-r overflow-hidden">
                     <div class="h-full overflow-y-auto p-4">
                         <Documents />
                     </div>
                 </div>
-                <div
-                    class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
-                    @mousedown="startResize('sidebar', $event)"
-                ></div>
+                <div class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                    @mousedown="startResize('sidebar', $event)"></div>
             </template>
 
             <!-- If a folder is selected and no file, show FolderPreview -->
             <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
                 <FolderPreview :folderId="docStore.selectedFolderId" />
+            </template>
+            <!-- ELSE IF no folder selected & no file, show the 10 recent docs -->
+            <template v-else-if="!docStore.selectedFolderId && !docStore.selectedFileId">
+                <FolderPreview folderId="__recent__" />
             </template>
             <!-- Otherwise, show normal Editor/Preview -->
             <template v-else>
@@ -218,11 +203,9 @@
                             <Editor ref="editorRef" />
                         </div>
                     </div>
-                    <div
-                        v-if="ui.showPreview"
+                    <div v-if="ui.showPreview"
                         class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
-                        @mousedown="startResize('editor', $event)"
-                    ></div>
+                        @mousedown="startResize('editor', $event)"></div>
                 </template>
 
                 <!-- Preview -->
@@ -316,20 +299,16 @@ watch(
     { immediate: true }
 )
 
-// Print functionality
 async function handlePrint() {
     if (!docStore.selectedFile) {
         alert('Please select a file to print')
         return
     }
-
     const printWindow = window.open('', '_blank')
     if (!printWindow) {
         alert('Please allow popup windows for printing')
         return
     }
-
-    // Render fresh with print styles:
     const printMd = docStore.getPrintMarkdownIt()
     const content = printMd.render(docStore.selectedFileContent || '')
 
@@ -385,7 +364,6 @@ async function handlePrint() {
     }
 }
 
-// Panel resizing & toggles
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor) return
     const containerWidth = mainContent.value.clientWidth
@@ -465,7 +443,6 @@ onUnmounted(() => {
     clearTimeout(resizeTimeout)
 })
 
-// Export as JSON
 function handleExport() {
     const jsonString = docStore.exportJson()
     const blob = new Blob([jsonString], { type: 'application/json' })
@@ -479,7 +456,6 @@ function handleExport() {
     URL.revokeObjectURL(url)
 }
 
-// Export as ZIP
 async function handleExportZip() {
     try {
         await docStore.exportZip()

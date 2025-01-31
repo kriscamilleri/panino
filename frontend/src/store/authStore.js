@@ -55,11 +55,28 @@ export const useAuthStore = defineStore('authStore', () => {
         }
     }
 
+    /**
+     * NEW: Allows a user to skip remote authentication and continue as "guest",
+     * using a local-only database named "pn-markdown-notes-guest".
+     */
+    async function continueAsGuest() {
+        // If there's a previously logged in user, clean up that data
+        if (lastLoggedInUser.value) {
+            await cleanupPreviousUserData(lastLoggedInUser.value)
+        }
+
+        user.value = {
+            name: 'guest',
+            roles: []
+        }
+        isAuthenticated.value = true
+        lastLoggedInUser.value = 'guest'
+    }
+
     async function cleanupPreviousUserData(previousUsername) {
         console.log(`Cleaning up data for previous user: ${previousUsername}`)
 
         // Destroy local PouchDB databases that might reference the old user
-        // We'll unify these to the consistent naming:
         const prevLower = previousUsername.toLowerCase()
         const dbNames = [
             `pn-markdown-notes-${prevLower}`,
@@ -83,7 +100,6 @@ export const useAuthStore = defineStore('authStore', () => {
         try {
             const dbs = await window.indexedDB.databases()
             for (const db of dbs) {
-                // If the name matches the old user
                 if (db.name.includes(prevLower)) {
                     await window.indexedDB.deleteDatabase(db.name)
                     console.log(`Deleted IndexedDB database: ${db.name}`)
@@ -116,7 +132,7 @@ export const useAuthStore = defineStore('authStore', () => {
             // 4. Reset the docStore
             const docStore = useDocStore()
             docStore.resetStore()
-            docStore.destroyLocalDB(user.value?.name) // user.value is null now; it's safe but won't do anything
+            docStore.destroyLocalDB(user.value?.name) // user.value is null now; safe but won't do anything
 
             console.log(`Logout complete. Cleaned up data for: ${previousUser}`)
         } catch (error) {
@@ -148,8 +164,6 @@ export const useAuthStore = defineStore('authStore', () => {
                 }
                 isAuthenticated.value = true
                 lastLoggedInUser.value = data.userCtx.name
-
-                // We do NOT auto-init docStore here; it can happen in LoadingPage or main flow if needed.
 
                 return true
             }
@@ -194,6 +208,7 @@ export const useAuthStore = defineStore('authStore', () => {
         logout,
         checkAuth,
         signup,
+        continueAsGuest, // <-- NEW method
         registerDatabase
     }
 })

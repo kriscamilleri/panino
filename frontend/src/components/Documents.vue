@@ -2,7 +2,9 @@
     <div class="h-full flex flex-col">
         <!-- Header with action buttons -->
         <div class="flex justify-between items-center mb-4">
-            <h2 class="font-bold text-lg">Documents</h2>
+            <h2 class="font-bold text-lg cursor-pointer" @click="handleDocumentsClick">
+                Documents
+            </h2>
             <div class="flex space-x-2">
                 <!-- Search Toggle -->
                 <BaseButton :isActive="showSearch" @click="toggleSearch" title="Toggle Search">
@@ -87,7 +89,6 @@ import { useDocStore } from '@/store/docStore'
 import TreeItem from './TreeItem.vue'
 import BaseButton from './BaseButton.vue'
 
-// Import only necessary Lucide icons
 import {
     Search,
     X,
@@ -98,7 +99,6 @@ import {
 const docStore = useDocStore()
 const rootItems = computed(() => docStore.rootItems)
 
-// Search functionality
 const searchQuery = ref('')
 const showSearch = ref(false)
 const searchInput = ref(null)
@@ -118,7 +118,6 @@ function clearSearch() {
     searchQuery.value = ''
 }
 
-// Helper function to get all files in a folder and its subfolders
 function getAllFilesInFolder(folder) {
     const result = []
     const children = docStore.getChildren(folder.id)
@@ -132,17 +131,14 @@ function getAllFilesInFolder(folder) {
     return result
 }
 
-// Helper function to get immediate files in a folder (non-recursive)
 function getImmediateFiles(folder) {
     return docStore.getChildren(folder.id).filter(child => child.type === 'file')
 }
 
-// Helper function to check if text matches search query
 function matchesSearch(text) {
     return text.toLowerCase().includes(searchQuery.value.toLowerCase())
 }
 
-// Get matching files for a specific folder
 function getMatchingFilesForFolder(folder) {
     if (!searchQuery.value || !folder) return []
     if (matchesSearch(folder.name)) {
@@ -151,7 +147,6 @@ function getMatchingFilesForFolder(folder) {
     return getAllFilesInFolder(folder).filter(file => matchesSearch(file.name))
 }
 
-// Check if a folder or its children match the search
 function folderMatchesSearch(folder) {
     if (matchesSearch(folder.name)) return true
     const matchingFiles = getAllFilesInFolder(folder).filter(file => matchesSearch(file.name))
@@ -175,7 +170,7 @@ const filteredStructure = computed(() => {
     }, [])
 })
 
-// Create modal state
+// Create modal
 const showCreateModal = ref(false)
 const createType = ref('')
 const newItemName = ref('')
@@ -205,5 +200,13 @@ function cancelCreate() {
     showCreateModal.value = false
     newItemName.value = ''
     createType.value = ''
+}
+
+/**
+ * NEW: If the user clicks the "Documents" header, we selectFolder(null).
+ * That triggers "recent documents" in the HomePage logic.
+ */
+function handleDocumentsClick() {
+    docStore.selectFolder(null)
 }
 </script>
