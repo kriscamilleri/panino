@@ -14,7 +14,7 @@ const argv = minimist(process.argv.slice(2), {
   },
   default: {
     path: process.cwd(),
-    'file-types': '.vue,.js,.json,yml',
+    'file-types': '.vue,.js,.json,.yml',
     'output-file': 'combined_content.txt'
   }
 });

@@ -58,7 +58,7 @@ app.post('/signup', async (req, res) => {
       }
 
       // Create user database
-      const dbName = `userdb-${username}`
+      const dbName = `pn-markdown-notes-${username}`
       const createDbResponse = await fetch(`${COUCHDB_URL}/${dbName}`, {
          method: 'PUT',
          headers: {

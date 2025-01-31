@@ -14,8 +14,8 @@ export const useAuthStore = defineStore('authStore', () => {
 
     async function login(username, password) {
         try {
-            // First, check if we need to clean up previous user's data
-            if (lastLoggedInUser.value && lastLoggedInUser.value !== username) {
+            // Clean up previous user's data if needed
+            if (lastLoggedInUser.value && lastLoggedInUser.value.toLowerCase() !== username.toLowerCase()) {
                 await cleanupPreviousUserData(lastLoggedInUser.value)
             }
 
@@ -23,7 +23,7 @@ export const useAuthStore = defineStore('authStore', () => {
             const response = await fetch('http://localhost:5984/_session', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ name: username, password }),
                 credentials: 'include'
@@ -39,14 +39,14 @@ export const useAuthStore = defineStore('authStore', () => {
             user.value = {
                 name: username,
                 roles: data.roles,
-                dbName: `userdb-${username.toLowerCase()}`
+                // Use a consistent Couch DB name:
+                dbName: `pn-markdown-notes-${username.toLowerCase()}`
             }
             isAuthenticated.value = true
             lastLoggedInUser.value = username
 
-            // Initialize docStore for the newly logged-in user
-            const docStore = useDocStore()
-            await docStore.initCouchDB()
+            // NOTE: We do NOT call docStore.initCouchDB() here anymore.
+            // The LoadingPage will do that upon first navigation.
 
             return true
         } catch (error) {
@@ -58,10 +58,12 @@ export const useAuthStore = defineStore('authStore', () => {
     async function cleanupPreviousUserData(previousUsername) {
         console.log(`Cleaning up data for previous user: ${previousUsername}`)
 
-        // Destroy local PouchDB databases
+        // Destroy local PouchDB databases that might reference the old user
+        // We'll unify these to the consistent naming:
+        const prevLower = previousUsername.toLowerCase()
         const dbNames = [
-            `pn-markdown-notes-${previousUsername}`,
-            `_pouch_pn-markdown-notes-${previousUsername}`
+            `pn-markdown-notes-${prevLower}`,
+            `_pouch_pn-markdown-notes-${prevLower}`
         ]
 
         for (const dbName of dbNames) {
@@ -77,11 +79,12 @@ export const useAuthStore = defineStore('authStore', () => {
             }
         }
 
-        // Clear IndexedDB data
+        // Clear any old IndexedDB data that might linger
         try {
             const dbs = await window.indexedDB.databases()
             for (const db of dbs) {
-                if (db.name.includes(previousUsername)) {
+                // If the name matches the old user
+                if (db.name.includes(prevLower)) {
                     await window.indexedDB.deleteDatabase(db.name)
                     console.log(`Deleted IndexedDB database: ${db.name}`)
                 }
@@ -113,9 +116,7 @@ export const useAuthStore = defineStore('authStore', () => {
             // 4. Reset the docStore
             const docStore = useDocStore()
             docStore.resetStore()
-
-            // 5. Initialize fresh guest mode
-            await docStore.initCouchDB()
+            docStore.destroyLocalDB(user.value?.name) // user.value is null now; it's safe but won't do anything
 
             console.log(`Logout complete. Cleaned up data for: ${previousUser}`)
         } catch (error) {
@@ -133,21 +134,22 @@ export const useAuthStore = defineStore('authStore', () => {
 
             if (data.userCtx.name) {
                 // If a different user is detected, clean up previous data
-                if (lastLoggedInUser.value && lastLoggedInUser.value !== data.userCtx.name) {
+                if (
+                    lastLoggedInUser.value &&
+                    lastLoggedInUser.value.toLowerCase() !== data.userCtx.name.toLowerCase()
+                ) {
                     await cleanupPreviousUserData(lastLoggedInUser.value)
                 }
 
                 user.value = {
                     name: data.userCtx.name,
                     roles: data.userCtx.roles,
-                    dbName: `userdb-${data.userCtx.name.toLowerCase()}`
+                    dbName: `pn-markdown-notes-${data.userCtx.name.toLowerCase()}`
                 }
                 isAuthenticated.value = true
                 lastLoggedInUser.value = data.userCtx.name
 
-                // Ensure docStore is initialized for this user
-                const docStore = useDocStore()
-                await docStore.initCouchDB()
+                // We do NOT auto-init docStore here; it can happen in LoadingPage or main flow if needed.
 
                 return true
             }
