@@ -8,117 +8,113 @@ import { useSyncStore } from './syncStore'
 import { useImportExportStore } from './importExportStore'
 
 export const useDocStore = defineStore('docStore', () => {
-    // Initialize all stores
-    const structureStore = useStructureStore()
-    const contentStore = useContentStore()
-    const markdownStore = useMarkdownStore()
-    const syncStore = useSyncStore()
-    const importExportStore = useImportExportStore()
+  // sub-stores
+  const structureStore = useStructureStore()
+  const contentStore = useContentStore()
+  const markdownStore = useMarkdownStore()
+  const syncStore = useSyncStore()
+  const importExportStore = useImportExportStore()
 
-    // Expose necessary getters
-    const data = computed(() => structureStore.data)
-    const selectedFileId = computed(() => structureStore.selectedFileId)
-    const selectedFolderId = computed(() => structureStore.selectedFolderId)
-    const openFolders = computed(() => structureStore.openFolders)
-    const styles = computed(() => markdownStore.styles) // preview styles
-    const printStyles = computed(() => markdownStore.printStyles) // print styles
-    const itemsArray = computed(() => structureStore.itemsArray)
-    const rootItems = computed(() => structureStore.rootItems)
-    const selectedFile = computed(() => structureStore.selectedFile)
-    const selectedFileContent = computed(() => contentStore.selectedFileContent)
+  // Computed from structure
+  const data = computed(() => structureStore.data)
+  const selectedFileId = computed(() => structureStore.selectedFileId)
+  const selectedFolderId = computed(() => structureStore.selectedFolderId)
+  const openFolders = computed(() => structureStore.openFolders)
 
-    // Initialize CouchDB and sync
-    async function initCouchDB() {
-        await syncStore.initializeDB()
-        await structureStore.loadStructure()
-        if (selectedFileId.value) {
-            await contentStore.loadContent(selectedFileId.value)
-        }
-    }
+  // For rendering
+  const styles = computed(() => markdownStore.styles)
+  const printStyles = computed(() => markdownStore.printStyles)
 
-    async function destroyLocalDB(username) {
-        await syncStore.destroyDB(username)
-    }
+  const itemsArray = computed(() => structureStore.itemsArray)
+  const rootItems = computed(() => structureStore.rootItems)
+  const selectedFile = computed(() => structureStore.selectedFile)
+  const selectedFileContent = computed(() => contentStore.selectedFileContent)
 
-    function resetStore() {
-        structureStore.resetStore()
-        contentStore.clearCache()
-    }
+  /**
+   * The "big" initialization that occurs after login or signup:
+   *  1. Initialize local DB (if not done)
+   *  2. Attempt one-time pull from remote (throws if unreachable)
+   *  3. Start live sync in background
+   *  4. Load structure from local
+   */
+  async function initCouchDB() {
+    await syncStore.initializeDB()          // 1) local DB
+    await syncStore.oneTimePull()           // 2) single pull => throws if remote down
+    syncStore.startLiveSync()               // 3) background sync
+    await structureStore.loadStructure()    // 4) read docStoreData into memory
+  }
 
-    // Re-export structure operations
-    function renameItem(itemId, newName) {
-        return structureStore.renameItem(itemId, newName)
-    }
+  // For deleting local DB, resetting store, etc.
+  async function destroyLocalDB(username) {
+    await syncStore.destroyDB(username)
+  }
 
-    function selectFolder(folderId) {
-        structureStore.selectFolder(folderId)
-    }
-    function selectFile(fileId) {
-        structureStore.selectFile(fileId)
-    }
+  function resetStore() {
+    structureStore.resetStore()
+    contentStore.clearCache()
+  }
 
-    //
-    // For preview styling
-    //
-    function updateStyle(key, newVal) {
-        markdownStore.updateStyle(key, newVal)
-    }
-    function getMarkdownIt() {
-        return markdownStore.getMarkdownIt()
-    }
+  // Re-export structure ops
+  function renameItem(itemId, newName) {
+    return structureStore.renameItem(itemId, newName)
+  }
+  function selectFolder(folderId) {
+    structureStore.selectFolder(folderId)
+  }
+  function selectFile(fileId) {
+    structureStore.selectFile(fileId)
+  }
 
-    //
-    // For print styling
-    //
-    function updatePrintStyle(key, newVal) {
-        markdownStore.updatePrintStyle(key, newVal)
-    }
-    function getPrintMarkdownIt() {
-        return markdownStore.getPrintMarkdownIt()
-    }
+  // For preview styling
+  function updateStyle(key, newVal) {
+    markdownStore.updateStyle(key, newVal)
+  }
+  function getMarkdownIt() {
+    return markdownStore.getMarkdownIt()
+  }
 
-    return {
-        // State & getters
-        data,
-        selectedFileId,
-        selectedFolderId,
-        openFolders,
-        styles,
-        printStyles, // separate print styles
-        itemsArray,
-        rootItems,
-        selectedFile,
-        selectedFileContent,
+  // For print styling
+  function updatePrintStyle(key, newVal) {
+    markdownStore.updatePrintStyle(key, newVal)
+  }
+  function getPrintMarkdownIt() {
+    return markdownStore.getPrintMarkdownIt()
+  }
 
-        // Structure methods
-        getChildren: structureStore.getChildren,
-        createFile: structureStore.createFile,
-        createFolder: structureStore.createFolder,
-        deleteItem: structureStore.deleteItem,
-        renameItem,
-        selectFolder,
-        selectFile,
-        toggleFolder: structureStore.toggleFolder,
+  return {
+    data,
+    selectedFileId,
+    selectedFolderId,
+    openFolders,
+    styles,
+    printStyles,
+    itemsArray,
+    rootItems,
+    selectedFile,
+    selectedFileContent,
 
-        // Content updates
-        updateFileContent: contentStore.updateContent,
+    getChildren: structureStore.getChildren,
+    createFile: structureStore.createFile,
+    createFolder: structureStore.createFolder,
+    deleteItem: structureStore.deleteItem,
+    renameItem,
+    selectFolder,
+    selectFile,
+    toggleFolder: structureStore.toggleFolder,
+    updateFileContent: contentStore.updateContent,
 
-        // Import/Export
-        exportJson: importExportStore.exportDataAsJsonString,
-        exportZip: importExportStore.exportDataAsZip,
-        importData: importExportStore.importData,
+    exportJson: importExportStore.exportDataAsJsonString,
+    exportZip: importExportStore.exportDataAsZip,
+    importData: importExportStore.importData,
 
-        // Style updates (preview)
-        updateStyle,
-        getMarkdownIt,
+    updateStyle,
+    getMarkdownIt,
+    updatePrintStyle,
+    getPrintMarkdownIt,
 
-        // Print style updates
-        updatePrintStyle,
-        getPrintMarkdownIt,
-
-        // DB operations
-        initCouchDB,
-        destroyLocalDB,
-        resetStore,
-    }
+    // The key "fix": do a one-time pull, then start live sync
+    initCouchDB,
+    destroyLocalDB,
+    resetStore
+  }
 })

@@ -204,7 +204,6 @@ export const usePrintSettingsStore = defineStore('printSettingsStore', () => {
                 tmpl.enableFooter = true
             }
 
-            // If older keys exist, rename them
             if (tmpl.coverPageHtml && !tmpl.leadingPageHtml) {
                 tmpl.leadingPageHtml = tmpl.coverPageHtml
                 delete tmpl.coverPageHtml
@@ -218,10 +217,11 @@ export const usePrintSettingsStore = defineStore('printSettingsStore', () => {
 
     // Internal helpers:
     function getLocalDB() {
+        // Keep local name consistent with syncStore
         if (!authStore.isAuthenticated) {
             return new PouchDB('pn-markdown-notes-guest')
         }
-        return new PouchDB(`pn-markdown-notes-${authStore.user.name}`)
+        return new PouchDB(`pn-markdown-notes-${authStore.user.name.toLowerCase()}`)
     }
 
     async function fetchOrCreatePrintSettingsDoc(db) {

@@ -4,310 +4,322 @@ import { ref } from 'vue'
 import PouchDB from 'pouchdb-browser'
 import { useAuthStore } from './authStore'
 
+// A default "welcome" file content
 const WELCOME_CONTENT = {
-    _id: 'file:welcome',
-    type: 'content',
-    text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
-    properties: '\n',
-    discussions: {},
-    comments: {},
-    hash: Date.now(),
-    tx: Date.now()
+  _id: 'file:welcome',
+  type: 'content',
+  text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
+  properties: '\n',
+  discussions: {},
+  comments: {},
+  hash: Date.now(),
+  tx: Date.now()
 }
 
 export const useSyncStore = defineStore('syncStore', () => {
-    let localDB = null
-    let syncHandler = null
-    const isInitialized = ref(false)
+  let localDB = null
+  let syncHandler = null
+  const isInitialized = ref(false)
 
-    const authStore = useAuthStore()
+  const authStore = useAuthStore()
 
-    // Database operations
-    async function saveStructure(structure) {
-        if (!isInitialized.value || !localDB) {
-            throw new Error('Database not initialized')
-        }
+  // ----- Core DB setup -----
 
-        try {
-            let doc
-            try {
-                doc = await localDB.get('docStoreData')
-            } catch (err) {
-                if (err.status === 404) {
-                    doc = { _id: 'docStoreData' }
-                } else {
-                    throw err
-                }
-            }
-
-            doc.structure = structure
-            doc.lastModified = new Date().toISOString()
-            await localDB.put(doc)
-        } catch (err) {
-            console.error('Error saving structure:', err)
-            throw err
-        }
+  async function initializeDB() {
+    if (syncHandler) {
+      syncHandler.cancel()
+      syncHandler = null
+    }
+    if (localDB) {
+      await localDB.close()
+      localDB = null
     }
 
-    async function loadStructure() {
-        if (!isInitialized.value || !localDB) {
-            throw new Error('Database not initialized')
-        }
+    // Decide the local DB name
+    const dbName = authStore.isAuthenticated
+      ? `pn-markdown-notes-${authStore.user.name.toLowerCase()}`
+      : 'pn-markdown-notes-guest'
 
-        try {
-            const doc = await localDB.get('docStoreData')
-            return doc.structure
-        } catch (err) {
-            if (err.status !== 404) {
-                console.error('Error loading structure:', err)
+    localDB = new PouchDB(dbName, {
+      auto_compaction: true
+    })
+
+    // Register with authStore so it can be destroyed on logout, etc.
+    authStore.registerDatabase(dbName)
+
+    // Ensure we have a docStoreData doc
+    try {
+      await localDB.get('docStoreData')
+    } catch (err) {
+      if (err.status === 404) {
+        await localDB.put({
+          _id: 'docStoreData',
+          structure: {
+            welcome: {
+              id: 'welcome',
+              type: 'file',
+              name: 'Welcome.md',
+              parentId: null,
+              hash: Date.now(),
+              tx: Date.now()
             }
-            return null
-        }
-    }
-
-    async function saveContent(fileId, text) {
-        if (!isInitialized.value || !localDB) {
-            throw new Error('Database not initialized')
-        }
-
-        try {
-            let doc
-            try {
-                doc = await localDB.get(`file:${fileId}`)
-            } catch (err) {
-                if (err.status === 404) {
-                    // New file content doc
-                    doc = {
-                        _id: `file:${fileId}`,
-                        type: 'content',
-                        text: '',
-                        properties: '\n',
-                        discussions: {},
-                        comments: {}
-                    }
-                } else {
-                    throw err
-                }
-            }
-
-            // If the document is new, set createdTime
-            if (!doc.createdTime) {
-                doc.createdTime = new Date().toISOString()
-            }
-            // Always update lastModified
-            doc.lastModified = new Date().toISOString()
-
-            doc.text = text
-            const response = await localDB.put(doc)
-
-            if (response.ok) {
-                doc._rev = response.rev
-                return doc
-            }
-            return null
-        } catch (err) {
-            console.error(`Error saving content for file ${fileId}:`, err)
-            throw err
-        }
-    }
-
-    async function loadContent(fileId) {
-        if (!isInitialized.value || !localDB) {
-            throw new Error('Database not initialized')
-        }
-
-        try {
-            const doc = await localDB.get(`file:${fileId}`)
-            return doc
-        } catch (err) {
-            console.error(`Error loading content for file ${fileId}:`, err)
-            return null
-        }
-    }
-
-    async function deleteContent(fileId) {
-        if (!isInitialized.value || !localDB) {
-            throw new Error('Database not initialized')
-        }
-
-        try {
-            const doc = await localDB.get(`file:${fileId}`)
-            await localDB.remove(doc)
-        } catch (err) {
-            if (err.status !== 404) {
-                console.error(`Error deleting content for file ${fileId}:`, err)
-                throw err
-            }
-        }
-    }
-
-    function initSync() {
-        if (!authStore.isAuthenticated) {
-            console.log('User not authenticated; skipping remote sync.')
-            return
-        }
-
-        if (syncHandler) {
-            syncHandler.cancel()
-            syncHandler = null
-        }
-
-        const remoteCouch = `http://localhost:5984/${authStore.user.dbName}`
-
-        syncHandler = localDB.sync(remoteCouch, {
-            live: true,
-            retry: true,
-            batch_size: 10,
-            back_off_function: function (delay) {
-                if (delay === 0) {
-                    return 1000
-                }
-                return delay * 1.5
-            },
-            fetch: (url, opts) => {
-                return fetch(url, {
-                    ...opts,
-                    credentials: 'include'
-                })
-            }
+          },
+          lastModified: new Date().toISOString()
         })
-            .on('change', async (info) => {
-                console.log('Sync change:', info)
-                if (info.direction === 'pull' && info.change.docs.length > 0) {
-                    console.log('Received changes:', info.change.docs.length)
-                }
-            })
-            .on('paused', (err) => {
-                if (err) {
-                    console.error('Sync paused with error:', err)
-                } else {
-                    console.log('Sync paused')
-                }
-            })
-            .on('active', () => {
-                console.log('Sync active')
-            })
-            .on('denied', (err) => {
-                console.error('Sync denied:', err)
-            })
-            .on('error', (err) => {
-                console.error('Sync error:', err)
-                setTimeout(() => {
-                    if (syncHandler) {
-                        console.log('Attempting to restart sync after error...')
-                        initSync()
-                    }
-                }, 5000)
-            })
-            .on('complete', (info) => {
-                console.log('Sync completed:', info)
-            })
+        await localDB.put(WELCOME_CONTENT)
+      } else {
+        throw err
+      }
     }
 
-    async function initializeDB() {
-        try {
-            if (syncHandler) {
-                syncHandler.cancel()
-                syncHandler = null
-            }
+    isInitialized.value = true
+    console.log(`[initializeDB] Local DB "${dbName}" is set up.`)
+  }
 
-            if (localDB) {
-                await localDB.close()
-                localDB = null
-            }
+  /**
+   * Perform a one-time pull from remote to local to test connectivity.
+   * If the remote is unreachable, this will throw an error.
+   */
+  async function oneTimePull() {
+    if (!authStore.isAuthenticated) {
+      console.log('Not authenticated, skipping oneTimePull')
+      return
+    }
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Local DB not initialized before one-time pull.')
+    }
 
-            const dbName = authStore.isAuthenticated
-                ? `pn-markdown-notes-${authStore.user.name}`
-                : 'pn-markdown-notes-guest'
+    const remoteCouch = `http://localhost:5984/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
 
-            localDB = new PouchDB(dbName, {
-                auto_compaction: true
-            })
+    console.log('[oneTimePull] Trying single pull replication from remote:', remoteCouch)
+    // Replicate once from remote => local
+    const result = await localDB.replicate.from(remoteCouch, {
+      live: false,
+      retry: false,
+      timeout: 10000, // e.g. 10 sec; adjust as needed
+      fetch: (url, opts) => {
+        return fetch(url, {
+          ...opts,
+          credentials: 'include'
+        })
+      }
+    })
+    console.log('[oneTimePull] Completed single pull. Result:', result)
+  }
 
-            authStore.registerDatabase(dbName)
+  /**
+   * Start a continuous live sync in the background.
+   */
+  function startLiveSync() {
+    if (!authStore.isAuthenticated) {
+      console.log('Not authenticated, skipping live sync.')
+      return
+    }
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Cannot start live sync before DB init.')
+    }
 
-            // Initialize with welcome doc if empty
-            try {
-                await localDB.get('docStoreData')
-            } catch (err) {
-                if (err.status === 404) {
-                    await localDB.put({
-                        _id: 'docStoreData',
-                        structure: {
-                            welcome: {
-                                id: 'welcome',
-                                type: 'file',
-                                name: 'Welcome.md',
-                                parentId: null,
-                                hash: Date.now(),
-                                tx: Date.now()
-                            }
-                        },
-                        lastModified: new Date().toISOString()
-                    })
-                    await localDB.put(WELCOME_CONTENT)
-                } else {
-                    throw err
-                }
-            }
+    const remoteCouch = `http://localhost:5984/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
 
-            if (authStore.isAuthenticated) {
-                initSync()
-            }
-
-            isInitialized.value = true
-            console.log(`Database ${dbName} initialized successfully`)
-        } catch (err) {
-            console.error('Error initializing database:', err)
-            throw err
+    syncHandler = localDB.sync(remoteCouch, {
+      live: true,
+      retry: true,
+      batch_size: 10,
+      fetch: (url, opts) => {
+        return fetch(url, {
+          ...opts,
+          credentials: 'include'
+        })
+      }
+    })
+      .on('change', (info) => {
+        console.log('[liveSync] change:', info)
+      })
+      .on('paused', (err) => {
+        if (err) {
+          console.error('[liveSync] paused with error:', err)
+        } else {
+          console.log('[liveSync] paused (caught up)')
         }
-    }
-
-    async function destroyDB(username) {
-        try {
-            if (syncHandler) {
-                syncHandler.cancel()
-                syncHandler = null
-            }
-
-            if (localDB) {
-                await localDB.close()
-                localDB = null
-            }
-
-            const dbName = `pn-markdown-notes-${username}`
-            const db = new PouchDB(dbName)
-            await db.destroy()
-
-            isInitialized.value = false
-            console.log(`Successfully destroyed database: ${dbName}`)
-        } catch (err) {
-            console.error('Error destroying database:', err)
-            throw err
-        }
-    }
-
-    function cleanup() {
-        if (syncHandler) {
+      })
+      .on('active', () => {
+        console.log('[liveSync] active')
+      })
+      .on('denied', (err) => {
+        console.error('[liveSync] denied:', err)
+      })
+      .on('error', (err) => {
+        console.error('[liveSync] error:', err)
+        // Attempt to re-init after a delay
+        setTimeout(() => {
+          console.log('[liveSync] Trying to restart after error...')
+          if (syncHandler) {
             syncHandler.cancel()
             syncHandler = null
-        }
-        if (localDB) {
-            localDB.close()
-            localDB = null
-        }
-        isInitialized.value = false
-    }
+            startLiveSync()
+          }
+        }, 5000)
+      })
+      .on('complete', (info) => {
+        console.log('[liveSync] complete:', info)
+      })
+  }
 
-    return {
-        isInitialized,
-        initializeDB,
-        destroyDB,
-        cleanup,
-        saveStructure,
-        loadStructure,
-        saveContent,
-        loadContent,
-        deleteContent
+  // ----- CRUD-ish methods -----
+
+  async function saveStructure(structure) {
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Database not initialized')
     }
+    try {
+      let doc
+      try {
+        doc = await localDB.get('docStoreData')
+      } catch (err) {
+        if (err.status === 404) {
+          doc = { _id: 'docStoreData' }
+        } else {
+          throw err
+        }
+      }
+
+      doc.structure = structure
+      doc.lastModified = new Date().toISOString()
+      await localDB.put(doc)
+    } catch (err) {
+      console.error('Error saving structure:', err)
+      throw err
+    }
+  }
+
+  async function loadStructure() {
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Database not initialized')
+    }
+    try {
+      const doc = await localDB.get('docStoreData')
+      return doc.structure
+    } catch (err) {
+      if (err.status !== 404) {
+        console.error('Error loading structure:', err)
+      }
+      return null
+    }
+  }
+
+  async function saveContent(fileId, text) {
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Database not initialized')
+    }
+    try {
+      let doc
+      try {
+        doc = await localDB.get(`file:${fileId}`)
+      } catch (err) {
+        if (err.status === 404) {
+          doc = {
+            _id: `file:${fileId}`,
+            type: 'content',
+            text: '',
+            properties: '\n',
+            discussions: {},
+            comments: {}
+          }
+        } else {
+          throw err
+        }
+      }
+
+      if (!doc.createdTime) {
+        doc.createdTime = new Date().toISOString()
+      }
+      doc.lastModified = new Date().toISOString()
+      doc.text = text
+
+      const response = await localDB.put(doc)
+      if (response.ok) {
+        doc._rev = response.rev
+        return doc
+      }
+      return null
+    } catch (err) {
+      console.error(`Error saving content for file ${fileId}:`, err)
+      throw err
+    }
+  }
+
+  async function loadContent(fileId) {
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Database not initialized')
+    }
+    if (!fileId) return null
+    try {
+      const doc = await localDB.get(`file:${fileId}`)
+      return doc
+    } catch (err) {
+      if (err.status !== 404) {
+        console.error(`Error loading content for file ${fileId}:`, err)
+      }
+      return null
+    }
+  }
+
+  async function deleteContent(fileId) {
+    if (!isInitialized.value || !localDB) {
+      throw new Error('Database not initialized')
+    }
+    try {
+      const doc = await localDB.get(`file:${fileId}`)
+      await localDB.remove(doc)
+    } catch (err) {
+      if (err.status !== 404) {
+        console.error(`Error deleting content for file ${fileId}:`, err)
+        throw err
+      }
+    }
+  }
+
+  // ----- teardown -----
+  async function destroyDB(username) {
+    if (!username) return
+    if (syncHandler) {
+      syncHandler.cancel()
+      syncHandler = null
+    }
+    if (localDB) {
+      await localDB.close()
+      localDB = null
+    }
+    const dbName = `pn-markdown-notes-${username.toLowerCase()}`
+    const db = new PouchDB(dbName)
+    await db.destroy()
+    isInitialized.value = false
+    console.log(`Successfully destroyed database: ${dbName}`)
+  }
+
+  function cleanup() {
+    if (syncHandler) {
+      syncHandler.cancel()
+      syncHandler = null
+    }
+    if (localDB) {
+      localDB.close()
+      localDB = null
+    }
+    isInitialized.value = false
+  }
+
+  return {
+    isInitialized,
+    initializeDB,
+    oneTimePull,
+    startLiveSync,
+    saveStructure,
+    loadStructure,
+    saveContent,
+    loadContent,
+    deleteContent,
+    destroyDB,
+    cleanup
+  }
 })
