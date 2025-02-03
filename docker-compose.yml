@@ -6,8 +6,6 @@ services:
     environment:
       - COUCHDB_USER=${ADMIN_USER:-admin}
       - COUCHDB_PASSWORD=${ADMIN_PASSWORD:-password}
-    ports:
-      - "5984:5984"
     volumes:
       - couchdb_data:/opt/couchdb/data
     healthcheck:
@@ -30,12 +28,11 @@ services:
   signup-service:
     build:
       context: ./backend/signup-service
-    ports:
-      - "3000:3000"
     environment:
       - COUCHDB_URL=http://couchdb:5984
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
+      - NODE_ENV=production
     depends_on:
       couchdb:
         condition: service_healthy
@@ -43,11 +40,10 @@ services:
   image-service:
     build:
       context: ./backend/image-service
-    ports:
-      - "3001:3001"
     environment:
       - COUCHDB_URL=http://couchdb:5984
       - PORT=3001
+      - NODE_ENV=production
     depends_on:
       couchdb:
         condition: service_healthy
@@ -56,19 +52,27 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    ports:
-      - "80:80"
     environment:
-      - VITE_COUCHDB_URL=http://localhost:5984
-      - VITE_SIGNUP_URL=http://localhost:3000
-      - VITE_IMAGE_SERVICE_URL=http://localhost:3001
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - NODE_ENV=production
+      - VITE_COUCHDB_URL=/couchdb
+      - VITE_SIGNUP_URL=/signup
+      - VITE_IMAGE_SERVICE_URL=/images
     depends_on:
       - couchdb
       - signup-service
       - image-service
+
+  nginx:
+    image: nginx:1.25-alpine
+    volumes:
+      - ./nginx/notes.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - frontend
+      - signup-service
+      - image-service
+      - couchdb
 
 volumes:
   couchdb_data:
