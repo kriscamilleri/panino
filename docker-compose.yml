@@ -57,7 +57,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "80:80"
     environment:
       - VITE_COUCHDB_URL=http://localhost:5984
       - VITE_SIGNUP_URL=http://localhost:3000

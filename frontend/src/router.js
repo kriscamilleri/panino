@@ -5,7 +5,7 @@ import LoginForm from '@/components/LoginForm.vue'
 import SignupForm from '@/components/SignupForm.vue'
 import LoadingPage from '@/pages/LoadingPage.vue'
 import PrintStylesPage from '@/pages/PrintStylesPage.vue'
-import TermsOfService from '@/pages/TermsOfService.vue' // <-- NEW import
+import TermsOfServicePage from '@/pages/TermsOfServicePage.vue' // <-- NEW import
 
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -55,7 +55,7 @@ export const router = createRouter({
     {
       path: '/terms',
       name: 'terms',
-      component: TermsOfService  // <-- NEW route
+      component: TermsOfServicePage  // <-- NEW route
     }
   ]
 })
