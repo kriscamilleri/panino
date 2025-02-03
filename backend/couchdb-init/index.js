@@ -60,6 +60,10 @@ async function main() {
     // await putConfig('couch_peruser/delayed_commits', 'false');
     // console.log('Couch PerUser setup complete.');
 
+    console.log('Configuring CouchDB session timeout...');
+    await putConfig('couch_httpd_auth/timeout', '1209600');
+    await putConfig('couch_httpd_auth/allow_persistent_cookies', 'true');
+    console.log('Session timeout set to 2 weeks.');
     console.log('Done!');
 }
 

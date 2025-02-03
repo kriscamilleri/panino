@@ -3,57 +3,98 @@
         <!-- Top Navbar -->
         <nav class="bg-gray-100 border-b">
             <div class="flex items-center justify-between px-4 py-2">
-
                 <!-- Left side -->
                 <div class="flex items-center space-x-4">
                     <!-- Format -->
                     <BaseButton :isActive="ui.showActionBar" @click="ui.toggleActionBar()" title="Toggle Format">
-                        <Paintbrush class="w-4 h-4" />
-                        <span>Format</span>
+                        <Paintbrush class="md:w-4 md:h-4 w-5 h-5" />
+                        <span class="hidden md:inline">Format</span>
                     </BaseButton>
 
                     <!-- View -->
                     <BaseButton :isActive="ui.showViewMenu" @click="ui.toggleViewMenu()" title="Toggle View Menu">
-                        <Layout class="w-4 h-4" />
-                        <span>View</span>
+                        <Layout class="md:w-4 md:h-4 w-5 h-5" />
+                        <span class="hidden md:inline">View</span>
                     </BaseButton>
 
                     <!-- Tools -->
                     <BaseButton :isActive="ui.showFileMenu" @click="ui.toggleFileMenu()" title="Toggle File Menu">
-                        <FileIcon class="w-4 h-4" />
-                        <span>Tools</span>
+                        <FileIcon class="md:w-4 md:h-4 w-5 h-5" />
+                        <span class="hidden md:inline">Tools</span>
                     </BaseButton>
                 </div>
 
                 <!-- Right side -->
                 <div class="flex items-center space-x-4">
-                    <!-- Show user name if authenticated. If user is "guest", label as Guest -->
-                    <div v-if="authStore.isAuthenticated" class=" mx-2 text-gray-500">
-                        {{ authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest' }}
+                    <!-- Desktop menu items -->
+                    <div class="hidden md:flex items-center space-x-4">
+                        <!-- Show user name if authenticated -->
+                        <div v-if="authStore.isAuthenticated" class=" text-gray-500">
+                            {{ authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest' }}
+                        </div>
+
+                        <!-- About link -->
+                        <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
+                            class="flex items-center space-x-1 transition ">
+                            <Info class="w-4 h-4" title="About" />
+                            <span>About</span>
+                        </a>
+
+                        <!-- Login/Logout -->
+                        <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin" class="space-x-1">
+                            <LogIn class="w-4 h-4" title="Login" />
+                            <span>Login</span>
+                        </BaseButton>
+                        <BaseButton v-else @click="handleLogout" class="space-x-1">
+                            <LogOut class="w-4 h-4" title="Logout" />
+                            <span>Logout</span>
+                        </BaseButton>
                     </div>
 
-                    <!-- About link -->
-                    <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
-                        class="flex items-center space-x-1 transition">
-                        <Info class="w-4 h-4" title="About" />
-                        <span>About</span>
-                    </a>
-
-                    <!-- Login/Logout -->
-                    <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin">
-                        <LogIn class="w-4 h-4" title="Login" />
-                        <span>Login</span>
-                    </BaseButton>
-                    <BaseButton v-else @click="handleLogout">
-                        <LogOut class="w-4 h-4" title="Logout" />
-                        <span>Logout</span>
-                    </BaseButton>
+                    <!-- Mobile hamburger menu -->
+                    <div class="md:hidden">
+                        <BaseButton @click="isMobileMenuOpen = !isMobileMenuOpen">
+                            <Menu class="w-6 h-6" />
+                        </BaseButton>
+                    </div>
                 </div>
             </div>
 
+            <!-- Mobile menu -->
+            <transition name="fade-fast" mode="out-in">
+                <div v-if="isMobileMenuOpen" class="md:hidden border-t bg-gray-50">
+                    <div class="px-4 py-2 space-y-2">
+                        <!-- Show user name if authenticated -->
+                        <div v-if="authStore.isAuthenticated" class="text-gray-500 py-2 px-2">
+                            {{ authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest' }}
+                        </div>
+
+                        <!-- About link -->
+                        <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
+                            class="flex items-center space-x-2 mx-2">
+                            <Info class="w-4 h-4" title="About" />
+                            <span>About</span>
+                        </a>
+
+                        <!-- Login/Logout -->
+                        <div class="py-2">
+                            <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin" class="w-full">
+                                <LogIn class="w-4 h-4" title="Login" />
+                                <span>Login</span>
+                            </BaseButton>
+                            <BaseButton v-else @click="handleLogout" class="w-full">
+                                <LogOut class="w-4 h-4" title="Logout" />
+                                <span>Logout</span>
+                            </BaseButton>
+                        </div>
+                    </div>
+                </div>
+            </transition>
+
             <!-- Submenu Bar -->
             <transition name="fade-fast" mode="out-in">
-                <div v-if="ui.isAnyMenuOpen" class="border-t bg-gray-50 px-4 py-2 min-h-[40px] flex items-center">
+                <div v-if="ui.isAnyMenuOpen"
+                    class="border-t bg-gray-50 px-4 py-2 min-h-[40px] flex items-center overflow-x-auto">
                     <!-- View Menu Content -->
                     <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2" key="view">
                         <BaseButton :isActive="ui.showDocuments" @click="ui.toggleDocuments()">
@@ -173,47 +214,69 @@
         </nav>
 
         <!-- Main content area -->
-        <div class="flex flex-1 overflow-hidden" ref="mainContent">
+        <div class="flex flex-1 overflow-hidden flex-col md:flex-row" ref="mainContent">
             <!-- Documents (sidebar) with resizer -->
             <template v-if="ui.showDocuments">
-                <div :style="{ width: documentsWidth + 'px' }"
-                    class="flex-shrink-0 bg-gray-100 border-r overflow-hidden">
+                <div :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
+                    :style="isMobileView ? {} : { width: documentsWidth + 'px' }"
+                    class="bg-gray-100 border-r overflow-hidden">
                     <div class="h-full overflow-y-auto p-4">
                         <Documents />
                     </div>
                 </div>
-                <div class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                <div v-if="!isMobileView" class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
                     @mousedown="startResize('sidebar', $event)"></div>
             </template>
 
-            <!-- If a folder is selected and no file, show FolderPreview -->
-            <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
-                <FolderPreview :folderId="docStore.selectedFolderId" />
-            </template>
-            <!-- ELSE IF no folder selected & no file, show the 10 recent docs -->
-            <template v-else-if="!docStore.selectedFolderId && !docStore.selectedFileId">
-                <FolderPreview folderId="__recent__" />
-            </template>
-            <!-- Otherwise, show normal Editor/Preview -->
-            <template v-else>
-                <!-- Editor with resizer -->
-                <template v-if="ui.showEditor">
-                    <div :style="{ width: editorWidth + 'px' }" class="flex-shrink-0 overflow-hidden">
-                        <div class="h-full overflow-y-auto">
-                            <Editor ref="editorRef" />
+            <!-- Content panes - only shown when Documents is not visible on mobile -->
+            <template v-if="!isMobileView || !ui.showDocuments">
+                <!-- If a folder is selected and no file, show FolderPreview -->
+                <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
+                    <div class="flex-1 overflow-hidden">
+                        <FolderPreview :folderId="docStore.selectedFolderId" class="h-full overflow-y-auto" />
+                    </div>
+                </template>
+                <!-- ELSE IF no folder selected & no file, show the 10 recent docs -->
+                <template v-else-if="!docStore.selectedFolderId && !docStore.selectedFileId">
+                    <div class="flex-1 overflow-hidden">
+                        <FolderPreview folderId="__recent__" class="h-full overflow-y-auto" />
+                    </div>
+                </template>
+                <!-- Otherwise, show normal Editor/Preview -->
+                <template v-else>
+                    <div class="flex flex-1 h-full overflow-hidden"
+                        :class="{ 'flex-col': isMobileView, 'flex-row': !isMobileView }">
+                        <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+                            <!-- Preview (shown first on mobile) -->
+                            <div v-if="ui.showPreview" :class="{
+                                'h-1/2': isMobileView && ui.showEditor,
+                                'h-full': isMobileView && !ui.showEditor,
+                                'flex-1': !isMobileView
+                            }" class="w-full overflow-hidden">
+                                <div class="h-full overflow-y-auto p-4">
+                                    <Preview ref="previewRef" />
+                                </div>
+                            </div>
+
+                            <!-- Editor -->
+                            <template v-if="ui.showEditor">
+                                <div :class="{
+                                    'h-1/2': isMobileView && ui.showPreview,
+                                    'h-full': isMobileView && !ui.showPreview,
+                                    'flex-shrink-0': !isMobileView
+                                }" :style="isMobileView ? {} : { width: editorWidth + 'px' }"
+                                    class="w-full overflow-hidden">
+                                    <div class="h-full overflow-y-auto">
+                                        <Editor ref="editorRef" />
+                                    </div>
+                                </div>
+                                <div v-if="!isMobileView && ui.showPreview"
+                                    class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                                    @mousedown="startResize('editor', $event)"></div>
+                            </template>
                         </div>
                     </div>
-                    <div v-if="ui.showPreview"
-                        class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
-                        @mousedown="startResize('editor', $event)"></div>
                 </template>
-
-                <!-- Preview -->
-                <div v-if="ui.showPreview" class="flex-1 overflow-hidden">
-                    <div class="h-full overflow-y-auto p-4">
-                        <Preview ref="previewRef" />
-                    </div>
-                </div>
             </template>
         </div>
 
@@ -264,7 +327,8 @@ import {
     LogIn,
     LogOut,
     FolderArchive,
-    FileJson
+    FileJson,
+    Menu
 } from 'lucide-vue-next'
 
 const docStore = useDocStore()
@@ -286,6 +350,12 @@ const startX = ref(0)
 const startWidth = ref(0)
 const showImportModal = ref(false)
 const searchTerm = ref('')
+const isMobileMenuOpen = ref(false)
+
+// Computed property to check if we're in mobile view
+const isMobileView = computed(() => {
+    return window.innerWidth < 768 // md breakpoint in Tailwind
+})
 
 watch(
     () => route.params.fileId,
@@ -297,6 +367,23 @@ watch(
         }
     },
     { immediate: true }
+)
+
+watch(
+    isMobileView,
+    (newValue) => {
+        if (newValue) {
+            // Adjust layout for mobile
+            if (ui.showEditor && ui.showPreview) {
+                // Default to showing preview first on mobile
+                editorWidth.value = '100%'
+            }
+        } else {
+            // Reset to desktop defaults
+            documentsWidth.value = 300
+            editorWidth.value = 500
+        }
+    }
 )
 
 async function handlePrint() {
@@ -365,7 +452,7 @@ async function handlePrint() {
 }
 
 function adjustEditorWidthForContainer() {
-    if (!mainContent.value || !ui.showEditor) return
+    if (!mainContent.value || !ui.showEditor || isMobileView.value) return
     const containerWidth = mainContent.value.clientWidth
     const documentsTotalWidth = ui.showDocuments ? documentsWidth.value + 4 : 0
     const availableWidth = containerWidth - documentsTotalWidth
@@ -375,6 +462,7 @@ function adjustEditorWidthForContainer() {
 }
 
 function startResize(panel, event) {
+    if (isMobileView.value) return
     isResizing.value = true
     currentResizer.value = panel
     startX.value = event.pageX
@@ -436,6 +524,7 @@ onMounted(() => {
         }, 100)
     })
 })
+
 onUnmounted(() => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
@@ -475,6 +564,7 @@ const textFormats = [
     { label: 'Strike', icon: Strikethrough, prefix: '~~', suffix: '~~' },
     { label: 'Quote', icon: MessageSquare, prefix: '> ', suffix: '\n' }
 ]
+
 const listFormats = [
     { label: 'Bullet List', icon: List, prefix: '* ' },
     { label: 'Numbered List', icon: ListOrdered, prefix: '1. ' },
@@ -506,6 +596,17 @@ function goToPrintStyles() {
 </script>
 
 <style scoped>
+.slide-enter-active,
+.slide-leave-active {
+    transition: all 0.3s ease-out;
+}
+
+.slide-enter-from,
+.slide-leave-to {
+    transform: translateY(-20px);
+    opacity: 0;
+}
+
 .fade-enter-active,
 .fade-leave-active {
     transition: opacity 0.15s;

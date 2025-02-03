@@ -44,7 +44,7 @@
                     <!-- Submit Button -->
                     <div>
                         <button type="submit"
-                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
                             :disabled="loading">
                             <template v-if="loading">
                                 <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
@@ -63,16 +63,10 @@
                         </button>
                     </div>
 
-                    <!-- Sign Up Link -->
-                    <div class="text-sm text-center">
-                        <router-link to="/signup" class="font-medium text-gray-600 hover:text-gray-900">
-                            Don't have an account? Sign up
-                        </router-link>
-                    </div>
                 </form>
 
                 <!-- Continue as guest -->
-                <div class="mt-4">
+                <div class="mt-3">
                     <button type="button"
                         class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300"
                         @click="handleGuest">
@@ -80,8 +74,14 @@
                     </button>
                 </div>
 
+                <!-- Sign Up Link -->
+                <div class="text-sm text-center mt-3">
+                    <router-link to="/signup" class="font-medium text-gray-600 hover:text-gray-900">
+                        Don't have an account? Sign up
+                    </router-link>
+                </div>
                 <!-- Terms of Service link -->
-                <div class="text-sm text-center mt-4">
+                <div class="text-sm text-center mt-3">
                     <router-link to="/terms" class="font-medium text-gray-600 hover:text-gray-900">
                         Terms of Service
                     </router-link>
