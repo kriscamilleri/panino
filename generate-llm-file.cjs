@@ -14,7 +14,7 @@ const argv = minimist(process.argv.slice(2), {
     },
     default: {
         path: process.cwd(),
-        'file-types': '.vue,.js,.json,.yml,.py,.txt,Dockerfile,.conf',
+        'file-types': ',.js,.json,.yml,.py,.txt,Dockerfile,.conf',
         'output-file': 'combined_content.txt'
     }
 });
@@ -114,7 +114,7 @@ function getFiles(dir, fileTypes) {
             } else {
                 // Check file extension and ignore status
                 const ext = path.extname(entryPath);
-                if (fileTypes.includes(ext) && gitignoreFilter(entryPath)) {
+                if (ext !== '' && fileTypes.includes(ext) && gitignoreFilter(entryPath)) {
                     results.push(entryPath);
                 }
 

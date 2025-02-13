@@ -9,10 +9,10 @@ services:
     volumes:
       - couchdb_data:/opt/couchdb/data
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://couchdb:5984" ]
-      interval: 5s
-      timeout: 5s
-      retries: 12
+      test: [ "CMD", "curl", "-f", "http://localhost:5984" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   couchdb-init:
     build:
@@ -47,32 +47,6 @@ services:
     depends_on:
       couchdb:
         condition: service_healthy
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    environment:
-      - NODE_ENV=production
-      - VITE_COUCHDB_URL=/couchdb
-      - VITE_SIGNUP_URL=/signup
-      - VITE_IMAGE_SERVICE_URL=/images
-    depends_on:
-      - couchdb
-      - signup-service
-      - image-service
-
-  nginx:
-    image: nginx:1.25-alpine
-    volumes:
-      - ./notes/nginx.conf:/etc/nginx/conf.d/default.conf
-    ports:
-      - "8080:80"
-    depends_on:
-      - frontend
-      - signup-service
-      - image-service
-      - couchdb
 
 volumes:
   couchdb_data:
