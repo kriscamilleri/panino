@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Usage (run on the production VPS):
- *   sudo node setup-nginx.js --site example.com
+ * Usage:
+ *   sudo node setup-nginx.cjs --site example.com
  *
  * This script:
  *   1) Installs dependencies + builds the Vue frontend in ./frontend/.
@@ -13,11 +13,13 @@
  *   5) Reloads Nginx.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { execSync } from 'child_process';
-import minimist from 'minimist';
+// Use CommonJS requires instead of import
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+const minimist = require('minimist');
 
+// Parse arguments
 const args = minimist(process.argv.slice(2));
 const siteName = args.site;
 if (!siteName) {
@@ -25,8 +27,8 @@ if (!siteName) {
   process.exit(1);
 }
 
-// Paths we will use
-const projectRoot = process.cwd(); // Assuming this script is in your project root
+// Define paths
+const projectRoot = process.cwd(); // Adjust if needed
 const frontendPath = path.join(projectRoot, 'frontend');
 const distFolderPath = path.join(frontendPath, 'dist');
 const templatePath = path.join(projectRoot, 'nginx.conf.template');
@@ -49,23 +51,24 @@ try {
 // 2. Copy the dist folder to /var/www/<SITENAME>/dist
 try {
   console.log(`==> Copying ${distFolderPath} to ${wwwRoot}/dist ...`);
-  execSync(`mkdir -p ${wwwRoot}`, { stdio: 'inherit' });
-  execSync(`cp -R ${distFolderPath} ${wwwRoot}/dist`, { stdio: 'inherit' });
+  execSync(`mkdir -p "${wwwRoot}"`, { stdio: 'inherit' });
+  execSync(`cp -R "${distFolderPath}" "${wwwRoot}/dist"`, { stdio: 'inherit' });
 } catch (err) {
   console.error('ERROR copying dist folder:', err);
   process.exit(1);
 }
 
-// 3. Read and process the nginx.conf.template
+// 3. Load the template and replace placeholders
 if (!fs.existsSync(templatePath)) {
   console.error(`ERROR: Template file not found at ${templatePath}`);
   process.exit(1);
 }
 
 let template = fs.readFileSync(templatePath, 'utf8');
-template = template.replaceAll('{{SITENAME}}', siteName);
+// Use a global regex to replace all occurrences of {{SITENAME}}
+template = template.replace(/\{\{SITENAME\}\}/g, siteName);
 
-// 4. Write the processed config to /etc/nginx/sites-available/<SITENAME>.conf
+// 4. Write the Nginx config to /etc/nginx/sites-available/<SITENAME>.conf
 try {
   fs.writeFileSync(targetNginxConf, template, 'utf8');
   console.log(`Wrote Nginx config to ${targetNginxConf}`);
@@ -74,7 +77,7 @@ try {
   process.exit(1);
 }
 
-// 5. Create symlink in /etc/nginx/sites-enabled/
+// 5. Symlink into sites-enabled
 try {
   if (fs.existsSync(symlinkPath)) {
     fs.unlinkSync(symlinkPath);
