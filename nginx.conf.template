@@ -1,0 +1,52 @@
+server {
+    listen 80;
+    server_name {{SITENAME}};
+
+    # Serve the built Vue files from /var/www/{{SITENAME}}/dist
+    root /var/www/{{SITENAME}}/dist;
+    index index.html;
+
+    # Increase client upload size (for images, etc.)
+    client_max_body_size 20M;
+
+    # Vue Router "history mode" fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Proxy to signup-service
+    location /signup/ {
+        rewrite ^/signup/(.*) /$1 break;
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Proxy to image-service
+    location /images/ {
+        rewrite ^/images/(.*) /$1 break;
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Proxy to CouchDB
+    location /couchdb/ {
+        rewrite ^/couchdb/(.*) /$1 break;
+        proxy_pass http://localhost:5984;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-XSS-Protection "1; mode=block";
+    add_header X-Content-Type-Options "nosniff";
+
+    # Enable gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+}
