@@ -124,6 +124,28 @@ try {
     process.exit(1);
 }
 
+// 1. Build the frontend
+try {
+  console.log('==> Installing NPM dependencies in ./frontend ...');
+  execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
+
+  console.log('==> Running npm run build in ./frontend ...');
+  execSync('npm run build', { cwd: frontendPath, stdio: 'inherit' });
+} catch (err) {
+  console.error('ERROR during frontend build:', err);
+  process.exit(1);
+}
+
+// 2. Copy the dist folder to /var/www/<SITENAME>/dist
+try {
+  console.log(`==> Copying ${distFolderPath} to ${wwwRoot}/dist ...`);
+  execSync(`mkdir -p "${wwwRoot}"`, { stdio: 'inherit' });
+  execSync(`cp -R "${distFolderPath}" "${wwwRoot}/dist"`, { stdio: 'inherit' });
+} catch (err) {
+  console.error('ERROR copying dist folder:', err);
+  process.exit(1);
+}
+
 // Process nginx configuration
 console.log('Creating nginx configuration...');
 const nginxTemplatePath = path.join(__dirname, 'nginx.conf.template');
@@ -174,28 +196,6 @@ if (fs.existsSync(nginxTemplatePath)) {
     }
 } else {
     console.log('No nginx.conf.template found, skipping nginx configuration');
-}
-
-// 1. Build the frontend
-try {
-  console.log('==> Installing NPM dependencies in ./frontend ...');
-  execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
-
-  console.log('==> Running npm run build in ./frontend ...');
-  execSync('npm run build', { cwd: frontendPath, stdio: 'inherit' });
-} catch (err) {
-  console.error('ERROR during frontend build:', err);
-  process.exit(1);
-}
-
-// 2. Copy the dist folder to /var/www/<SITENAME>/dist
-try {
-  console.log(`==> Copying ${distFolderPath} to ${wwwRoot}/dist ...`);
-  execSync(`mkdir -p "${wwwRoot}"`, { stdio: 'inherit' });
-  execSync(`cp -R "${distFolderPath}" "${wwwRoot}/dist"`, { stdio: 'inherit' });
-} catch (err) {
-  console.error('ERROR copying dist folder:', err);
-  process.exit(1);
 }
 
 // Setup SSL if requested
