@@ -51,9 +51,14 @@
 
         <!-- Textarea -->
         <div class="flex-1 flex flex-col min-h-0">
-            <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput" @paste="handlePaste"
+            <textarea
+                ref="textareaRef"
+                v-model="contentDraft"
+                @input="handleInput"
+                @paste="handlePaste"
                 class="flex-1 border p-4 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
-                placeholder="Start writing..."></textarea>
+                placeholder="Start writing..."
+            ></textarea>
         </div>
     </div>
     <div v-else>
@@ -66,10 +71,12 @@ import { ref, computed, watch, nextTick, defineExpose } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost'
-const IMAGE_PORT = import.meta.env.VITE_IMAGE_PORT || '3001'
-const IMAGE_SERVICE_URL = `${API_BASE_URL}:${IMAGE_PORT}`
+// Instead of building an absolute URL from VITE_IMAGE_SERVICE_URL,
+// we will use a relative path in production so session cookies work properly:
+const isProduction = import.meta.env.PROD
+// For development, you can still fall back to your local server or do the same approach with a dev proxy.
+const devImageServiceUrl = import.meta.env.VITE_IMAGE_SERVICE_URL || 'http://localhost:3001'
+const imageServiceUrl = isProduction ? '' : devImageServiceUrl
 
 const docStore = useDocStore()
 const ui = useUiStore()
@@ -85,200 +92,217 @@ const uploadError = ref('')
 const file = computed(() => docStore.selectedFile)
 const originalContent = computed(() => docStore.selectedFileContent)
 const contentDraft = ref('')
-watch(originalContent, (val) => {
+watch(
+  originalContent,
+  (val) => {
     contentDraft.value = val
-}, { immediate: true })
+  },
+  { immediate: true }
+)
 
 // Stats computations
 const wordCount = computed(() => {
-    if (!contentDraft.value) return 0
-    return contentDraft.value.trim().split(/\s+/).filter(word => word.length > 0).length
+  if (!contentDraft.value) return 0
+  return contentDraft.value.trim().split(/\s+/).filter(word => word.length > 0).length
 })
-const characterCount = computed(() => {
-    return contentDraft.value.length
-})
+const characterCount = computed(() => contentDraft.value.length)
 const lineCount = computed(() => {
-    if (!contentDraft.value) return 0
-    return contentDraft.value.split('\n').length
+  if (!contentDraft.value) return 0
+  return contentDraft.value.split('\n').length
 })
 
 // Handle paste events
 async function handlePaste(event) {
-    const items = event.clipboardData?.items
-    if (!items) return
+  const items = event.clipboardData?.items
+  if (!items) return
 
-    for (const item of items) {
-        if (item.type.indexOf('image') === 0) {
-            event.preventDefault()
-            const file = item.getAsFile()
-            if (file) {
-                await uploadImage(file)
-            }
-            break
-        }
+  for (const item of items) {
+    if (item.type.indexOf('image') === 0) {
+      event.preventDefault()
+      const file = item.getAsFile()
+      if (file) {
+        await uploadImage(file)
+      }
+      break
     }
+  }
 }
 
-
+// Upload an image to `/upload` (relative path) in production
+// or your dev server (port 3001) if not in production
 async function uploadImage(file) {
-    isUploading.value = true
-    uploadError.value = ''
+  isUploading.value = true
+  uploadError.value = ''
 
-    const formData = new FormData()
-    formData.append('image', file)
+  const formData = new FormData()
+  formData.append('image', file)
 
-    try {
-        const response = await fetch(`${IMAGE_SERVICE_URL}/upload`, {
-            method: 'POST',
-            body: formData,
-            credentials: 'include'
-        })
+  try {
+    // Note the URL:
+    //  - In production => fetch("/upload") so it goes to Nginx with the session cookie
+    //  - In dev => fetch("http://localhost:3001/upload"), or whatever your dev VITE_IMAGE_SERVICE_URL is
+    const response = await fetch(`${imageServiceUrl}/upload`, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include' // ensures cookies are sent if same domain or valid CORS
+    })
 
-        if (!response.ok) {
-            const error = await response.json()
-            throw new Error(error.message || 'Upload failed')
-        }
-
-        const data = await response.json()
-
-        // Insert image markdown at cursor position or at the end
-        const textarea = textareaRef.value
-        const imageUrl = `${IMAGE_SERVICE_URL}${data.url}`
-        const imageMarkdown = `![Image](${imageUrl})\n`
-
-        if (textarea) {
-            const start = textarea.selectionStart
-            const end = textarea.selectionEnd
-
-            contentDraft.value =
-                contentDraft.value.substring(0, start) +
-                imageMarkdown +
-                contentDraft.value.substring(end)
-
-            // Update cursor position
-            nextTick(() => {
-                const newPosition = start + imageMarkdown.length
-                textarea.setSelectionRange(newPosition, newPosition)
-                textarea.focus()
-            })
-        } else {
-            contentDraft.value += imageMarkdown
-        }
-
-        handleInput()
-    } catch (error) {
-        console.error('Image upload error:', error)
-        uploadError.value = error.message || 'Failed to upload image'
-    } finally {
-        isUploading.value = false
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.message || 'Upload failed')
     }
+
+    const data = await response.json()
+
+    // The server returns e.g. { url: "/images/<docId>", id: "img_<timestamp>" }
+    // In production, 'url' is a relative path. For dev environment, we prepend devImageServiceUrl if needed.
+    const finalImageUrl = isProduction ? data.url : imageServiceUrl + data.url
+    const imageMarkdown = `![Image](${finalImageUrl})\n`
+
+    // Insert image markdown at cursor position or at the end
+    const textarea = textareaRef.value
+    if (textarea) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+
+      contentDraft.value =
+        contentDraft.value.substring(0, start) +
+        imageMarkdown +
+        contentDraft.value.substring(end)
+
+      // Update cursor position
+      nextTick(() => {
+        const newPosition = start + imageMarkdown.length
+        textarea.setSelectionRange(newPosition, newPosition)
+        textarea.focus()
+      })
+    } else {
+      contentDraft.value += imageMarkdown
+    }
+
+    handleInput()
+  } catch (error) {
+    console.error('Image upload error:', error)
+    uploadError.value = error.message || 'Failed to upload image'
+  } finally {
+    isUploading.value = false
+  }
 }
 
 function handleInput() {
-    if (file.value) {
-        docStore.updateFileContent(file.value.id, contentDraft.value)
-    }
+  if (file.value) {
+    docStore.updateFileContent(file.value.id, contentDraft.value)
+  }
 }
 
-// Expose formatting & search methods so the Nav can call
+// Expose formatting & search methods so the Nav can call them
 function insertFormat(prefix, suffix) {
-    const textarea = textareaRef.value
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selected = contentDraft.value.substring(start, end)
+  const textarea = textareaRef.value
+  if (!textarea) return
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const selected = contentDraft.value.substring(start, end)
 
-    const newText = contentDraft.value.substring(0, start) +
-        prefix + selected + suffix +
-        contentDraft.value.substring(end)
+  const newText =
+    contentDraft.value.substring(0, start) +
+    prefix + selected + suffix +
+    contentDraft.value.substring(end)
 
-    contentDraft.value = newText
+  contentDraft.value = newText
 
-    // Update cursor position
-    textarea.focus()
-    const newCursorPos = selected
-        ? start + prefix.length + selected.length + suffix.length
-        : start + prefix.length
-    textarea.setSelectionRange(newCursorPos, newCursorPos)
+  // Update cursor position
+  textarea.focus()
+  const newCursorPos = selected
+    ? start + prefix.length + selected.length + suffix.length
+    : start + prefix.length
+
+  textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
 function insertList(prefix) {
-    const textarea = textareaRef.value
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selected = contentDraft.value.substring(start, end)
+  const textarea = textareaRef.value
+  if (!textarea) return
+  const start = textarea.selectionStart
+  const end = textarea.selectionEnd
+  const selected = contentDraft.value.substring(start, end)
 
-    let newText
-    if (selected) {
-        newText = selected.split('\n').map(line => prefix + line).join('\n')
-        contentDraft.value = contentDraft.value.substring(0, start) + newText + contentDraft.value.substring(end)
-    } else {
-        newText = prefix
-        contentDraft.value = contentDraft.value.substring(0, start) + newText + contentDraft.value.substring(end)
-    }
+  let newText
+  if (selected) {
+    newText = selected.split('\n').map(line => prefix + line).join('\n')
+    contentDraft.value =
+      contentDraft.value.substring(0, start) +
+      newText +
+      contentDraft.value.substring(end)
+  } else {
+    newText = prefix
+    contentDraft.value =
+      contentDraft.value.substring(0, start) +
+      newText +
+      contentDraft.value.substring(end)
+  }
 
-    textarea.focus()
-    const newCursorPos = start + prefix.length
-    textarea.setSelectionRange(newCursorPos, newCursorPos)
+  textarea.focus()
+  const newCursorPos = start + prefix.length
+  textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
 function insertTable() {
-    const tableTemplate = `
+  const tableTemplate = `
 | Header 1 | Header 2 | Header 3 |
 |----------|----------|----------|
 | Cell 1   | Cell 2   | Cell 3   |
 | Cell 4   | Cell 5   | Cell 6   |
 `
-    insertAtCursor(tableTemplate)
+  insertAtCursor(tableTemplate)
 }
 
 function insertCodeBlock() {
-    insertFormat('```\n', '\n```')
+  insertFormat('```\n', '\n```')
 }
 
 function insertAtCursor(text) {
-    const textarea = textareaRef.value
-    if (!textarea) return
-    const start = textarea.selectionStart
+  const textarea = textareaRef.value
+  if (!textarea) return
+  const start = textarea.selectionStart
 
-    contentDraft.value = contentDraft.value.substring(0, start) +
-        text +
-        contentDraft.value.substring(start)
+  contentDraft.value =
+    contentDraft.value.substring(0, start) +
+    text +
+    contentDraft.value.substring(start)
 
-    textarea.focus()
-    const newCursorPos = start + text.length
-    textarea.setSelectionRange(newCursorPos, newCursorPos)
+  textarea.focus()
+  const newCursorPos = start + text.length
+  textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
 function findNext(term) {
-    if (!term?.trim()) return
-    const textarea = textareaRef.value
-    if (!textarea) return
+  if (!term?.trim()) return
+  const textarea = textareaRef.value
+  if (!textarea) return
 
-    // Start searching after the current selectionEnd
-    let fromIndex = textarea.selectionEnd
-    let foundIndex = contentDraft.value.indexOf(term, fromIndex)
+  // Start searching after the current selectionEnd
+  let fromIndex = textarea.selectionEnd
+  let foundIndex = contentDraft.value.indexOf(term, fromIndex)
 
-    // If not found, wrap around from start
-    if (foundIndex === -1 && fromIndex !== 0) {
-        foundIndex = contentDraft.value.indexOf(term, 0)
-    }
+  // If not found, wrap around from start
+  if (foundIndex === -1 && fromIndex !== 0) {
+    foundIndex = contentDraft.value.indexOf(term, 0)
+  }
 
-    if (foundIndex === -1) return
+  if (foundIndex === -1) return
 
+  textarea.focus()
+  textarea.setSelectionRange(foundIndex, foundIndex + term.length)
+  nextTick(() => {
     textarea.focus()
-    textarea.setSelectionRange(foundIndex, foundIndex + term.length)
-    nextTick(() => {
-        textarea.focus()
-    })
+  })
 }
 
 defineExpose({
-    insertFormat,
-    insertList,
-    insertTable,
-    insertCodeBlock,
-    findNext,
+  insertFormat,
+  insertList,
+  insertTable,
+  insertCodeBlock,
+  findNext,
 })
 </script>
