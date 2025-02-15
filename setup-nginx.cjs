@@ -163,37 +163,55 @@ const nginxOutputPath = path.join(__dirname, 'nginx.conf');
 if (fs.existsSync(nginxTemplatePath)) {
     try {
         let nginxConfig = fs.readFileSync(nginxTemplatePath, 'utf8');
+        
+        // Replace domain placeholder
         nginxConfig = nginxConfig.replace(/\${DOMAIN}/g, domain);
+        
+        // Write to temporary file first
         fs.writeFileSync(nginxOutputPath, nginxConfig);
         console.log('Successfully created nginx.conf');
 
-        // If we're root, copy to nginx directory
+        // If we're root, install the nginx configuration
         if (checkSudo()) {
-            console.log('Copying nginx configuration to /etc/nginx/sites-available/...');
-            execSync(`cp ${nginxOutputPath} /etc/nginx/sites-available/${domain}`);
+            console.log('Installing nginx configuration...');
             
-            // Create symlink if it doesn't exist
-            const symlinkPath = `/etc/nginx/sites-enabled/${domain}`;
-            if (!fs.existsSync(symlinkPath)) {
-                execSync(`ln -s /etc/nginx/sites-available/${domain} ${symlinkPath}`);
+            // Remove any existing configuration
+            const availablePath = `/etc/nginx/sites-available/${domain}`;
+            const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
+            
+            if (fs.existsSync(enabledPath)) {
+                console.log('Removing existing symlink...');
+                execSync(`rm ${enabledPath}`);
             }
             
-            // Test nginx configuration
+            console.log('Copying configuration to sites-available...');
+            execSync(`cp ${nginxOutputPath} ${availablePath}`);
+            
+            console.log('Creating symlink in sites-enabled...');
+            execSync(`ln -s ${availablePath} ${enabledPath}`);
+            
+            // Test the configuration
             try {
+                console.log('Testing nginx configuration...');
                 execSync('nginx -t', { stdio: 'inherit' });
-                console.log('Nginx configuration test passed');
                 
-                // Reload nginx
+                console.log('Reloading nginx...');
                 execSync('systemctl reload nginx');
-                console.log('Nginx reloaded successfully');
+                
+                console.log('Nginx configuration installed and tested successfully');
             } catch (error) {
-                console.error('Nginx configuration test failed:', error.message);
-                // Remove the problematic config
-                execSync(`rm /etc/nginx/sites-available/${domain}`);
-                if (fs.existsSync(symlinkPath)) {
-                    execSync(`rm ${symlinkPath}`);
+                console.error('Nginx configuration test failed');
+                console.error('Removing invalid configuration...');
+                
+                // Clean up invalid configuration
+                if (fs.existsSync(enabledPath)) {
+                    execSync(`rm ${enabledPath}`);
                 }
-                process.exit(1);
+                if (fs.existsSync(availablePath)) {
+                    execSync(`rm ${availablePath}`);
+                }
+                
+                throw error;
             }
         } else {
             console.log('Not running as root - nginx configuration file created but not installed');
@@ -204,7 +222,9 @@ if (fs.existsSync(nginxTemplatePath)) {
         process.exit(1);
     }
 } else {
-    console.log('No nginx.conf.template found, skipping nginx configuration');
+    console.error('nginx.conf.template not found!');
+    console.error('Please ensure nginx.conf.template exists in the project root');
+    process.exit(1);
 }
 
 // Setup SSL if requested
