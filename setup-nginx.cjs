@@ -145,6 +145,15 @@ try {
   process.exit(1);
 }
 
+// 2. If there exists a dist folder /var/www/<SITENAME>/dist, remove it
+try {
+  console.log(`==> Removing existing dist folder at ${wwwRoot}/dist ...`);
+  execSync(`rm -rf "${wwwRoot}/dist"`, { stdio: 'inherit' });
+}
+catch (err) {
+  console.error('Warning: Could not remove existing dist folder:', err);
+}
+
 // 2. Copy the dist folder to /var/www/<SITENAME>/dist
 try {
   console.log(`==> Copying ${distFolderPath} to ${wwwRoot}/dist ...`);
