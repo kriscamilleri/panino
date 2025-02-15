@@ -107,7 +107,7 @@ async function setupSSL() {
 
 // Create production environment file
 console.log('Creating production environment file...');
-const envPath = path.join(__dirname, 'frontend', '.env.production');
+const envPath = path.join(__dirname, 'frontend', '.env');
 const envContent = `# Production environment variables
 # Generated for ${fullDomain}
 VITE_API_BASE_URL=${fullDomain}
@@ -118,9 +118,9 @@ VITE_IMAGE_PORT=443
 
 try {
     fs.writeFileSync(envPath, envContent);
-    console.log(`Successfully created .env.production with domain: ${fullDomain}`);
+    console.log(`Successfully created .env with domain: ${fullDomain}`);
 } catch (error) {
-    console.error('Error writing .env.production file:', error);
+    console.error('Error writing .env file:', error);
     process.exit(1);
 }
 
