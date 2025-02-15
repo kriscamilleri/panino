@@ -32,7 +32,7 @@ server {
     
     # CouchDB proxy
     location ~ ^/(\_session|\_all\_dbs|\_utils|pn-markdown-notes) {
-        proxy_pass http://couchdb:5984;
+        proxy_pass http://localhost:5984;
         proxy_redirect off;
         proxy_buffering off;
         proxy_set_header Host $host;
@@ -50,7 +50,7 @@ server {
     
     # Signup service proxy
     location /signup {
-        proxy_pass http://signup-service:3000;
+        proxy_pass http://localhost:3000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -60,7 +60,7 @@ server {
     
     # Image service proxy
     location ~ ^/upload|/images/ {
-        proxy_pass http://image-service:3001;
+        proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
