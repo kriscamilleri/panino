@@ -4,6 +4,10 @@ import { ref } from 'vue'
 import PouchDB from 'pouchdb-browser'
 import { useAuthStore } from './authStore'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost'
+const COUCHDB_PORT = import.meta.env.VITE_COUCHDB_PORT || '5984'
+const COUCHDB_URL = `${API_BASE_URL}:${COUCHDB_PORT}`
+
 const WELCOME_CONTENT = {
   _id: 'file:welcome',
   type: 'content',
@@ -84,7 +88,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       throw new Error('Local DB not initialized before one-time pull.')
     }
 
-    const remoteCouch = `http://localhost:5984/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
+    const remoteCouch = `${COUCHDB_URL}/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
 
     console.log('[oneTimePull] Trying single pull replication from remote:', remoteCouch)
     const result = await localDB.replicate.from(remoteCouch, {
@@ -113,7 +117,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       throw new Error('Cannot start live sync before DB init.')
     }
 
-    const remoteCouch = `http://localhost:5984/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
+    const remoteCouch =  `${COUCHDB_URL}/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
 
     syncHandler = localDB.sync(remoteCouch, {
       live: true,

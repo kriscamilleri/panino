@@ -4,6 +4,13 @@ import { ref } from 'vue'
 import PouchDB from 'pouchdb-browser'
 import { useDocStore } from '@/store/docStore'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost'
+const COUCHDB_PORT = import.meta.env.VITE_COUCHDB_PORT || '5984'
+const SIGNUP_PORT = import.meta.env.VITE_SIGNUP_PORT || '3000'
+
+const COUCHDB_URL = `${API_BASE_URL}:${COUCHDB_PORT}`
+const SIGNUP_URL = `${API_BASE_URL}:${SIGNUP_PORT}`
+
 export const useAuthStore = defineStore('authStore', () => {
     const user = ref(null)
     const isAuthenticated = ref(false)
@@ -20,7 +27,7 @@ export const useAuthStore = defineStore('authStore', () => {
             }
 
             // Attempt login with CouchDB
-            const response = await fetch('http://localhost:5984/_session', {
+            const response = await fetch(`${COUCHDB_URL}/_session`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -45,9 +52,6 @@ export const useAuthStore = defineStore('authStore', () => {
             isAuthenticated.value = true
             lastLoggedInUser.value = username
 
-            // NOTE: We do NOT call docStore.initCouchDB() here anymore.
-            // The LoadingPage will do that upon first navigation.
-
             return true
         } catch (error) {
             console.error('Login error:', error)
@@ -55,10 +59,6 @@ export const useAuthStore = defineStore('authStore', () => {
         }
     }
 
-    /**
-     * NEW: Allows a user to skip remote authentication and continue as "guest",
-     * using a local-only database named "pn-markdown-notes-guest".
-     */
     async function continueAsGuest() {
         // If there's a previously logged in user, clean up that data
         if (lastLoggedInUser.value) {
@@ -113,7 +113,7 @@ export const useAuthStore = defineStore('authStore', () => {
     async function logout() {
         try {
             // 1. End CouchDB session
-            await fetch('http://localhost:5984/_session', {
+            await fetch(`${COUCHDB_URL}/_session`, {
                 method: 'DELETE',
                 credentials: 'include'
             })
@@ -132,7 +132,7 @@ export const useAuthStore = defineStore('authStore', () => {
             // 4. Reset the docStore
             const docStore = useDocStore()
             docStore.resetStore()
-            docStore.destroyLocalDB(user.value?.name) // user.value is null now; safe but won't do anything
+            docStore.destroyLocalDB(user.value?.name)
 
             console.log(`Logout complete. Cleaned up data for: ${previousUser}`)
         } catch (error) {
@@ -143,7 +143,7 @@ export const useAuthStore = defineStore('authStore', () => {
 
     async function checkAuth() {
         try {
-            const response = await fetch('http://localhost:5984/_session', {
+            const response = await fetch(`${COUCHDB_URL}/_session`, {
                 credentials: 'include'
             })
             const data = await response.json()
@@ -176,7 +176,7 @@ export const useAuthStore = defineStore('authStore', () => {
 
     async function signup(username, password) {
         try {
-            const response = await fetch('http://localhost:3000/signup', {
+            const response = await fetch(`${SIGNUP_URL}/signup`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -208,7 +208,7 @@ export const useAuthStore = defineStore('authStore', () => {
         logout,
         checkAuth,
         signup,
-        continueAsGuest, // <-- NEW method
+        continueAsGuest,
         registerDatabase
     }
 })
