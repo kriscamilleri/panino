@@ -115,10 +115,11 @@ VITE_COUCHDB_PORT=443
 VITE_SIGNUP_PORT=443
 VITE_IMAGE_PORT=443
 `;
-
 try {
     fs.writeFileSync(envPath, envContent);
     console.log(`Successfully created .env with domain: ${fullDomain}`);
+    console.log("ENV PATH IS THIS: "+ envPath);
+    console.log("ENV CONTENT IS THIS: "+ envContent);
 } catch (error) {
     console.error('Error writing .env file:', error);
     process.exit(1);
