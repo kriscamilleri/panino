@@ -154,7 +154,6 @@ try {
   console.error('ERROR copying dist folder:', err);
   process.exit(1);
 }
-
 // Process nginx configuration
 console.log('Creating nginx configuration...');
 const nginxTemplatePath = path.join(__dirname, 'nginx.conf.template');
@@ -175,20 +174,28 @@ if (fs.existsSync(nginxTemplatePath)) {
         if (checkSudo()) {
             console.log('Installing nginx configuration...');
             
-            // Remove any existing configuration
+            // Define paths
             const availablePath = `/etc/nginx/sites-available/${domain}`;
             const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
             
-            if (fs.existsSync(enabledPath)) {
-                console.log('Removing existing symlink...');
-                execSync(`rm ${enabledPath}`);
+            // Remove existing configuration and symlinks
+            console.log('Removing any existing configuration...');
+            try {
+                if (fs.existsSync(enabledPath)) {
+                    execSync(`rm -f ${enabledPath}`);
+                }
+                if (fs.existsSync(availablePath)) {
+                    execSync(`rm -f ${availablePath}`);
+                }
+            } catch (err) {
+                console.log('Warning: Could not remove existing files:', err.message);
             }
             
             console.log('Copying configuration to sites-available...');
             execSync(`cp ${nginxOutputPath} ${availablePath}`);
             
             console.log('Creating symlink in sites-enabled...');
-            execSync(`ln -s ${availablePath} ${enabledPath}`);
+            execSync(`ln -sf ${availablePath} ${enabledPath}`);
             
             // Test the configuration
             try {
@@ -204,11 +211,15 @@ if (fs.existsSync(nginxTemplatePath)) {
                 console.error('Removing invalid configuration...');
                 
                 // Clean up invalid configuration
-                if (fs.existsSync(enabledPath)) {
-                    execSync(`rm ${enabledPath}`);
-                }
-                if (fs.existsSync(availablePath)) {
-                    execSync(`rm ${availablePath}`);
+                try {
+                    if (fs.existsSync(enabledPath)) {
+                        execSync(`rm -f ${enabledPath}`);
+                    }
+                    if (fs.existsSync(availablePath)) {
+                        execSync(`rm -f ${availablePath}`);
+                    }
+                } catch (err) {
+                    console.log('Warning: Could not clean up files:', err.message);
                 }
                 
                 throw error;
