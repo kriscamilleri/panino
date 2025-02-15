@@ -49,9 +49,14 @@ async function main() {
     await putConfig('cors/headers', 'accept, authorization, content-type, origin, referer, x-csrf-token');
     console.log('CORS setup complete.');
 
-    console.log('Creating _users database...');
-    await createDatabase('_users');
-    console.log('_users database created.');
+    try{
+        console.log('Creating _users database...');
+        await createDatabase('_users');
+        console.log('_users database created.');
+    }
+    catch(err){
+        console.log('_users database already exists.');
+    }
 
     // REMOVED: PerUser auto-creation lines to avoid conflicts with the signup service:
     // console.log('Configuring Couch PerUser...');
