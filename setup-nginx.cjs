@@ -106,8 +106,8 @@ async function setupSSL() {
 }
 
 // Create production environment file
-console.log('Creating production environment file...');
-const envPath = path.join(__dirname, 'frontend', '.env');
+console.log('Creating production environment file...');// Update the env file path to use .env.production
+const envPath = path.join(__dirname, 'frontend', '.env.production');
 const envContent = `# Production environment variables
 # Generated for ${fullDomain}
 VITE_API_BASE_URL=${fullDomain}
@@ -115,14 +115,22 @@ VITE_COUCHDB_PORT=443
 VITE_SIGNUP_PORT=443
 VITE_IMAGE_PORT=443
 `;
+
+// Update the build process to ensure it's in production mode
 try {
-    fs.writeFileSync(envPath, envContent);
-    console.log(`Successfully created .env with domain: ${fullDomain}`);
-    console.log("ENV PATH IS THIS: "+ envPath);
-    console.log("ENV CONTENT IS THIS: "+ envContent);
-} catch (error) {
-    console.error('Error writing .env file:', error);
-    process.exit(1);
+  console.log('==> Installing NPM dependencies in ./frontend ...');
+  execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
+
+  console.log('==> Running production build in ./frontend ...');
+  // Force production mode
+  execSync('NODE_ENV=production npm run build', { 
+    cwd: frontendPath, 
+    stdio: 'inherit',
+    env: { ...process.env, NODE_ENV: 'production' }
+  });
+} catch (err) {
+  console.error('ERROR during frontend build:', err);
+  process.exit(1);
 }
 
 // 1. Build the frontend

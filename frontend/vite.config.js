@@ -14,11 +14,13 @@ export default defineConfig({
     global: 'globalThis'
   },
   server: {
-    host: true, // Needed for docker
+    host: true,
     port: 5173,
     strictPort: true,
   },
   optimizeDeps: {
     allowNodeBuiltins: ['pouchdb-browser', 'pouchdb-utils']
-  }
+  },
+  // Add base configuration for production
+  base: '/'
 })
