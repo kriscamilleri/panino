@@ -4,7 +4,7 @@ services:
   couchdb:
     image: couchdb:3.3.2
     ports:
-      - "5984:5984"
+      - "127.0.0.1:5984:5984"
     environment:
       - COUCHDB_USER=${COUCHDB_USER}
       - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
@@ -34,7 +34,7 @@ services:
     build:
       context: ./backend/signup-service
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - COUCHDB_URL=${COUCHDB_URL}
       - ADMIN_USER=${COUCHDB_USER}
@@ -51,7 +51,7 @@ services:
     build:
       context: ./backend/image-service
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       - COUCHDB_URL=${COUCHDB_URL}
       - PORT=3001
@@ -69,7 +69,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     environment:
       - NODE_ENV=development
       - VITE_COUCHDB_URL=${COUCHDB_URL}

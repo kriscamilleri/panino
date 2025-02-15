@@ -31,7 +31,7 @@ services:
     build:
       context: ./backend/signup-service
     environment:
-      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_URL=http://localhost:5984
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
       - NODE_ENV=production
@@ -45,7 +45,7 @@ services:
     build:
       context: ./backend/image-service
     environment:
-      - COUCHDB_URL=http://couchdb:5984
+      - COUCHDB_URL=http://localhost:5984
       - PORT=3001
       - NODE_ENV=production
     ports:
