@@ -23,11 +23,6 @@ server {
         root /var/www/${DOMAIN}/dist;
         try_files $uri $uri/ /index.html;
         
-        # Cache static assets
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-            expires 30d;
-            add_header Cache-Control "public, no-transform";
-        }
     }
     
     # CouchDB proxy
