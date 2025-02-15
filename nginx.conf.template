@@ -20,7 +20,7 @@ server {
     
     # Frontend app
     location / {
-        root /var/www/notes-app;
+        root /var/www/${DOMAIN}/dist;
         try_files $uri $uri/ /index.html;
         
         # Cache static assets
