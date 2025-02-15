@@ -29,9 +29,27 @@ server {
             add_header Cache-Control "public, no-transform";
         }
     }
+
+    # Fauxton (CouchDB _utils) UI
+    location ^~ /_utils/ {
+        proxy_pass http://localhost:5984/_utils/;
+        proxy_redirect off;
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Required for CouchDB cookie auth
+        proxy_set_header X-CouchDB-WWW-Authenticate $http_authorization;
+        
+        # WebSocket support
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
     
-    # CouchDB proxy
-    location ~ ^/(\_session|\_all\_dbs|\_utils|pn-markdown-notes) {
+    # CouchDB proxy (excluding /_utils)
+    location ~ ^/(\_session|\_all\_dbs|pn-markdown-notes) {
         proxy_pass http://localhost:5984;
         proxy_redirect off;
         proxy_buffering off;
@@ -62,14 +80,11 @@ server {
     location ~ ^/upload|/images/ {
         proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
-        proxy_set_header Host https://$host;
+        proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
          
-        # Required for CouchDB cookie auth
-        proxy_set_header X-CouchDB-WWW-Authenticate $http_authorization;
-        
         # For image uploads
         client_max_body_size 5M;
     }
