@@ -34,6 +34,9 @@ async function getUserFromSession(cookie) {
         })
 
         const sessionData = await sessionResponse.json()
+
+        console.log("sessionData")
+        console.log(sessionData)
         if (!sessionData.userCtx.name) {
             return null
         }
@@ -59,6 +62,8 @@ app.post('/upload', upload.single('image'), async (req, res) => {
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' })
         }
+        console.log("COOKIE")
+        console.log(req.headers.cookie)
 
         const user = await getUserFromSession(req.headers.cookie)
 
