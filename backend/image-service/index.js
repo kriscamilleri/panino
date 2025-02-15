@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-const COUCHDB_URL = process.env.COUCHDB_URL || 'http://couchdb:5984'
+const COUCHDB_URL = process.env.COUCHDB_URL || 'http://localhost:5984'
 
 const app = express()
 app.use(cors({
@@ -37,10 +37,9 @@ async function getUserFromSession(cookie) {
         if (!sessionData.userCtx.name) {
             return null
         }
-
         return {
             username: sessionData.userCtx.name,
-            dbName: `userdb-${sessionData.userCtx.name}`
+            dbName: `pn-markdown-notes-${sessionData.userCtx.name.toLowerCase()}`
         }
     } catch (error) {
         console.error('Error getting user session:', error)
@@ -55,12 +54,14 @@ app.get('/', (req, res) => {
 
 // Upload endpoint
 app.post('/upload', upload.single('image'), async (req, res) => {
+    console.log("Upload request received")
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No image file provided' })
         }
 
         const user = await getUserFromSession(req.headers.cookie)
+
         if (!user) {
             return res.status(401).json({ error: 'Unauthorized' })
         }
@@ -77,6 +78,7 @@ app.post('/upload', upload.single('image'), async (req, res) => {
             contentType: req.file.mimetype,
             uploadedAt: new Date().toISOString()
         }
+        console.log(`URL = ${COUCHDB_URL}/${user.dbName}/${docId}/image?rev=`)
 
         // Create the document first
         const createResponse = await fetch(`${COUCHDB_URL}/${user.dbName}/${docId}`, {
@@ -92,7 +94,6 @@ app.post('/upload', upload.single('image'), async (req, res) => {
         if (!createResponse.ok) {
             throw new Error(createData.reason || 'Failed to create image document')
         }
-
         // Then add the attachment
         const attachmentResponse = await fetch(`${COUCHDB_URL}/${user.dbName}/${docId}/image?rev=${createData.rev}`, {
             method: 'PUT',
