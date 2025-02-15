@@ -66,6 +66,11 @@ import { ref, computed, watch, nextTick, defineExpose } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost'
+const IMAGE_PORT = import.meta.env.VITE_IMAGE_PORT || '3001'
+const IMAGE_SERVICE_URL = `${API_BASE_URL}:${IMAGE_PORT}`
+
 const docStore = useDocStore()
 const ui = useUiStore()
 
@@ -113,6 +118,8 @@ async function handlePaste(event) {
         }
     }
 }
+
+
 async function uploadImage(file) {
     isUploading.value = true
     uploadError.value = ''
@@ -121,7 +128,7 @@ async function uploadImage(file) {
     formData.append('image', file)
 
     try {
-        const response = await fetch('http://localhost:3001/upload', {
+        const response = await fetch(`${IMAGE_SERVICE_URL}/upload`, {
             method: 'POST',
             body: formData,
             credentials: 'include'
@@ -136,7 +143,7 @@ async function uploadImage(file) {
 
         // Insert image markdown at cursor position or at the end
         const textarea = textareaRef.value
-        const imageUrl = `http://localhost:3001${data.url}`
+        const imageUrl = `${IMAGE_SERVICE_URL}${data.url}`
         const imageMarkdown = `![Image](${imageUrl})\n`
 
         if (textarea) {
