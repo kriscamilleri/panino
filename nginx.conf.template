@@ -66,6 +66,9 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+         
+        # Required for CouchDB cookie auth
+        proxy_set_header X-CouchDB-WWW-Authenticate $http_authorization;
         
         # For image uploads
         client_max_body_size 5M;
