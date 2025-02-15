@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-const COUCHDB_URL = process.env.COUCHDB_URL || 'http://127.0.0.1:5984'
+const COUCHDB_URL = process.env.COUCHDB_URL || 'http://couchdb:5984'
 
 const app = express()
 app.use(cors({
