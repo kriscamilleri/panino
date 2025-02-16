@@ -40,6 +40,8 @@ services:
       - ADMIN_USER=${COUCHDB_USER}
       - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
       - NODE_ENV=development
+      # TURNSTILE SECRET KEY for server-side verification:
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
     volumes:
       - ./backend/couchdb-init:/app
       - /app/node_modules
@@ -74,6 +76,8 @@ services:
       - NODE_ENV=development
       - VITE_COUCHDB_URL=${COUCHDB_URL}
       - VITE_IMAGE_SERVICE_URL=http://localhost:3001
+      # TURNSTILE SITE KEY for client-side widget:
+      - VITE_TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}
     volumes:
       - ./frontend:/app
       - /app/node_modules

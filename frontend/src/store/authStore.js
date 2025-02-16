@@ -46,7 +46,6 @@ export const useAuthStore = defineStore('authStore', () => {
             user.value = {
                 name: username,
                 roles: data.roles,
-                // Use a consistent Couch DB name:
                 dbName: `pn-markdown-notes-${username.toLowerCase()}`
             }
             isAuthenticated.value = true
@@ -174,12 +173,19 @@ export const useAuthStore = defineStore('authStore', () => {
         }
     }
 
-    async function signup(username, password) {
+    /**
+     * SIGNUP now accepts a `turnstileToken` param and sends it to the signup-service
+     */
+    async function signup(username, password, turnstileToken = '') {
         try {
             const response = await fetch(`${SIGNUP_URL}/signup`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({
+                    username,
+                    password,
+                    'cf-turnstile-response': turnstileToken
+                })
             })
 
             const data = await response.json()
