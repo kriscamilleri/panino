@@ -30,7 +30,7 @@
                     <div class="hidden md:flex items-center space-x-4">
                         <!-- Show user name if authenticated -->
                         <div v-if="authStore.isAuthenticated" class=" text-gray-500">
-                            {{ authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest' }}
+                            {{authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest'}}
                         </div>
 
                         <!-- About link -->
@@ -66,7 +66,7 @@
                     <div class="px-4 py-2 space-y-2">
                         <!-- Show user name if authenticated -->
                         <div v-if="authStore.isAuthenticated" class="text-gray-500 py-2 px-2">
-                            {{ authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest' }}
+                            {{authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest'}}
                         </div>
 
                         <!-- About link -->
@@ -218,7 +218,7 @@
             <!-- Documents (sidebar) with resizer -->
             <template v-if="ui.showDocuments">
                 <div :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
-                    :style="isMobileView ? {} : { width: documentsWidth + 'px' }"
+                    :style="!isMobileView ? { width: documentsWidth + 'px' } : {}"
                     class="bg-gray-100 border-r overflow-hidden">
                     <div class="h-full overflow-y-auto p-4">
                         <Documents />
@@ -247,33 +247,33 @@
                     <div class="flex flex-1 h-full overflow-hidden"
                         :class="{ 'flex-col': isMobileView, 'flex-row': !isMobileView }">
                         <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
-                            <!-- Preview (shown first on mobile) -->
-                            <div v-if="ui.showPreview" :class="{
-                                'h-1/2': isMobileView && ui.showEditor,
-                                'h-full': isMobileView && !ui.showEditor,
-                                'flex-1': !isMobileView
-                            }" class="w-full overflow-hidden">
-                                <div class="h-full overflow-y-auto p-4">
-                                    <Preview ref="previewRef" />
-                                </div>
-                            </div>
-
-                            <!-- Editor -->
+                            <!-- Editor (shown first on desktop) -->
                             <template v-if="ui.showEditor">
                                 <div :class="{
                                     'h-1/2': isMobileView && ui.showPreview,
                                     'h-full': isMobileView && !ui.showPreview,
                                     'flex-shrink-0': !isMobileView
-                                }" :style="isMobileView ? {} : { width: editorWidth + 'px' }"
-                                    class="w-full overflow-hidden">
+                                }" :style="!isMobileView ? { width: editorWidth + 'px' } : {}"
+                                    class="w-full overflow-hidden order-2 md:order-1">
                                     <div class="h-full overflow-y-auto">
                                         <Editor ref="editorRef" />
                                     </div>
                                 </div>
                                 <div v-if="!isMobileView && ui.showPreview"
-                                    class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+                                    class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 order-1"
                                     @mousedown="startResize('editor', $event)"></div>
                             </template>
+
+                            <!-- Preview -->
+                            <div v-if="ui.showPreview" :class="{
+                                'h-1/2': isMobileView && ui.showEditor,
+                                'h-full': isMobileView && !ui.showEditor,
+                                'flex-1': !isMobileView
+                            }" class="w-full overflow-hidden order-1 md:order-2">
+                                <div class="h-full overflow-y-auto p-4">
+                                    <Preview ref="previewRef" />
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -344,6 +344,7 @@ const previewRef = ref(null)
 
 const documentsWidth = ref(300)
 const editorWidth = ref(500)
+const lastKnownDocumentsWidth = ref(300) // Store the last known width
 const isResizing = ref(false)
 const currentResizer = ref(null)
 const startX = ref(0)
@@ -352,10 +353,11 @@ const showImportModal = ref(false)
 const searchTerm = ref('')
 const isMobileMenuOpen = ref(false)
 
-// Computed property to check if we're in mobile view
-const isMobileView = computed(() => {
-    return window.innerWidth < 768 // md breakpoint in Tailwind
-})
+// A ref that holds the current window size:
+const windowWidth = ref(window.innerWidth)
+
+// A computed property that becomes `true/false` based on windowWidth:
+const isMobileView = computed(() => windowWidth.value < 768)
 
 watch(
     () => route.params.fileId,
@@ -368,88 +370,17 @@ watch(
     },
     { immediate: true }
 )
-
-watch(
-    isMobileView,
-    (newValue) => {
-        if (newValue) {
-            // Adjust layout for mobile
-            if (ui.showEditor && ui.showPreview) {
-                // Default to showing preview first on mobile
-                editorWidth.value = '100%'
-            }
-        } else {
-            // Reset to desktop defaults
-            documentsWidth.value = 300
-            editorWidth.value = 500
-        }
+watch(isMobileView, (newValue, oldValue) => {
+    if (!newValue && oldValue) {
+        // Just left "mobile" mode → entering desktop
+        documentsWidth.value = lastKnownDocumentsWidth.value
+        editorWidth.value = 500
+    } else if (newValue) {
+        // Just entered "mobile" mode
+        lastKnownDocumentsWidth.value = documentsWidth.value
+        documentsWidth.value = window.innerWidth
     }
-)
-
-async function handlePrint() {
-    if (!docStore.selectedFile) {
-        alert('Please select a file to print')
-        return
-    }
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) {
-        alert('Please allow popup windows for printing')
-        return
-    }
-    const printMd = docStore.getPrintMarkdownIt()
-    const content = printMd.render(docStore.selectedFileContent || '')
-
-    const { printHeaderHtml = '', printFooterHtml = '' } = docStore.printStyles
-
-    const basePrintStyles = `
-        <style>
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                line-height: 1.6;
-                max-width: 800px;
-                margin: 40px auto;
-                padding: 0 20px;
-            }
-            @media print {
-                body { margin: 1.6cm; }
-                pre, code { white-space: pre-wrap; }
-            }
-        </style>
-    `
-
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>${docStore.selectedFile.name}</title>
-            <link
-                rel="stylesheet"
-                href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css"
-                integrity="sha512-wnea99uKIC3TJF7v4eKk4Y+lMz2Mklv18+r4na2Gn1abDRPPOeef95xTzdwGD9e6zXJBteMIhZ1+68QC5byJZw=="
-                crossorigin="anonymous"
-                referrerpolicy="no-referrer"
-            />
-            ${basePrintStyles}
-        </head>
-        <body>
-            ${printHeaderHtml}
-            ${content}
-            ${printFooterHtml}
-        </body>
-        </html>
-    `)
-
-    printWindow.document.close()
-
-    printWindow.onload = () => {
-        setTimeout(() => {
-            printWindow.print()
-            printWindow.onafterprint = () => {
-                printWindow.close()
-            }
-        }, 500)
-    }
-}
+})
 
 function adjustEditorWidthForContainer() {
     if (!mainContent.value || !ui.showEditor || isMobileView.value) return
@@ -517,12 +448,23 @@ function stopResize() {
 
 let resizeTimeout
 onMounted(() => {
+    function handleResize() {
+        windowWidth.value = window.innerWidth
+    }
+    window.addEventListener('resize', handleResize)
+
+    onUnmounted(() => {
+        window.removeEventListener('resize', handleResize)
+    })
+
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout)
         resizeTimeout = setTimeout(() => {
+            windowWidth.value = window.innerWidth
             adjustEditorWidthForContainer()
         }, 100)
     })
+
 })
 
 onUnmounted(() => {
@@ -531,6 +473,71 @@ onUnmounted(() => {
     window.removeEventListener('resize', null)
     clearTimeout(resizeTimeout)
 })
+
+async function handlePrint() {
+    if (!docStore.selectedFile) {
+        alert('Please select a file to print')
+        return
+    }
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+        alert('Please allow popup windows for printing')
+        return
+    }
+    const printMd = docStore.getPrintMarkdownIt()
+    const content = printMd.render(docStore.selectedFileContent || '')
+
+    const { printHeaderHtml = '', printFooterHtml = '' } = docStore.printStyles
+
+    const basePrintStyles = `
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                line-height: 1.6;
+                max-width: 800px;
+                margin: 40px auto;
+                padding: 0 20px;
+            }
+            @media print {
+                body { margin: 1.6cm; }
+                pre, code { white-space: pre-wrap; }
+            }
+        </style>
+    `
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${docStore.selectedFile.name}</title>
+            <link
+                rel="stylesheet"
+                href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css"
+                integrity="sha512-wnea99uKIC3TJF7v4eKk4Y+lMz2Mklv18+r4na2Gn1abDRPPOeef95xTzdwGD9e6zXJBteMIhZ1+68QC5byJZw=="
+                crossorigin="anonymous"
+                referrerpolicy="no-referrer"
+            />
+            ${basePrintStyles}
+        </head>
+        <body>
+            ${printHeaderHtml}
+            ${content}
+            ${printFooterHtml}
+        </body>
+        </html>
+    `)
+
+    printWindow.document.close()
+
+    printWindow.onload = () => {
+        setTimeout(() => {
+            printWindow.print()
+            printWindow.onafterprint = () => {
+                printWindow.close()
+            }
+        }, 500)
+    }
+}
 
 function handleExport() {
     const jsonString = docStore.exportJson()

@@ -54,7 +54,7 @@ node setup-nginx.cjs
 1. Parses command-line options (domain, email, and an SSL skip flag).
 2. Builds the frontend in production mode and copies the build (the dist folder) to the server directory (e.g., /var/www/<domain>).
 3. Generates a production environment file.
-4. Processes an nginx configuration template by replacing placeholders with the actual domain.
+4. Processes nginx configuration template (nginx.conf.template) by replacing placeholder with the actual domain.
 5. Installs the nginx configuration (if run as root) and reloads nginx.
 6. Optionally sets up an SSL certificate using certbot if SSL isn’t skipped.
 
