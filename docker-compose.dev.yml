@@ -24,7 +24,7 @@ services:
       - ADMIN_USER=${COUCHDB_USER}
       - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
     volumes:
-      - ./couchdb-init:/app
+      - ./backend/couchdb-init:/app
       - /app/node_modules
     depends_on:
       couchdb:
@@ -41,7 +41,7 @@ services:
       - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
       - NODE_ENV=development
     volumes:
-      - ./signup-service:/app
+      - ./backend/couchdb-init:/app
       - /app/node_modules
     command: npm run start
     depends_on:
