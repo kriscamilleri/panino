@@ -39,16 +39,31 @@ COUCHDB_HOST=couchdb
 
 ### Production
 1. Create .env file in the root folder of the project with the above variables.
-2. Spin up the containers with the below command.
+2. Spin up the database and service containers with the below command.
 ```
-docker compose up
+docker compose up -d
+
 ```
+3. Deploy reverse proxy for each container and to serve the frontend. The setup-nginx.cjs script is an opinionated means of automating this process. See Automated Setup NGINX for more information. 
+```
+node setup-nginx.cjs
+```
+
+#### Automated Setup NGINX 
+> Requires node 18+, NGINX and certbot to be installed on the host machine.
+1. Parses command-line options (domain, email, and an SSL skip flag).
+2. Builds the frontend in production mode and copies the build (the dist folder) to the server directory (e.g., /var/www/<domain>).
+3. Generates a production environment file.
+4. Processes an nginx configuration template by replacing placeholders with the actual domain.
+5. Installs the nginx configuration (if run as root) and reloads nginx.
+6. Optionally sets up an SSL certificate using certbot if SSL isn’t skipped.
+
 
 ### Development
 1. Create .env file in the root folder of the project with the above variables.
 2. Spin up the containers with the below command.
 ```
-docker-compose -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
 
 #### Frontend Development

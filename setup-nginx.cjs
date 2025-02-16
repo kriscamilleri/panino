@@ -36,7 +36,7 @@ const frontendPath = path.join(projectRoot, 'frontend');
 const distFolderPath = path.join(frontendPath, 'dist');
 const wwwRoot = `/var/www/${domain}`; // e.g. /var/www/example.com
 
-// Function to check if running with sudo
+//1. Function to check if running with sudo
 function checkSudo() {
     try {
         execSync('test "$(id -u)" -eq 0', { stdio: 'ignore' });
@@ -66,7 +66,7 @@ function checkNginx() {
     }
 }
 
-// Function to run certbot
+//2. Function to run certbot
 async function setupSSL() {
     if (argv['skip-ssl']) {
         console.log('Skipping SSL setup as requested');
@@ -105,10 +105,11 @@ async function setupSSL() {
     }
 }
 
-// Create production environment file
+//3. Create production environment file
 console.log('Creating production environment file...');// Update the env file path to use .env.production
 const envPath = path.join(__dirname, 'frontend', '.env.production');
-const envContent = `# Production environment variables
+const envContent = 
+`# Production environment variables
 # Generated for ${fullDomain}
 VITE_API_BASE_URL=${fullDomain}
 VITE_COUCHDB_PORT=443
@@ -116,7 +117,7 @@ VITE_SIGNUP_PORT=443
 VITE_IMAGE_PORT=443
 `;
 
-// Update the build process to ensure it's in production mode
+//4. Update the build process to ensure it's in production mode
 try {
   console.log('==> Installing NPM dependencies in ./frontend ...');
   execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
@@ -133,7 +134,7 @@ try {
   process.exit(1);
 }
 
-// 1. Build the frontend
+// 5. Build the frontend
 try {
   console.log('==> Installing NPM dependencies in ./frontend ...');
   execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
@@ -145,7 +146,7 @@ try {
   process.exit(1);
 }
 
-// 2. If there exists a dist folder /var/www/<SITENAME>/dist, remove it
+// 6. If there exists a dist folder /var/www/<SITENAME>/dist, remove it
 try {
   console.log(`==> Removing existing dist folder at ${wwwRoot}/dist ...`);
   execSync(`rm -rf "${wwwRoot}/dist"`, { stdio: 'inherit' });
@@ -154,7 +155,7 @@ catch (err) {
   console.error('Warning: Could not remove existing dist folder:', err);
 }
 
-// 2. Copy the dist folder to /var/www/<SITENAME>/dist
+// 7. Copy the dist folder to /var/www/<SITENAME>/dist
 try {
   console.log(`==> Copying ${distFolderPath} to ${wwwRoot}/dist ...`);
   execSync(`mkdir -p "${wwwRoot}"`, { stdio: 'inherit' });
@@ -163,7 +164,8 @@ try {
   console.error('ERROR copying dist folder:', err);
   process.exit(1);
 }
-// Process nginx configuration
+
+// 8. Process nginx configuration
 console.log('Creating nginx configuration...');
 const nginxTemplatePath = path.join(__dirname, 'nginx.conf.template');
 const nginxOutputPath = path.join(__dirname, 'nginx.conf');
@@ -247,7 +249,7 @@ if (fs.existsSync(nginxTemplatePath)) {
     process.exit(1);
 }
 
-// Setup SSL if requested
+// 9. Setup SSL if requested
 setupSSL().then(() => {
     
     if (!checkSudo()) {
