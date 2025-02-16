@@ -35,6 +35,8 @@ services:
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
       - NODE_ENV=production
+      # TURNSTILE SECRET KEY (production):
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:

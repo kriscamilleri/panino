@@ -1,10 +1,12 @@
 import express from 'express'
 import fetch from 'node-fetch'
 import cors from 'cors'
+import { URLSearchParams } from 'url'  // For Turnstile verification POST body
 
 const COUCHDB_URL = 'http://couchdb:5984'
 const ADMIN_USER = process.env.ADMIN_USER || 'admin'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password'
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || ''
 
 const app = express()
 app.use(cors()) // This allows all origins
@@ -18,15 +20,45 @@ app.get('/', (req, res) => {
 /**
  * POST /signup
  * Creates a user in CouchDB.
- * Expects JSON body: { username: string, password: string }
+ * Expects JSON body: { username: string, password: string, cf-turnstile-response: string }
  */
 app.post('/signup', async (req, res) => {
    try {
-      const { username, password } = req.body
+      const { username, password, 'cf-turnstile-response': turnstileToken } = req.body
       if (!username || !password) {
          return res.status(400).json({
             error: 'Missing username or password'
          })
+      }
+
+      // Verify Turnstile if a secret key is present
+      if (TURNSTILE_SECRET_KEY) {
+         if (!turnstileToken) {
+            return res.status(400).json({
+               error: 'Missing Turnstile token'
+            })
+         }
+         // Validate with Cloudflare
+         const verifyURL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+         const formData = new URLSearchParams()
+         formData.append('secret', TURNSTILE_SECRET_KEY)
+         formData.append('response', turnstileToken)
+         console.log('Turnstile verification:', formData.toString())
+         // If you have the user's IP in a header, you can append that:
+         // formData.append('remoteip', req.ip)
+
+         const turnstileRes = await fetch(verifyURL, {
+            method: 'POST',
+            body: formData
+         })
+         const turnstileData = await turnstileRes.json()
+
+         if (!turnstileData.success) {
+            console.error('Turnstile failed verification:', turnstileData)
+            return res.status(400).json({
+               error: 'Captcha verification failed'
+            })
+         }
       }
 
       // Create user in _users database

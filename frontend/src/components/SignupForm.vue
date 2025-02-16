@@ -95,6 +95,17 @@
                         </div>
                     </div>
 
+                    <!-- Turnstile CAPTCHA (only if a site key is present) -->
+                    <div v-if="turnstileSiteKey" class="mb-2">
+                        <div
+                            class="cf-turnstile"
+                            :data-sitekey="turnstileSiteKey"
+                            data-callback="onTurnstileSuccess"
+                            data-action="signup"
+                            data-theme="auto"
+                        ></div>
+                    </div>
+
                     <!-- Error Message -->
                     <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
                         {{ error }}
@@ -149,9 +160,9 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { useAuthStore } from '../store/authStore'
-import { useDocStore } from '../store/docStore'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useAuthStore } from '@/store/authStore'
+import { useDocStore } from '@/store/docStore'
 import { useRouter } from 'vue-router'
 
 const authStore = useAuthStore()
@@ -164,19 +175,26 @@ const confirmPassword = ref('')
 const loading = ref(false)
 const error = ref('')
 const formErrors = ref({})
+const turnstileToken = ref('')
 
-// Form validation
+// Pull in the site key from env:
+const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
+
+// The Turnstile success callback is a global function name that the script calls
+window.onTurnstileSuccess = function onTurnstileSuccess(token) {
+    turnstileToken.value = token
+}
+
+// Basic form validation
 watch([username, password, confirmPassword], () => {
     formErrors.value = {}
 
     if (username.value.length > 0 && username.value.length < 3) {
         formErrors.value.username = 'Username must be at least 3 characters'
     }
-
     if (password.value.length > 0 && password.value.length < 6) {
         formErrors.value.password = 'Password must be at least 6 characters'
     }
-
     if (confirmPassword.value.length > 0 && password.value !== confirmPassword.value) {
         formErrors.value.confirmPassword = 'Passwords do not match'
     }
@@ -191,16 +209,33 @@ const isValid = computed(() => {
     )
 })
 
+onMounted(() => {
+    // Dynamically inject Turnstile script if not already present
+    if (turnstileSiteKey && !document.getElementById('cf-turnstile-script')) {
+        const script = document.createElement('script')
+        script.id = 'cf-turnstile-script'
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+        script.async = true
+        document.body.appendChild(script)
+    }
+})
+
 async function handleSubmit() {
     if (!isValid.value) return
+
+    // If Turnstile is configured, require the token:
+    if (turnstileSiteKey && !turnstileToken.value) {
+        error.value = 'Please complete the CAPTCHA.'
+        return
+    }
 
     loading.value = true
     error.value = ''
 
     try {
-        await authStore.signup(username.value, password.value)
+        // Our signup method below expects a third parameter = the Turnstile token
+        await authStore.signup(username.value, password.value, turnstileToken.value)
         await authStore.login(username.value, password.value)
-        // Instead of docStore init here, go to /loading so the user sees the loading screen:
         router.push('/loading')
     } catch (err) {
         console.error('Signup process error:', err)
