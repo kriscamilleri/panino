@@ -1,4 +1,5 @@
-# Pretty Neat Notes
+# PaNiNo
+> Pretty Neat Notes
 A simple self-hostable markdown editor, heavily inspired by StackEdit. 
 
 ## Features
@@ -12,6 +13,7 @@ A simple self-hostable markdown editor, heavily inspired by StackEdit.
 - Self-hostable with minimal configuration
 - Supports multiple user accounts
 - Embedded image upload support
+
 
 ## Tech Stack
 ### Frontend 
@@ -31,10 +33,15 @@ A simple self-hostable markdown editor, heavily inspired by StackEdit.
 ### Environment Variables
 Create a .env file in the root directory of the project with the below properties. Don't forget to change the admin username and password.
 ```
+# Database
 COUCHDB_USER=admin
 COUCHDB_PASSWORD=password
 COUCHDB_URL=http://couchdb:5984
-COUCHDB_HOST=couchdb
+COUCHDB_HOST=couchdb 
+
+# Captcha
+TURNSTILE_SECRET_KEY={TURNSTILE_SECRET_KEY}
+TURNSTILE_SITE_KEY={TURNSTILE_SITE_KEY}
 ```
 
 ### Production
