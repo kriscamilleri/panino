@@ -1,15 +1,15 @@
 <template>
-    <div class="min-h-screen bg-gray-50 flex flex-col">
+    <div class="min-h-screen bg-gray-100 flex flex-col">
         <!-- Top Navigation Bar -->
-        <nav class="bg-gray-100 border-b">
+        <!-- <nav class="bg-gray-100 border-b">
             <div class="flex items-center justify-between px-4 py-2">
                 <h1 class="text-xl font-semibold text-gray-800">Sign In</h1>
             </div>
-        </nav>
+        </nav> -->
         <div class="flex flex-grow">
         </div>
         <!-- PaNiNo Header -->
-        <div class="flex justify-center mt-4 flex-col items-center">
+        <div class="flex justify-center mt-4 flex-col items-center my-3">
             <h1 class="flex text-4xl text-center font-extrabold text-gray-900 mb-2">panino</h1>
             <p class="flex text-center text-gray-600 mb-8">a&nbsp;
                 <a target="_blank" class="text-blue-500 underline" href="https://prettyneat.io"> pretty neat</a>
@@ -18,11 +18,16 @@
         </div>
         <!-- Main Content -->
         <div class=" flex items-center justify-center px-4 sm:px-6 lg:px-8">
-            <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8  border-t border-gray-500 ">
+            <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8  ">
                 <!-- Form -->
+
                 <form class="space-y-6" @submit.prevent="handleSubmit">
+
                     <!-- Username -->
                     <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-bold text-gray-800">Sign In</h3>
+                        </div>
                         <label for="username" class="block text-sm font-medium text-gray-700">
                             Username
                         </label>
@@ -88,12 +93,21 @@
                         Don't have an account? Sign up
                     </router-link>
                 </div>
+                <div class="my-8 border-b border-gray-200"></div>
                 <!-- Terms of Service link -->
                 <div class="text-sm text-center mt-3">
                     <router-link to="/terms" class="font-medium text-gray-600 hover:text-gray-900">
                         Terms of Service
                     </router-link>
                 </div>
+                <!-- About link -->
+                <div class="text-sm text-center mt-3">
+                    <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
+                        class="text-sm font-medium text-gray-600 hover:text-gray-900">
+                        <span>Github</span>
+                    </a>
+                </div>
+
             </div>
         </div>
         <div class="flex flex-grow">

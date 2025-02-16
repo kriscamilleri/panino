@@ -1,12 +1,21 @@
 <template>
-    <div class="min-h-screen bg-gray-50 flex flex-col">
-        <!-- Top Navigation Bar -->
+    <div class="min-h-screen bg-gray-100 flex flex-col">
+        <!-- Top Navigation Bar
         <nav class="bg-gray-100 border-b">
             <div class="flex items-center justify-between px-4 py-2">
                 <h1 class="text-xl font-semibold text-gray-800">Create Account</h1>
             </div>
-        </nav>
-
+        </nav> -->
+        <div class="flex flex-grow">
+        </div>
+        <!-- PaNiNo Header -->
+        <div class="flex justify-center mt-4 flex-col items-center ">
+            <h1 class="flex text-4xl text-center font-extrabold text-gray-900 mb-2">panino</h1>
+            <p class="flex text-center text-gray-600 ">a&nbsp;
+                <a target="_blank" class="text-blue-500 underline" href="https://prettyneat.io"> pretty neat</a>
+                &nbsp;note taking app
+            </p>
+        </div>
         <!-- Main Content -->
         <div class="flex-1 flex items-center justify-center px-4 sm:px-6 lg:px-8">
             <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
@@ -18,16 +27,9 @@
                             Username
                         </label>
                         <div class="mt-1">
-                            <input
-                                id="username"
-                                v-model="username"
-                                name="username"
-                                type="text"
-                                required
+                            <input id="username" v-model="username" name="username" type="text" required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading"
-                                :class="{ 'border-red-300': formErrors.username }"
-                            />
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.username }" />
                             <p v-if="formErrors.username" class="mt-1 text-sm text-red-600">
                                 {{ formErrors.username }}
                             </p>
@@ -40,16 +42,9 @@
                             Password
                         </label>
                         <div class="mt-1">
-                            <input
-                                id="password"
-                                v-model="password"
-                                name="password"
-                                type="password"
-                                required
+                            <input id="password" v-model="password" name="password" type="password" required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading"
-                                :class="{ 'border-red-300': formErrors.password }"
-                            />
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.password }" />
                             <p v-if="formErrors.password" class="mt-1 text-sm text-red-600">
                                 {{ formErrors.password }}
                             </p>
@@ -62,16 +57,10 @@
                             Confirm Password
                         </label>
                         <div class="mt-1">
-                            <input
-                                id="confirmPassword"
-                                v-model="confirmPassword"
-                                name="confirmPassword"
-                                type="password"
+                            <input id="confirmPassword" v-model="confirmPassword" name="confirmPassword" type="password"
                                 required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading"
-                                :class="{ 'border-red-300': formErrors.confirmPassword }"
-                            />
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.confirmPassword }" />
                             <p v-if="formErrors.confirmPassword" class="mt-1 text-sm text-red-600">
                                 {{ formErrors.confirmPassword }}
                             </p>
@@ -84,11 +73,8 @@
                             <h4 class="font-medium mb-2">Password Requirements:</h4>
                             <ul class="space-y-1">
                                 <li class="flex items-center gap-2">
-                                    <span
-                                        class="text-lg"
-                                        :class="password.length >= 6 ? 'text-green-700' : 'text-gray-300'"
-                                        >●</span
-                                    >
+                                    <span class="text-lg"
+                                        :class="password.length >= 6 ? 'text-green-700' : 'text-gray-300'">●</span>
                                     At least 6 characters
                                 </li>
                             </ul>
@@ -97,13 +83,8 @@
 
                     <!-- Turnstile CAPTCHA (only if a site key is present) -->
                     <div v-if="turnstileSiteKey" class="mb-2">
-                        <div
-                            class="cf-turnstile"
-                            :data-sitekey="turnstileSiteKey"
-                            data-callback="onTurnstileSuccess"
-                            data-action="signup"
-                            data-theme="auto"
-                        ></div>
+                        <div class="cf-turnstile" :data-sitekey="turnstileSiteKey" data-callback="onTurnstileSuccess"
+                            data-action="signup" data-theme="auto"></div>
                     </div>
 
                     <!-- Error Message -->
@@ -113,31 +94,17 @@
 
                     <!-- Submit Button -->
                     <div>
-                        <button
-                            type="submit"
+                        <button type="submit"
                             class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            :disabled="loading || !isValid"
-                        >
+                            :disabled="loading || !isValid">
                             <template v-if="loading">
-                                <svg
-                                    class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <circle
-                                        class="opacity-25"
-                                        cx="12"
-                                        cy="12"
-                                        r="10"
-                                        stroke="currentColor"
-                                        stroke-width="4"
-                                    ></circle>
-                                    <path
-                                        class="opacity-75"
-                                        fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                    ></path>
+                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                        stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
                                 </svg>
                                 Creating account...
                             </template>
@@ -155,6 +122,9 @@
                     </div>
                 </form>
             </div>
+        </div>
+
+        <div class="flex flex-grow">
         </div>
     </div>
 </template>
