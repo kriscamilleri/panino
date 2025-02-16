@@ -9,7 +9,7 @@
         <div class="flex flex-grow">
         </div>
         <!-- PaNiNo Header -->
-        <div class="flex justify-center mt-4 flex-col items-center my-3">
+        <div class="flex justify-center my-4 flex-col items-center ">
             <h1 class="flex text-4xl text-center font-extrabold text-gray-900 mb-2">panino</h1>
             <p class="flex text-center text-gray-600 mb-8">a&nbsp;
                 <a target="_blank" class="text-blue-500 underline" href="https://prettyneat.io"> pretty neat</a>
