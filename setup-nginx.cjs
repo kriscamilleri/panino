@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const minimist = require('minimist');
 const { execSync } = require('child_process');
+require('dotenv').config();
 
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2), {
