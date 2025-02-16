@@ -36,6 +36,14 @@ const frontendPath = path.join(projectRoot, 'frontend');
 const distFolderPath = path.join(frontendPath, 'dist');
 const wwwRoot = `/var/www/${domain}`; // e.g. /var/www/example.com
 
+// Get TURNSTILE_SITE_KEY from environment variables
+const turnstileSiteKey = process.env.TURNSTILE_SITE_KEY;
+
+if (!turnstileSiteKey) {
+    console.error('TURNSTILE_SITE_KEY environment variable is not set');
+    process.exit(1);
+}
+
 //1. Function to check if running with sudo
 function checkSudo() {
     try {
@@ -92,7 +100,7 @@ async function setupSSL() {
     }
 
     console.log('Setting up SSL certificate...');
-    
+
     try {
         // Attempt to obtain SSL certificate
         const certbotCommand = `certbot certonly --nginx -d ${domain} -m ${argv.email} --agree-tos --non-interactive`;
@@ -105,64 +113,67 @@ async function setupSSL() {
     }
 }
 
-//3. Create production environment file
-console.log('Creating production environment file...');// Update the env file path to use .env.production
-const envPath = path.join(__dirname, 'frontend', '.env.production');
-const envContent = 
-`# Production environment variables
+// Create production environment file
+console.log('Creating production environment file...');
+const envPath = path.join(frontendPath, '.env.production');
+const envContent = `# Production environment variables
 # Generated for ${fullDomain}
 VITE_API_BASE_URL=${fullDomain}
 VITE_COUCHDB_PORT=443
 VITE_SIGNUP_PORT=443
 VITE_IMAGE_PORT=443
+VITE_TURNSTILE_SITE_KEY=${turnstileSiteKey}
 `;
+
+fs.writeFileSync(envPath, envContent);
+console.log('Successfully created .env.production file');
 
 //4. Update the build process to ensure it's in production mode
 try {
-  console.log('==> Installing NPM dependencies in ./frontend ...');
-  execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
+    console.log('==> Installing NPM dependencies in ./frontend ...');
+    execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
 
-  console.log('==> Running production build in ./frontend ...');
-  // Force production mode
-  execSync('NODE_ENV=production npm run build', { 
-    cwd: frontendPath, 
-    stdio: 'inherit',
-    env: { ...process.env, NODE_ENV: 'production' }
-  });
+    console.log('==> Running production build in ./frontend ...');
+    // Force production mode
+    execSync('NODE_ENV=production npm run build', {
+        cwd: frontendPath,
+        stdio: 'inherit',
+        env: { ...process.env, NODE_ENV: 'production' }
+    });
 } catch (err) {
-  console.error('ERROR during frontend build:', err);
-  process.exit(1);
+    console.error('ERROR during frontend build:', err);
+    process.exit(1);
 }
 
 // 5. Build the frontend
 try {
-  console.log('==> Installing NPM dependencies in ./frontend ...');
-  execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
+    console.log('==> Installing NPM dependencies in ./frontend ...');
+    execSync('npm install', { cwd: frontendPath, stdio: 'inherit' });
 
-  console.log('==> Running npm run build in ./frontend ...');
-  execSync('npm run build', { cwd: frontendPath, stdio: 'inherit' });
+    console.log('==> Running npm run build in ./frontend ...');
+    execSync('npm run build', { cwd: frontendPath, stdio: 'inherit' });
 } catch (err) {
-  console.error('ERROR during frontend build:', err);
-  process.exit(1);
+    console.error('ERROR during frontend build:', err);
+    process.exit(1);
 }
 
 // 6. If there exists a dist folder /var/www/<SITENAME>/dist, remove it
 try {
-  console.log(`==> Removing existing dist folder at ${wwwRoot}/dist ...`);
-  execSync(`rm -rf "${wwwRoot}/dist"`, { stdio: 'inherit' });
+    console.log(`==> Removing existing dist folder at ${wwwRoot}/dist ...`);
+    execSync(`rm -rf "${wwwRoot}/dist"`, { stdio: 'inherit' });
 }
 catch (err) {
-  console.error('Warning: Could not remove existing dist folder:', err);
+    console.error('Warning: Could not remove existing dist folder:', err);
 }
 
 // 7. Copy the dist folder to /var/www/<SITENAME>/dist
 try {
-  console.log(`==> Copying ${distFolderPath} to ${wwwRoot}/dist ...`);
-  execSync(`mkdir -p "${wwwRoot}"`, { stdio: 'inherit' });
-  execSync(`cp -R "${distFolderPath}" "${wwwRoot}/dist"`, { stdio: 'inherit' });
+    console.log(`==> Copying ${distFolderPath} to ${wwwRoot}/dist ...`);
+    execSync(`mkdir -p "${wwwRoot}"`, { stdio: 'inherit' });
+    execSync(`cp -R "${distFolderPath}" "${wwwRoot}/dist"`, { stdio: 'inherit' });
 } catch (err) {
-  console.error('ERROR copying dist folder:', err);
-  process.exit(1);
+    console.error('ERROR copying dist folder:', err);
+    process.exit(1);
 }
 
 // 8. Process nginx configuration
@@ -173,10 +184,10 @@ const nginxOutputPath = path.join(__dirname, 'nginx.conf');
 if (fs.existsSync(nginxTemplatePath)) {
     try {
         let nginxConfig = fs.readFileSync(nginxTemplatePath, 'utf8');
-        
+
         // Replace domain placeholder
         nginxConfig = nginxConfig.replace(/\${DOMAIN}/g, domain);
-        
+
         // Write to temporary file first
         fs.writeFileSync(nginxOutputPath, nginxConfig);
         console.log('Successfully created nginx.conf');
@@ -184,11 +195,11 @@ if (fs.existsSync(nginxTemplatePath)) {
         // If we're root, install the nginx configuration
         if (checkSudo()) {
             console.log('Installing nginx configuration...');
-            
+
             // Define paths
             const availablePath = `/etc/nginx/sites-available/${domain}`;
             const enabledPath = `/etc/nginx/sites-enabled/${domain}`;
-            
+
             // Remove existing configuration and symlinks
             console.log('Removing any existing configuration...');
             try {
@@ -201,26 +212,26 @@ if (fs.existsSync(nginxTemplatePath)) {
             } catch (err) {
                 console.log('Warning: Could not remove existing files:', err.message);
             }
-            
+
             console.log('Copying configuration to sites-available...');
             execSync(`cp ${nginxOutputPath} ${availablePath}`);
-            
+
             console.log('Creating symlink in sites-enabled...');
             execSync(`ln -sf ${availablePath} ${enabledPath}`);
-            
+
             // Test the configuration
             try {
                 console.log('Testing nginx configuration...');
                 execSync('nginx -t', { stdio: 'inherit' });
-                
+
                 console.log('Reloading nginx...');
                 execSync('systemctl reload nginx');
-                
+
                 console.log('Nginx configuration installed and tested successfully');
             } catch (error) {
                 console.error('Nginx configuration test failed');
                 console.error('Removing invalid configuration...');
-                
+
                 // Clean up invalid configuration
                 try {
                     if (fs.existsSync(enabledPath)) {
@@ -232,7 +243,7 @@ if (fs.existsSync(nginxTemplatePath)) {
                 } catch (err) {
                     console.log('Warning: Could not clean up files:', err.message);
                 }
-                
+
                 throw error;
             }
         } else {
@@ -251,7 +262,7 @@ if (fs.existsSync(nginxTemplatePath)) {
 
 // 9. Setup SSL if requested
 setupSSL().then(() => {
-    
+
     if (!checkSudo()) {
         console.log('\n2. Install nginx configuration (requires sudo):');
         console.log(`   sudo cp ${nginxOutputPath} /etc/nginx/sites-available/${domain}`);
