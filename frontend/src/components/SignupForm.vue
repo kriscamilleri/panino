@@ -23,6 +23,9 @@
                 <form class="space-y-6" @submit.prevent="handleSubmit">
                     <!-- Username -->
                     <div>
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-lg font-bold text-gray-800">Sign Up</h3>
+                        </div>
                         <label for="username" class="block text-sm font-medium text-gray-700">
                             Username
                         </label>
