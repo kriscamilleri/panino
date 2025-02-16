@@ -2,7 +2,7 @@ import express from 'express'
 import fetch from 'node-fetch'
 import cors from 'cors'
 
-const COUCHDB_URL = process.env.COUCHDB_URL || 'http://127.0.0.1:5984'
+const COUCHDB_URL = 'http://couchdb:5984'
 const ADMIN_USER = process.env.ADMIN_USER || 'admin'
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password'
 
