@@ -1,6 +1,5 @@
 <template>
     <div v-if="file">
-        <!-- Removed the "Preview: {{ file.name }}" heading -->
         <div class="mt-2" v-html="renderedHtml"></div>
     </div>
     <div v-else>
@@ -11,14 +10,22 @@
 <script setup>
 import { computed } from 'vue'
 import { useDocStore } from '@/store/docStore'
+import { useDraftStore } from '@/store/draftStore'
 import DOMPurify from 'dompurify'
 
 const docStore = useDocStore()
+const draftStore = useDraftStore()
 
 const file = computed(() => docStore.selectedFile)
-const text = computed(() => docStore.selectedFileContent)
 
-// Make renderedHtml reactive to both content and styles changes
+// We want: preview text = draft if it exists, otherwise docStore content
+const text = computed(() => {
+    if (!file.value) return ''
+    const draft = draftStore.getDraft(file.value.id)
+    return draft || docStore.selectedFileContent
+})
+
+// Convert markdown => HTML using docStore’s “preview” MarkdownIt instance
 const renderedHtml = computed(() => {
     const md = docStore.getMarkdownIt()
     const raw = md.render(text.value || '')
