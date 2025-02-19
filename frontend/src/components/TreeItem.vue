@@ -35,17 +35,17 @@
         </div>
 
         <!-- FOLDER -->
-        <div v-if="isFolder" class="flex items-center space-x-2 group rounded-md" :class="{
+        <div v-if="isFolder" class="flex items-center space-x-2 group rounded-md py-1 md:my-1  cursor-pointer" :class="{
             'bg-gray-700 text-white': isSelectedFolder,
             'bg-gray-600 text-white': isParentOfSelectedFile
-        }">
+        }" @click.stop="handleFolderClick">
             <!-- Arrow toggles open/close -->
             <span @click.stop="toggleLocalFolderState" class="cursor-pointer ml-1">
                 <ChevronDown v-if="isOpen" class="w-4 h-4" />
                 <ChevronRight v-else class="w-4 h-4" />
             </span>
             <!-- Clicking the name will select the folder -->
-            <span class="font-semibold flex-grow cursor-pointer" @click.stop="handleFolderClick">
+            <span class="font-semibold flex-grow">
                 <Folder class="inline-block w-4 h-4 mr-1" />
                 {{ item.name }}
             </span>

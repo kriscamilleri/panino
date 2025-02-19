@@ -22,10 +22,10 @@
                 </BaseButton>
 
                 <!-- Sync Button (only if authenticated) -->
-                <BaseButton v-if="authStore.isAuthenticated" :isActive="syncStore.syncEnabled" @click="handleToggleSync"
-                    class="space-x-1" title="Toggle Sync">
-                    <RefreshCw class="w-4 h-4" />
-                    <span>Sync</span>
+                <BaseButton v-if="authStore.isAuthenticated" :isActive="!syncStore.syncEnabled"
+                    @click="handleToggleSync" class="space-x-1" title="Toggle Sync">
+                    <RefreshCw :class="syncStore.syncEnabled ? '' : 'text-red-500'" class="w-4 h-4 " />
+                    <span class="hidden md:inline">Sync</span>
                 </BaseButton>
             </div>
 
@@ -70,7 +70,11 @@
 
         <!-- Insert the MobileMenu as a child. 
            You can also do the <transition> here if you prefer. -->
-        <MobileMenu v-if="isMobileMenuOpen" @close="toggleMobileMenu" />
+        <!-- Wrap in a transition if you want a fade animation -->
+        <transition name="fade-fast" mode="out-in">
+            <!-- Only render <MobileMenu> if isMobileMenuOpen is true -->
+            <MobileMenu v-if="isMobileMenuOpen" @close="toggleMobileMenu" />
+        </transition>
     </nav>
 </template>
 
