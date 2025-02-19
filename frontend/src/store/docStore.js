@@ -27,10 +27,16 @@ export const useDocStore = defineStore('docStore', () => {
   const selectedFile = computed(() => structureStore.selectedFile)
   const selectedFileContent = computed(() => contentStore.selectedFileContent)
 
+  /**
+   * Initialize CouchDB, do a one-time pull, and load structure.
+   * (We no longer force live sync to be enabled here—user can enable it manually.)
+   */
   async function initCouchDB() {
     await syncStore.initializeDB()
     await syncStore.oneTimePull()
-    syncStore.startLiveSync()
+    // Removed:
+    // syncStore.setSyncEnabled(true)
+    // syncStore.startLiveSync()
     await structureStore.loadStructure()
   }
 
@@ -68,8 +74,8 @@ export const useDocStore = defineStore('docStore', () => {
   }
 
   /**
-   * NEW: Return up to `limit` most recently edited files,
-   * based on each file's `lastModified` from the content docs.
+   * Return up to `limit` most recently edited files,
+   * based on each file's `lastModified`.
    */
   async function getRecentDocuments(limit = 10) {
     const fileDocs = await syncStore.allFileDocs()
@@ -130,6 +136,6 @@ export const useDocStore = defineStore('docStore', () => {
     destroyLocalDB,
     resetStore,
 
-    getRecentDocuments // <-- NEW function
+    getRecentDocuments
   }
 })

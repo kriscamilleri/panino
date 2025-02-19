@@ -22,6 +22,12 @@
                         <FileIcon class="md:w-4 md:h-4 w-5 h-5" />
                         <span class="hidden md:inline">Tools</span>
                     </BaseButton>
+                    <!-- Sync Button (replaces old checkbox) -->
+                    <BaseButton v-if="authStore.isAuthenticated" :isActive="syncStore.syncEnabled"
+                        @click="handleToggleSync" class="space-x-1" title="Toggle Sync">
+                        <RefreshCw class="w-4 h-4" />
+                        <span>Sync</span>
+                    </BaseButton>
                 </div>
 
                 <!-- Right side -->
@@ -67,6 +73,15 @@
                         <!-- Show user name if authenticated -->
                         <div v-if="authStore.isAuthenticated" class="text-gray-500 py-2 px-2">
                             {{authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase()) || 'Guest'}}
+                        </div>
+
+                        <!-- Sync Button (mobile) -->
+                        <div v-if="authStore.isAuthenticated" class="px-2">
+                            <BaseButton :isActive="syncStore.syncEnabled" @click="handleToggleSync"
+                                class="w-full space-x-1">
+                                <RefreshCw class="w-4 h-4" />
+                                <span>Sync</span>
+                            </BaseButton>
                         </div>
 
                         <!-- About link -->
@@ -293,6 +308,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
+import { useSyncStore } from '@/store/syncStore'
 import Documents from '@/components/Documents.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
@@ -306,7 +322,6 @@ import {
     Eye,
     Paintbrush,
     Upload,
-    Download,
     Palette,
     Bold,
     Italic,
@@ -328,12 +343,14 @@ import {
     LogOut,
     FolderArchive,
     FileJson,
-    Menu
+    Menu,
+    RefreshCw
 } from 'lucide-vue-next'
 
 const docStore = useDocStore()
 const ui = useUiStore()
 const authStore = useAuthStore()
+const syncStore = useSyncStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -344,7 +361,7 @@ const previewRef = ref(null)
 
 const documentsWidth = ref(300)
 const editorWidth = ref(500)
-const lastKnownDocumentsWidth = ref(300) // Store the last known width
+const lastKnownDocumentsWidth = ref(300)
 const isResizing = ref(false)
 const currentResizer = ref(null)
 const startX = ref(0)
@@ -353,10 +370,7 @@ const showImportModal = ref(false)
 const searchTerm = ref('')
 const isMobileMenuOpen = ref(false)
 
-// A ref that holds the current window size:
 const windowWidth = ref(window.innerWidth)
-
-// A computed property that becomes `true/false` based on windowWidth:
 const isMobileView = computed(() => windowWidth.value < 768)
 
 watch(
@@ -370,16 +384,40 @@ watch(
     },
     { immediate: true }
 )
+
 watch(isMobileView, (newValue, oldValue) => {
     if (!newValue && oldValue) {
-        // Just left "mobile" mode → entering desktop
+        // Just left "mobile" mode => restore widths
         documentsWidth.value = lastKnownDocumentsWidth.value
         editorWidth.value = 500
     } else if (newValue) {
-        // Just entered "mobile" mode
+        // Entered "mobile" mode => expand docs to full width
         lastKnownDocumentsWidth.value = documentsWidth.value
         documentsWidth.value = window.innerWidth
     }
+})
+
+let resizeTimeout
+onMounted(() => {
+    function handleResize() {
+        windowWidth.value = window.innerWidth
+    }
+    window.addEventListener('resize', handleResize)
+
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout)
+        resizeTimeout = setTimeout(() => {
+            windowWidth.value = window.innerWidth
+            adjustEditorWidthForContainer()
+        }, 100)
+    })
+})
+
+onUnmounted(() => {
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', stopResize)
+    window.removeEventListener('resize', null)
+    clearTimeout(resizeTimeout)
 })
 
 function adjustEditorWidthForContainer() {
@@ -445,34 +483,6 @@ function stopResize() {
     document.removeEventListener('mouseup', stopResize)
     document.body.style.userSelect = ''
 }
-
-let resizeTimeout
-onMounted(() => {
-    function handleResize() {
-        windowWidth.value = window.innerWidth
-    }
-    window.addEventListener('resize', handleResize)
-
-    onUnmounted(() => {
-        window.removeEventListener('resize', handleResize)
-    })
-
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimeout)
-        resizeTimeout = setTimeout(() => {
-            windowWidth.value = window.innerWidth
-            adjustEditorWidthForContainer()
-        }, 100)
-    })
-
-})
-
-onUnmounted(() => {
-    document.removeEventListener('mousemove', handleMouseMove)
-    document.removeEventListener('mouseup', stopResize)
-    window.removeEventListener('resize', null)
-    clearTimeout(resizeTimeout)
-})
 
 async function handlePrint() {
     if (!docStore.selectedFile) {
@@ -599,6 +609,15 @@ function goToLogin() {
 
 function goToPrintStyles() {
     router.push('/print-styles')
+}
+
+/**
+ * NEW: Toggle live sync manually.
+ * If it's currently disabled, calling this will enable it (and start live sync).
+ * If it's enabled, we disable it (stop sync).
+ */
+function handleToggleSync() {
+    syncStore.setSyncEnabled(!syncStore.syncEnabled)
 }
 </script>
 

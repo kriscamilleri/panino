@@ -26,6 +26,32 @@ export const useSyncStore = defineStore('syncStore', () => {
 
   const authStore = useAuthStore()
 
+  // ADD THIS:
+  const syncEnabled = ref(false)
+
+  // Turn syncing on or off
+  function setSyncEnabled(enable) {
+    if (enable) {
+      // Start live sync only if the user is authenticated and not a guest
+      if (!authStore.isAuthenticated || authStore.user?.name === 'guest') {
+        console.log('Skipping live sync; user is guest or not authenticated.')
+        syncEnabled.value = false
+        return
+      }
+
+      console.log('Enabling live sync...')
+      startLiveSync() // your existing method
+      syncEnabled.value = true
+    } else {
+      console.log('Disabling live sync...')
+      if (syncHandler) {
+        syncHandler.cancel()
+        syncHandler = null
+      }
+      syncEnabled.value = false
+    }
+  }
+
   async function initializeDB() {
     if (syncHandler) {
       syncHandler.cancel()
@@ -117,7 +143,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       throw new Error('Cannot start live sync before DB init.')
     }
 
-    const remoteCouch =  `${COUCHDB_URL}/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
+    const remoteCouch = `${COUCHDB_URL}/pn-markdown-notes-${authStore.user.name.toLowerCase()}`
 
     syncHandler = localDB.sync(remoteCouch, {
       live: true,
@@ -320,6 +346,8 @@ export const useSyncStore = defineStore('syncStore', () => {
   return {
     isInitialized,
     initializeDB,
+    syncEnabled,
+    setSyncEnabled,
     oneTimePull,
     startLiveSync,
     saveStructure,

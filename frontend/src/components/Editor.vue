@@ -56,25 +56,39 @@
         placeholder="Start writing..."></textarea>
     </div>
   </div>
+
   <div v-else>
     <p class="text-gray-500 mt-3 ml-3">No file selected</p>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, defineExpose } from 'vue'
+import { ref, computed, watch, nextTick, defineExpose, onMounted } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
+import { useDraftStore } from '@/store/draftStore'
+
+// For 5s debounce, you can use a simple helper or any library (like lodash).
+// Here's a small local "debounce" helper:
+function debounce(fn, wait) {
+  let timeout
+  return function (...args) {
+    clearTimeout(timeout)
+    timeout = setTimeout(() => {
+      fn(...args)
+    }, wait)
+  }
+}
 
 // Instead of building an absolute URL from VITE_IMAGE_SERVICE_URL,
 // we will use a relative path in production so session cookies work properly:
 const isProduction = import.meta.env.PROD
-// For development, you can still fall back to your local server or do the same approach with a dev proxy.
 const devImageServiceUrl = import.meta.env.VITE_IMAGE_SERVICE_URL || 'http://localhost:3001'
 const imageServiceUrl = isProduction ? '' : devImageServiceUrl
 
 const docStore = useDocStore()
 const ui = useUiStore()
+const draftStore = useDraftStore()
 
 // References
 const textareaRef = ref(null)
@@ -85,15 +99,29 @@ const uploadError = ref('')
 
 // The selected file
 const file = computed(() => docStore.selectedFile)
-const originalContent = computed(() => docStore.selectedFileContent)
 const contentDraft = ref('')
-watch(
-  originalContent,
-  (val) => {
-    contentDraft.value = val
-  },
-  { immediate: true }
-)
+
+// If the user changes to a different file, we want to set `contentDraft` from the draft store (or from DB if no draft).
+watch(file, async (newFile) => {
+  if (newFile?.id) {
+    const existingDraft = draftStore.getDraft(newFile.id)
+    if (existingDraft) {
+      contentDraft.value = existingDraft
+    } else {
+      // If no draft yet, set from docStore's stored content
+      contentDraft.value = docStore.selectedFileContent
+    }
+  } else {
+    contentDraft.value = ''
+  }
+}, {
+  immediate: true,
+
+})
+
+
+
+// The local draft in our textarea
 
 // Stats computations
 const wordCount = computed(() => {
@@ -106,7 +134,20 @@ const lineCount = computed(() => {
   return contentDraft.value.split('\n').length
 })
 
-// Handle paste events
+// Debounced save to DB => 1s
+const debouncedSyncToDB = debounce((fileId, text) => {
+  docStore.updateFileContent(fileId, text)
+}, 500)
+
+// On every keystroke, update draft store (for immediate preview) and schedule a DB save in 5s
+function handleInput() {
+  if (file.value) {
+    draftStore.setDraft(file.value.id, contentDraft.value)
+    debouncedSyncToDB(file.value.id, contentDraft.value)
+  }
+}
+
+// Handle paste events (still uses the same flow for final doc update).
 async function handlePaste(event) {
   const items = event.clipboardData?.items
   if (!items) return
@@ -114,32 +155,27 @@ async function handlePaste(event) {
   for (const item of items) {
     if (item.type.indexOf('image') === 0) {
       event.preventDefault()
-      const file = item.getAsFile()
-      if (file) {
-        await uploadImage(file)
+      const fileObj = item.getAsFile()
+      if (fileObj) {
+        await uploadImage(fileObj)
       }
       break
     }
   }
 }
 
-// Upload an image to `/upload` (relative path) in production
-// or your dev server (port 3001) if not in production
-async function uploadImage(file) {
+async function uploadImage(fileObj) {
   isUploading.value = true
   uploadError.value = ''
 
-  const formData = new FormData()
-  formData.append('image', file)
-
   try {
-    // Note the URL:
-    //  - In production => fetch("/upload") so it goes to Nginx with the session cookie
-    //  - In dev => fetch("http://localhost:3001/upload"), or whatever your dev VITE_IMAGE_SERVICE_URL is
+    const formData = new FormData()
+    formData.append('image', fileObj)
+
     const response = await fetch(`${imageServiceUrl}/upload`, {
       method: 'POST',
       body: formData,
-      credentials: 'include' // ensures cookies are sent if same domain or valid CORS
+      credentials: 'include'
     })
 
     if (!response.ok) {
@@ -148,24 +184,19 @@ async function uploadImage(file) {
     }
 
     const data = await response.json()
-
-    // The server returns e.g. { url: "/images/<docId>", id: "img_<timestamp>" }
-    // In production, 'url' is a relative path. For dev environment, we prepend devImageServiceUrl if needed.
     const finalImageUrl = isProduction ? data.url : imageServiceUrl + data.url
     const imageMarkdown = `![Image](${finalImageUrl})\n`
 
-    // Insert image markdown at cursor position or at the end
+    // Insert image markdown at cursor or end
     const textarea = textareaRef.value
     if (textarea) {
       const start = textarea.selectionStart
       const end = textarea.selectionEnd
-
       contentDraft.value =
         contentDraft.value.substring(0, start) +
         imageMarkdown +
         contentDraft.value.substring(end)
 
-      // Update cursor position
       nextTick(() => {
         const newPosition = start + imageMarkdown.length
         textarea.setSelectionRange(newPosition, newPosition)
@@ -175,7 +206,7 @@ async function uploadImage(file) {
       contentDraft.value += imageMarkdown
     }
 
-    handleInput()
+    handleInput() // calls draft update + debounced DB save
   } catch (error) {
     console.error('Image upload error:', error)
     uploadError.value = error.message || 'Failed to upload image'
@@ -184,13 +215,7 @@ async function uploadImage(file) {
   }
 }
 
-function handleInput() {
-  if (file.value) {
-    docStore.updateFileContent(file.value.id, contentDraft.value)
-  }
-}
-
-// Expose formatting & search methods so the Nav can call them
+// Expose formatting & search so the Nav can call them
 function insertFormat(prefix, suffix) {
   const textarea = textareaRef.value
   if (!textarea) return
@@ -204,20 +229,15 @@ function insertFormat(prefix, suffix) {
     contentDraft.value.substring(end)
 
   contentDraft.value = newText
-
-  // Call handleInput after modifying contentDraft
   handleInput()
 
-  // Update cursor position
   textarea.focus()
   const newCursorPos = selected
     ? start + prefix.length + selected.length + suffix.length
     : start + prefix.length
-
   textarea.setSelectionRange(newCursorPos, newCursorPos)
 }
 
-// Also modify insertList, insertTable, and insertCodeBlock functions similarly:
 function insertList(prefix) {
   const textarea = textareaRef.value
   if (!textarea) return
@@ -239,8 +259,6 @@ function insertList(prefix) {
       newText +
       contentDraft.value.substring(end)
   }
-
-  // Call handleInput after modifying contentDraft
   handleInput()
 
   textarea.focus()
@@ -262,7 +280,6 @@ function insertCodeBlock() {
   insertFormat('```\n', '\n```')
 }
 
-
 function insertAtCursor(text) {
   const textarea = textareaRef.value
   if (!textarea) return
@@ -273,7 +290,6 @@ function insertAtCursor(text) {
     text +
     contentDraft.value.substring(start)
 
-  // Call handleInput after modifying contentDraft
   handleInput()
 
   textarea.focus()
@@ -286,15 +302,14 @@ function findNext(term) {
   const textarea = textareaRef.value
   if (!textarea) return
 
-  // Start searching after the current selectionEnd
+  // Start searching after current selectionEnd
   let fromIndex = textarea.selectionEnd
   let foundIndex = contentDraft.value.indexOf(term, fromIndex)
 
-  // If not found, wrap around from start
+  // Wrap around if not found
   if (foundIndex === -1 && fromIndex !== 0) {
     foundIndex = contentDraft.value.indexOf(term, 0)
   }
-
   if (foundIndex === -1) return
 
   textarea.focus()
