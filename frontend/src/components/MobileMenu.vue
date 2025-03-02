@@ -10,13 +10,13 @@
                 }}
             </div>
 
-            <!-- Sync Button (mobile) -->
-            <!-- <div v-if="authStore.isAuthenticated" class="px-2">
+            <!-- Sync Button (only if authenticated and not a guest) -->
+            <div v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'" class="px-2">
                 <BaseButton :isActive="syncStore.syncEnabled" @click="handleToggleSync" class="w-full space-x-1">
                     <RefreshCw class="w-4 h-4" />
                     <span>Sync</span>
                 </BaseButton>
-            </div> -->
+            </div>
 
             <!-- About link -->
             <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"

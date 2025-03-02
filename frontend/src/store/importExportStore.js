@@ -46,6 +46,11 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         return JSON.stringify(exportData, null, 2)
     }
 
+    // Add this function to match the function name used in docStore.js
+    async function exportDataAsJsonString() {
+        return await exportData()
+    }
+
     async function importData(newData) {
         try {
             if (typeof newData !== 'object' || newData === null) {
@@ -163,7 +168,8 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
     return {
         exportData,
+        exportDataAsJsonString, // Add this export to match the function name used in docStore.js
         importData,
-        exportDataAsZip // <--- EXPORTED
+        exportDataAsZip
     }
 })

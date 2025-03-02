@@ -1,6 +1,6 @@
 // src/store/syncStore.js
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import PouchDB from 'pouchdb-browser'
 import { useAuthStore } from './authStore'
 
@@ -8,26 +8,51 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost'
 const COUCHDB_PORT = import.meta.env.VITE_COUCHDB_PORT || '5984'
 const COUCHDB_URL = `${API_BASE_URL}:${COUCHDB_PORT}`
 
-const WELCOME_CONTENT = {
-  _id: 'file:welcome',
-  type: 'content',
-  text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
-  properties: '\n',
-  discussions: {},
-  comments: {},
-  hash: Date.now(),
-  tx: Date.now()
-}
-
 export const useSyncStore = defineStore('syncStore', () => {
   let localDB = null
   let syncHandler = null
   const isInitialized = ref(false)
+  const syncEnabled = ref(false)
 
   const authStore = useAuthStore()
 
-  // ADD THIS:
-  const syncEnabled = ref(false)
+  // Watch for changes in auth state to enable/disable sync automatically
+  watch(() => authStore.isAuthenticated, (authenticated) => {
+    if (authenticated && authStore.user?.name !== 'guest') {
+      // Load saved preference or enable by default for authenticated non-guest users
+      loadSyncPreference();
+    } else {
+      // Disable sync for guests or when logged out
+      syncEnabled.value = false;
+      if (syncHandler) {
+        syncHandler.cancel();
+        syncHandler = null;
+      }
+    }
+  });
+
+  // Save the user's sync preference to localStorage
+  function saveSyncPreference() {
+    if (authStore.isAuthenticated && authStore.user?.name !== 'guest') {
+      const key = `sync-preference-${authStore.user.name.toLowerCase()}`;
+      localStorage.setItem(key, syncEnabled.value ? 'enabled' : 'disabled');
+    }
+  }
+
+  // Load the user's sync preference from localStorage
+  function loadSyncPreference() {
+    if (authStore.isAuthenticated && authStore.user?.name !== 'guest') {
+      const key = `sync-preference-${authStore.user.name.toLowerCase()}`;
+      const preference = localStorage.getItem(key);
+      
+      // If no preference is saved, enable sync by default
+      if (preference === null) {
+        setSyncEnabled(true);
+      } else {
+        setSyncEnabled(preference === 'enabled');
+      }
+    }
+  }
 
   // Turn syncing on or off
   function setSyncEnabled(enable) {
@@ -50,6 +75,9 @@ export const useSyncStore = defineStore('syncStore', () => {
       }
       syncEnabled.value = false
     }
+    
+    // Save the preference whenever it changes
+    saveSyncPreference();
   }
 
   async function initializeDB() {
@@ -72,7 +100,12 @@ export const useSyncStore = defineStore('syncStore', () => {
 
     authStore.registerDatabase(dbName)
 
-    // Ensure we have a docStoreData doc
+    // Generate a unique welcome document ID for this user
+    const welcomeId = authStore.isAuthenticated && authStore.user?.name !== 'guest'
+      ? `welcome-${authStore.user.name}`
+      : 'welcome'
+
+    // Ensure we have a docStoreData doc with a user-specific welcome file
     try {
       await localDB.get('docStoreData')
     } catch (err) {
@@ -80,8 +113,8 @@ export const useSyncStore = defineStore('syncStore', () => {
         await localDB.put({
           _id: 'docStoreData',
           structure: {
-            welcome: {
-              id: 'welcome',
+            [welcomeId]: {
+              id: welcomeId,
               type: 'file',
               name: 'Welcome.md',
               parentId: null,
@@ -91,14 +124,32 @@ export const useSyncStore = defineStore('syncStore', () => {
           },
           lastModified: new Date().toISOString()
         })
-        await localDB.put(WELCOME_CONTENT)
+        
+        // Create a welcome content doc with the user-specific ID
+        await localDB.put({
+          _id: `file:${welcomeId}`,
+          type: 'content',
+          text: '# Welcome to Markdown Editor\n\nStart by importing your data or creating new files.',
+          properties: '\n',
+          discussions: {},
+          comments: {},
+          hash: Date.now(),
+          tx: Date.now(),
+          createdTime: new Date().toISOString(),
+          lastModified: new Date().toISOString()
+        })
       } else {
         throw err
       }
     }
 
     isInitialized.value = true
-    console.log(`[initializeDB] Local DB "${dbName}" is set up.`)
+    console.log(`[initializeDB] Local DB "${dbName}" is set up with welcome ID: ${welcomeId}`)
+    
+    // After initialization, load sync preference
+    if (authStore.isAuthenticated && authStore.user?.name !== 'guest') {
+      loadSyncPreference();
+    }
   }
 
   /**
@@ -301,7 +352,7 @@ export const useSyncStore = defineStore('syncStore', () => {
   }
 
   /**
-   * NEW: Return all docs that start with "file:", including their doc content
+   * Return all docs that start with "file:", including their doc content
    */
   async function allFileDocs() {
     if (!isInitialized.value || !localDB) {
@@ -324,11 +375,16 @@ export const useSyncStore = defineStore('syncStore', () => {
       await localDB.close()
       localDB = null
     }
-    const dbName = `pn-markdown-notes-${username.toLowerCase()}`
-    const db = new PouchDB(dbName)
-    await db.destroy()
-    isInitialized.value = false
-    console.log(`Successfully destroyed database: ${dbName}`)
+    
+    try {
+      const dbName = `pn-markdown-notes-${username.toLowerCase()}`
+      const db = new PouchDB(dbName)
+      await db.destroy()
+      isInitialized.value = false
+      console.log(`Successfully destroyed database: ${dbName}`)
+    } catch (err) {
+      console.error(`Error destroying database for user ${username}:`, err)
+    }
   }
 
   function cleanup() {
@@ -355,7 +411,7 @@ export const useSyncStore = defineStore('syncStore', () => {
     saveContent,
     loadContent,
     deleteContent,
-    allFileDocs,    // <-- NEW method
+    allFileDocs,
     destroyDB,
     cleanup
   }

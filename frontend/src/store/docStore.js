@@ -6,6 +6,7 @@ import { useContentStore } from './contentStore'
 import { useMarkdownStore } from './markdownStore'
 import { useSyncStore } from './syncStore'
 import { useImportExportStore } from './importExportStore'
+import { useAuthStore } from './authStore'
 
 export const useDocStore = defineStore('docStore', () => {
   const structureStore = useStructureStore()
@@ -13,6 +14,7 @@ export const useDocStore = defineStore('docStore', () => {
   const markdownStore = useMarkdownStore()
   const syncStore = useSyncStore()
   const importExportStore = useImportExportStore()
+  const authStore = useAuthStore()
 
   const data = computed(() => structureStore.data)
   const selectedFileId = computed(() => structureStore.selectedFileId)
@@ -33,11 +35,14 @@ export const useDocStore = defineStore('docStore', () => {
    */
   async function initCouchDB() {
     await syncStore.initializeDB()
-    await syncStore.oneTimePull()
-    // Removed:
-    // syncStore.setSyncEnabled(true)
-    // syncStore.startLiveSync()
+    
+    // If user is authenticated and not a guest, we'll pull from remote
+    if (authStore.isAuthenticated && authStore.user?.name !== 'guest') {
+      await syncStore.oneTimePull()
+    }
+    
     await structureStore.loadStructure()
+    return true
   }
 
   async function destroyLocalDB(username) {
@@ -52,9 +57,11 @@ export const useDocStore = defineStore('docStore', () => {
   function renameItem(itemId, newName) {
     return structureStore.renameItem(itemId, newName)
   }
+  
   function selectFolder(folderId) {
     structureStore.selectFolder(folderId)
   }
+  
   function selectFile(fileId) {
     structureStore.selectFile(fileId)
   }
@@ -62,6 +69,7 @@ export const useDocStore = defineStore('docStore', () => {
   function updateStyle(key, newVal) {
     markdownStore.updateStyle(key, newVal)
   }
+  
   function getMarkdownIt() {
     return markdownStore.getMarkdownIt()
   }
@@ -69,6 +77,7 @@ export const useDocStore = defineStore('docStore', () => {
   function updatePrintStyle(key, newVal) {
     markdownStore.updatePrintStyle(key, newVal)
   }
+  
   function getPrintMarkdownIt() {
     return markdownStore.getPrintMarkdownIt()
   }
@@ -101,6 +110,12 @@ export const useDocStore = defineStore('docStore', () => {
     return items.slice(0, limit)
   }
 
+    // Add this function to the returned object in docStore.js
+  async function exportJson() {
+    // Make sure to await the Promise so we return the actual string
+    const jsonString = await importExportStore.exportDataAsJsonString();
+    return jsonString;
+  } 
   return {
     data,
     selectedFileId,
@@ -112,6 +127,8 @@ export const useDocStore = defineStore('docStore', () => {
     rootItems,
     selectedFile,
     selectedFileContent,
+    structureStore,
+    syncStore,
 
     getChildren: structureStore.getChildren,
     createFile: structureStore.createFile,
@@ -123,7 +140,7 @@ export const useDocStore = defineStore('docStore', () => {
     toggleFolder: structureStore.toggleFolder,
     updateFileContent: contentStore.updateContent,
 
-    exportJson: importExportStore.exportDataAsJsonString,
+    exportJson: exportJson,
     exportZip: importExportStore.exportDataAsZip,
     importData: importExportStore.importData,
 

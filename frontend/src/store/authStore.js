@@ -75,37 +75,46 @@ export const useAuthStore = defineStore('authStore', () => {
     async function cleanupPreviousUserData(previousUsername) {
         console.log(`Cleaning up data for previous user: ${previousUsername}`)
 
-        // Destroy local PouchDB databases that might reference the old user
-        const prevLower = previousUsername.toLowerCase()
-        const dbNames = [
-            `pn-markdown-notes-${prevLower}`,
-            `_pouch_pn-markdown-notes-${prevLower}`
-        ]
+        try {
+            // Reset any stores that might cache data
+            const docStore = useDocStore()
+            await docStore.resetStore()
+            await docStore.destroyLocalDB(previousUsername)
+            
+            // Destroy local PouchDB databases that might reference the old user
+            const prevLower = previousUsername.toLowerCase()
+            const dbNames = [
+                `pn-markdown-notes-${prevLower}`,
+                `_pouch_pn-markdown-notes-${prevLower}`
+            ]
 
-        for (const dbName of dbNames) {
-            if (activeDatabases.has(dbName)) {
-                try {
-                    const db = new PouchDB(dbName)
-                    await db.destroy()
-                    activeDatabases.delete(dbName)
-                    console.log(`Successfully destroyed database: ${dbName}`)
-                } catch (err) {
-                    console.error(`Error destroying database ${dbName}:`, err)
+            for (const dbName of dbNames) {
+                if (activeDatabases.has(dbName)) {
+                    try {
+                        const db = new PouchDB(dbName)
+                        await db.destroy()
+                        activeDatabases.delete(dbName)
+                        console.log(`Successfully destroyed database: ${dbName}`)
+                    } catch (err) {
+                        console.error(`Error destroying database ${dbName}:`, err)
+                    }
                 }
             }
-        }
 
-        // Clear any old IndexedDB data that might linger
-        try {
-            const dbs = await window.indexedDB.databases()
-            for (const db of dbs) {
-                if (db.name.includes(prevLower)) {
-                    await window.indexedDB.deleteDatabase(db.name)
-                    console.log(`Deleted IndexedDB database: ${db.name}`)
+            // Clear any old IndexedDB data that might linger
+            try {
+                const dbs = await window.indexedDB.databases()
+                for (const db of dbs) {
+                    if (db.name.includes(prevLower)) {
+                        await window.indexedDB.deleteDatabase(db.name)
+                        console.log(`Deleted IndexedDB database: ${db.name}`)
+                    }
                 }
+            } catch (err) {
+                console.error('Error cleaning IndexedDB:', err)
             }
         } catch (err) {
-            console.error('Error cleaning IndexedDB:', err)
+            console.error('Error during data cleanup:', err)
         }
     }
 
@@ -117,21 +126,19 @@ export const useAuthStore = defineStore('authStore', () => {
                 credentials: 'include'
             })
 
-            // 2. Clean up the current user's data
-            if (user.value?.name) {
-                await cleanupPreviousUserData(user.value.name)
-            }
-
+            // 2. Store current username before resetting the state
+            const currentUsername = user.value?.name
+            
             // 3. Reset auth store state
             user.value = null
             isAuthenticated.value = false
             const previousUser = lastLoggedInUser.value
             lastLoggedInUser.value = null
 
-            // 4. Reset the docStore
-            const docStore = useDocStore()
-            docStore.resetStore()
-            docStore.destroyLocalDB(user.value?.name)
+            // 4. Clean up the current user's data
+            if (currentUsername) {
+                await cleanupPreviousUserData(currentUsername)
+            }
 
             console.log(`Logout complete. Cleaned up data for: ${previousUser}`)
         } catch (error) {

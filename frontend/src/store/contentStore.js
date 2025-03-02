@@ -12,24 +12,44 @@ export const useContentStore = defineStore('contentStore', () => {
     // Getters
     const selectedFileContent = computed(() => {
         if (!structureStore.selectedFile) return ''
-        return contentCache.value.get(structureStore.selectedFile.id)?.text || ''
+        const fileId = structureStore.selectedFile.id
+        const cachedContent = contentCache.value.get(fileId)
+        return cachedContent?.text || ''
     })
 
     // Content operations
     async function loadContent(fileId) {
-        if (!contentCache.value.has(fileId)) {
+        if (!fileId) return ''
+        
+        // If already in cache, return the text
+        if (contentCache.value.has(fileId)) {
+            return contentCache.value.get(fileId)?.text || ''
+        }
+        
+        try {
+            // Try to load from the database
             const content = await syncStore.loadContent(fileId)
             if (content) {
                 contentCache.value.set(fileId, content)
+                return content.text || ''
             }
+            return ''
+        } catch (error) {
+            console.error(`Error loading content for file ${fileId}:`, error)
+            return ''
         }
-        return contentCache.value.get(fileId)?.text || ''
     }
 
     async function updateContent(fileId, newText) {
-        const content = await syncStore.saveContent(fileId, newText)
-        if (content) {
-            contentCache.value.set(fileId, content)
+        try {
+            const content = await syncStore.saveContent(fileId, newText)
+            if (content) {
+                contentCache.value.set(fileId, content)
+            }
+            return newText
+        } catch (error) {
+            console.error(`Error saving content for file ${fileId}:`, error)
+            throw error
         }
     }
 
@@ -39,7 +59,7 @@ export const useContentStore = defineStore('contentStore', () => {
     }
 
     async function initializeContent(fileId) {
-        await updateContent(fileId, '')
+        return await updateContent(fileId, '')
     }
 
     function clearCache() {

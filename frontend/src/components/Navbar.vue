@@ -21,9 +21,12 @@
                     <span class="hidden md:inline">Tools</span>
                 </BaseButton>
 
-                <!-- Sync Button (only if authenticated) -->
-                <BaseButton v-if="authStore.isAuthenticated" :isActive="!syncStore.syncEnabled"
-                    @click="handleToggleSync" class="space-x-1" title="Toggle Sync">
+                <!-- Sync Button (only if authenticated and not a guest) -->
+                <BaseButton v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'" 
+                    :isActive="!syncStore.syncEnabled"
+                    @click="handleToggleSync" 
+                    class="space-x-1" 
+                    title="Toggle Sync">
                     <RefreshCw :class="syncStore.syncEnabled ? '' : 'text-red-500'" class="w-4 h-4 " />
                     <span class="hidden md:inline">Sync</span>
                 </BaseButton>
