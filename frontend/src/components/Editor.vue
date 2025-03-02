@@ -67,6 +67,7 @@ import { ref, computed, watch, nextTick, defineExpose, onMounted } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { useDraftStore } from '@/store/draftStore'
+import { useContentStore } from '@/store/contentStore'
 
 // For 5s debounce, you can use a simple helper or any library (like lodash).
 // Here's a small local "debounce" helper:
@@ -89,6 +90,7 @@ const imageServiceUrl = isProduction ? '' : devImageServiceUrl
 const docStore = useDocStore()
 const ui = useUiStore()
 const draftStore = useDraftStore()
+const contentStore = useContentStore()
 
 // References
 const textareaRef = ref(null)
@@ -101,27 +103,36 @@ const uploadError = ref('')
 const file = computed(() => docStore.selectedFile)
 const contentDraft = ref('')
 
-// If the user changes to a different file, we want to set `contentDraft` from the draft store (or from DB if no draft).
+// FIX: This watch needs to properly retrieve content when file changes
 watch(file, async (newFile) => {
   if (newFile?.id) {
+    // First check for an existing draft
     const existingDraft = draftStore.getDraft(newFile.id)
     if (existingDraft) {
       contentDraft.value = existingDraft
-    } else {
-      // If no draft yet, set from docStore's stored content
+      return
+    }
+    
+    // Check if content is already loaded in docStore
+    if (docStore.selectedFileContent) {
       contentDraft.value = docStore.selectedFileContent
+      return
+    }
+    
+    // If not, explicitly load the content
+    try {
+      const content = await contentStore.loadContent(newFile.id)
+      contentDraft.value = content || ''
+    } catch (error) {
+      console.error('Error loading content:', error)
+      contentDraft.value = ''
     }
   } else {
     contentDraft.value = ''
   }
 }, {
   immediate: true,
-
 })
-
-
-
-// The local draft in our textarea
 
 // Stats computations
 const wordCount = computed(() => {
@@ -134,12 +145,12 @@ const lineCount = computed(() => {
   return contentDraft.value.split('\n').length
 })
 
-// Debounced save to DB => 1s
+// Debounced save to DB => 500ms
 const debouncedSyncToDB = debounce((fileId, text) => {
   docStore.updateFileContent(fileId, text)
 }, 500)
 
-// On every keystroke, update draft store (for immediate preview) and schedule a DB save in 5s
+// On every keystroke, update draft store (for immediate preview) and schedule a DB save
 function handleInput() {
   if (file.value) {
     draftStore.setDraft(file.value.id, contentDraft.value)
@@ -318,6 +329,19 @@ function findNext(term) {
     textarea.focus()
   })
 }
+
+// Add an onMounted hook to ensure we register the editor reference for formatting
+onMounted(() => {
+  // Hack: Make editor methods available globally so SubMenuBar can use them
+  // A better approach would be to use provide/inject or events
+  window.__editorRef = {
+    insertFormat,
+    insertList,
+    insertTable,
+    insertCodeBlock,
+    findNext
+  }
+})
 
 defineExpose({
   insertFormat,

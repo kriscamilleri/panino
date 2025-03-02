@@ -217,20 +217,30 @@ function findNext(term) {
     const editor = window.__editorRef
     editor?.findNext(term)
 }
-
-function handleExport() {
-    const jsonString = docStore.exportJson()
-    const blob = new Blob([jsonString], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'data.json'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
+async function handleExport() {
+    try {
+        // Wait for the promise to resolve and get the actual JSON string
+        const jsonString = await docStore.exportJson();
+        
+        // Verify we have a valid string before creating the blob
+        if (typeof jsonString !== 'string') {
+            throw new Error('Export returned invalid data type: ' + typeof jsonString);
+        }
+        
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'markdown-notes-export.json';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        console.error('Error exporting JSON:', err);
+        alert('Failed to export JSON: ' + err.message);
+    }
 }
-
 async function handleExportZip() {
     try {
         await docStore.exportZip()

@@ -85,20 +85,22 @@ const sampleMarkdown = `
 ## Heading 2
 ### Heading 3
 
-Normal paragraph with **bold** and _italic_ text. Here's some \`inline code\`.
 
+
+Normal paragraph with **bold** and _italic_ text. Here's some \`inline code\`.
 > A blockquote with some thoughtful text.
 
+[A link](https://prettyneat.io)
+
+---
 * Unordered list item 1
 * Unordered list item 2
   * Nested item
-
+---
 1. Ordered list item 1
 2. Ordered list item 2
-
-[A link](https://example.com)
-
-![Image placeholder](https://via.placeholder.com/150)
+   1. Nested ordered item
+---
 
 | Header 1 | Header 2 |
 |----------|----------|
@@ -108,7 +110,12 @@ Normal paragraph with **bold** and _italic_ text. Here's some \`inline code\`.
 
 \`\`\`
 Code block
+printf("Hello, World!");
 \`\`\`
+---
+
+![Image placeholder](https://www.prettyneat.io/assets/prettyneat-logo-lg.png)
+
 `
 
 // Generate preview HTML

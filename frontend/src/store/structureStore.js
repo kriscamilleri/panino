@@ -3,31 +3,20 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useContentStore } from './contentStore'
 import { useSyncStore } from './syncStore'
-
-const EMPTY_DATA = {
-    structure: {
-        'welcome': {
-            id: 'welcome',
-            type: 'file',
-            name: 'Welcome.md',
-            parentId: null,
-            hash: Date.now(),
-            tx: Date.now()
-        }
-    }
-}
+import { useAuthStore } from './authStore'
 
 export const useStructureStore = defineStore('structureStore', () => {
     // Core state
-    const data = ref({ ...EMPTY_DATA })
-    const selectedFileId = ref('welcome')
-    // NEW: track a selected folder separately
+    const data = ref({ structure: {} })
+    const selectedFileId = ref(null)
+    // Track a selected folder separately
     const selectedFolderId = ref(null)
     const openFolders = ref(new Set())
 
     // Stores
     const contentStore = useContentStore()
     const syncStore = useSyncStore()
+    const authStore = useAuthStore()
 
     // Getters
     const itemsArray = computed(() => Object.values(data.value.structure))
@@ -161,7 +150,7 @@ export const useStructureStore = defineStore('structureStore', () => {
         selectedFolderId.value = folderId
     }
 
-    // NEW: rename operation
+    // Rename operation
     async function renameItem(itemId, newName) {
         if (!data.value.structure[itemId]) return
         const item = data.value.structure[itemId]
@@ -201,12 +190,37 @@ export const useStructureStore = defineStore('structureStore', () => {
                 ...data.value,
                 structure: JSON.parse(JSON.stringify(structure))
             }
+            
+            // Find the user-specific welcome file or fallback to generic welcome
+            const username = authStore.user?.name
+            const welcomeId = username && username !== 'guest' 
+                ? `welcome-${username}`
+                : 'welcome'
+                
+            // Select the appropriate welcome file
+            let foundWelcome = false
+            if (structure[welcomeId]) {
+                selectedFileId.value = welcomeId
+                foundWelcome = true
+            } else if (structure['welcome']) {
+                selectedFileId.value = 'welcome'
+                foundWelcome = true
+            }
+            
+            // If no welcome file found, select the first file if one exists
+            if (!foundWelcome) {
+                const firstFile = Object.values(structure)
+                    .find(item => item.type === 'file')
+                if (firstFile) {
+                    selectedFileId.value = firstFile.id
+                }
+            }
         }
     }
 
     function resetStore() {
-        data.value = { ...EMPTY_DATA }
-        selectedFileId.value = 'welcome'
+        data.value = { structure: {} }
+        selectedFileId.value = null
         selectedFolderId.value = null
         openFolders.value = new Set()
     }
@@ -215,7 +229,7 @@ export const useStructureStore = defineStore('structureStore', () => {
         // State
         data,
         selectedFileId,
-        selectedFolderId, // new
+        selectedFolderId,
         openFolders,
 
         // Getters
