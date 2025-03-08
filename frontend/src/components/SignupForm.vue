@@ -1,11 +1,5 @@
 <template>
     <div class="min-h-screen bg-gray-100 flex flex-col">
-        <!-- Top Navigation Bar
-        <nav class="bg-gray-100 border-b">
-            <div class="flex items-center justify-between px-4 py-2">
-                <h1 class="text-xl font-semibold text-gray-800">Create Account</h1>
-            </div>
-        </nav> -->
         <div class="flex flex-grow">
         </div>
         <!-- PaNiNo Header -->
@@ -84,10 +78,12 @@
                         </div>
                     </div>
 
-                    <!-- Turnstile CAPTCHA (only if a site key is present) -->
+                    <!-- Dedicated Turnstile container -->
                     <div v-if="turnstileSiteKey" class="mb-2">
-                        <div class="cf-turnstile" :data-sitekey="turnstileSiteKey" data-callback="onTurnstileSuccess"
-                            data-action="signup" data-theme="auto"></div>
+                        <div id="turnstile-container" ref="turnstileContainer" 
+                             class="flex justify-center">
+                            <!-- The script will insert the challenge here -->
+                        </div>
                     </div>
 
                     <!-- Error Message -->
@@ -133,7 +129,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
 import { useRouter } from 'vue-router'
@@ -148,15 +144,9 @@ const confirmPassword = ref('')
 const loading = ref(false)
 const error = ref('')
 const formErrors = ref({})
-const turnstileToken = ref('')
-
-// Pull in the site key from env:
 const turnstileSiteKey = import.meta.env.VITE_TURNSTILE_SITE_KEY || ''
-
-// The Turnstile success callback is a global function name that the script calls
-window.onTurnstileSuccess = function onTurnstileSuccess(token) {
-    turnstileToken.value = token
-}
+const turnstileContainer = ref(null)
+let turnstileWidgetId = null
 
 // Basic form validation
 watch([username, password, confirmPassword], () => {
@@ -182,23 +172,79 @@ const isValid = computed(() => {
     )
 })
 
-onMounted(() => {
-    // Dynamically inject Turnstile script if not already present
-    if (turnstileSiteKey && !document.getElementById('cf-turnstile-script')) {
+// Load the Turnstile script
+async function loadTurnstileScript() {
+    // Only load if not already present
+    if (window.turnstile) return window.turnstile
+
+    return new Promise((resolve) => {
         const script = document.createElement('script')
-        script.id = 'cf-turnstile-script'
-        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
         script.async = true
-        document.body.appendChild(script)
+        script.defer = true
+        script.onload = () => {
+            console.log('Turnstile script loaded')
+            resolve(window.turnstile)
+        }
+        document.head.appendChild(script)
+    })
+}
+
+// Render the turnstile widget
+async function renderTurnstileWidget() {
+    // Clear the container first
+    if (turnstileContainer.value) {
+        turnstileContainer.value.innerHTML = ''
+    }
+
+    // Make sure turnstile is loaded
+    const turnstile = await loadTurnstileScript()
+    
+    // Wait for DOM to be ready
+    await nextTick()
+    
+    // Remove any previous widget
+    if (turnstileWidgetId) {
+        try {
+            turnstile.remove(turnstileWidgetId)
+        } catch (e) {
+            console.error('Error removing previous widget:', e)
+        }
+    }
+    
+    // Render a new widget
+    turnstileWidgetId = turnstile.render('#turnstile-container', {
+        sitekey: turnstileSiteKey,
+        theme: 'auto'
+    })
+    
+    console.log('Turnstile widget rendered with ID:', turnstileWidgetId)
+}
+
+onMounted(async () => {
+    if (turnstileSiteKey) {
+        await renderTurnstileWidget()
     }
 })
+
+// Function to get the Turnstile token from the response
+function getTurnstileToken() {
+    // Try to find the turnstile response field (the hidden input added by the widget)
+    const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')
+    return turnstileResponse ? turnstileResponse.value : null
+}
 
 async function handleSubmit() {
     if (!isValid.value) return
 
-    // If Turnstile is configured, require the token:
-    if (turnstileSiteKey && !turnstileToken.value) {
-        error.value = 'Please complete the CAPTCHA.'
+    // Get the Turnstile token
+    const token = getTurnstileToken()
+
+    // If Turnstile is enabled but no token is found
+    if (turnstileSiteKey && !token) {
+        error.value = 'Please complete the CAPTCHA verification.'
+        // Try to render the widget in case it's not visible
+        await renderTurnstileWidget()
         return
     }
 
@@ -206,13 +252,18 @@ async function handleSubmit() {
     error.value = ''
 
     try {
-        // Our signup method below expects a third parameter = the Turnstile token
-        await authStore.signup(username.value, password.value, turnstileToken.value)
+        // Call the signup method with the token
+        await authStore.signup(username.value, password.value, token || '')
         await authStore.login(username.value, password.value)
         router.push('/loading')
     } catch (err) {
         console.error('Signup process error:', err)
-        if (err.message.includes('conflict')) {
+        
+        // Completely re-render a new widget
+        loading.value = false
+        await renderTurnstileWidget()
+        
+        if (err.message?.includes('conflict')) {
             error.value = 'Username already exists. Please choose another.'
         } else {
             error.value = err.message || 'Failed to create account. Please try again.'
