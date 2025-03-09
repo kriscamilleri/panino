@@ -22,4 +22,4 @@ jobs:
           PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
         run: |
           ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" \
-            "cd \"$PROJECT_PATH\" && git pull origin master && ./deploy.sh"
+            "cd \"$PROJECT_PATH\" && git pull origin main && ./deploy.sh"
