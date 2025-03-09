@@ -1,6 +1,6 @@
 # panino
 > Pretty Neat Notes
-A simple self-hostable markdown editor, heavily inspired by StackEdit. 
+A simple self-hostable markdown editor heavily inspired by StackEdit. 
 
 ## Features
 - Simple markdown editor and renderer
