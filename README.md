@@ -1,4 +1,4 @@
-# PaNiNo
+# panino
 > Pretty Neat Notes
 A simple self-hostable markdown editor, heavily inspired by StackEdit. 
 
@@ -53,8 +53,8 @@ docker compose up -d
 ```
 3. Deploy reverse proxy for each container and to serve the frontend. The setup-nginx.cjs script is an opinionated means of automating this process. See Automated Setup NGINX for more information. 
 ```
-node setup-nginx.cjs
 ```
+node setup-nginx.cjs
 
 #### Automated Setup NGINX 
 > Requires node 18+, NGINX and certbot to be installed on the host machine.
