@@ -14,7 +14,12 @@ if [ -f ".env" ]; then
     [[ -z "$key" ]] && continue
     
     # Remove quotes and whitespace from the value
-    value=$(echo "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"//g' -e 's/"$//g' -e "s/^'//g" -e "s/'$//g")
+    value=$(echo "$value" | sed -e 's/^[[:space:]]*//' \
+                                -e 's/[[:space:]]*$//' \
+                                -e 's/^"//g' \
+                                -e 's/"$//g' \
+                                -e "s/^'//g" \
+                                -e "s/'$//g")
     
     # Set environment variables
     if [ "$key" = "DOMAIN" ]; then
@@ -132,9 +137,7 @@ setup_ssl() {
     exit 1
   fi
 
-  echo "Setting up SSL certificate..."
-  
-  # Attempt to obtain SSL certificate
+  echo "Attempting to obtain an SSL certificate..."
   certbot_command="certbot certonly --nginx -d $DOMAIN -m $EMAIL --agree-tos --non-interactive"
   echo "Running: $certbot_command"
   if ! $certbot_command; then
@@ -144,7 +147,16 @@ setup_ssl() {
   echo "SSL certificate obtained successfully"
 }
 
-# Create production environment file
+################################################################################
+# 1. Obtain SSL certificate **before** setting up the main nginx config
+################################################################################
+
+setup_ssl
+
+################################################################################
+# 2. Create production environment file
+################################################################################
+
 echo "Creating production environment file..."
 ENV_PATH="$FRONTEND_PATH/.env.production"
 ENV_CONTENT="# Production environment variables
@@ -156,7 +168,10 @@ VITE_IMAGE_PORT=443"
 
 echo "$ENV_CONTENT" > "$ENV_PATH"
 
-# Update the build process to ensure it's in production mode
+################################################################################
+# 3. Build frontend
+################################################################################
+
 echo "==> Installing NPM dependencies in ./frontend ..."
 if ! (cd "$FRONTEND_PATH" && npm install); then
   echo "ERROR during frontend dependencies installation"
@@ -164,17 +179,18 @@ if ! (cd "$FRONTEND_PATH" && npm install); then
 fi
 
 echo "==> Running production build in ./frontend ..."
-# Force production mode
 if ! (cd "$FRONTEND_PATH" && NODE_ENV=production npm run build); then
   echo "ERROR during frontend build"
   exit 1
 fi
 
-# If there exists a dist folder /var/www/<SITENAME>/dist, remove it
+################################################################################
+# 4. Copy build output to /var/www/<DOMAIN>
+################################################################################
+
 echo "==> Removing existing dist folder at $WWW_ROOT/dist ..."
 rm -rf "$WWW_ROOT/dist" 2>/dev/null || echo "Warning: Could not remove existing dist folder"
 
-# Copy the dist folder to /var/www/<SITENAME>/dist
 echo "==> Copying $DIST_FOLDER_PATH to $WWW_ROOT/dist ..."
 if ! mkdir -p "$WWW_ROOT"; then
   echo "ERROR creating directory $WWW_ROOT"
@@ -186,7 +202,10 @@ if ! cp -R "$DIST_FOLDER_PATH" "$WWW_ROOT/dist"; then
   exit 1
 fi
 
-# Process nginx configuration
+################################################################################
+# 5. Process and install nginx configuration
+################################################################################
+
 echo "Creating nginx configuration..."
 NGINX_TEMPLATE_PATH="$PROJECT_ROOT/nginx.conf.template"
 NGINX_OUTPUT_PATH="$PROJECT_ROOT/nginx.conf"
@@ -200,45 +219,39 @@ if [ -f "$NGINX_TEMPLATE_PATH" ]; then
   if check_sudo; then
     echo "Installing nginx configuration..."
     
-    # Define paths
     AVAILABLE_PATH="/etc/nginx/sites-available/$DOMAIN"
     ENABLED_PATH="/etc/nginx/sites-enabled/$DOMAIN"
     
-    # Remove existing configuration and symlinks
+    # Remove existing configuration
     echo "Removing any existing configuration..."
-    if [ -f "$ENABLED_PATH" ]; then
-      rm -f "$ENABLED_PATH" || echo "Warning: Could not remove $ENABLED_PATH"
-    fi
-    if [ -f "$AVAILABLE_PATH" ]; then
-      rm -f "$AVAILABLE_PATH" || echo "Warning: Could not remove $AVAILABLE_PATH"
-    fi
+    rm -f "$ENABLED_PATH" 2>/dev/null
+    rm -f "$AVAILABLE_PATH" 2>/dev/null
     
     echo "Copying configuration to sites-available..."
-    cp "$NGINX_OUTPUT_PATH" "$AVAILABLE_PATH" || { echo "Failed to copy nginx config"; exit 1; }
+    if ! cp "$NGINX_OUTPUT_PATH" "$AVAILABLE_PATH"; then
+      echo "Failed to copy nginx config"
+      exit 1
+    fi
     
     echo "Creating symlink in sites-enabled..."
-    ln -sf "$AVAILABLE_PATH" "$ENABLED_PATH" || { echo "Failed to create symlink"; exit 1; }
+    if ! ln -sf "$AVAILABLE_PATH" "$ENABLED_PATH"; then
+      echo "Failed to create symlink"
+      exit 1
+    fi
     
-    # Test the configuration
     echo "Testing nginx configuration..."
     if ! nginx -t; then
-      echo "Nginx configuration test failed"
-      echo "Removing invalid configuration..."
-      
-      # Clean up invalid configuration
-      if [ -f "$ENABLED_PATH" ]; then
-        rm -f "$ENABLED_PATH" || echo "Warning: Could not remove $ENABLED_PATH"
-      fi
-      if [ -f "$AVAILABLE_PATH" ]; then
-        rm -f "$AVAILABLE_PATH" || echo "Warning: Could not remove $AVAILABLE_PATH"
-      fi
-      
+      echo "Nginx configuration test failed, removing invalid configuration..."
+      rm -f "$ENABLED_PATH" 2>/dev/null
+      rm -f "$AVAILABLE_PATH" 2>/dev/null
       exit 1
     fi
     
     echo "Reloading nginx..."
-    systemctl reload nginx || { echo "Failed to reload nginx"; exit 1; }
-    
+    systemctl reload nginx || {
+      echo "Failed to reload nginx"
+      exit 1
+    }
     echo "Nginx configuration installed and tested successfully"
   else
     echo "Not running as root - nginx configuration file created but not installed"
@@ -250,26 +263,24 @@ else
   exit 1
 fi
 
-# Setup SSL if requested
-setup_ssl
+################################################################################
+# 6. Wrap-up and manual steps
+################################################################################
 
-# Print manual steps if necessary
 if ! check_sudo; then
   echo
-  echo "2. Install nginx configuration (requires sudo):"
-  echo "   sudo cp $NGINX_OUTPUT_PATH /etc/nginx/sites-available/$DOMAIN"
-  echo "   sudo ln -s /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/"
-  echo "   sudo nginx -t"
-  echo "   sudo systemctl reload nginx"
+  echo "Additional manual steps required (running without sudo):"
+  echo "1) Copy the generated nginx config to /etc/nginx/sites-available/"
+  echo "2) ln -s /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN"
+  echo "3) sudo nginx -t && sudo systemctl reload nginx"
 fi
 
 if [ "$SKIP_SSL" = true ]; then
   echo
-  echo "3. Setup SSL certificate (requires sudo):"
-  echo "   sudo certbot certonly --nginx -d $DOMAIN -m your@email.com --agree-tos"
+  echo "If you want HTTPS later, run certbot manually (requires sudo), for example:"
+  echo "  sudo certbot certonly --nginx -d $DOMAIN -m you@example.com --agree-tos"
 fi
 
-# Print a summary of the configuration used
 echo
 echo "Deployment completed successfully with the following configuration:"
 echo "Domain: $DOMAIN"
