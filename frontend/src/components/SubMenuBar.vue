@@ -3,25 +3,27 @@
     <!-- The container that shows/hides based on ui.isAnyMenuOpen -->
     <transition name="fade-fast" mode="out-in">
         <div v-if="ui.isAnyMenuOpen"
-            class="border-t bg-gray-50 px-4 py-2 min-h-[40px] flex items-center overflow-x-auto">
+            class="border-t bg-gray-50 px-4 py-2 min-h-[40px] flex items-center overflow-x-auto"
+            data-testid="submenu-bar">
             <!-- View Menu Content -->
             <div v-if="ui.showViewMenu" class="flex flex-wrap gap-2" key="view">
-                <BaseButton :isActive="ui.showDocuments" @click="ui.toggleDocuments()">
+                <BaseButton :isActive="ui.showDocuments" @click="ui.toggleDocuments()"
+                    data-testid="submenu-view-documents">
                     <Folder class="w-4 h-4" />
                     <span>Documents</span>
                 </BaseButton>
 
-                <BaseButton :isActive="ui.showEditor" @click="ui.toggleEditor()">
+                <BaseButton :isActive="ui.showEditor" @click="ui.toggleEditor()" data-testid="submenu-view-editor">
                     <Edit3 class="w-4 h-4" />
                     <span>Editor</span>
                 </BaseButton>
 
-                <BaseButton :isActive="ui.showPreview" @click="ui.togglePreview()">
+                <BaseButton :isActive="ui.showPreview" @click="ui.togglePreview()" data-testid="submenu-view-preview">
                     <Eye class="w-4 h-4" />
                     <span>Preview</span>
                 </BaseButton>
 
-                <BaseButton @click="goToStyles">
+                <BaseButton @click="goToStyles" data-testid="submenu-view-styles">
                     <Palette class="w-4 h-4" />
                     <span>Preview Styles</span>
                 </BaseButton>
@@ -30,36 +32,36 @@
             <!-- Format Menu Content -->
             <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="tools">
                 <!-- Text Formats -->
-                <div v-for="format in textFormats" :key="format.label" @click="insertFormat(format)"
+                <button v-for="format in textFormats" :key="format.label" @click="insertFormat(format)"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                    :title="format.label">
+                    :title="format.label" :data-testid="`submenu-format-${format.label.toLowerCase()}`">
                     <component :is="format.icon" class="w-4 h-4" />
                     <span>{{ format.label }}</span>
-                </div>
+                </button>
 
                 <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
                 <!-- List Formats -->
-                <div v-for="list in listFormats" :key="list.label" @click="insertList(list)"
+                <button v-for="list in listFormats" :key="list.label" @click="insertList(list)"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                    :title="list.label">
+                    :title="list.label" :data-testid="`submenu-format-${list.label.toLowerCase().replace(' ', '-')}`">
                     <component :is="list.icon" class="w-4 h-4" />
                     <span>{{ list.label }}</span>
-                </div>
+                </button>
 
                 <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
                 <!-- Table / Code -->
                 <button @click="insertTable"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                    title="Insert Table">
+                    title="Insert Table" data-testid="submenu-format-table">
                     <Table class="w-4 h-4" />
                     <span>Table</span>
                 </button>
 
                 <button @click="insertCodeBlock"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                    title="Insert Code Block">
+                    title="Insert Code Block" data-testid="submenu-format-code">
                     <Code2 class="w-4 h-4" />
                     <span>Code</span>
                 </button>
@@ -67,12 +69,12 @@
                 <div class="w-px h-6 bg-gray-300 mx-2"></div>
 
                 <!-- Stats / Info -->
-                <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()">
+                <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()" data-testid="submenu-format-stats">
                     <BarChart2 class="w-4 h-4" />
                     <span>Stats</span>
                 </BaseButton>
 
-                <BaseButton :isActive="ui.showMetadata" @click="ui.toggleMetadata()">
+                <BaseButton :isActive="ui.showMetadata" @click="ui.toggleMetadata()" data-testid="submenu-format-info">
                     <Info class="w-4 h-4" />
                     <span>Info</span>
                 </BaseButton>
@@ -84,10 +86,12 @@
                     <div class="relative">
                         <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
                         <input type="text" placeholder="Find text..." v-model="searchTerm"
-                            class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500" />
+                            class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500"
+                            data-testid="submenu-format-search-input" @keyup.enter="findNext(searchTerm)" />
                     </div>
                     <button @click="findNext(searchTerm)"
-                        class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1">
+                        class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                        data-testid="submenu-format-search-next">
                         <ArrowRight class="w-4 h-4" />
                         <span>Next</span>
                     </button>
@@ -97,27 +101,27 @@
             <!-- Tools Menu Content -->
             <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
                 <!-- Use ui.openImportModal() instead of local state -->
-                <BaseButton @click="ui.openImportModal()">
+                <BaseButton @click="ui.openImportModal()" data-testid="submenu-tools-import-json">
                     <Upload class="w-4 h-4" />
                     <span>Import JSON</span>
                 </BaseButton>
 
-                <BaseButton @click="handleExport">
+                <BaseButton @click="handleExport" data-testid="submenu-tools-export-json">
                     <FileJson class="w-4 h-4" />
                     <span>Export JSON</span>
                 </BaseButton>
 
-                <BaseButton @click="handleExportZip">
+                <BaseButton @click="handleExportZip" data-testid="submenu-tools-export-markdown">
                     <FolderArchive class="w-4 h-4" />
                     <span>Export Markdown</span>
                 </BaseButton>
 
-                <BaseButton @click="handlePrint">
+                <BaseButton @click="handlePrint" data-testid="submenu-tools-print-document">
                     <Printer class="w-4 h-4" />
                     <span>Print Document</span>
                 </BaseButton>
 
-                <BaseButton @click="goToPrintStyles">
+                <BaseButton @click="goToPrintStyles" data-testid="submenu-tools-print-styles">
                     <Printer class="w-4 h-4" />
                     <span>Print Styles</span>
                 </BaseButton>

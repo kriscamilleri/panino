@@ -34,7 +34,7 @@
                         <div class="mt-1">
                             <input id="username" v-model="username" name="username" type="text" required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading" />
+                                :disabled="loading" data-testid="login-username-input" />
                         </div>
                     </div>
 
@@ -46,12 +46,13 @@
                         <div class="mt-1">
                             <input id="password" v-model="password" name="password" type="password" required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading" />
+                                :disabled="loading" data-testid="login-password-input" />
                         </div>
                     </div>
 
                     <!-- Error Message -->
-                    <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
+                    <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm"
+                        data-testid="login-error-message">
                         {{ error }}
                     </div>
 
@@ -59,7 +60,7 @@
                     <div>
                         <button type="submit"
                             class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            :disabled="loading">
+                            :disabled="loading" data-testid="login-submit-button">
                             <template v-if="loading">
                                 <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
                                     xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -82,28 +83,30 @@
                 <div class="mt-3">
                     <button type="button"
                         class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300"
-                        @click="handleGuest">
+                        @click="handleGuest" data-testid="login-guest-button">
                         Continue as guest
                     </button>
                 </div>
 
                 <!-- Sign Up Link -->
                 <div class="text-sm text-center mt-3">
-                    <router-link to="/signup" class="font-medium text-gray-600 hover:text-gray-900">
+                    <router-link to="/signup" class="font-medium text-gray-600 hover:text-gray-900"
+                        data-testid="login-signup-link">
                         Don't have an account? Sign up
                     </router-link>
                 </div>
                 <div class="my-8 border-b border-gray-200"></div>
                 <!-- Terms of Service link -->
                 <div class="text-sm text-center mt-3">
-                    <router-link to="/terms" class="font-medium text-gray-600 hover:text-gray-900">
+                    <router-link to="/terms" class="font-medium text-gray-600 hover:text-gray-900"
+                        data-testid="login-terms-link">
                         Terms of Service
                     </router-link>
                 </div>
                 <!-- About link -->
                 <div class="text-sm text-center mt-3">
                     <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
-                        class="text-sm font-medium text-gray-600 hover:text-gray-900">
+                        class="text-sm font-medium text-gray-600 hover:text-gray-900" data-testid="login-github-link">
                         <span>Github</span>
                     </a>
                 </div>
@@ -136,7 +139,7 @@ async function handleSubmit() {
 
     try {
         await authStore.login(username.value, password.value)
-        router.push('/loading')
+        router.push({ name: 'loading', params: { timestamp: Date.now() } }) // Add timestamp to force reload
     } catch (err) {
         error.value = 'Invalid username or password'
     } finally {
@@ -153,7 +156,7 @@ async function handleGuest() {
     error.value = ''
     try {
         await authStore.continueAsGuest()
-        router.push('/loading')
+        router.push({ name: 'loading', params: { timestamp: Date.now() } }) // Add timestamp to force reload
     } catch (err) {
         error.value = 'Failed to continue as guest.'
     } finally {

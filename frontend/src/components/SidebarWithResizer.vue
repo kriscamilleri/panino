@@ -2,7 +2,8 @@
     <!-- Only render if the documents sidebar is toggled on -->
     <template v-if="ui.showDocuments">
         <div :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
-            :style="!isMobileView ? { width: documentsWidth + 'px' } : {}" class="bg-gray-100 border-r overflow-hidden">
+            :style="!isMobileView ? { width: documentsWidth + 'px' } : {}" class="bg-gray-100 border-r overflow-hidden"
+            data-testid="sidebar-container">
             <div class="h-full overflow-y-auto p-4">
                 <Documents />
             </div>
@@ -10,7 +11,7 @@
 
         <!-- Resizer handle (desktop only) -->
         <div v-if="!isMobileView" class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
-            @mousedown="startResize($event)"></div>
+            @mousedown="startResize($event)" data-testid="sidebar-resizer"></div>
     </template>
 </template>
 
