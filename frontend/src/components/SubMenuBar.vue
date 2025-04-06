@@ -1,3 +1,4 @@
+<!-- frontend/src/components/SubMenuBar.vue -->
 <template>
     <!-- The container that shows/hides based on ui.isAnyMenuOpen -->
     <transition name="fade-fast" mode="out-in">
@@ -95,7 +96,8 @@
 
             <!-- Tools Menu Content -->
             <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
-                <BaseButton @click="showImportModal = true">
+                <!-- Use ui.openImportModal() instead of local state -->
+                <BaseButton @click="ui.openImportModal()">
                     <Upload class="w-4 h-4" />
                     <span>Import JSON</span>
                 </BaseButton>
@@ -125,10 +127,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref } from 'vue' // Removed 'computed' as we no longer need local showImportModal
 import { useRouter } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
-import { useUiStore } from '@/store/uiStore'
+import { useUiStore } from '@/store/uiStore' // Import uiStore
 import { useAuthStore } from '@/store/authStore'
 
 import BaseButton from '@/components/BaseButton.vue'
@@ -158,13 +160,13 @@ import {
 } from 'lucide-vue-next'
 
 // Stores
-const ui = useUiStore()
+const ui = useUiStore() // Initialize uiStore
 const docStore = useDocStore()
 const authStore = useAuthStore()
 const router = useRouter()
 
 // Local states
-const showImportModal = ref(false)
+// Removed: const showImportModal = ref(false)
 const searchTerm = ref('')
 
 // Hard-coded formats (taken from original)
@@ -187,7 +189,7 @@ function goToStyles() {
 
 function insertFormat(format) {
     // Insert text around selection, e.g. **bold** or > quote
-    // This would require referencing an editor instance. 
+    // This would require referencing an editor instance.
     // Typically you'd do `editorRef.value.insertFormat(format.prefix, format.suffix)`
     // For now let's assume docStore or some global method:
     const editor = window.__editorRef // (example hack) or inject from parent
@@ -221,12 +223,12 @@ async function handleExport() {
     try {
         // Wait for the promise to resolve and get the actual JSON string
         const jsonString = await docStore.exportJson();
-        
+
         // Verify we have a valid string before creating the blob
         if (typeof jsonString !== 'string') {
             throw new Error('Export returned invalid data type: ' + typeof jsonString);
         }
-        
+
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');

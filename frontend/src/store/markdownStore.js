@@ -12,21 +12,22 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         h1: 'text-3xl font-bold mt-4 mb-2 block',
         h2: 'text-2xl font-semibold mt-3 mb-2 block',
         h3: 'text-xl font-semibold mt-2 mb-1 block',
-        h4: 'text-lg font-semibold mt-2 mb-1 block text-gray-600',
-        p: 'mb-2 leading-relaxed',
+        h4: 'text-lg font-semibold mt-2 mb-1 block text-gray-600', // Added h4
+        p: 'mb-2 leading-relaxed', // Class for paragraphs
         ul: 'list-disc list-inside mb-2',
         ol: 'list-decimal list-inside mb-2',
         li: 'ml-5 mb-1',
-        code: 'bg-gray-100 text-sm px-1 py-0.5 rounded',
+        code: 'bg-gray-100 text-sm px-1 py-0.5 rounded', // Class for inline code
+        pre: 'bg-gray-100 p-2 rounded my-2 overflow-x-auto text-sm', // Class for code blocks (<pre>)
         blockquote: 'border-l-4 border-gray-300 pl-4 italic my-2',
         hr: 'border-t my-4',
         em: 'italic',
         strong: 'font-bold',
         a: 'text-blue-600 underline',
-        img: 'max-w-full h-auto',
-        table: 'border-collapse border border-gray-300 my-2',
-        tr: '',
-        th: 'border border-gray-300 bg-gray-100 px-2 py-1',
+        img: 'max-w-full h-auto my-2', // Added margin to images
+        table: 'border-collapse border border-gray-300 my-2 w-full', // Added w-full
+        tr: 'border-t border-gray-200', // Added border for table rows
+        th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold', // Added text-left and font-semibold
         td: 'border border-gray-300 px-2 py-1',
     })
 
@@ -37,20 +38,22 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         h1: 'font-bold text-2xl my-2 block',
         h2: 'font-bold text-xl my-2 block',
         h3: 'font-bold text-lg my-1 block',
-        p: 'mb-2 leading-relaxed',
+        h4: 'font-semibold text-base my-1 block text-gray-700', // Added h4 print style
+        p: 'mb-2 leading-relaxed', // Class for print paragraphs
         ul: 'list-disc mb-2 ml-8',
         ol: 'list-decimal mb-2 ml-8',
         li: 'mb-1',
-        code: 'bg-gray-200 px-1 py-0.5 rounded text-sm',
+        code: 'bg-gray-200 px-1 py-0.5 rounded text-sm font-mono', // Class for print inline code
+        pre: 'bg-gray-200 p-2 rounded my-2 overflow-x-auto text-sm font-mono', // Class for print code blocks
         blockquote: 'border-l-4 border-gray-300 pl-4 italic my-2',
         hr: 'border-t my-4',
         em: 'italic',
         strong: 'font-bold',
-        a: 'underline',
-        img: 'max-w-full h-auto',
-        table: 'border-collapse border border-gray-300 my-2',
-        tr: '',
-        th: 'border border-gray-300 bg-gray-100 px-2 py-1',
+        a: 'underline text-blue-700', // Added color
+        img: 'max-w-full h-auto my-2', // Added margin
+        table: 'border-collapse border border-gray-300 my-2 w-full', // Added w-full
+        tr: 'border-t border-gray-200',
+        th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold',
         td: 'border border-gray-300 px-2 py-1',
 
         // Print-specific header/footer
@@ -72,155 +75,353 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         }
     }
 
+    // --- Helper Function to add classes via token attributes ---
+    function addClassToToken(token, className) {
+        if (className) {
+            const existingClass = token.attrGet('class');
+            if (existingClass) {
+                // Check if the class is already present to avoid duplicates
+                const classes = existingClass.split(' ');
+                if (!classes.includes(className)) {
+                    token.attrJoin('class', className);
+                }
+            } else {
+                token.attrPush(['class', className]);
+            }
+        }
+    }
+    // --- End Helper ---
+
+
     // MarkdownIt for normal (preview) rendering
     function getMarkdownIt() {
         const md = new MarkdownIt({
-            html: true,
-            linkify: true,
-            typographer: true,
-            breaks: true
-        }).use(markdownItTaskLists)
+            html: true,      // Allow HTML tags in source
+            linkify: true,   // Autoconvert URL-like text to links
+            typographer: true,// Enable smartquotes, dashes, etc.
+            breaks: true     // Convert '\n' in paragraphs into <br> (GFM style)
+        }).use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true }); // Ensure task lists are fully enabled
 
-        // Paragraph (div or span if inside list)
+
+        // --- Rule Overrides for Adding Classes ---
+
+        // Headings: Add classes directly to heading_open token
+        md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            const className = styles.value[token.tag]; // Get class for h1, h2, etc.
+            if (className) {
+                token.attrJoin('class', className);
+            }
+            return self.renderToken(tokens, idx, options); // Use default renderer
+        };
+
+        // Paragraphs: Modify token attributes instead of overriding renderer
+        // This ensures default paragraph logic (like handling double newlines) is preserved.
+        const defaultParagraphOpen = md.renderer.rules.paragraph_open || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
         md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
-            const inList = tokens.some((token, i) => {
-                if (i < idx) {
-                    return token.type === 'list_item_open' && !token.hidden
-                }
-                return false
-            })
-            return inList
-                ? `<span class="${styles.value.p}">`
-                : `<div class="${styles.value.p}">`
-        }
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.p);
+            return defaultParagraphOpen(tokens, idx, options, env, self);
+        };
 
-        md.renderer.rules.paragraph_close = (tokens, idx) => {
-            const inList = tokens.some((token, i) => {
-                if (i < idx) {
-                    return token.type === 'list_item_open' && !token.hidden
-                }
-                return false
-            })
-            return inList ? '</span>' : '</div>'
-        }
+        // Lists
+        md.renderer.rules.bullet_list_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.ul);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.ordered_list_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.ol);
+            return self.renderToken(tokens, idx, options);
+        };
+        // List Items (handles task list rendering correctly now)
+        const defaultListItemOpen = md.renderer.rules.list_item_open || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.list_item_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.li);
+            // Let markdown-it-task-lists handle checkbox rendering by calling default
+            return defaultListItemOpen(tokens, idx, options, env, self);
+        };
 
-        md.renderer.rules.heading_open = (tokens, idx) => {
-            const tag = tokens[idx].tag
-            return `<${tag} class="${styles.value[tag]}">`
-        }
 
-        md.renderer.rules.bullet_list_open = () => `<ul class="${styles.value.ul}">`
-        md.renderer.rules.ordered_list_open = () => `<ol class="${styles.value.ol}">`
+        // Inline Code
+        const defaultCodeInline = md.renderer.rules.code_inline || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.code_inline = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.code);
+            // Escape content to prevent XSS if needed (though default renderer usually does)
+            token.content = md.utils.escapeHtml(token.content);
+            return defaultCodeInline(tokens, idx, options, env, self);
+        };
 
-        md.renderer.rules.list_item_open = (tokens, idx) => {
-            // Check for task list
-            if (tokens[idx].map && tokens[idx].map.length > 0) {
-                if (tokens[idx + 2]?.type === 'task_list_item_open') {
-                    const checked = tokens[idx + 2].checked
-                    return `<li class="${styles.value.li}"><input type="checkbox" ${checked ? 'checked' : ''} disabled> `
+        // Fenced Code Blocks (<pre><code>)
+        const defaultFence = md.renderer.rules.fence || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            // The default fence renderer wraps content in <pre><code>...</code></pre>
+            // We want to add the class to the <pre> tag.
+            // Markdown-it adds attributes to the outer token which becomes the <pre> tag.
+            addClassToToken(token, styles.value.pre);
+            // Ensure content is escaped
+            token.content = md.utils.escapeHtml(token.content);
+            return defaultFence(tokens, idx, options, env, self);
+        };
+        // Also handle indented code blocks
+        const defaultCodeBlock = md.renderer.rules.code_block || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.pre); // Use the same style as fenced blocks
+            token.content = md.utils.escapeHtml(token.content);
+            return defaultCodeBlock(tokens, idx, options, env, self);
+        };
+
+        // Blockquote
+        md.renderer.rules.blockquote_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.blockquote);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        // Horizontal Rule
+        md.renderer.rules.hr = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.hr);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        // Emphasis (Italic)
+        md.renderer.rules.em_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.em);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        // Strong (Bold)
+        md.renderer.rules.strong_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.strong);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        // Links
+        md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.a);
+            // Add target="_blank" and rel="noopener" for external links (optional but good practice)
+            // Simple check: does it start with http or //?
+            const href = token.attrGet('href');
+            if (href && (href.startsWith('http') || href.startsWith('//'))) {
+                token.attrSet('target', '_blank');
+                token.attrSet('rel', 'noopener noreferrer');
+            }
+            // Ensure internal links (#anchor) don't get target=_blank
+            else if (href && href.startsWith('#')) {
+                token.attrSet('target', '_self'); // Explicitly set to self if needed
+                // Remove rel if it was somehow added
+                const relIndex = token.attrIndex('rel');
+                if (relIndex !== -1) {
+                    token.attrs.splice(relIndex, 1);
                 }
             }
-            return `<li class="${styles.value.li}">`
-        }
+            return self.renderToken(tokens, idx, options);
+        };
 
-        md.renderer.rules.code_inline = (tokens, idx) =>
-            `<code class="${styles.value.code}">${tokens[idx].content}</code>`
+        // Images
+        md.renderer.rules.image = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.img);
+            // Set loading="lazy" for performance (optional)
+            token.attrSet('loading', 'lazy');
+            return self.renderToken(tokens, idx, options);
+        };
 
-        md.renderer.rules.blockquote_open = () =>
-            `<blockquote class="${styles.value.blockquote}">`
+        // Tables
+        md.renderer.rules.table_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.table);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.tr_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.tr);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.th_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.th);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.td_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, styles.value.td);
+            return self.renderToken(tokens, idx, options);
+        };
 
-        md.renderer.rules.hr = () => `<hr class="${styles.value.hr}">`
-        md.renderer.rules.em_open = () => `<em class="${styles.value.em}">`
-        md.renderer.rules.strong_open = () => `<strong class="${styles.value.strong}">`
-
-        md.renderer.rules.link_open = (tokens, idx) => {
-            const href = tokens[idx].attrGet('href')
-            return `<a href="${href}" class="${styles.value.a}" target="_blank" rel="noopener">`
-        }
-
-        md.renderer.rules.image = (tokens, idx) => {
-            const token = tokens[idx]
-            const src = token.attrGet('src')
-            const alt = token.content
-            const title = token.attrGet('title')
-            return `<img src="${src}" alt="${alt}" title="${title || ''}" class="${styles.value.img}">`
-        }
-
-        md.renderer.rules.table_open = () => `<table class="${styles.value.table}">`
-        md.renderer.rules.th_open = () => `<th class="${styles.value.th}">`
-        md.renderer.rules.td_open = () => `<td class="${styles.value.td}">`
+        // --- End Rule Overrides ---
 
         return md
     }
 
-    // MarkdownIt for print rendering
+    // MarkdownIt for print rendering (Apply similar logic)
     function getPrintMarkdownIt() {
         const md = new MarkdownIt({
             html: true,
             linkify: true,
             typographer: true,
-            breaks: true
-        }).use(markdownItTaskLists)
+            breaks: true // Keep breaks consistent if desired for print
+        }).use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true }); // Task lists for print too
 
-        // Paragraph (div or span if inside list)
-        md.renderer.rules.paragraph_open = (tokens, idx) => {
-            const inList = tokens.some((token, i) => i < idx && token.type === 'list_item_open' && !token.hidden)
-            return inList
-                ? `<span class="${printStyles.value.p}">`
-                : `<div class="${printStyles.value.p}">`
-        }
-        md.renderer.rules.paragraph_close = (tokens, idx) => {
-            const inList = tokens.some((token, i) => i < idx && token.type === 'list_item_open' && !token.hidden)
-            return inList ? '</span>' : '</div>'
-        }
+        // Apply print styles using the same token modification approach
 
-        md.renderer.rules.heading_open = (tokens, idx) => {
-            const tag = tokens[idx].tag
-            return `<${tag} class="${printStyles.value[tag]}">`
-        }
+        md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value[token.tag]);
+            return self.renderToken(tokens, idx, options);
+        };
 
-        md.renderer.rules.bullet_list_open = () => `<ul class="${printStyles.value.ul}">`
-        md.renderer.rules.ordered_list_open = () => `<ol class="${printStyles.value.ol}">`
+        const defaultPrintParagraphOpen = md.renderer.rules.paragraph_open || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.p);
+            return defaultPrintParagraphOpen(tokens, idx, options, env, self);
+        };
 
-        md.renderer.rules.list_item_open = (tokens, idx) => {
-            if (tokens[idx].map && tokens[idx].map.length > 0) {
-                if (tokens[idx + 2]?.type === 'task_list_item_open') {
-                    const checked = tokens[idx + 2].checked
-                    return `<li class="${printStyles.value.li}"><input type="checkbox" ${checked ? 'checked' : ''} disabled> `
+
+        md.renderer.rules.bullet_list_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.ul);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.ordered_list_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.ol);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        const defaultPrintListItemOpen = md.renderer.rules.list_item_open || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.list_item_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.li);
+            return defaultPrintListItemOpen(tokens, idx, options, env, self);
+        };
+
+        const defaultPrintCodeInline = md.renderer.rules.code_inline || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.code_inline = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.code);
+            token.content = md.utils.escapeHtml(token.content);
+            return defaultPrintCodeInline(tokens, idx, options, env, self);
+        };
+
+        const defaultPrintFence = md.renderer.rules.fence || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.pre);
+            token.content = md.utils.escapeHtml(token.content);
+            return defaultPrintFence(tokens, idx, options, env, self);
+        };
+        const defaultPrintCodeBlock = md.renderer.rules.code_block || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.pre);
+            token.content = md.utils.escapeHtml(token.content);
+            return defaultPrintCodeBlock(tokens, idx, options, env, self);
+        };
+
+        md.renderer.rules.blockquote_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.blockquote);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        md.renderer.rules.hr = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.hr);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        md.renderer.rules.em_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.em);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        md.renderer.rules.strong_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.strong);
+            return self.renderToken(tokens, idx, options);
+        };
+
+        md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.a);
+            // Don't force target=_blank for print usually
+            const href = token.attrGet('href');
+            if (href && (href.startsWith('http') || href.startsWith('//'))) {
+                token.attrSet('target', '_blank'); // Keep for consistency if clicked from a preview maybe?
+                token.attrSet('rel', 'noopener noreferrer');
+            }
+            else if (href && href.startsWith('#')) {
+                token.attrSet('target', '_self');
+                const relIndex = token.attrIndex('rel');
+                if (relIndex !== -1) {
+                    token.attrs.splice(relIndex, 1);
                 }
             }
-            return `<li class="${printStyles.value.li}">`
-        }
+            return self.renderToken(tokens, idx, options);
+        };
 
-        md.renderer.rules.code_inline = (tokens, idx) =>
-            `<code class="${printStyles.value.code}">${tokens[idx].content}</code>`
+        md.renderer.rules.image = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.img);
+            return self.renderToken(tokens, idx, options);
+        };
 
-        md.renderer.rules.blockquote_open = () =>
-            `<blockquote class="${printStyles.value.blockquote}">`
-
-        md.renderer.rules.hr = () => `<hr class="${printStyles.value.hr}">`
-        md.renderer.rules.em_open = () => `<em class="${printStyles.value.em}">`
-        md.renderer.rules.strong_open = () => `<strong class="${printStyles.value.strong}">`
-
-        md.renderer.rules.link_open = (tokens, idx) => {
-            const href = tokens[idx].attrGet('href')
-            return `<a href="${href}" class="${printStyles.value.a}" target="_blank" rel="noopener">`
-        }
-
-        md.renderer.rules.image = (tokens, idx) => {
-            const token = tokens[idx]
-            const src = token.attrGet('src')
-            const alt = token.content
-            const title = token.attrGet('title')
-            return `<img src="${src}" alt="${alt}" title="${title || ''}" class="${printStyles.value.img}">`
-        }
-
-        md.renderer.rules.table_open = () => `<table class="${printStyles.value.table}">`
-        md.renderer.rules.th_open = () => `<th class="${printStyles.value.th}">`
-        md.renderer.rules.td_open = () => `<td class="${printStyles.value.td}">`
+        md.renderer.rules.table_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.table);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.tr_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.tr);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.th_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.th);
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.td_open = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            addClassToToken(token, printStyles.value.td);
+            return self.renderToken(tokens, idx, options);
+        };
 
         return md
     }
+
 
     return {
         // Preview (normal) styles
