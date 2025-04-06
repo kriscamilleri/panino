@@ -112,13 +112,13 @@ watch(file, async (newFile) => {
       contentDraft.value = existingDraft
       return
     }
-    
+
     // Check if content is already loaded in docStore
     if (docStore.selectedFileContent) {
       contentDraft.value = docStore.selectedFileContent
       return
     }
-    
+
     // If not, explicitly load the content
     try {
       const content = await contentStore.loadContent(newFile.id)

@@ -1,4 +1,4 @@
-// store/uiStore.js
+// frontend/src/store/uiStore.js
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
@@ -12,6 +12,9 @@ export const useUiStore = defineStore('uiStore', () => {
     const showViewMenu = ref(false)
     const showActionBar = ref(false)
     const showFileMenu = ref(false)
+
+    // Modal visibility (NEW)
+    const showImportModal = ref(false)
 
     // Computed property to check if any menu is open
     const isAnyMenuOpen = computed(() =>
@@ -80,6 +83,15 @@ export const useUiStore = defineStore('uiStore', () => {
         showMetadata.value = !showMetadata.value
     }
 
+    // Modal toggles (NEW)
+    function openImportModal() {
+        showImportModal.value = true
+    }
+
+    function closeImportModal() {
+        showImportModal.value = false
+    }
+
     return {
         // Panel visibility
         showDocuments,
@@ -91,6 +103,9 @@ export const useUiStore = defineStore('uiStore', () => {
         showActionBar,
         showFileMenu,
         isAnyMenuOpen,
+
+        // Modals (NEW)
+        showImportModal,
 
         // Stats and metadata
         showStats,
@@ -106,5 +121,9 @@ export const useUiStore = defineStore('uiStore', () => {
         toggleStats,
         toggleMetadata,
         closeAllMenus,
+
+        // Modal actions (NEW)
+        openImportModal,
+        closeImportModal,
     }
 })
