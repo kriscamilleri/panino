@@ -26,8 +26,10 @@
                         <div class="mt-1">
                             <input id="username" v-model="username" name="username" type="text" required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading" :class="{ 'border-red-300': formErrors.username }" />
-                            <p v-if="formErrors.username" class="mt-1 text-sm text-red-600">
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.username }"
+                                data-testid="signup-username-input" />
+                            <p v-if="formErrors.username" class="mt-1 text-sm text-red-600"
+                                data-testid="signup-username-error">
                                 {{ formErrors.username }}
                             </p>
                         </div>
@@ -41,8 +43,10 @@
                         <div class="mt-1">
                             <input id="password" v-model="password" name="password" type="password" required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading" :class="{ 'border-red-300': formErrors.password }" />
-                            <p v-if="formErrors.password" class="mt-1 text-sm text-red-600">
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.password }"
+                                data-testid="signup-password-input" />
+                            <p v-if="formErrors.password" class="mt-1 text-sm text-red-600"
+                                data-testid="signup-password-error">
                                 {{ formErrors.password }}
                             </p>
                         </div>
@@ -57,8 +61,10 @@
                             <input id="confirmPassword" v-model="confirmPassword" name="confirmPassword" type="password"
                                 required
                                 class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading" :class="{ 'border-red-300': formErrors.confirmPassword }" />
-                            <p v-if="formErrors.confirmPassword" class="mt-1 text-sm text-red-600">
+                                :disabled="loading" :class="{ 'border-red-300': formErrors.confirmPassword }"
+                                data-testid="signup-confirm-password-input" />
+                            <p v-if="formErrors.confirmPassword" class="mt-1 text-sm text-red-600"
+                                data-testid="signup-confirm-password-error">
                                 {{ formErrors.confirmPassword }}
                             </p>
                         </div>
@@ -80,14 +86,15 @@
 
                     <!-- Dedicated Turnstile container -->
                     <div v-if="turnstileSiteKey" class="mb-2">
-                        <div id="turnstile-container" ref="turnstileContainer" 
-                             class="flex justify-center">
+                        <div id="turnstile-container" ref="turnstileContainer" class="flex justify-center"
+                            data-testid="signup-turnstile-container">
                             <!-- The script will insert the challenge here -->
                         </div>
                     </div>
 
                     <!-- Error Message -->
-                    <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm">
+                    <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm"
+                        data-testid="signup-error-message">
                         {{ error }}
                     </div>
 
@@ -95,7 +102,7 @@
                     <div>
                         <button type="submit"
                             class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            :disabled="loading || !isValid">
+                            :disabled="loading || !isValid" data-testid="signup-submit-button">
                             <template v-if="loading">
                                 <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
                                     xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -115,7 +122,8 @@
 
                     <!-- Sign In Link -->
                     <div class="text-sm text-center">
-                        <router-link to="/login" class="font-medium text-gray-600 hover:text-gray-900">
+                        <router-link to="/login" class="font-medium text-gray-600 hover:text-gray-900"
+                            data-testid="signup-login-link">
                             Already have an account? Sign in
                         </router-link>
                     </div>
@@ -177,14 +185,23 @@ async function loadTurnstileScript() {
     // Only load if not already present
     if (window.turnstile) return window.turnstile
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => { // Added reject
         const script = document.createElement('script')
         script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
         script.async = true
         script.defer = true
         script.onload = () => {
             console.log('Turnstile script loaded')
-            resolve(window.turnstile)
+            if (window.turnstile) {
+                resolve(window.turnstile)
+            } else {
+                console.error('Turnstile script loaded but window.turnstile is undefined')
+                reject(new Error('Turnstile script failed to initialize'))
+            }
+        }
+        script.onerror = (err) => { // Added onerror
+            console.error('Failed to load Turnstile script:', err)
+            reject(new Error('Failed to load Turnstile script'))
         }
         document.head.appendChild(script)
     })
@@ -195,76 +212,125 @@ async function renderTurnstileWidget() {
     // Clear the container first
     if (turnstileContainer.value) {
         turnstileContainer.value.innerHTML = ''
+    } else {
+        console.warn('Turnstile container ref not found yet.')
+        return // Cannot render if container isn't ready
     }
 
-    // Make sure turnstile is loaded
-    const turnstile = await loadTurnstileScript()
-    
-    // Wait for DOM to be ready
-    await nextTick()
-    
-    // Remove any previous widget
-    if (turnstileWidgetId) {
-        try {
-            turnstile.remove(turnstileWidgetId)
-        } catch (e) {
-            console.error('Error removing previous widget:', e)
+    try { // Wrap in try/catch for robustness
+        // Make sure turnstile is loaded
+        const turnstile = await loadTurnstileScript()
+        if (!turnstile) {
+            console.error('Turnstile library not available after loading script.')
+            return;
         }
+
+        // Wait for DOM to be ready
+        await nextTick()
+
+        // Remove any previous widget
+        if (turnstileWidgetId) {
+            try {
+                turnstile.remove(turnstileWidgetId)
+                console.log('Removed previous Turnstile widget:', turnstileWidgetId)
+            } catch (e) {
+                console.error('Error removing previous widget:', e)
+            }
+            turnstileWidgetId = null
+        }
+
+        // Render a new widget
+        turnstileWidgetId = turnstile.render('#turnstile-container', {
+            sitekey: turnstileSiteKey,
+            theme: 'auto',
+            callback: (token) => {
+                console.log(`Turnstile challenge success: ${token.substring(0, 10)}...`);
+            },
+            'error-callback': (errorCode) => {
+                console.error(`Turnstile challenge error: ${errorCode}`);
+                error.value = `CAPTCHA error (${errorCode}). Please refresh or try again.`
+            },
+            'expired-callback': () => {
+                console.warn('Turnstile challenge expired.');
+                error.value = 'CAPTCHA challenge expired. Please complete it again.'
+                // Optionally re-render or prompt user
+                renderTurnstileWidget();
+            },
+            'timeout-callback': () => {
+                console.error('Turnstile challenge timed out.');
+                error.value = 'CAPTCHA challenge timed out. Please refresh or try again.'
+                renderTurnstileWidget(); // Try rendering again
+            }
+        })
+
+        console.log('Turnstile widget rendered with ID:', turnstileWidgetId)
+    } catch (err) {
+        console.error('Error rendering Turnstile widget:', err)
+        error.value = 'Could not load CAPTCHA. Please check your connection or try again later.'
     }
-    
-    // Render a new widget
-    turnstileWidgetId = turnstile.render('#turnstile-container', {
-        sitekey: turnstileSiteKey,
-        theme: 'auto'
-    })
-    
-    console.log('Turnstile widget rendered with ID:', turnstileWidgetId)
 }
 
 onMounted(async () => {
     if (turnstileSiteKey) {
-        await renderTurnstileWidget()
+        await nextTick() // Ensure container exists
+        if (turnstileContainer.value) {
+            await renderTurnstileWidget()
+        } else {
+            console.error('Turnstile container ref was null on mount.')
+        }
     }
 })
 
 // Function to get the Turnstile token from the response
 function getTurnstileToken() {
-    // Try to find the turnstile response field (the hidden input added by the widget)
-    const turnstileResponse = document.querySelector('[name="cf-turnstile-response"]')
-    return turnstileResponse ? turnstileResponse.value : null
+    if (!window.turnstile || !turnstileWidgetId) {
+        console.warn('Turnstile not initialized or widget ID missing.')
+        return null
+    }
+    try {
+        return window.turnstile.getResponse(turnstileWidgetId)
+    } catch (e) {
+        console.error('Error getting Turnstile response:', e)
+        return null
+    }
 }
 
 async function handleSubmit() {
     if (!isValid.value) return
 
-    // Get the Turnstile token
-    const token = getTurnstileToken()
-
-    // If Turnstile is enabled but no token is found
-    if (turnstileSiteKey && !token) {
-        error.value = 'Please complete the CAPTCHA verification.'
-        // Try to render the widget in case it's not visible
-        await renderTurnstileWidget()
-        return
+    let token = null
+    // If Turnstile is enabled, try to get the token
+    if (turnstileSiteKey) {
+        token = getTurnstileToken()
+        if (!token) {
+            error.value = 'Please complete the CAPTCHA verification.'
+            // Try to render the widget again in case it failed silently
+            await renderTurnstileWidget()
+            return
+        }
     }
 
     loading.value = true
     error.value = ''
 
     try {
-        // Call the signup method with the token
+        // Call the signup method with the token (even if empty string)
         await authStore.signup(username.value, password.value, token || '')
+        // Automatically log in after successful signup
         await authStore.login(username.value, password.value)
-        router.push('/loading')
+        router.push({ name: 'loading', params: { timestamp: Date.now() } }) // Add timestamp
     } catch (err) {
         console.error('Signup process error:', err)
-        
-        // Completely re-render a new widget
-        loading.value = false
-        await renderTurnstileWidget()
-        
+
+        // Reset Turnstile widget on error
+        if (turnstileSiteKey) {
+            await renderTurnstileWidget()
+        }
+
         if (err.message?.includes('conflict')) {
             error.value = 'Username already exists. Please choose another.'
+        } else if (err.message?.includes('Invalid CAPTCHA')) { // Handle specific CAPTCHA error
+            error.value = 'CAPTCHA verification failed. Please try again.'
         } else {
             error.value = err.message || 'Failed to create account. Please try again.'
         }

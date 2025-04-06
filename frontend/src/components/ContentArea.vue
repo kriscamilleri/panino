@@ -1,15 +1,15 @@
 <template>
-    <div class="flex flex-1 overflow-hidden flex-col md:flex-row">
+    <div class="flex flex-1 overflow-hidden flex-col md:flex-row" data-testid="content-area-container">
         <!-- If a folder is selected and no file, show FolderPreview -->
         <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
-            <div class="flex-1 overflow-hidden">
+            <div class="flex-1 overflow-hidden" data-testid="content-area-folder-preview">
                 <FolderPreview :folderId="docStore.selectedFolderId" class="h-full overflow-y-auto" />
             </div>
         </template>
 
         <!-- Else if no folder and no file => show recent docs -->
         <template v-else-if="!docStore.selectedFolderId && !docStore.selectedFileId">
-            <div class="flex-1 overflow-hidden">
+            <div class="flex-1 overflow-hidden" data-testid="content-area-recent-docs">
                 <FolderPreview folderId="__recent__" class="h-full overflow-y-auto" />
             </div>
         </template>
@@ -26,7 +26,7 @@
                             'h-full': isMobileView && !ui.showPreview,
                             'flex-shrink-0': !isMobileView
                         }" :style="!isMobileView ? { width: editorWidth + 'px' } : {}"
-                            class="w-full overflow-hidden order-2 md:order-1">
+                            class="w-full overflow-hidden order-2 md:order-1" data-testid="content-area-editor-pane">
                             <div class="h-full overflow-y-auto">
                                 <Editor ref="editorRef" />
                             </div>
@@ -35,7 +35,7 @@
                         <!-- Resizer handle between Editor and Preview (desktop only) -->
                         <div v-if="!isMobileView && ui.showPreview"
                             class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 order-1"
-                            @mousedown="startEditorResize($event)"></div>
+                            @mousedown="startEditorResize($event)" data-testid="content-area-editor-resizer"></div>
                     </template>
 
                     <!-- Preview Pane -->
@@ -43,7 +43,7 @@
                         'h-1/2': isMobileView && ui.showEditor,
                         'h-full': isMobileView && !ui.showEditor,
                         'flex-1': !isMobileView
-                    }" class="w-full overflow-hidden order-1 md:order-2">
+                    }" class="w-full overflow-hidden order-1 md:order-2" data-testid="content-area-preview-pane">
                         <div class="h-full overflow-y-auto p-4">
                             <Preview ref="previewRef" />
                         </div>
@@ -130,8 +130,9 @@ function stopResize() {
 function getContentContainer() {
     // This is a hacky approach:
     // If the parent holds a ref to the main content container, you can provide it as a prop.
-    // Or query an element with a known ID/class. 
-    return document.querySelector('.flex.flex-1.overflow-hidden.flex-col.md\\:flex-row')
+    // Or query an element with a known ID/class.
+    // Using data-testid for this is more robust
+    return document.querySelector('[data-testid="content-area-container"]')
 }
 
 onUnmounted(() => {

@@ -1,8 +1,8 @@
 <template>
     <div v-if="file">
-        <div class="mt-2" v-html="renderedHtml"></div>
+        <div class="mt-2" v-html="renderedHtml" data-testid="preview-content"></div>
     </div>
-    <div v-else>
+    <div v-else data-testid="preview-no-file">
         <p class="text-gray-500">No file selected</p>
     </div>
 </template>

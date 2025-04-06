@@ -1,51 +1,54 @@
 <template>
   <div v-if="file" class="h-full flex flex-col">
     <!-- Document Stats -->
-    <div v-if="ui.showStats" class="flex gap-4 text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
+    <div v-if="ui.showStats" class="flex gap-4 text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded"
+      data-testid="editor-stats-container">
       <div class="flex items-center gap-2">
         <span class="font-medium">Words:</span>
-        <span>{{ wordCount }}</span>
+        <span data-testid="editor-stats-words">{{ wordCount }}</span>
       </div>
       <div class="flex items-center gap-2">
         <span class="font-medium">Characters:</span>
-        <span>{{ characterCount }}</span>
+        <span data-testid="editor-stats-characters">{{ characterCount }}</span>
       </div>
       <div class="flex items-center gap-2">
         <span class="font-medium">Lines:</span>
-        <span>{{ lineCount }}</span>
+        <span data-testid="editor-stats-lines">{{ lineCount }}</span>
       </div>
     </div>
 
     <!-- File Metadata -->
-    <div v-if="ui.showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded">
+    <div v-if="ui.showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded"
+      data-testid="editor-metadata-container">
       <div class="flex gap-4">
         <div class="flex items-center gap-2">
           <span class="font-medium">Name:</span>
-          <span>{{ file.name }}</span>
+          <span data-testid="editor-metadata-name">{{ file.name }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Type:</span>
-          <span>{{ file.type }}</span>
+          <span data-testid="editor-metadata-type">{{ file.type }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Hash:</span>
-          <span>{{ file.hash }}</span>
+          <span data-testid="editor-metadata-hash">{{ file.hash }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">TX:</span>
-          <span>{{ file.tx }}</span>
+          <span data-testid="editor-metadata-tx">{{ file.tx }}</span>
         </div>
       </div>
     </div>
 
     <!-- Upload Progress -->
-    <div v-if="isUploading" class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center">
+    <div v-if="isUploading" class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center"
+      data-testid="editor-upload-progress">
       <span class="mr-2">Uploading image...</span>
       <div class="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
     </div>
 
     <!-- Upload Error -->
-    <div v-if="uploadError" class="mb-4 p-2 bg-red-50 text-red-700 rounded">
+    <div v-if="uploadError" class="mb-4 p-2 bg-red-50 text-red-700 rounded" data-testid="editor-upload-error">
       {{ uploadError }}
     </div>
 
@@ -53,11 +56,11 @@
     <div class="flex-1 flex flex-col min-h-0">
       <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput" @paste="handlePaste"
         class="flex-1 border p-4 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
-        placeholder="Start writing..."></textarea>
+        placeholder="Start writing..." data-testid="editor-textarea"></textarea>
     </div>
   </div>
 
-  <div v-else>
+  <div v-else data-testid="editor-no-file">
     <p class="text-gray-500 mt-3 ml-3">No file selected</p>
   </div>
 </template>

@@ -1,8 +1,9 @@
 <!-- /Users/kris/Development/MarkdownNotes/pn-markdown-notes/pn-markdown-notes/frontend/src/components/BaseButton.vue -->
 <template>
-    <!-- 
+    <!--
       We bind all incoming attributes/events (e.g. @click) via useAttrs().
       That means if you do <BaseButton @click="foo">, the click is passed through.
+      Also pass through data-testid if provided.
     -->
     <button :class="computedClasses" v-bind="buttonAttrs">
         <slot />

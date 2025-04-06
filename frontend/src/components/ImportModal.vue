@@ -1,7 +1,7 @@
 # In src/components/ImportModal.vue
 
 <template>
-    <div v-if="show" class="fixed inset-0 flex items-center justify-center z-50">
+    <div v-if="show" class="fixed inset-0 flex items-center justify-center z-50" data-testid="import-modal-container">
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"></div>
 
@@ -11,7 +11,8 @@
             <div class="px-6 py-4 border-b">
                 <div class="flex justify-between items-center">
                     <h3 class="text-xl font-semibold text-gray-800">Import Data</h3>
-                    <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 transition-colors">
+                    <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 transition-colors"
+                        data-testid="import-modal-close-button">
                         <X class="w-5 h-5" />
                     </button>
                 </div>
@@ -25,8 +26,8 @@
                         isDragging
                             ? 'border-gray-800 bg-gray-50'
                             : 'border-gray-300 hover:border-gray-400'
-                    ]" @dragenter.prevent="isDragging = true" @dragleave.prevent="isDragging = false"
-                        @dragover.prevent @drop.prevent="handleDrop">
+                    ]" @dragenter.prevent="isDragging = true" @dragleave.prevent="isDragging = false" @dragover.prevent
+                        @drop.prevent="handleDrop" data-testid="import-modal-dropzone">
 
                         <div v-if="isDragging" class="text-gray-800 font-medium">
                             Drop your file here
@@ -39,9 +40,9 @@
                             <p class="text-sm text-gray-500">or</p>
                             <input type="file" accept=".json" @change="handleFileSelect" class="hidden"
                                 ref="fileInput" />
-                            <button @click="$refs.fileInput.click()" class="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-900 
-                                           text-white text-sm font-medium rounded-md shadow-sm 
-                                           transition-colors">
+                            <button @click="$refs.fileInput.click()" class="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-900
+                                           text-white text-sm font-medium rounded-md shadow-sm
+                                           transition-colors" data-testid="import-modal-choose-file-button">
                                 Choose File
                             </button>
                         </div>
@@ -53,13 +54,14 @@
                     <label class="block text-sm font-medium text-gray-700">
                         Or paste your JSON data here:
                     </label>
-                    <textarea v-model="jsonData" rows="8" placeholder="Paste your JSON data here..." class="w-full px-3 py-2 border border-gray-300 rounded-lg 
-                                     font-mono text-sm resize-none focus:ring-1 focus:ring-blue-500 
-                                     focus:border-blue-500"></textarea>
+                    <textarea v-model="jsonData" rows="8" placeholder="Paste your JSON data here..." class="w-full px-3 py-2 border border-gray-300 rounded-lg
+                                     font-mono text-sm resize-none focus:ring-1 focus:ring-blue-500
+                                     focus:border-blue-500" data-testid="import-modal-json-textarea"></textarea>
                 </div>
 
                 <!-- Error message -->
-                <div v-if="error" class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                <div v-if="error" class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md"
+                    data-testid="import-modal-error">
                     <div class="flex">
                         <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
                         <p class="text-sm text-red-600">{{ error }}</p>
@@ -70,16 +72,16 @@
             <!-- Footer -->
             <div class="px-6 py-4 bg-gray-50 rounded-b-lg border-t">
                 <div class="flex justify-end space-x-3">
-                    <button @click="$emit('close')" class="px-4 py-2 text-sm font-medium text-gray-700 
-                                   bg-white border border-gray-300 rounded-md 
-                                   hover:bg-gray-50 transition-colors">
+                    <button @click="$emit('close')" class="px-4 py-2 text-sm font-medium text-gray-700
+                                   bg-white border border-gray-300 rounded-md
+                                   hover:bg-gray-50 transition-colors" data-testid="import-modal-cancel-button">
                         Cancel
                     </button>
-                    <button @click="importData" :disabled="!jsonData" class="px-4 py-2 text-sm font-medium text-white 
-                                   bg-gray-800 rounded-md hover:bg-gray-900 
+                    <button @click="importData" :disabled="!jsonData" class="px-4 py-2 text-sm font-medium text-white
+                                   bg-gray-800 rounded-md hover:bg-gray-900
                                    disabled:opacity-50 disabled:cursor-not-allowed
-                                   transition-colors focus:outline-none focus:ring-2 
-                                   focus:ring-offset-2 focus:ring-gray-500">
+                                   transition-colors focus:outline-none focus:ring-2
+                                   focus:ring-offset-2 focus:ring-gray-500" data-testid="import-modal-import-button">
                         Import
                     </button>
                 </div>
@@ -155,7 +157,8 @@ async function importData() {
         emit('import-success')
         emit('close')
     } catch (err) {
-        error.value = 'Invalid JSON data: ' + err.message
+        console.error('Import failed:', err) // Log the actual error
+        error.value = 'Import failed: ' + (err.message || 'Invalid JSON data')
     }
 }
 </script>

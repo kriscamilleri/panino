@@ -3,7 +3,8 @@
     <div class="md:hidden border-t bg-gray-50">
         <div class="px-4 py-2 space-y-2">
             <!-- Show user name if authenticated -->
-            <div v-if="authStore.isAuthenticated" class="text-gray-500 py-2 px-2">
+            <div v-if="authStore.isAuthenticated" class="text-gray-500 py-2 px-2"
+                data-testid="mobile-menu-username-display">
                 {{
                     authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase())
                     || 'Guest'
@@ -12,26 +13,28 @@
 
             <!-- Sync Button (only if authenticated and not a guest) -->
             <div v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'" class="px-2">
-                <BaseButton :isActive="syncStore.syncEnabled" @click="handleToggleSync" class="w-full space-x-1">
+                <BaseButton :isActive="syncStore.syncEnabled" @click="handleToggleSync" class="w-full space-x-1"
+                    data-testid="mobile-menu-sync-button">
                     <RefreshCw class="w-4 h-4" />
-                    <span>Sync</span>
+                    <span>Sync {{ syncStore.syncEnabled ? 'On' : 'Off' }}</span> <!-- Clarify state -->
                 </BaseButton>
             </div>
 
             <!-- About link -->
             <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
-                class="flex items-center space-x-2 mx-2">
+                class="flex items-center space-x-2 mx-2" data-testid="mobile-menu-about-link">
                 <Info class="w-4 h-4" title="About" />
                 <span>About</span>
             </a>
 
             <!-- Login/Logout -->
             <div class="py-2">
-                <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin" class="w-full">
+                <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin" class="w-full"
+                    data-testid="mobile-menu-login-button">
                     <LogIn class="w-4 h-4" title="Login" />
                     <span>Login</span>
                 </BaseButton>
-                <BaseButton v-else @click="handleLogout" class="w-full">
+                <BaseButton v-else @click="handleLogout" class="w-full" data-testid="mobile-menu-logout-button">
                     <LogOut class="w-4 h-4" title="Logout" />
                     <span>Logout</span>
                 </BaseButton>
