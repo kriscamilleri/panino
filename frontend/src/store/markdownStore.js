@@ -1,437 +1,292 @@
 // src/store/markdownStore.js
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
+import PouchDB from 'pouchdb-browser'
+import { useAuthStore } from './authStore'
+import { useSyncStore } from './syncStore'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
-    //
-    // 1) Styles for normal (preview) rendering
-    //
+    const authStore = useAuthStore()
+    const syncStore = useSyncStore()
+
+    /* ------------------------------------------------------------------
+     * Helpers for local DB access & debounce
+     * ----------------------------------------------------------------*/
+    function getLocalDB() {
+        if (!authStore.isAuthenticated || authStore.user?.name === 'guest') {
+            return new PouchDB('pn-markdown-notes-guest')
+        }
+        return new PouchDB(`pn-markdown-notes-${authStore.user.name.toLowerCase()}`)
+    }
+
+    function debounce(fn, wait = 500) {
+        let t
+        return (...args) => {
+            clearTimeout(t)
+            t = setTimeout(() => fn(...args), wait)
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * 1) Preview styles
+     * ----------------------------------------------------------------*/
     const styles = ref({
         h1: 'text-3xl font-bold mt-4 mb-2 block',
         h2: 'text-2xl font-semibold mt-3 mb-2 block',
         h3: 'text-xl font-semibold mt-2 mb-1 block',
-        h4: 'text-lg font-semibold mt-2 mb-1 block text-gray-600', // Added h4
-        p: 'mb-2 leading-relaxed', // Class for paragraphs
+        h4: 'text-lg font-semibold mt-2 mb-1 block text-gray-600',
+        p: 'mb-2 leading-relaxed',
         ul: 'list-disc list-inside mb-2',
         ol: 'list-decimal list-inside mb-2',
         li: 'ml-5 mb-1',
-        code: 'bg-gray-100 text-sm px-1 py-0.5 rounded', // Class for inline code
-        pre: 'bg-gray-100 p-2 rounded my-2 overflow-x-auto text-sm', // Class for code blocks (<pre>)
+        code: 'bg-gray-100 text-sm px-1 py-0.5 rounded',
+        pre: 'bg-gray-100 p-2 rounded my-2 overflow-x-auto text-sm',
         blockquote: 'border-l-4 border-gray-300 pl-4 italic my-2',
         hr: 'border-t my-4',
         em: 'italic',
         strong: 'font-bold',
         a: 'text-blue-600 underline',
-        img: 'max-w-full h-auto my-2', // Added margin to images
-        table: 'border-collapse border border-gray-300 my-2 w-full', // Added w-full
-        tr: 'border-t border-gray-200', // Added border for table rows
-        th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold', // Added text-left and font-semibold
-        td: 'border border-gray-300 px-2 py-1',
+        img: 'max-w-full h-auto my-2',
+        table: 'border-collapse border border-gray-300 my-2 w-full',
+        tr: 'border-t border-gray-200',
+        th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold',
+        td: 'border border-gray-300 px-2 py-1'
     })
 
-    //
-    // 2) Styles specifically for printing (completely independent)
-    //
+    /* ------------------------------------------------------------------
+     * 2) Print styles
+     * ----------------------------------------------------------------*/
     const printStyles = ref({
         h1: 'font-bold text-2xl my-2 block',
         h2: 'font-bold text-xl my-2 block',
         h3: 'font-bold text-lg my-1 block',
-        h4: 'font-semibold text-base my-1 block text-gray-700', // Added h4 print style
-        p: 'mb-2 leading-relaxed', // Class for print paragraphs
+        h4: 'font-semibold text-base my-1 block text-gray-700',
+        p: 'mb-2 leading-relaxed',
         ul: 'list-disc mb-2 ml-8',
         ol: 'list-decimal mb-2 ml-8',
         li: 'mb-1',
-        code: 'bg-gray-200 px-1 py-0.5 rounded text-sm font-mono', // Class for print inline code
-        pre: 'bg-gray-200 p-2 rounded my-2 overflow-x-auto text-sm font-mono', // Class for print code blocks
+        code: 'bg-gray-200 px-1 py-0.5 rounded text-sm font-mono',
+        pre: 'bg-gray-200 p-2 rounded my-2 overflow-x-auto text-sm font-mono',
         blockquote: 'border-l-4 border-gray-300 pl-4 italic my-2',
         hr: 'border-t my-4',
         em: 'italic',
         strong: 'font-bold',
-        a: 'underline text-blue-700', // Added color
-        img: 'max-w-full h-auto my-2', // Added margin
-        table: 'border-collapse border border-gray-300 my-2 w-full', // Added w-full
+        a: 'underline text-blue-700',
+        img: 'max-w-full h-auto my-2',
+        table: 'border-collapse border border-gray-300 my-2 w-full',
         tr: 'border-t border-gray-200',
         th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold',
         td: 'border border-gray-300 px-2 py-1',
 
-        // Print-specific header/footer
         printHeaderHtml: '',
-        printFooterHtml: '',
+        printFooterHtml: ''
     })
 
-    // Update normal (preview) style
+    /* ------------------------------------------------------------------
+     * 3) Persistence: load & save styles
+     * ----------------------------------------------------------------*/
+    let stylesLoaded = false
+
+    async function loadStylesFromDB() {
+        if (!syncStore.isInitialized) {
+            // wait until DB is ready (LoadingPage ensures this normally)
+            await syncStore.initializeDB()
+        }
+        try {
+            const db = getLocalDB()
+            const doc = await db.get('markdownStylesDoc')
+            if (doc.previewStyles) {
+                Object.assign(styles.value, doc.previewStyles)
+            }
+            if (doc.printStyles) {
+                Object.assign(printStyles.value, doc.printStyles)
+            }
+            stylesLoaded = true
+        } catch (err) {
+            if (err.status === 404) {
+                stylesLoaded = true // no saved doc, keep defaults
+            } else {
+                console.error('[markdownStore] Failed to load styles', err)
+            }
+        }
+    }
+
+    const saveStylesDebounced = debounce(saveStylesToDB, 500)
+
+    async function saveStylesToDB() {
+        if (!stylesLoaded) return
+        try {
+            const db = getLocalDB()
+            let doc
+            try {
+                doc = await db.get('markdownStylesDoc')
+            } catch (err) {
+                if (err.status === 404) {
+                    doc = { _id: 'markdownStylesDoc' }
+                } else {
+                    throw err
+                }
+            }
+            doc.previewStyles = { ...styles.value }
+            doc.printStyles = { ...printStyles.value }
+            doc.lastModified = new Date().toISOString()
+            await db.put(doc)
+        } catch (err) {
+            console.error('[markdownStore] Failed to save styles', err)
+        }
+    }
+
+    // Kick‑off load once syncStore is ready
+    if (syncStore.isInitialized) {
+        loadStylesFromDB()
+    } else {
+        watch(() => syncStore.isInitialized, (v) => {
+            if (v) loadStylesFromDB()
+        })
+    }
+
+    /* ------------------------------------------------------------------
+     * 4) Mutators that also persist
+     * ----------------------------------------------------------------*/
     function updateStyle(key, newVal) {
         if (styles.value[key] !== undefined) {
             styles.value[key] = newVal
+            saveStylesDebounced()
         }
     }
 
-    // Update print style
     function updatePrintStyle(key, newVal) {
         if (printStyles.value[key] !== undefined) {
             printStyles.value[key] = newVal
+            saveStylesDebounced()
         }
     }
 
-    // --- Helper Function to add classes via token attributes ---
+    /* ------------------------------------------------------------------
+     * 5) Markdown‑it helper & rule overrides
+     * ----------------------------------------------------------------*/
     function addClassToToken(token, className) {
-        if (className) {
-            const existingClass = token.attrGet('class');
-            if (existingClass) {
-                // Check if the class is already present to avoid duplicates
-                const classes = existingClass.split(' ');
-                if (!classes.includes(className)) {
-                    token.attrJoin('class', className);
-                }
-            } else {
-                token.attrPush(['class', className]);
-            }
+        if (!className) return
+        const existing = token.attrGet('class')
+        if (existing) {
+            const parts = existing.split(' ')
+            if (!parts.includes(className)) token.attrJoin('class', className)
+        } else {
+            token.attrPush(['class', className])
         }
     }
-    // --- End Helper ---
 
+    function configureRenderer(md, styleMap) {
+        // Headings
+        md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
+            addClassToToken(tokens[idx], styleMap[tokens[idx].tag])
+            return self.renderToken(tokens, idx, opts)
+        }
 
-    // MarkdownIt for normal (preview) rendering
-    function getMarkdownIt() {
-        const md = new MarkdownIt({
-            html: true,      // Allow HTML tags in source
-            linkify: true,   // Autoconvert URL-like text to links
-            typographer: true,// Enable smartquotes, dashes, etc.
-            breaks: true     // Convert '\n' in paragraphs into <br> (GFM style)
-        }).use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true }); // Ensure task lists are fully enabled
-
-
-        // --- Rule Overrides for Adding Classes ---
-
-        // Headings: Add classes directly to heading_open token
-        md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            const className = styles.value[token.tag]; // Get class for h1, h2, etc.
-            if (className) {
-                token.attrJoin('class', className);
-            }
-            return self.renderToken(tokens, idx, options); // Use default renderer
-        };
-
-        // Paragraphs: Modify token attributes instead of overriding renderer
-        // This ensures default paragraph logic (like handling double newlines) is preserved.
-        const defaultParagraphOpen = md.renderer.rules.paragraph_open || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.p);
-            return defaultParagraphOpen(tokens, idx, options, env, self);
-        };
+        // Paragraphs
+        const defPara = md.renderer.rules.paragraph_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.paragraph_open = (tokens, idx, opts, env, self) => {
+            addClassToToken(tokens[idx], styleMap.p)
+            return defPara(tokens, idx, opts, env, self)
+        }
 
         // Lists
-        md.renderer.rules.bullet_list_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.ul);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.ordered_list_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.ol);
-            return self.renderToken(tokens, idx, options);
-        };
-        // List Items (handles task list rendering correctly now)
-        const defaultListItemOpen = md.renderer.rules.list_item_open || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.list_item_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.li);
-            // Let markdown-it-task-lists handle checkbox rendering by calling default
-            return defaultListItemOpen(tokens, idx, options, env, self);
-        };
+        md.renderer.rules.bullet_list_open = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.ul); return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.ordered_list_open = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.ol); return s.renderToken(t, i, o)
+        }
+        const defLi = md.renderer.rules.list_item_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.list_item_open = (tokens, idx, opts, env, self) => {
+            addClassToToken(tokens[idx], styleMap.li); return defLi(tokens, idx, opts, env, self)
+        }
 
+        // Inline code
+        const defCodeInline = md.renderer.rules.code_inline || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.code_inline = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.code); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeInline(t, i, o, e, s)
+        }
 
-        // Inline Code
-        const defaultCodeInline = md.renderer.rules.code_inline || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.code_inline = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.code);
-            // Escape content to prevent XSS if needed (though default renderer usually does)
-            token.content = md.utils.escapeHtml(token.content);
-            return defaultCodeInline(tokens, idx, options, env, self);
-        };
-
-        // Fenced Code Blocks (<pre><code>)
-        const defaultFence = md.renderer.rules.fence || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            // The default fence renderer wraps content in <pre><code>...</code></pre>
-            // We want to add the class to the <pre> tag.
-            // Markdown-it adds attributes to the outer token which becomes the <pre> tag.
-            addClassToToken(token, styles.value.pre);
-            // Ensure content is escaped
-            token.content = md.utils.escapeHtml(token.content);
-            return defaultFence(tokens, idx, options, env, self);
-        };
-        // Also handle indented code blocks
-        const defaultCodeBlock = md.renderer.rules.code_block || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.pre); // Use the same style as fenced blocks
-            token.content = md.utils.escapeHtml(token.content);
-            return defaultCodeBlock(tokens, idx, options, env, self);
-        };
+        // Fenced/indented code blocks
+        const defFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.fence = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defFence(t, i, o, e, s)
+        }
+        const defCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.code_block = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeBlock(t, i, o, e, s)
+        }
 
         // Blockquote
-        md.renderer.rules.blockquote_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.blockquote);
-            return self.renderToken(tokens, idx, options);
-        };
+        md.renderer.rules.blockquote_open = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.blockquote); return s.renderToken(t, i, o)
+        }
 
-        // Horizontal Rule
-        md.renderer.rules.hr = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.hr);
-            return self.renderToken(tokens, idx, options);
-        };
+        // HR
+        md.renderer.rules.hr = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.hr); return s.renderToken(t, i, o)
+        }
 
-        // Emphasis (Italic)
-        md.renderer.rules.em_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.em);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        // Strong (Bold)
-        md.renderer.rules.strong_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.strong);
-            return self.renderToken(tokens, idx, options);
-        };
+        // Em / strong
+        md.renderer.rules.em_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.em); return s.renderToken(t, i, o) }
+        md.renderer.rules.strong_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.strong); return s.renderToken(t, i, o) }
 
         // Links
-        md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.a);
-            // Add target="_blank" and rel="noopener" for external links (optional but good practice)
-            // Simple check: does it start with http or //?
-            const href = token.attrGet('href');
+        md.renderer.rules.link_open = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.a)
+            const href = t[i].attrGet('href')
             if (href && (href.startsWith('http') || href.startsWith('//'))) {
-                token.attrSet('target', '_blank');
-                token.attrSet('rel', 'noopener noreferrer');
+                t[i].attrSet('target', '_blank'); t[i].attrSet('rel', 'noopener noreferrer')
             }
-            // Ensure internal links (#anchor) don't get target=_blank
-            else if (href && href.startsWith('#')) {
-                token.attrSet('target', '_self'); // Explicitly set to self if needed
-                // Remove rel if it was somehow added
-                const relIndex = token.attrIndex('rel');
-                if (relIndex !== -1) {
-                    token.attrs.splice(relIndex, 1);
-                }
-            }
-            return self.renderToken(tokens, idx, options);
-        };
+            return s.renderToken(t, i, o)
+        }
 
         // Images
-        md.renderer.rules.image = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.img);
-            // Set loading="lazy" for performance (optional)
-            token.attrSet('loading', 'lazy');
-            return self.renderToken(tokens, idx, options);
-        };
+        md.renderer.rules.image = (t, i, o, e, s) => {
+            addClassToToken(t[i], styleMap.img); t[i].attrSet('loading', 'lazy'); return s.renderToken(t, i, o)
+        }
 
         // Tables
-        md.renderer.rules.table_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.table);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.tr_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.tr);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.th_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.th);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.td_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, styles.value.td);
-            return self.renderToken(tokens, idx, options);
-        };
+        md.renderer.rules.table_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.table); return s.renderToken(t, i, o) }
+        md.renderer.rules.tr_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.tr); return s.renderToken(t, i, o) }
+        md.renderer.rules.th_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.th); return s.renderToken(t, i, o) }
+        md.renderer.rules.td_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.td); return s.renderToken(t, i, o) }
+    }
 
-        // --- End Rule Overrides ---
+    function baseMd() {
+        return new MarkdownIt({ html: true, linkify: true, typographer: true, breaks: true })
+            .use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true })
+    }
 
+    function getMarkdownIt() {
+        const md = baseMd()
+        configureRenderer(md, styles.value)
         return md
     }
 
-    // MarkdownIt for print rendering (Apply similar logic)
     function getPrintMarkdownIt() {
-        const md = new MarkdownIt({
-            html: true,
-            linkify: true,
-            typographer: true,
-            breaks: true // Keep breaks consistent if desired for print
-        }).use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true }); // Task lists for print too
-
-        // Apply print styles using the same token modification approach
-
-        md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value[token.tag]);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        const defaultPrintParagraphOpen = md.renderer.rules.paragraph_open || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.paragraph_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.p);
-            return defaultPrintParagraphOpen(tokens, idx, options, env, self);
-        };
-
-
-        md.renderer.rules.bullet_list_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.ul);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.ordered_list_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.ol);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        const defaultPrintListItemOpen = md.renderer.rules.list_item_open || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.list_item_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.li);
-            return defaultPrintListItemOpen(tokens, idx, options, env, self);
-        };
-
-        const defaultPrintCodeInline = md.renderer.rules.code_inline || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.code_inline = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.code);
-            token.content = md.utils.escapeHtml(token.content);
-            return defaultPrintCodeInline(tokens, idx, options, env, self);
-        };
-
-        const defaultPrintFence = md.renderer.rules.fence || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.pre);
-            token.content = md.utils.escapeHtml(token.content);
-            return defaultPrintFence(tokens, idx, options, env, self);
-        };
-        const defaultPrintCodeBlock = md.renderer.rules.code_block || function (tokens, idx, options, env, self) {
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.pre);
-            token.content = md.utils.escapeHtml(token.content);
-            return defaultPrintCodeBlock(tokens, idx, options, env, self);
-        };
-
-        md.renderer.rules.blockquote_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.blockquote);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        md.renderer.rules.hr = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.hr);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        md.renderer.rules.em_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.em);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        md.renderer.rules.strong_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.strong);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.a);
-            // Don't force target=_blank for print usually
-            const href = token.attrGet('href');
-            if (href && (href.startsWith('http') || href.startsWith('//'))) {
-                token.attrSet('target', '_blank'); // Keep for consistency if clicked from a preview maybe?
-                token.attrSet('rel', 'noopener noreferrer');
-            }
-            else if (href && href.startsWith('#')) {
-                token.attrSet('target', '_self');
-                const relIndex = token.attrIndex('rel');
-                if (relIndex !== -1) {
-                    token.attrs.splice(relIndex, 1);
-                }
-            }
-            return self.renderToken(tokens, idx, options);
-        };
-
-        md.renderer.rules.image = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.img);
-            return self.renderToken(tokens, idx, options);
-        };
-
-        md.renderer.rules.table_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.table);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.tr_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.tr);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.th_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.th);
-            return self.renderToken(tokens, idx, options);
-        };
-        md.renderer.rules.td_open = (tokens, idx, options, env, self) => {
-            const token = tokens[idx];
-            addClassToToken(token, printStyles.value.td);
-            return self.renderToken(tokens, idx, options);
-        };
-
+        const md = baseMd()
+        configureRenderer(md, printStyles.value)
         return md
     }
 
-
+    /* ------------------------------------------------------------------
+     * Expose store API
+     * ----------------------------------------------------------------*/
     return {
-        // Preview (normal) styles
+        // Reactive maps
         styles,
-        updateStyle,
-        getMarkdownIt,
-
-        // Print styles
         printStyles,
+
+        // Mutators
+        updateStyle,
         updatePrintStyle,
-        getPrintMarkdownIt,
+
+        // Renderers
+        getMarkdownIt,
+        getPrintMarkdownIt
     }
 })
