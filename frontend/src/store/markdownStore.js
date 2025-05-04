@@ -11,27 +11,22 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
     const authStore = useAuthStore()
     const syncStore = useSyncStore()
 
-    /* ------------------------------------------------------------------
-     * Helpers for local DB access & debounce
-     * ----------------------------------------------------------------*/
+    /* ───────────────────────── helpers ───────────────────────── */
     function getLocalDB() {
         if (!authStore.isAuthenticated || authStore.user?.name === 'guest') {
             return new PouchDB('pn-markdown-notes-guest')
         }
         return new PouchDB(`pn-markdown-notes-${authStore.user.name.toLowerCase()}`)
     }
-
     function debounce(fn, wait = 500) {
         let t
-        return (...args) => {
+        return (...a) => {
             clearTimeout(t)
-            t = setTimeout(() => fn(...args), wait)
+            t = setTimeout(() => fn(...a), wait)
         }
     }
 
-    /* ------------------------------------------------------------------
-     * 1) Preview styles
-     * ----------------------------------------------------------------*/
+    /* ───────────────────────── preview styles ───────────────────────── */
     const styles = ref({
         h1: 'text-3xl font-bold mt-4 mb-2 block',
         h2: 'text-2xl font-semibold mt-3 mb-2 block',
@@ -55,9 +50,7 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         td: 'border border-gray-300 px-2 py-1'
     })
 
-    /* ------------------------------------------------------------------
-     * 2) Print styles
-     * ----------------------------------------------------------------*/
+    /* ───────────────────────── print styles ───────────────────────── */
     const printStyles = ref({
         h1: 'font-bold text-2xl my-2 block',
         h2: 'font-bold text-xl my-2 block',
@@ -80,212 +73,146 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold',
         td: 'border border-gray-300 px-2 py-1',
 
-        printHeaderHtml: '',
-        printFooterHtml: ''
+        /* new paged-media margin-box settings */
+        pageHeaderLeftType: 'text',   // 'text' | 'image'
+        pageHeaderLeftContent: '',
+        pageHeaderRightType: 'text',
+        pageHeaderRightContent: '',
+        pageFooterLeftType: 'text',
+        pageFooterLeftContent: '',
+        pageFooterRightType: 'text',
+        pageFooterRightContent: ''
     })
 
-    /* ------------------------------------------------------------------
-     * 3) Persistence: load & save styles
-     * ----------------------------------------------------------------*/
-    let stylesLoaded = false
-
-    async function loadStylesFromDB() {
-        if (!syncStore.isInitialized) {
-            // wait until DB is ready (LoadingPage ensures this normally)
-            await syncStore.initializeDB()
-        }
+    /* ───────────────────────── persistence ───────────────────────── */
+    let loaded = false
+    async function loadStyles() {
+        if (!syncStore.isInitialized) await syncStore.initializeDB()
         try {
             const db = getLocalDB()
             const doc = await db.get('markdownStylesDoc')
-            if (doc.previewStyles) {
-                Object.assign(styles.value, doc.previewStyles)
-            }
-            if (doc.printStyles) {
-                Object.assign(printStyles.value, doc.printStyles)
-            }
-            stylesLoaded = true
-        } catch (err) {
-            if (err.status === 404) {
-                stylesLoaded = true // no saved doc, keep defaults
-            } else {
-                console.error('[markdownStore] Failed to load styles', err)
-            }
+            doc.previewStyles && Object.assign(styles.value, doc.previewStyles)
+            doc.printStyles && Object.assign(printStyles.value, doc.printStyles)
+        } catch (e) {
+            if (e.status !== 404) console.error('[markdownStore] load error', e)
+        } finally {
+            loaded = true
         }
     }
-
-    const saveStylesDebounced = debounce(saveStylesToDB, 500)
-
-    async function saveStylesToDB() {
-        if (!stylesLoaded) return
+    const saveDebounced = debounce(saveStyles, 500)
+    async function saveStyles() {
+        if (!loaded) return
         try {
             const db = getLocalDB()
             let doc
-            try {
-                doc = await db.get('markdownStylesDoc')
-            } catch (err) {
-                if (err.status === 404) {
-                    doc = { _id: 'markdownStylesDoc' }
-                } else {
-                    throw err
-                }
-            }
+            try { doc = await db.get('markdownStylesDoc') }
+            catch (e) { doc = { _id: 'markdownStylesDoc' } }
             doc.previewStyles = { ...styles.value }
             doc.printStyles = { ...printStyles.value }
             doc.lastModified = new Date().toISOString()
             await db.put(doc)
-        } catch (err) {
-            console.error('[markdownStore] Failed to save styles', err)
+        } catch (e) {
+            console.error('[markdownStore] save error', e)
         }
     }
 
-    // Kick‑off load once syncStore is ready
-    if (syncStore.isInitialized) {
-        loadStylesFromDB()
-    } else {
-        watch(() => syncStore.isInitialized, (v) => {
-            if (v) loadStylesFromDB()
-        })
-    }
+    if (syncStore.isInitialized) loadStyles()
+    else watch(() => syncStore.isInitialized, v => v && loadStyles())
 
-    /* ------------------------------------------------------------------
-     * 4) Mutators that also persist
-     * ----------------------------------------------------------------*/
-    function updateStyle(key, newVal) {
-        if (styles.value[key] !== undefined) {
-            styles.value[key] = newVal
-            saveStylesDebounced()
+    /* ───────────────────────── mutators ───────────────────────── */
+    function updateStyle(key, val) {
+        if (key in styles.value) {
+            styles.value[key] = val
+            saveDebounced()
+        }
+    }
+    function updatePrintStyle(key, val) {
+        if (key in printStyles.value) {
+            printStyles.value[key] = val
+            saveDebounced()
         }
     }
 
-    function updatePrintStyle(key, newVal) {
-        if (printStyles.value[key] !== undefined) {
-            printStyles.value[key] = newVal
-            saveStylesDebounced()
-        }
+    /* ───────────────────────── markdown-it renderer helpers ───────────────────────── */
+    function addClass(tok, cls) {
+        if (!cls) return
+        const existing = tok.attrGet('class')
+        existing ? tok.attrJoin('class', cls) : tok.attrPush(['class', cls])
     }
-
-    /* ------------------------------------------------------------------
-     * 5) Markdown‑it helper & rule overrides
-     * ----------------------------------------------------------------*/
-    function addClassToToken(token, className) {
-        if (!className) return
-        const existing = token.attrGet('class')
-        if (existing) {
-            const parts = existing.split(' ')
-            if (!parts.includes(className)) token.attrJoin('class', className)
-        } else {
-            token.attrPush(['class', className])
+    function configureRenderer(md, map) {
+        /* headings */
+        md.renderer.rules.heading_open = (t, i, o, e, s) => {
+            addClass(t[i], map[t[i].tag]); return s.renderToken(t, i, o)
         }
-    }
-
-    function configureRenderer(md, styleMap) {
-        // Headings
-        md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
-            addClassToToken(tokens[idx], styleMap[tokens[idx].tag])
-            return self.renderToken(tokens, idx, opts)
-        }
-
-        // Paragraphs
+        /* paragraphs */
         const defPara = md.renderer.rules.paragraph_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
-        md.renderer.rules.paragraph_open = (tokens, idx, opts, env, self) => {
-            addClassToToken(tokens[idx], styleMap.p)
-            return defPara(tokens, idx, opts, env, self)
+        md.renderer.rules.paragraph_open = (t, i, o, e, s) => {
+            addClass(t[i], map.p); return defPara(t, i, o, e, s)
         }
-
-        // Lists
-        md.renderer.rules.bullet_list_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.ul); return s.renderToken(t, i, o)
-        }
-        md.renderer.rules.ordered_list_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.ol); return s.renderToken(t, i, o)
-        }
+        /* bullet / ordered list */
+        md.renderer.rules.bullet_list_open = (t, i, o, e, s) => { addClass(t[i], map.ul); return s.renderToken(t, i, o) }
+        md.renderer.rules.ordered_list_open = (t, i, o, e, s) => { addClass(t[i], map.ol); return s.renderToken(t, i, o) }
         const defLi = md.renderer.rules.list_item_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
-        md.renderer.rules.list_item_open = (tokens, idx, opts, env, self) => {
-            addClassToToken(tokens[idx], styleMap.li); return defLi(tokens, idx, opts, env, self)
+        md.renderer.rules.list_item_open = (t, i, o, e, s) => {
+            addClass(t[i], map.li); return defLi(t, i, o, e, s)
         }
-
-        // Inline code
+        /* inline code */
         const defCodeInline = md.renderer.rules.code_inline || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.code_inline = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.code); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeInline(t, i, o, e, s)
+            addClass(t[i], map.code); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeInline(t, i, o, e, s)
         }
-
-        // Fenced/indented code blocks
+        /* fenced / indented code */
         const defFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.fence = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defFence(t, i, o, e, s)
+            addClass(t[i], map.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defFence(t, i, o, e, s)
         }
         const defCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.code_block = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeBlock(t, i, o, e, s)
+            addClass(t[i], map.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeBlock(t, i, o, e, s)
         }
-
-        // Blockquote
-        md.renderer.rules.blockquote_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.blockquote); return s.renderToken(t, i, o)
-        }
-
-        // HR
-        md.renderer.rules.hr = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.hr); return s.renderToken(t, i, o)
-        }
-
-        // Em / strong
-        md.renderer.rules.em_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.em); return s.renderToken(t, i, o) }
-        md.renderer.rules.strong_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.strong); return s.renderToken(t, i, o) }
-
-        // Links
+        /* blockquote */
+        md.renderer.rules.blockquote_open = (t, i, o, e, s) => { addClass(t[i], map.blockquote); return s.renderToken(t, i, o) }
+        /* hr */
+        md.renderer.rules.hr = (t, i, o, e, s) => { addClass(t[i], map.hr); return s.renderToken(t, i, o) }
+        /* em & strong */
+        md.renderer.rules.em_open = (t, i, o, e, s) => { addClass(t[i], map.em); return s.renderToken(t, i, o) }
+        md.renderer.rules.strong_open = (t, i, o, e, s) => { addClass(t[i], map.strong); return s.renderToken(t, i, o) }
+        /* links */
         md.renderer.rules.link_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.a)
+            addClass(t[i], map.a)
             const href = t[i].attrGet('href')
             if (href && (href.startsWith('http') || href.startsWith('//'))) {
                 t[i].attrSet('target', '_blank'); t[i].attrSet('rel', 'noopener noreferrer')
             }
             return s.renderToken(t, i, o)
         }
-
-        // Images
+        /* images */
         md.renderer.rules.image = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.img); t[i].attrSet('loading', 'lazy'); return s.renderToken(t, i, o)
+            addClass(t[i], map.img); t[i].attrSet('loading', 'lazy'); return s.renderToken(t, i, o)
         }
-
-        // Tables
-        md.renderer.rules.table_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.table); return s.renderToken(t, i, o) }
-        md.renderer.rules.tr_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.tr); return s.renderToken(t, i, o) }
-        md.renderer.rules.th_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.th); return s.renderToken(t, i, o) }
-        md.renderer.rules.td_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.td); return s.renderToken(t, i, o) }
+        /* tables */
+        md.renderer.rules.table_open = (t, i, o, e, s) => { addClass(t[i], map.table); return s.renderToken(t, i, o) }
+        md.renderer.rules.tr_open = (t, i, o, e, s) => { addClass(t[i], map.tr); return s.renderToken(t, i, o) }
+        md.renderer.rules.th_open = (t, i, o, e, s) => { addClass(t[i], map.th); return s.renderToken(t, i, o) }
+        md.renderer.rules.td_open = (t, i, o, e, s) => { addClass(t[i], map.td); return s.renderToken(t, i, o) }
     }
-
     function baseMd() {
         return new MarkdownIt({ html: true, linkify: true, typographer: true, breaks: true })
             .use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true })
     }
-
     function getMarkdownIt() {
-        const md = baseMd()
-        configureRenderer(md, styles.value)
-        return md
+        const md = baseMd(); configureRenderer(md, styles.value); return md
     }
-
     function getPrintMarkdownIt() {
-        const md = baseMd()
-        configureRenderer(md, printStyles.value)
-        return md
+        const md = baseMd(); configureRenderer(md, printStyles.value); return md
     }
 
-    /* ------------------------------------------------------------------
-     * Expose store API
-     * ----------------------------------------------------------------*/
+    /* ───────────────────────── exports ───────────────────────── */
     return {
-        // Reactive maps
         styles,
         printStyles,
-
-        // Mutators
         updateStyle,
         updatePrintStyle,
-
-        // Renderers
         getMarkdownIt,
         getPrintMarkdownIt
     }
