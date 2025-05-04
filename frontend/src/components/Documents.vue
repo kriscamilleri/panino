@@ -1,30 +1,29 @@
 <template>
-    <div class="h-full flex flex-col">
-        <!-- Header with action buttons -->
+    <!-- root element also acts as drop-zone to move items to root -->
+    <div class="h-full flex flex-col" @dragover.prevent @drop="handleRootDrop">
+
+        <!--──────────────────────── Header ────────────────────────-->
         <div class="flex justify-between items-center mb-4">
             <h2 class="font-bold text-lg cursor-pointer" @click="handleDocumentsClick" data-testid="documents-header">
                 Documents
             </h2>
             <div class="flex space-x-2">
-                <!-- Search Toggle -->
                 <BaseButton :isActive="showSearch" @click="toggleSearch" title="Toggle Search"
                     data-testid="documents-search-toggle">
                     <Search class="w-4 h-4" />
                 </BaseButton>
 
-                <!-- New File -->
                 <BaseButton @click="showCreateFileModal" title="New File" data-testid="documents-new-file-button">
                     <FilePlus class="w-4 h-4" />
                 </BaseButton>
 
-                <!-- New Folder -->
                 <BaseButton @click="showCreateFolderModal" title="New Folder" data-testid="documents-new-folder-button">
                     <FolderPlus class="w-4 h-4" />
                 </BaseButton>
             </div>
         </div>
 
-        <!-- Collapsible Search section -->
+        <!--──────────────────────── Search bar ────────────────────────-->
         <div v-if="showSearch" class="mb-4 overflow-hidden transition-all duration-200"
             :class="{ 'opacity-100': showSearch, 'opacity-0': !showSearch }">
             <div class="relative">
@@ -40,7 +39,7 @@
             </div>
         </div>
 
-        <!-- File Tree -->
+        <!--──────────────────────── File tree ────────────────────────-->
         <div class="flex-1 overflow-y-auto">
             <div v-if="searchQuery" data-testid="documents-tree-search">
                 <div v-if="filteredStructure.length > 0">
@@ -64,7 +63,7 @@
             </div>
         </div>
 
-        <!-- Create Modal -->
+        <!--──────────────────────── Create modal ────────────────────────-->
         <div v-if="showCreateModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
             data-testid="documents-create-modal">
             <div class="bg-white p-4 rounded-lg shadow-lg w-96">
@@ -90,133 +89,79 @@
 </template>
 
 <script setup>
-import { computed, ref, nextTick } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { useDocStore } from '@/store/docStore'
+import { useStructureStore } from '@/store/structureStore'
 import TreeItem from './TreeItem.vue'
 import BaseButton from './BaseButton.vue'
-
-import {
-    Search,
-    X,
-    FilePlus,
-    FolderPlus
-} from 'lucide-vue-next'
+import { Search, X, FilePlus, FolderPlus } from 'lucide-vue-next'
 
 const docStore = useDocStore()
-const rootItems = computed(() => docStore.rootItems)
+const structureStore = useStructureStore()
 
+/*───────────────────────────── search / ui refs ─────────────────────────────*/
 const searchQuery = ref('')
 const showSearch = ref(false)
 const searchInput = ref(null)
 
 function toggleSearch() {
     showSearch.value = !showSearch.value
-    if (showSearch.value) {
-        nextTick(() => {
-            searchInput.value?.focus()
-        })
-    } else {
-        clearSearch()
-    }
+    showSearch.value && nextTick(() => searchInput.value?.focus())
+    !showSearch.value && clearSearch()
 }
 
-function clearSearch() {
-    searchQuery.value = ''
-}
+function clearSearch() { searchQuery.value = '' }
 
-function getAllFilesInFolder(folder) {
-    const result = []
-    const children = docStore.getChildren(folder.id)
-    children.forEach(child => {
-        if (child.type === 'file') {
-            result.push(child)
-        } else if (child.type === 'folder') {
-            result.push(...getAllFilesInFolder(child))
-        }
-    })
-    return result
-}
+/*───────────────────────────── structure computed ───────────────────────────*/
+const rootItems = computed(() => docStore.rootItems)
 
-function getImmediateFiles(folder) {
-    return docStore.getChildren(folder.id).filter(child => child.type === 'file')
+/*───────────────────────────── filtering helpers
+  (unchanged from original file) ───────────────────────────*/
+function matchesSearch(text) { return text.toLowerCase().includes(searchQuery.value.toLowerCase()) }
+function getAllFilesInFolder(f) {
+    const res = []; docStore.getChildren(f.id).forEach(c => { c.type === 'file' ? res.push(c) : res.push(...getAllFilesInFolder(c)) }); return res
 }
-
-function matchesSearch(text) {
-    return text.toLowerCase().includes(searchQuery.value.toLowerCase())
-}
-
-function getMatchingFilesForFolder(folder) {
-    if (!searchQuery.value || !folder) return []
-    if (matchesSearch(folder.name)) {
-        return getImmediateFiles(folder)
-    }
-    return getAllFilesInFolder(folder).filter(file => matchesSearch(file.name))
-}
-
-function folderMatchesSearch(folder) {
-    if (matchesSearch(folder.name)) return true
-    const matchingFiles = getAllFilesInFolder(folder).filter(file => matchesSearch(file.name))
-    if (matchingFiles.length > 0) return true
-    const children = docStore.getChildren(folder.id)
-    const subfolders = children.filter(child => child.type === 'folder')
-    return subfolders.some(subfolder => folderMatchesSearch(subfolder))
-}
-
-const filteredStructure = computed(() => {
+function getImmediateFiles(f) { return docStore.getChildren(f.id).filter(c => c.type === 'file') }
+function getMatchingFilesForFolder(f) {
     if (!searchQuery.value) return []
-    return rootItems.value.reduce((acc, item) => {
-        if (item.type === 'folder') {
-            if (folderMatchesSearch(item)) {
-                acc.push(item)
-            }
-        } else if (item.type === 'file' && matchesSearch(item.name)) {
-            acc.push(item)
-        }
+    if (matchesSearch(f.name)) return getImmediateFiles(f)
+    return getAllFilesInFolder(f).filter(fi => matchesSearch(fi.name))
+}
+function folderMatchesSearch(f) {
+    if (matchesSearch(f.name)) return true
+    if (getAllFilesInFolder(f).some(fi => matchesSearch(fi.name))) return true
+    return docStore.getChildren(f.id).filter(c => c.type === 'folder').some(sf => folderMatchesSearch(sf))
+}
+const filteredStructure = computed(() => !searchQuery.value ? [] :
+    rootItems.value.reduce((acc, i) => {
+        if (i.type === 'folder') { if (folderMatchesSearch(i)) acc.push(i) }
+        else if (matchesSearch(i.name)) acc.push(i)
         return acc
     }, [])
-})
+)
 
-// Create modal
+/*───────────────────────────── create-modal helpers (unchanged) ─────────────*/
 const showCreateModal = ref(false)
 const createType = ref('')
 const newItemName = ref('')
-
-function showCreateFileModal() {
-    createType.value = 'File'
-    showCreateModal.value = true
-    nextTick(() => {
-        const inputEl = document.querySelector('[data-testid="documents-create-modal-input"]');
-        if (inputEl) inputEl.focus();
-    });
-}
-
-function showCreateFolderModal() {
-    createType.value = 'Folder'
-    showCreateModal.value = true
-    nextTick(() => {
-        const inputEl = document.querySelector('[data-testid="documents-create-modal-input"]');
-        if (inputEl) inputEl.focus();
-    });
-}
-
+function showCreateFileModal() { createType.value = 'File'; showCreateModal.value = true; nextTick(focusModalInput) }
+function showCreateFolderModal() { createType.value = 'Folder'; showCreateModal.value = true; nextTick(focusModalInput) }
+function focusModalInput() { document.querySelector('[data-testid="documents-create-modal-input"]')?.focus() }
 function confirmCreate() {
-    if (newItemName.value.trim()) {
-        if (createType.value === 'File') {
-            docStore.createFile(newItemName.value)
-        } else {
-            docStore.createFolder(newItemName.value)
-        }
-        cancelCreate()
-    }
+    if (!newItemName.value.trim()) return
+    createType.value === 'File'
+        ? docStore.createFile(newItemName.value)
+        : docStore.createFolder(newItemName.value)
+    cancelCreate()
 }
+function cancelCreate() { showCreateModal.value = false; newItemName.value = ''; createType.value = '' }
 
-function cancelCreate() {
-    showCreateModal.value = false
-    newItemName.value = ''
-    createType.value = ''
-}
+/*───────────────────────────── misc ─────────────────────────────*/
+function handleDocumentsClick() { docStore.selectFolder(null) }
 
-function handleDocumentsClick() {
-    docStore.selectFolder(null)
+/*───────────────────────────── drag-and-drop root handler ──────────────────*/
+function handleRootDrop(e) {
+    const draggedId = e.dataTransfer.getData('application/x-item-id')
+    draggedId && structureStore.moveItem(draggedId, null) /* move to root */
 }
 </script>
