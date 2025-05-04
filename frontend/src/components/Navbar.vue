@@ -3,18 +3,19 @@
         <div class="flex items-center justify-between px-4 py-2">
             <!-- Left side -->
             <div class="flex items-center space-x-4">
-                <!-- Format -->
-                <BaseButton :isActive="ui.showActionBar" @click="ui.toggleActionBar()" title="Toggle Format"
-                    data-testid="navbar-format-button">
-                    <Paintbrush class="md:w-4 md:h-4 w-5 h-5" />
-                    <span class="hidden md:inline">Format</span>
-                </BaseButton>
 
                 <!-- View -->
                 <BaseButton :isActive="ui.showViewMenu" @click="ui.toggleViewMenu()" title="Toggle View Menu"
                     data-testid="navbar-view-button">
                     <Layout class="md:w-4 md:h-4 w-5 h-5" />
                     <span class="hidden md:inline">View</span>
+                </BaseButton>
+
+                <!-- Document (formerly Format) -->
+                <BaseButton :isActive="ui.showActionBar" @click="ui.toggleActionBar()" title="Toggle Document"
+                    data-testid="navbar-document-button">
+                    <Paintbrush class="md:w-4 md:h-4 w-5 h-5" />
+                    <span class="hidden md:inline">Document</span>
                 </BaseButton>
 
                 <!-- Tools -->

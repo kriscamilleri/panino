@@ -66,94 +66,88 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, defineExpose, onMounted } from 'vue'
+import {
+  ref,
+  computed,
+  watch,
+  nextTick,
+  defineExpose,
+  onMounted
+} from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useContentStore } from '@/store/contentStore'
 
-// For 5s debounce, you can use a simple helper or any library (like lodash).
-// Here's a small local "debounce" helper:
+/* ───── local helpers ───── */
 function debounce(fn, wait) {
   let timeout
   return function (...args) {
     clearTimeout(timeout)
-    timeout = setTimeout(() => {
-      fn(...args)
-    }, wait)
+    timeout = setTimeout(() => fn(...args), wait)
   }
 }
 
-// Instead of building an absolute URL from VITE_IMAGE_SERVICE_URL,
-// we will use a relative path in production so session cookies work properly:
 const isProduction = import.meta.env.PROD
-const devImageServiceUrl = import.meta.env.VITE_IMAGE_SERVICE_URL || 'http://localhost:3001'
+const devImageServiceUrl =
+  import.meta.env.VITE_IMAGE_SERVICE_URL || 'http://localhost:3001'
 const imageServiceUrl = isProduction ? '' : devImageServiceUrl
 
+/* ───── stores & refs ───── */
 const docStore = useDocStore()
 const ui = useUiStore()
 const draftStore = useDraftStore()
 const contentStore = useContentStore()
 
-// References
 const textareaRef = ref(null)
 
-// Upload state
+/* ───── upload state ───── */
 const isUploading = ref(false)
 const uploadError = ref('')
 
-// The selected file
+/* ───── reactive file & draft ───── */
 const file = computed(() => docStore.selectedFile)
 const contentDraft = ref('')
 
-// FIX: This watch needs to properly retrieve content when file changes
-watch(file, async (newFile) => {
-  if (newFile?.id) {
-    // First check for an existing draft
-    const existingDraft = draftStore.getDraft(newFile.id)
-    if (existingDraft) {
-      contentDraft.value = existingDraft
-      return
-    }
-
-    // Check if content is already loaded in docStore
-    if (docStore.selectedFileContent) {
-      contentDraft.value = docStore.selectedFileContent
-      return
-    }
-
-    // If not, explicitly load the content
-    try {
-      const content = await contentStore.loadContent(newFile.id)
-      contentDraft.value = content || ''
-    } catch (error) {
-      console.error('Error loading content:', error)
+watch(
+  file,
+  async newFile => {
+    if (newFile?.id) {
+      const existingDraft = draftStore.getDraft(newFile.id)
+      if (existingDraft) {
+        contentDraft.value = existingDraft
+        return
+      }
+      if (docStore.selectedFileContent) {
+        contentDraft.value = docStore.selectedFileContent
+        return
+      }
+      try {
+        const content = await contentStore.loadContent(newFile.id)
+        contentDraft.value = content || ''
+      } catch (err) {
+        console.error('Error loading content:', err)
+        contentDraft.value = ''
+      }
+    } else {
       contentDraft.value = ''
     }
-  } else {
-    contentDraft.value = ''
-  }
-}, {
-  immediate: true,
-})
+  },
+  { immediate: true }
+)
 
-// Stats computations
-const wordCount = computed(() => {
-  if (!contentDraft.value) return 0
-  return contentDraft.value.trim().split(/\s+/).filter(word => word.length > 0).length
-})
+/* ───── stats ───── */
+const wordCount = computed(() =>
+  contentDraft.value ? contentDraft.value.trim().split(/\s+/).filter(w => w).length : 0
+)
 const characterCount = computed(() => contentDraft.value.length)
-const lineCount = computed(() => {
-  if (!contentDraft.value) return 0
-  return contentDraft.value.split('\n').length
-})
+const lineCount = computed(() => (contentDraft.value ? contentDraft.value.split('\n').length : 0))
 
-// Debounced save to DB => 500ms
-const debouncedSyncToDB = debounce((fileId, text) => {
-  docStore.updateFileContent(fileId, text)
+/* ───── debounced save ───── */
+const debouncedSyncToDB = debounce((id, text) => {
+  docStore.updateFileContent(id, text)
 }, 500)
 
-// On every keystroke, update draft store (for immediate preview) and schedule a DB save
 function handleInput() {
   if (file.value) {
     draftStore.setDraft(file.value.id, contentDraft.value)
@@ -161,18 +155,15 @@ function handleInput() {
   }
 }
 
-// Handle paste events (still uses the same flow for final doc update).
+/* ───── paste-images & upload helper (unchanged) ───── */
 async function handlePaste(event) {
   const items = event.clipboardData?.items
   if (!items) return
-
   for (const item of items) {
     if (item.type.indexOf('image') === 0) {
       event.preventDefault()
       const fileObj = item.getAsFile()
-      if (fileObj) {
-        await uploadImage(fileObj)
-      }
+      if (fileObj) await uploadImage(fileObj)
       break
     }
   }
@@ -181,176 +172,151 @@ async function handlePaste(event) {
 async function uploadImage(fileObj) {
   isUploading.value = true
   uploadError.value = ''
-
   try {
     const formData = new FormData()
     formData.append('image', fileObj)
-
     const response = await fetch(`${imageServiceUrl}/upload`, {
       method: 'POST',
       body: formData,
       credentials: 'include'
     })
-
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.message || 'Upload failed')
+      const err = await response.json()
+      throw new Error(err.message || 'Upload failed')
     }
-
     const data = await response.json()
-    const finalImageUrl = isProduction ? data.url : imageServiceUrl + data.url
-    const imageMarkdown = `![Image](${finalImageUrl})\n`
-
-    // Insert image markdown at cursor or end
-    const textarea = textareaRef.value
-    if (textarea) {
-      const start = textarea.selectionStart
-      const end = textarea.selectionEnd
-      contentDraft.value =
-        contentDraft.value.substring(0, start) +
-        imageMarkdown +
-        contentDraft.value.substring(end)
-
-      nextTick(() => {
-        const newPosition = start + imageMarkdown.length
-        textarea.setSelectionRange(newPosition, newPosition)
-        textarea.focus()
-      })
-    } else {
-      contentDraft.value += imageMarkdown
-    }
-
-    handleInput() // calls draft update + debounced DB save
-  } catch (error) {
-    console.error('Image upload error:', error)
-    uploadError.value = error.message || 'Failed to upload image'
+    const finalUrl = isProduction ? data.url : imageServiceUrl + data.url
+    insertAtCursor(`![Image](${finalUrl})\n`)
+  } catch (err) {
+    console.error('Image upload error:', err)
+    uploadError.value = err.message || 'Failed to upload image'
   } finally {
     isUploading.value = false
   }
 }
 
-// Expose formatting & search so the Nav can call them
+/* ───── insertion helpers ───── */
 function insertFormat(prefix, suffix) {
   const textarea = textareaRef.value
   if (!textarea) return
   const start = textarea.selectionStart
   const end = textarea.selectionEnd
-  const selected = contentDraft.value.substring(start, end)
-
-  const newText =
-    contentDraft.value.substring(0, start) +
-    prefix + selected + suffix +
-    contentDraft.value.substring(end)
-
-  contentDraft.value = newText
+  const selected = contentDraft.value.slice(start, end)
+  contentDraft.value =
+    contentDraft.value.slice(0, start) + prefix + selected + suffix + contentDraft.value.slice(end)
   handleInput()
-
   textarea.focus()
-  const newCursorPos = selected
+  const newPos = selected
     ? start + prefix.length + selected.length + suffix.length
     : start + prefix.length
-  textarea.setSelectionRange(newCursorPos, newCursorPos)
+  textarea.setSelectionRange(newPos, newPos)
 }
-
 function insertList(prefix) {
   const textarea = textareaRef.value
   if (!textarea) return
   const start = textarea.selectionStart
   const end = textarea.selectionEnd
-  const selected = contentDraft.value.substring(start, end)
-
+  const selected = contentDraft.value.slice(start, end)
   let newText
   if (selected) {
-    newText = selected.split('\n').map(line => prefix + line).join('\n')
-    contentDraft.value =
-      contentDraft.value.substring(0, start) +
-      newText +
-      contentDraft.value.substring(end)
+    newText = selected
+      .split('\n')
+      .map(line => prefix + line)
+      .join('\n')
+    contentDraft.value = contentDraft.value.slice(0, start) + newText + contentDraft.value.slice(end)
   } else {
     newText = prefix
     contentDraft.value =
-      contentDraft.value.substring(0, start) +
-      newText +
-      contentDraft.value.substring(end)
+      contentDraft.value.slice(0, start) + newText + contentDraft.value.slice(start)
   }
   handleInput()
-
   textarea.focus()
-  const newCursorPos = start + prefix.length
-  textarea.setSelectionRange(newCursorPos, newCursorPos)
+  textarea.setSelectionRange(start + prefix.length, start + prefix.length)
 }
-
 function insertTable() {
-  const tableTemplate = `
+  const tpl = `
 | Header 1 | Header 2 | Header 3 |
 |----------|----------|----------|
 | Cell 1   | Cell 2   | Cell 3   |
 | Cell 4   | Cell 5   | Cell 6   |
 `
-  insertAtCursor(tableTemplate)
+  insertAtCursor(tpl)
 }
-
 function insertCodeBlock() {
   insertFormat('```\n', '\n```')
 }
-
+function insertImagePlaceholder() {
+  insertAtCursor('![Alt text](url)\n')
+}
 function insertAtCursor(text) {
   const textarea = textareaRef.value
   if (!textarea) return
   const start = textarea.selectionStart
-
   contentDraft.value =
-    contentDraft.value.substring(0, start) +
-    text +
-    contentDraft.value.substring(start)
-
+    contentDraft.value.slice(0, start) + text + contentDraft.value.slice(start)
   handleInput()
-
   textarea.focus()
-  const newCursorPos = start + text.length
-  textarea.setSelectionRange(newCursorPos, newCursorPos)
+  textarea.setSelectionRange(start + text.length, start + text.length)
 }
 
+/* ───── find / replace ───── */
 function findNext(term) {
   if (!term?.trim()) return
   const textarea = textareaRef.value
   if (!textarea) return
-
-  // Start searching after current selectionEnd
-  let fromIndex = textarea.selectionEnd
-  let foundIndex = contentDraft.value.indexOf(term, fromIndex)
-
-  // Wrap around if not found
-  if (foundIndex === -1 && fromIndex !== 0) {
-    foundIndex = contentDraft.value.indexOf(term, 0)
-  }
-  if (foundIndex === -1) return
-
+  let fromIdx = textarea.selectionEnd
+  let idx = contentDraft.value.indexOf(term, fromIdx)
+  if (idx === -1 && fromIdx !== 0) idx = contentDraft.value.indexOf(term, 0)
+  if (idx === -1) return
   textarea.focus()
-  textarea.setSelectionRange(foundIndex, foundIndex + term.length)
-  nextTick(() => {
-    textarea.focus()
-  })
+  textarea.setSelectionRange(idx, idx + term.length)
+  nextTick(() => textarea.focus())
+}
+function replaceNext(term, repl) {
+  if (!term?.trim()) return
+  const textarea = textareaRef.value
+  if (!textarea) return
+  let fromIdx = textarea.selectionEnd
+  let idx = contentDraft.value.indexOf(term, fromIdx)
+  if (idx === -1 && fromIdx !== 0) idx = contentDraft.value.indexOf(term, 0)
+  if (idx === -1) return
+  contentDraft.value =
+    contentDraft.value.slice(0, idx) + repl + contentDraft.value.slice(idx + term.length)
+  handleInput()
+  textarea.focus()
+  textarea.setSelectionRange(idx, idx + repl.length)
+}
+function replaceAll(term, repl) {
+  if (!term?.trim()) return
+  if (term === repl) return
+  const regex = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')
+  contentDraft.value = contentDraft.value.replace(regex, repl)
+  handleInput()
 }
 
-// Add an onMounted hook to ensure we register the editor reference for formatting
+/* ───── expose for other components ───── */
 onMounted(() => {
-  // Hack: Make editor methods available globally so SubMenuBar can use them
-  // A better approach would be to use provide/inject or events
   window.__editorRef = {
     insertFormat,
     insertList,
     insertTable,
     insertCodeBlock,
-    findNext
+    insertImagePlaceholder,
+    uploadImage,
+    findNext,
+    replaceNext,
+    replaceAll
   }
 })
-
 defineExpose({
   insertFormat,
   insertList,
   insertTable,
   insertCodeBlock,
+  insertImagePlaceholder,
+  uploadImage,
   findNext,
+  replaceNext,
+  replaceAll
 })
 </script>
