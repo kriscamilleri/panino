@@ -5,7 +5,7 @@ import LoginForm from '@/components/LoginForm.vue'
 import SignupForm from '@/components/SignupForm.vue'
 import LoadingPage from '@/pages/LoadingPage.vue'
 import PrintStylesPage from '@/pages/PrintStylesPage.vue'
-import TermsOfServicePage from '@/pages/TermsOfServicePage.vue' // <-- NEW import
+import TermsOfServicePage from '@/pages/TermsOfServicePage.vue'
 
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -19,10 +19,20 @@ export const router = createRouter({
       component: HomePage,
       meta: { keepAlive: true }
     },
+    // file route
     {
       path: '/doc/:fileId',
       name: 'doc',
       component: HomePage,
+      props: true,
+      meta: { keepAlive: true }
+    },
+    // folder route
+    {
+      path: '/folder/:folderId',
+      name: 'folder',
+      component: HomePage,
+      props: true,
       meta: { keepAlive: true }
     },
     {
@@ -55,7 +65,7 @@ export const router = createRouter({
     {
       path: '/terms',
       name: 'terms',
-      component: TermsOfServicePage  // <-- NEW route
+      component: TermsOfServicePage
     }
   ]
 })
@@ -68,13 +78,15 @@ router.beforeEach(async (to, from, next) => {
   // Attempt to check if user is logged in
   await authStore.checkAuth()
 
-  // If NOT authenticated and not guest, trying to access anything except login/signup/loading/terms => go login
-  // Note: "Continue as guest" sets isAuthenticated=true anyway, so guests skip this block.
-  if (!authStore.isAuthenticated && to.name !== 'login' && to.name !== 'signup' && to.name !== 'loading' && to.name !== 'terms') {
+  // If NOT authenticated, redirect to login
+  if (
+    !authStore.isAuthenticated &&
+    !['login','signup','loading','terms'].includes(to.name)
+  ) {
     return next({ name: 'login' })
   }
 
-  // If authenticated, but local DB not initialized, let them go to /loading
+  // If authenticated but local DB not initialized, go to loading
   if (authStore.isAuthenticated && !syncStore.isInitialized) {
     if (to.name !== 'loading') {
       return next({
