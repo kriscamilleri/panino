@@ -61,6 +61,9 @@ docker compose up -d
 5. Installs the nginx configuration (if run as root) and reloads nginx.
 6. Optionally sets up an SSL certificate using certbot if SSL isn’t skipped.
 
+```
+sudo chmod +x deploy.sh && sudo ./deploy.sh
+```
 
 ### Development
 1. Create .env file in the root folder of the project with the above variables.

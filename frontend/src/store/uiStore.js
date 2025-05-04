@@ -1,10 +1,9 @@
-// frontend/src/store/uiStore.js
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 export const useUiStore = defineStore('uiStore', () => {
     // Panel visibility
-    const showDocuments = ref(true)  // Renamed from showSidebar
+    const showDocuments = ref(true)
     const showEditor = ref(true)
     const showPreview = ref(true)
 
@@ -13,61 +12,67 @@ export const useUiStore = defineStore('uiStore', () => {
     const showActionBar = ref(false)
     const showFileMenu = ref(false)
 
-    // Modal visibility (NEW)
+    // Import modal
     const showImportModal = ref(false)
 
-    // Computed property to check if any menu is open
+    // Stats & metadata
+    const showStats = ref(false)
+    const showMetadata = ref(false)
+
+    // Toasts
+    const toasts = ref([])
+
+    /** Add a toast message */
+    function addToast(message, duration = 5000) {
+        console.log('addToast', message)
+        const id = Date.now().toString() + Math.random().toString(36).substr(2)
+        toasts.value.push({ id, message })
+        setTimeout(() => removeToast(id), duration)
+    }
+
+    /** Remove a toast by ID */
+    function removeToast(id) {
+        toasts.value = toasts.value.filter(t => t.id !== id)
+    }
+
+    // Computed
     const isAnyMenuOpen = computed(() =>
         showViewMenu.value || showActionBar.value || showFileMenu.value
     )
 
-    // Stats and metadata
-    const showStats = ref(false)
-    const showMetadata = ref(false)
-
     // Panel toggles
-    function toggleDocuments() {
-        showDocuments.value = !showDocuments.value
-    }
-
-    function toggleEditor() {
-        showEditor.value = !showEditor.value
-    }
-
-    function togglePreview() {
-        showPreview.value = !showPreview.value
-    }
+    function toggleDocuments() { showDocuments.value = !showDocuments.value }
+    function toggleEditor() { showEditor.value = !showEditor.value }
+    function togglePreview() { showPreview.value = !showPreview.value }
 
     // Menu toggles
     function toggleViewMenu() {
-        if (showViewMenu.value) {
-            showViewMenu.value = false
-        } else {
+        if (showViewMenu.value) showViewMenu.value = false
+        else {
             showActionBar.value = false
             showFileMenu.value = false
             showViewMenu.value = true
         }
     }
-
     function toggleActionBar() {
-        if (showActionBar.value) {
-            showActionBar.value = false
-        } else {
+        if (showActionBar.value) showActionBar.value = false
+        else {
             showViewMenu.value = false
             showFileMenu.value = false
             showActionBar.value = true
         }
     }
-
     function toggleFileMenu() {
-        if (showFileMenu.value) {
-            showFileMenu.value = false
-        } else {
+        if (showFileMenu.value) showFileMenu.value = false
+        else {
             showViewMenu.value = false
             showActionBar.value = false
             showFileMenu.value = true
         }
     }
+
+    function toggleStats() { showStats.value = !showStats.value }
+    function toggleMetadata() { showMetadata.value = !showMetadata.value }
 
     function closeAllMenus() {
         showViewMenu.value = false
@@ -75,43 +80,27 @@ export const useUiStore = defineStore('uiStore', () => {
         showFileMenu.value = false
     }
 
-    function toggleStats() {
-        showStats.value = !showStats.value
-    }
-
-    function toggleMetadata() {
-        showMetadata.value = !showMetadata.value
-    }
-
-    // Modal toggles (NEW)
-    function openImportModal() {
-        showImportModal.value = true
-    }
-
-    function closeImportModal() {
-        showImportModal.value = false
-    }
+    // Import modal
+    function openImportModal() { showImportModal.value = true }
+    function closeImportModal() { showImportModal.value = false }
 
     return {
-        // Panel visibility
+        // visibility
         showDocuments,
         showEditor,
         showPreview,
-
-        // Menus
         showViewMenu,
         showActionBar,
         showFileMenu,
-        isAnyMenuOpen,
-
-        // Modals (NEW)
         showImportModal,
-
-        // Stats and metadata
         showStats,
         showMetadata,
+        toasts,
 
-        // Toggles
+        // computed
+        isAnyMenuOpen,
+
+        // actions
         toggleDocuments,
         toggleEditor,
         togglePreview,
@@ -121,9 +110,9 @@ export const useUiStore = defineStore('uiStore', () => {
         toggleStats,
         toggleMetadata,
         closeAllMenus,
-
-        // Modal actions (NEW)
         openImportModal,
         closeImportModal,
+        addToast,
+        removeToast
     }
 })
