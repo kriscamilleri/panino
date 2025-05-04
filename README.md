@@ -49,12 +49,8 @@ TURNSTILE_SITE_KEY={TURNSTILE_SITE_KEY}
 2. Spin up the database and service containers with the below command.
 ```
 docker compose up -d
-
 ```
 3. Deploy reverse proxy for each container and to serve the frontend. The setup-nginx.cjs script is an opinionated means of automating this process. See Automated Setup NGINX for more information. 
-```
-```
-node setup-nginx.cjs
 
 #### Automated Setup NGINX 
 > Requires node 18+, NGINX and certbot to be installed on the host machine.
