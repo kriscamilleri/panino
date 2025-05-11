@@ -217,40 +217,191 @@ async function handleExportZip() {
 }
 
 /* ───────── updated PRINT handler (paged-media margin boxes) ───────── */
+
+
+/* ───────── updated PRINT handler for paged-media margin boxes with base64 images ───────── */
 async function handlePrint() {
     if (!docStore.selectedFile) return alert('Please select a file to print')
 
     const w = window.open('', '_blank')
     if (!w) { alert('Please allow popup windows for printing'); return }
 
-    const html = docStore.getPrintMarkdownIt().render(docStore.selectedFileContent || '')
-    const ps = docStore.printStyles
-    const mk = (type, val) => !val ? "''"
-        : type === 'image' ? `url("${val}")`
-            : `'${val.replace(/'/g, "\\'")}'`
-    const pageCss = `
-    <style>
-      @page{
-        size:auto; margin:1cm;
-        @top-left    { content:${mk(ps.pageHeaderLeftType, ps.pageHeaderLeftContent)}; font-size:10pt; max-width:3cm; max-height:1cm; }
-        @top-right   { content:${mk(ps.pageHeaderRightType, ps.pageHeaderRightContent)}; font-size:10pt; max-width:3cm; max-height:1cm; text-align:right; }
-        @bottom-left { content:${mk(ps.pageFooterLeftType, ps.pageFooterLeftContent)}; font-size:8pt;  max-width:3cm; max-height:1cm; }
-        @bottom-right{ content:${mk(ps.pageFooterRightType, ps.pageFooterRightContent)};font-size:8pt;  max-width:3cm; max-height:1cm; text-align:right; }
-      }
-      body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.6;margin:0;padding:0;}
-      .print-container{padding:1cm;max-width:800px;margin:auto;}
-    </style>`
+    // Show loading indicator
     w.document.write(`
-    <!DOCTYPE html><html><head>
+    <!DOCTYPE html>
+    <html>
+    <head>
       <title>${docStore.selectedFile.name}</title>
-      <link rel="stylesheet"
-            href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
+      <style>
+        body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .loading { text-align: center; }
+        .spinner { 
+          display: inline-block; width: 50px; height: 50px; 
+          border: 3px solid rgba(0,0,0,.3); 
+          border-radius: 50%; 
+          border-top-color: #000; 
+          animation: spin 1s ease-in-out infinite; 
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+      </style>
+    </head>
+    <body>
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Preparing document for printing...</p>
+      </div>
+    </body>
+    </html>
+  `);
+
+    try {
+        const html = docStore.getPrintMarkdownIt().render(docStore.selectedFileContent || '')
+        const ps = docStore.printStyles || {} // Make sure this exists
+
+        // No need to load or process images, they're already base64 encoded
+        // Just ensure we have fallbacks
+        const headerLeft = ps.pageHeaderLeftContent || ''
+        const headerLeftType = ps.pageHeaderLeftType || 'text'
+
+        const headerRight = ps.pageHeaderRightContent || ''
+        const headerRightType = ps.pageHeaderRightType || 'text'
+
+        const footerLeft = ps.pageFooterLeftContent || ''
+        const footerLeftType = ps.pageFooterLeftType || 'text'
+
+        const footerRight = ps.pageFooterRightContent || ''
+        const footerRightType = ps.pageFooterRightType || 'text'
+
+        // Helper to wrap content for CSS
+        const mk = (type, val) => {
+            if (!val) return "''";
+
+            if (type === 'image') {
+                // Make sure we have proper URL formatting
+                return `url("${val}")`;
+            }
+
+            // For text, escape single quotes
+            return `'${val.replace(/'/g, "\\'")}'`;
+        };
+
+
+        const pageCss = `
+        <style>
+            @page {
+                size: auto;
+                margin-top: 1.5cm;
+                margin-bottom: 1.5cm;
+                
+                /* Define the margin boxes with updated sizing constraints */
+                @top-left {
+                content: ${mk(headerLeftType, headerLeft)};
+                font-size: 10pt;
+                max-height: 0.8cm; /* Reduced from 1cm */
+                max-width: 3.2cm;  /* Reduced from 4cm */
+                overflow: hidden;
+                }
+                
+                @top-right {
+                content: ${mk(headerRightType, headerRight)};
+                font-size: 10pt;
+                text-align: right;
+                max-height: 0.8cm; /* Reduced from 1cm */
+                max-width: 3.2cm;  /* Reduced from 4cm */
+                overflow: hidden;
+                }
+                
+                @bottom-left {
+                content: ${mk(footerLeftType, footerLeft)};
+                font-size: 8pt;
+                max-height: 0.8cm; /* Reduced from 1cm */
+                max-width: 3.2cm;  /* Reduced from 4cm */
+                overflow: hidden;
+                }
+                
+                @bottom-right {
+                content: ${mk(footerRightType, footerRight)};
+                font-size: 8pt;
+                text-align: right;
+                max-height: 0.8cm; /* Reduced from 1cm */
+                max-width: 3.2cm;  /* Reduced from 4cm */
+                overflow: hidden;
+                }
+            }
+            
+            /* Additional page-specific styles */
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            
+            .print-container {
+                padding: 1cm;
+                max-width: 800px;
+                margin: auto;
+            }
+            
+            /* Additional styles for page media */
+            @media print {
+                .print-container img {
+                max-width: 100%;
+                height: auto;
+                }
+                
+                /* Improve code block printing */
+                pre, code {
+                white-space: pre-wrap;
+                word-break: break-word;
+                }
+            }
+        </style>`;
+
+        // Replace loading screen with the actual content
+        w.document.open();
+        w.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>${docStore.selectedFile.name}</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css">
       ${pageCss}
-    </head><body>
+    </head>
+    <body>
       <div class="print-container prose max-w-none">${html}</div>
-    </body></html>`)
-    w.document.close()
-    w.onload = () => setTimeout(() => { w.print(); w.onafterprint = () => w.close() }, 500)
+    </body>
+    </html>`);
+        w.document.close();
+
+        // Trigger print after a short delay to ensure everything is loaded
+        w.onload = () => {
+            setTimeout(() => {
+                w.print();
+                w.onafterprint = () => w.close();
+            }, 500);
+        };
+    } catch (err) {
+        console.error('Error preparing document for print:', err);
+        w.document.open();
+        w.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Print Error</title>
+      <style>
+        body { font-family: system-ui, sans-serif; padding: 20px; }
+        .error { color: #e53e3e; margin-bottom: 20px; }
+      </style>
+    </head>
+    <body>
+      <h1>Error Preparing Document</h1>
+      <div class="error">
+        ${err.message || 'There was an error preparing your document for printing.'}
+      </div>
+      <button onclick="window.close()">Close</button>
+    </body>
+    </html>`);
+        w.document.close();
+    }
 }
 </script>
 
