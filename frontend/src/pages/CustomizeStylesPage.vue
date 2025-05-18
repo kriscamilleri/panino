@@ -89,10 +89,10 @@ const router = useRouter();
 const editableStyleMap = ref({});
 const pdfUrl = ref('');
 
-const PDF_PAGE_WIDTH_PT = 595.28;
+const PDF_PAGE_WIDTH_PT = 590.78
 const PDF_PAGE_HEIGHT_PT = 841.89;
 const PDF_MARGIN_PT = 36; 
-const PDF_CONTENT_WIDTH_PT = PDF_PAGE_WIDTH_PT - 2 * PDF_MARGIN_PT;
+const PDF_CONTENT_WIDTH_PT = PDF_PAGE_WIDTH_PT - 116.90- 2 * PDF_MARGIN_PT ;
 
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
 
@@ -168,8 +168,8 @@ async function regeneratePdf() {
         const headerFontSize = parseFloat(currentPrintStyles.headerFontSize) || 10;
         const footerFontSize = parseFloat(currentPrintStyles.footerFontSize) || 10;
         
-        const effectiveHeaderHeight = headerHTML ? headerFontSize * 1.5 : 0; 
-        const effectiveFooterHeight = footerHTMLTemplate ? footerFontSize * 1.5 : 0;
+        const effectiveHeaderHeight = headerHTML ? headerFontSize * 1 : 0; 
+        const effectiveFooterHeight = footerHTMLTemplate ? footerFontSize * 1: 0;
 
         await pdf.html(tempRenderContainer, {
             margin: [
@@ -182,10 +182,11 @@ async function regeneratePdf() {
             windowWidth: PDF_CONTENT_WIDTH_PT,
             autoPaging: 'text', 
             html2canvas: {
-                scale: 1.5,
+                scale: 1.0,
                 backgroundColor: '#ffffff',
                 useCORS: true,
                 logging: false,
+                
             },
         });
 
