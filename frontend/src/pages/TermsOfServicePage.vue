@@ -195,10 +195,3 @@
         </main>
     </div>
 </template>
-
-<script setup>
-/*
-  neno Terms of Service page.
-  Shown when the user clicks "Terms of Service" on the login screen.
-*/
-</script>

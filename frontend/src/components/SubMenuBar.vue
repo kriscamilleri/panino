@@ -354,15 +354,3 @@ async function handlePrint() {
     }
 }
 </script>
-
-<style scoped>
-.fade-fast-enter-active,
-.fade-fast-leave-active {
-    transition: opacity 0.15s;
-}
-
-.fade-fast-enter-from,
-.fade-fast-leave-to {
-    opacity: 0;
-}
-</style>
