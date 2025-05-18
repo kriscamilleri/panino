@@ -1,4 +1,4 @@
-// src/store/markdownStore.js
+// frontend/src/store/markdownStore.js
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
@@ -80,8 +80,18 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold',
         td: 'border border-gray-300 px-2 py-1',
 
-        printHeaderHtml: '',
-        printFooterHtml: ''
+        printHeaderHtml: 'My Document Header',
+        printFooterHtml: 'Page %p of %P',
+        
+        // New properties for header/footer styling
+        headerFontSize: "10", // Store as string, convert to number in component
+        headerFontColor: "#808080", // Gray
+        headerAlign: "center", // 'left', 'center', 'right'
+        footerFontSize: "10",
+        footerFontColor: "#808080",
+        footerAlign: "center",
+        enablePageNumbers: true // New property
+
     })
 
     /* ------------------------------------------------------------------
@@ -101,7 +111,13 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
                 Object.assign(styles.value, doc.previewStyles)
             }
             if (doc.printStyles) {
-                Object.assign(printStyles.value, doc.printStyles)
+                 // Merge carefully to include new default fields if not present in DB
+                const loadedPrintStyles = doc.printStyles;
+                for (const key in printStyles.value) {
+                    if (loadedPrintStyles.hasOwnProperty(key)) {
+                        printStyles.value[key] = loadedPrintStyles[key];
+                    }
+                }
             }
             stylesLoaded = true
         } catch (err) {
