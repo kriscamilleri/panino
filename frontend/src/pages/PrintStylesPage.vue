@@ -71,25 +71,30 @@
         </div>
       </div>
 
-      <!-- ───── Right: live preview ───── -->
+
+
+      <div class="w-1/2 bg-gray-200 py-4 overflow-y-auto">
+        <div class="print-preview mx-auto bg-white shadow-lg flex-1 flex flex-col h-full w-full">
+          <PdfPreview :source-html="previewHtmlForPdf" />
+        </div>
+      </div>
+      <!-- 
       <div class="w-1/2 bg-gray-200 p-8 overflow-y-auto">
         <div class="print-preview mx-auto bg-white shadow-lg">
-          <!-- header preview -->
           <div class="flex justify-between items-center pb-4 border-b text-sm">
             <HeaderFooterPreview :type="headerLeftModel.type" :content="headerLeftModel.content" />
             <HeaderFooterPreview :type="headerRightModel.type" :content="headerRightModel.content" />
           </div>
 
-          <!-- markdown preview -->
           <div class="prose max-w-none py-4" v-html="printPreviewHtml"></div>
 
-          <!-- footer preview -->
           <div class="flex justify-between items-center border-t pt-4 mt-4 text-xs">
             <HeaderFooterPreview :type="footerLeftModel.type" :content="footerLeftModel.content" />
             <HeaderFooterPreview :type="footerRightModel.type" :content="footerRightModel.content" />
           </div>
         </div>
       </div>
+    -->
     </div>
   </div>
 </template>
@@ -101,6 +106,55 @@ import { useDocStore } from '@/store/docStore'
 import { ArrowLeft } from 'lucide-vue-next'
 import HeaderFooterPreview from '@/components/HeaderFooterPreview.vue'
 import ImagePasteHandler from '@/components/ImagePasteHandler.vue'
+import PdfPreview from '@/components/PdfPreview.vue'
+
+const previewHtmlForPdf = computed(() => `
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="utf-8">
+      <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+      <style>
+        body { background: #fff; color: #111; }
+        .pdf-header, .pdf-footer {
+          width: 100%;
+        }
+        .pdf-header {
+          position: relative;
+          top: 0; left: 0; right: 0;
+          margin-bottom: 20pt;
+        }
+        .pdf-footer {
+          position: relative;
+          bottom: 0; left: 0; right: 0;
+          margin-top: 24pt;
+        }
+        .pdf-content {
+          /* A4 content width with padding */
+          max-width: 520pt;
+          margin: 0 auto;
+          padding: 20pt;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="pdf-content">
+        <div class="pdf-header flex justify-between items-center text-sm border-b pb-2 mb-4">
+          <span>${headerLeftModel.value.content}</span>
+          <span>${headerRightModel.value.content}</span>
+        </div>
+        <div class="prose max-w-none py-4">
+          ${printPreviewHtml.value}
+        </div>
+        <div class="pdf-footer flex justify-between items-center text-xs border-t pt-2 mt-8">
+          <span>${footerLeftModel.value.content}</span>
+          <span>${footerRightModel.value.content}</span>
+        </div>
+      </div>
+    </body>
+  </html>
+`)
+
 
 const router = useRouter()
 const docStore = useDocStore()

@@ -19,7 +19,9 @@ export default defineConfig({
     strictPort: true,
   },
   optimizeDeps: {
-    allowNodeBuiltins: ['pouchdb-browser', 'pouchdb-utils']
+    allowNodeBuiltins: ['pouchdb-browser', 'pouchdb-utils'],
+    include: ['jspdf', 'html2canvas']
+
   },
   // Add base configuration for production
   base: '/'
