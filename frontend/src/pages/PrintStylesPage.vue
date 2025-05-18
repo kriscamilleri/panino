@@ -53,7 +53,7 @@ Tables should be legible and well-formatted for print.
 | Style Editing   | Live        | Changes update preview          |
 | Header/Footer   | Supported   | Text-based with styling options |
 
-![Placeholder Image](https://via.placeholder.com/400x150?text=Sample+Print+Image)  
+![Placeholder Image](/assets/vue.svg)  
 *Caption for the image above.*
 
 For more details, visit [our documentation](https://example.com).
