@@ -66,6 +66,18 @@ services:
       couchdb:
         condition: service_healthy
 
+  font-service:
+    build:
+      context: ./backend/font-service
+    environment:
+      - PORT=3002
+      - NODE_ENV=production
+    ports:
+      - "127.0.0.1:3002:3002"
+    depends_on:
+      couchdb:
+        condition: service_healthy
+
   frontend:
     build:
       context: ./frontend
@@ -76,6 +88,7 @@ services:
       - NODE_ENV=development
       - VITE_COUCHDB_URL=${COUCHDB_URL}
       - VITE_IMAGE_SERVICE_URL=http://localhost:3001
+      - VITE_FONT_SERVICE_URL=http://localhost:3002
       # TURNSTILE SITE KEY for client-side widget:
       - VITE_TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}
     volumes:

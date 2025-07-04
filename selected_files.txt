@@ -1,0 +1,1417 @@
+----- START: /home/kris/Development/panino/frontend/src/pages/CustomizeStylesPage.vue -----
+<template>
+  <div class="min-h-screen bg-gray-50 flex flex-col">
+    <nav class="bg-gray-100 border-b">
+      <div class="flex items-center justify-between px-4 py-2">
+        <h1 class="text-xl font-semibold text-gray-800">{{ config.title }}</h1>
+        <div class="flex items-center space-x-2">
+          <button @click="toggleStylesCustomization"
+              class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-2"
+              :class="{ 'bg-gray-200': showStylesCustomization }">
+            <Settings class="w-4 h-4" />
+            <span>{{ showStylesCustomization ? 'Hide' : 'Show' }} Styles</span>
+          </button>
+          <button @click="goBack"
+              class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-2">
+            <ArrowLeft class="w-4 h-4" />
+            <span>Back</span>
+          </button>
+        </div>
+      </div>
+    </nav>
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Styles Customization Panel (conditionally shown) -->
+      <div v-if="showStylesCustomization" class="w-1/2 p-8 overflow-y-auto" style="height: calc(100vh - 56px);">
+        <div class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto">
+          <div class="space-y-6">
+            <div v-for="(styles, category) in categorizedStyles" :key="category" class="space-y-4">
+              <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">{{ category }}</h2>
+              <div v-for="(value, key) in styles" :key="key" class="space-y-2">
+                <label :for="key" class="block text-sm font-medium text-gray-700">{{ key }}</label>
+                <textarea :id="key" 
+                    v-model="editableStyleMap[key]"
+                    @input="handleStyleChange(key, $event.target.value)"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
+                    rows="3"
+                    :placeholder="`CSS styles for ${key} element`" />
+              </div>
+            </div>
+            <div v-if="config.extraFields && config.extraFields.length > 0" class="space-y-4 pt-8 border-t">
+              <h2 class="text-lg font-semibold text-gray-700">{{ config.extraFieldsTitle || 'Additional Settings' }}</h2>
+              <div v-for="field in config.extraFields" :key="field.id" class="space-y-2">
+                <label :for="field.id" class="block text-sm font-medium text-gray-700">{{ field.label }}</label>
+                <textarea v-if="field.type === 'textarea'" :id="field.id" :rows="field.rows || 4"
+                    v-model="editableStyleMap[field.modelKey]"
+                    @input="handleStyleChange(field.modelKey, $event.target.value)"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
+                    :placeholder="field.placeholder"></textarea>
+                <input v-else-if="field.type === 'input'" :id="field.id" :type="field.inputType || 'text'"
+                    v-model="editableStyleMap[field.modelKey]"
+                    @input="handleStyleChange(field.modelKey, $event.target.value)"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                    :class="field.inputType === 'color' ? 'h-10' : ''"
+                    :placeholder="field.placeholder" />
+                <select v-else-if="field.type === 'select'" :id="field.id"
+                    v-model="editableStyleMap[field.modelKey]"
+                     @change="handleStyleChange(field.modelKey, $event.target.value)"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm">
+                    <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.text }}</option>
+                </select>
+                <div v-else-if="field.type === 'checkbox'" class="flex items-center">
+                    <input :id="field.id" type="checkbox"
+                        :checked="editableStyleMap[field.modelKey] === true || editableStyleMap[field.modelKey] === 'true'"
+                        @change="handleStyleChange(field.modelKey, $event.target.checked)"
+                        class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Preview (full width when styles hidden, half width when styles shown) -->
+      <div :class="showStylesCustomization ? 'w-1/2' : 'w-full'" class="bg-white border-l overflow-hidden" style="height: calc(100vh - 56px);">
+        <div class="h-full overflow-y-auto p-8">
+          <div id="preview-content" v-html="previewHtmlContent" data-testid="preview-content"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { ArrowLeft, Settings } from 'lucide-vue-next';
+import { useDebounceFn } from '@vueuse/core';
+
+const props = defineProps({
+    config: { type: Object, required: true },
+    previewType: { type: String, default: 'html' }
+});
+
+const router = useRouter();
+
+const editableStyleMap = ref({});
+const showStylesCustomization = ref(false);
+
+const debouncedUpdatePreview = useDebounceFn(updatePreview, 300);
+
+// Watch for changes in the config styles and update local editable map
+watch(
+    () => props.config.getStyles(),
+    (newStyles) => {
+        const processedStyles = { ...newStyles };
+        (props.config.extraFields || []).forEach(field => {
+            if (field.type === 'checkbox' && typeof processedStyles[field.modelKey] !== 'boolean') {
+                processedStyles[field.modelKey] = String(processedStyles[field.modelKey]).toLowerCase() === 'true';
+            }
+        });
+        editableStyleMap.value = processedStyles;
+        debouncedUpdatePreview();
+    },
+    { deep: true, immediate: true }
+);
+
+const debouncedUpdateStore = useDebounceFn((key, value) => {
+    props.config.updateStyleAction(key, value);
+}, 300);
+
+function handleStyleChange(key, newValue) {
+    editableStyleMap.value[key] = newValue;
+    debouncedUpdateStore(key, newValue);
+}
+
+function toggleStylesCustomization() {
+    showStylesCustomization.value = !showStylesCustomization.value;
+}
+
+const categorizedStyles = computed(() => {
+    const currentStyles = editableStyleMap.value;
+    if (!props.config.styleCategories || !currentStyles) return {};
+    const extraFieldKeys = (props.config.extraFields || []).map(f => f.modelKey);
+    return Object.entries(props.config.styleCategories).reduce((acc, [category, keys]) => {
+        acc[category] = Object.fromEntries(
+            keys.filter(key => currentStyles.hasOwnProperty(key) && !extraFieldKeys.includes(key))
+                .map(key => [key, currentStyles[key]])
+        );
+        if (Object.keys(acc[category]).length === 0) {
+            delete acc[category];
+        }
+        return acc;
+    }, {});
+});
+
+const previewHtmlContent = computed(() => {
+    if (!props.config.getMarkdownIt || !props.config.sampleMarkdown) return '';
+    const md = props.config.getMarkdownIt();
+    return md.render(props.config.sampleMarkdown);
+});
+
+function updatePreview() {
+    // Force re-render of the preview content
+    // The computed previewHtmlContent will automatically update based on the current styles
+}
+
+onMounted(() => { 
+    // Initial preview update
+    debouncedUpdatePreview();
+});
+
+onUnmounted(() => {
+    // Clean up any custom styles that were added to the document
+    const existingStyle = document.getElementById('markdown-custom-styles');
+    if (existingStyle) {
+        existingStyle.remove();
+    }
+});
+
+function goBack() { 
+    router.push('/'); 
+}
+</script>
+----- END: /home/kris/Development/panino/frontend/src/pages/CustomizeStylesPage.vue -----
+
+----- START: /home/kris/Development/panino/frontend/src/pages/PrintStylesPage.vue -----
+<template>
+    <div class="min-h-screen bg-gray-50 flex flex-col">
+        <nav class="bg-gray-100 border-b">
+            <div class="flex items-center justify-between px-4 py-2">
+                <div class="flex items-center space-x-4">
+                    <h1 class="text-xl font-semibold text-gray-800">Print</h1>
+                    <div v-if="docStore.selectedFile" class="text-sm text-gray-600">
+                        {{ docStore.selectedFile.name }}
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button @click="toggleStylesCustomization"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-2"
+                        :class="{ 'bg-gray-200': showStylesCustomization }">
+                        <Settings class="w-4 h-4" />
+                        <span>{{ showStylesCustomization ? 'Hide' : 'Show' }} Styles</span>
+                    </button>
+                    <button @click="goBack"
+                        class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-2">
+                        <ArrowLeft class="w-4 h-4" />
+                        <span>Back</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+        <div class="flex-1 flex overflow-hidden">
+            <div v-if="showStylesCustomization" class="w-1/2 p-8 overflow-y-auto" style="height: calc(100vh - 56px);">
+                <div class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto">
+                    <div class="space-y-6">
+                        <div v-for="(styles, category) in categorizedStyles" :key="category" class="space-y-4">
+                            <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">{{ category }}</h2>
+                            <div v-for="(value, key) in styles" :key="key" class="space-y-2">
+                                <label :for="key" class="block text-sm font-medium text-gray-700">{{ key }}</label>
+                                <textarea :id="key"
+                                    v-model="editableStyleMap[key]"
+                                    @input="handleStyleChange(key, $event.target.value)"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
+                                    rows="3"
+                                    :placeholder="`CSS styles for ${key} element`" />
+                            </div>
+                        </div>
+                        <div v-if="printStylesConfig.extraFields && printStylesConfig.extraFields.length > 0" class="space-y-4 pt-8 border-t">
+                            <h2 class="text-lg font-semibold text-gray-700">{{ printStylesConfig.extraFieldsTitle || 'Additional Settings' }}</h2>
+                            <div v-for="field in printStylesConfig.extraFields" :key="field.id" class="space-y-2">
+                                <label :for="field.id" class="block text-sm font-medium text-gray-700">{{ field.label }}</label>
+                                <!-- Field types -->
+                                <textarea v-if="field.type === 'textarea'" :id="field.id" :rows="field.rows || 4"
+                                    v-model="editableStyleMap[field.modelKey]"
+                                    @input="handleStyleChange(field.modelKey, $event.target.value)"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
+                                    :placeholder="field.placeholder"></textarea>
+                                <input v-else-if="field.type === 'input'" :id="field.id" :type="field.inputType || 'text'"
+                                    v-model="editableStyleMap[field.modelKey]"
+                                    @input="handleStyleChange(field.modelKey, $event.target.value)"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                                    :class="field.inputType === 'color' ? 'h-10' : ''"
+                                    :placeholder="field.placeholder" />
+                                <select v-else-if="field.type === 'select'" :id="field.id"
+                                    v-model="editableStyleMap[field.modelKey]"
+                                    @change="handleStyleChange(field.modelKey, $event.target.value)"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm">
+                                    <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.text }}</option>
+                                </select>
+                                <div v-else-if="field.type === 'checkbox'" class="flex items-center">
+                                    <input :id="field.id" type="checkbox"
+                                        :checked="editableStyleMap[field.modelKey] === true || editableStyleMap[field.modelKey] === 'true'"
+                                        @change="handleStyleChange(field.modelKey, $event.target.checked)"
+                                        class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div :class="showStylesCustomization ? 'w-1/2' : 'w-full'" class="bg-gray-200 border-l overflow-hidden" style="height: calc(100vh - 56px);">
+                <div v-if="!docStore.selectedFileContent" class="flex flex-col items-center justify-center h-full text-gray-500 p-8">
+                    <div class="text-center">
+                        <h3 class="text-lg font-semibold mb-2">No Document Selected</h3>
+                        <p class="mb-4">Please select a document from the Documents panel to generate a print preview.</p>
+                        <button @click="goBack" class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900">
+                            Back to Editor
+                        </button>
+                    </div>
+                </div>
+                <iframe v-else-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none" data-testid="pdf-preview-iframe"></iframe>
+                <div v-else class="flex items-center justify-center h-full text-gray-500">
+                    Generating PDF preview...
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup>
+/* eslint-disable max-lines */
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
+import { ArrowLeft, Settings } from 'lucide-vue-next';
+import { useDebounceFn } from '@vueuse/core';
+import { jsPDF } from 'jspdf';
+import { useDocStore } from '@/store/docStore';
+import { useMarkdownStore } from '@/store/markdownStore';
+
+const router = useRouter();
+const docStore = useDocStore();
+const markdownStore = useMarkdownStore();
+
+const editableStyleMap = ref({});
+const pdfUrl = ref('');
+const showStylesCustomization = ref(false);
+const renderedHtmlForPdf = ref('');
+
+const PDF_PAGE_WIDTH_PT = 590.78;
+const PDF_PAGE_HEIGHT_PT = 841.89;
+const PDF_MARGIN_PT = 36;
+const PDF_CONTENT_WIDTH_PT = PDF_PAGE_WIDTH_PT - 116.90 - 2 * PDF_MARGIN_PT;
+
+const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
+
+/* --------------------------- Config definition -------------------------- */
+const printStylesConfig = {
+    title: 'Customize Print Styles',
+    getStyles: () => ({ ...docStore.printStyles }),
+    updateStyleAction: docStore.updatePrintStyle,
+    getMarkdownIt: docStore.getPrintMarkdownIt,
+    styleCategories: {
+        'Element Styles': ['h1', 'h2', 'h3', 'h4', 'p', 'em', 'strong', 'code', 'blockquote', 'ul', 'ol', 'li', 'a', 'img', 'table', 'tr', 'th', 'td', 'hr', 'pre'],
+    },
+    extraFieldsTitle: 'Print Header & Footer Settings',
+    extraFields: [
+        { id: 'googleFontFamily', label: 'Google Font Family (e.g., Roboto, Open Sans)', type: 'input', inputType: 'text', modelKey: 'googleFontFamily', placeholder: 'e.g., Roboto:wght@400;700' },
+        { id: 'printHeaderHtml', label: 'Page Header Text/HTML', type: 'textarea', modelKey: 'printHeaderHtml', rows: 2, placeholder: 'Text for page headers. Basic HTML allowed.' },
+        { id: 'headerFontSize', label: 'Header Font Size (pt)', type: 'input', inputType: 'number', modelKey: 'headerFontSize', placeholder: 'e.g., 10' },
+        { id: 'headerFontColor', label: 'Header Font Color', type: 'input', inputType: 'color', modelKey: 'headerFontColor' },
+        {
+            id: 'headerAlign', label: 'Header Alignment', type: 'select', modelKey: 'headerAlign',
+            options: [{ value: 'left', text: 'Left' }, { value: 'center', text: 'Center' }, { value: 'right', text: 'Right' }]
+        },
+        { id: 'printFooterHtml', label: 'Page Footer Text/HTML', type: 'textarea', modelKey: 'printFooterHtml', rows: 2, placeholder: 'Use %p for current page, %P for total pages (if enabled). Basic HTML allowed.' },
+        { id: 'footerFontSize', label: 'Footer Font Size (pt)', type: 'input', inputType: 'number', modelKey: 'footerFontSize', placeholder: 'e.g., 10' },
+        { id: 'footerFontColor', label: 'Footer Font Color', type: 'input', inputType: 'color', modelKey: 'footerFontColor' },
+        {
+            id: 'footerAlign', label: 'Footer Alignment', type: 'select', modelKey: 'footerAlign',
+            options: [{ value: 'left', text: 'Left' }, { value: 'center', text: 'Center' }, { value: 'right', text: 'Right' }]
+        },
+        { id: 'enablePageNumbers', label: 'Enable Page Numbers in Footer', type: 'checkbox', modelKey: 'enablePageNumbers' },
+        {
+            id: 'customCSS',
+            label: 'Custom Print CSS',
+            type: 'textarea',
+            modelKey: 'customCSS',
+            rows: 6,
+            placeholder: '/* Add custom CSS for print styles */\n@media print {\n  body { font-family: Georgia, serif; }\n  .page-break { page-break-before: always; }\n}'
+        }
+    ]
+};
+
+/* --------------------------- Style watchers ----------------------------- */
+watch(
+    () => printStylesConfig.getStyles(),
+    async (newStyles) => {
+        const processedStyles = { ...newStyles };
+        (printStylesConfig.extraFields || []).forEach(field => {
+            if (field.type === 'checkbox' && typeof processedStyles[field.modelKey] !== 'boolean') {
+                processedStyles[field.modelKey] = String(processedStyles[field.modelKey]).toLowerCase() === 'true';
+            }
+        });
+        editableStyleMap.value = processedStyles;
+
+        const mdInstance = await docStore.getPrintMarkdownIt();
+        const contentToRender = docStore.selectedFileContent || '';
+        renderedHtmlForPdf.value = contentToRender ? mdInstance.render(contentToRender) : '<div style="color: #6b7280; text-align: center; padding: 2rem;">No document selected. Please select a document to print.</div>';
+
+        debouncedRegeneratePdf();
+    },
+    { deep: true, immediate: true }
+);
+
+/* -------------------- Utility: update store on change ------------------- */
+const debouncedUpdateStore = useDebounceFn((key, value) => {
+    printStylesConfig.updateStyleAction(key, value);
+}, 300);
+function handleStyleChange(key, newValue) {
+    editableStyleMap.value[key] = newValue;
+    debouncedUpdateStore(key, newValue);
+}
+function toggleStylesCustomization() { showStylesCustomization.value = !showStylesCustomization.value; }
+
+/* ----------------------- Categorisation for UI -------------------------- */
+const categorizedStyles = computed(() => {
+    const currentStyles = editableStyleMap.value;
+    if (!printStylesConfig.styleCategories || !currentStyles) return {};
+    const extraFieldKeys = (printStylesConfig.extraFields || []).map(f => f.modelKey);
+    return Object.entries(printStylesConfig.styleCategories).reduce((acc, [category, keys]) => {
+        acc[category] = Object.fromEntries(
+            keys.filter(key => currentStyles.hasOwnProperty(key) && !extraFieldKeys.includes(key))
+                .map(key => [key, currentStyles[key]])
+        );
+        if (Object.keys(acc[category]).length === 0) delete acc[category];
+        return acc;
+    }, {});
+});
+
+/* --------------------------- PDF generation ----------------------------- */
+async function regeneratePdf() {
+    if (!docStore.selectedFileContent) {
+        if (pdfUrl.value) { URL.revokeObjectURL(pdfUrl.value); pdfUrl.value = ''; }
+        return;
+    }
+
+    const currentPrintStyles = editableStyleMap.value;
+
+    /* ------------------ 1) Setup temporary iframe ---------------------- */
+    const iframe = document.createElement('iframe');
+    iframe.style.width = `${PDF_CONTENT_WIDTH_PT}pt`;
+    iframe.style.height = '0px';
+    iframe.style.visibility = 'hidden';
+    iframe.style.position = 'absolute';
+    iframe.style.left = '-9999px';
+    document.body.appendChild(iframe);
+
+    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+
+    /* ----------- 2) Google Fonts: fetch + embed as Base64 -------------- */
+    const { css: googleFontCss, fonts: fetchedFonts } = await markdownStore.getGoogleFontData(currentPrintStyles.googleFontFamily);
+
+    let fullHtmlContent = `
+        <html>
+        <head>
+            <style>
+                html, body { margin: 0; padding: 0; box-sizing: border-box; }
+                font-family: ${currentPrintStyles.googleFontFamily ? `'${currentPrintStyles.googleFontFamily.split(':')[0].trim().replace(/\+/g, ' ')}',` : ''} sans-serif;
+                ${currentPrintStyles.customCSS || ''}
+                ${googleFontCss || ''}
+            </style>
+        </head>
+        <body>
+            <div class="document-container" style="padding: ${PDF_MARGIN_PT}pt;">
+                ${renderedHtmlForPdf.value}
+            </div>
+        </body>
+        </html>
+    `;
+
+    iframeDoc.open();
+    iframeDoc.write(fullHtmlContent);
+    iframeDoc.close();
+
+    /* ------------------ 3) Build PDF with jsPDF ------------------------ */
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+    const registeredJsPdfFonts = {};
+
+    for (const font of fetchedFonts) {
+        const { name, data: base64Data, format, style, weight } = font;
+        try {
+            /* -------------------------------------------------------------------
+             * CRITICAL FIX
+             * -------------------------------------------------------------------
+             * jsPDF cannot embed WOFF2 (or WOFF) directly. Attempting to do so
+             * leads to a "Cannot read properties of undefined (reading 'Unicode')"
+             * error because the TTF parser fails.
+             *
+             * We now **skip** any font whose format is not TrueType‑compatible.
+             * The print will still look correct because the text is rasterised by
+             * html2canvas, and headers/footers will gracefully fall back to
+             * built‑in fonts (Helvetica, Times, etc.).
+             * ------------------------------------------------------------------- */
+            if (format.includes('woff2') || format.includes('woff')) {
+                console.warn(`Skipping font "${name}" because jsPDF cannot embed the unsupported format "${format}". Falling back to built‑in fonts.`);
+                continue; // <- prevents the jsPDF Unicode cmap error
+            }
+
+            const uniqueFontFileName = `${name.replace(/ /g, '_')}_${weight || 'normal'}_${style || 'normal'}.ttf`;
+            let jsPdfStyle = 'normal';
+            if (style.includes('italic')) jsPdfStyle = 'italic';
+            if (['bold', '700', '800', '900'].includes(String(weight))) {
+                jsPdfStyle = jsPdfStyle === 'italic' ? 'bolditalic' : 'bold';
+            }
+
+            const base64String = base64Data.split(',')[1];
+            pdf.addFileToVFS(uniqueFontFileName, base64String);
+            pdf.addFont(uniqueFontFileName, name, jsPdfStyle);
+
+            if (!registeredJsPdfFonts[name]) registeredJsPdfFonts[name] = {};
+            registeredJsPdfFonts[name][jsPdfStyle] = name;
+        } catch (e) {
+            console.error(`Failed to register font ${name}:`, e);
+        }
+    }
+
+    try {
+        /* ---------- 3a) Render main body via html2canvas --------------- */
+        const headerHTML = currentPrintStyles.printHeaderHtml || "";
+        const footerHTMLTemplate = currentPrintStyles.printFooterHtml || "";
+        const headerFontSize = parseFloat(currentPrintStyles.headerFontSize) || 10;
+        const footerFontSize = parseFloat(currentPrintStyles.footerFontSize) || 10;
+
+        const effectiveHeaderHeight = headerHTML ? headerFontSize * 1.5 : 0;
+        const effectiveFooterHeight = footerHTMLTemplate ? footerFontSize * 1.5 : 0;
+
+        await pdf.html(iframeDoc.body, {
+            margin: [PDF_MARGIN_PT + effectiveHeaderHeight, PDF_MARGIN_PT, PDF_MARGIN_PT + effectiveFooterHeight, PDF_MARGIN_PT],
+            width: PDF_CONTENT_WIDTH_PT,
+            windowWidth: iframe.contentWindow.innerWidth,
+            autoPaging: 'text',
+            html2canvas: {
+                scale: 1.0,
+                backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false,
+            },
+        });
+
+        /* ---------------- 3b) Headers / Footers ------------------------ */
+        const pageCount = pdf.getNumberOfPages();
+        const headerFontColor = currentPrintStyles.headerFontColor || "#000000";
+        const headerAlign = currentPrintStyles.headerAlign || "center";
+        const footerFontColor = currentPrintStyles.footerFontColor || "#000000";
+        const footerAlign = currentPrintStyles.footerAlign || "center";
+        const enablePageNumbers = currentPrintStyles.enablePageNumbers === true;
+
+        for (let i = 1; i <= pageCount; i++) {
+            pdf.setPage(i);
+
+            const primaryFontFamily = currentPrintStyles.googleFontFamily ? currentPrintStyles.googleFontFamily.split(':')[0].trim().replace(/\+/g, ' ') : '';
+            let fontToUse = registeredJsPdfFonts[primaryFontFamily]?.normal ? primaryFontFamily : 'Helvetica';
+            pdf.setFont(fontToUse, 'normal');
+
+            if (headerHTML) {
+                pdf.setFontSize(headerFontSize);
+                pdf.setTextColor(headerFontColor);
+                let headerX = PDF_MARGIN_PT;
+                if (headerAlign === 'center') headerX = PDF_PAGE_WIDTH_PT / 2;
+                else if (headerAlign === 'right') headerX = PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT;
+                pdf.text(headerHTML, headerX, PDF_MARGIN_PT, { align: headerAlign, maxWidth: PDF_CONTENT_WIDTH_PT });
+            }
+
+            let actualFooterText = "";
+            if (enablePageNumbers && footerHTMLTemplate) {
+                actualFooterText = footerHTMLTemplate.replace(/%p/g, i.toString()).replace(/%P/g, pageCount.toString());
+            } else if (footerHTMLTemplate) {
+                actualFooterText = footerHTMLTemplate.replace(/%p/g, '').replace(/%P/g, '').trim();
+            }
+
+            if (actualFooterText) {
+                pdf.setFontSize(footerFontSize);
+                pdf.setTextColor(footerFontColor);
+                let footerX = PDF_MARGIN_PT;
+                if (footerAlign === 'center') footerX = PDF_PAGE_WIDTH_PT / 2;
+                else if (footerAlign === 'right') footerX = PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT;
+                pdf.text(actualFooterText, footerX, PDF_PAGE_HEIGHT_PT - PDF_MARGIN_PT, { align: footerAlign, maxWidth: PDF_CONTENT_WIDTH_PT });
+            }
+        }
+
+        /* -------------------- 3c) Export blob -------------------------- */
+        const blob = pdf.output('blob');
+        if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value);
+        pdfUrl.value = URL.createObjectURL(blob);
+    } catch (error) {
+        console.error('PDF generation failed:', error);
+        if (pdfUrl.value) { URL.revokeObjectURL(pdfUrl.value); pdfUrl.value = ''; }
+        alert(`PDF generation failed: ${error.message}. Check console for details.`);
+    } finally {
+        if (iframe && iframe.parentNode === document.body) {
+            document.body.removeChild(iframe);
+        }
+    }
+}
+
+/* --------------------------- Additional watchers ----------------------- */
+watch(() => docStore.selectedFileContent, () => {
+    // Content change triggers the styles watcher via markdown re‑render
+});
+
+onMounted(() => {});
+onUnmounted(() => { if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value); });
+
+function goBack() { router.push('/'); }
+</script>
+
+<style scoped>
+/* Optional scoped styles */
+</style>
+
+----- END: /home/kris/Development/panino/frontend/src/pages/PrintStylesPage.vue -----
+
+----- START: /home/kris/Development/panino/frontend/src/pages/StylesPage.vue -----
+<template>
+    <CustomizeStylesPage :config="markdownStylesConfig" previewType="html" />
+</template>
+
+<script setup>
+import CustomizeStylesPage from './CustomizeStylesPage.vue';
+import { useDocStore } from '@/store/docStore';
+
+const docStore = useDocStore();
+
+const sampleMarkdown = `
+# Sample Document for Markdown Preview
+
+This document demonstrates how your selected markdown styles will appear in the application's live preview pane.
+
+## Text Formatting
+
+This is a paragraph containing **bold text**, _italic text_, and \`inline code\`. Strikethrough is also available using \`~~\` (e.g., ~~mistake~~).
+
+### Lists
+
+- Unordered List Item 1
+- Unordered List Item 2
+    - Nested Item A
+    - Nested Item B
+
+1. Ordered List Item 1
+2. Ordered List Item 2
+    1. Sub-ordered Item
+    2. Another Sub-ordered Item
+
+- [x] A completed task
+- [ ] An incomplete task
+
+## Block Elements
+
+> This is a blockquote. It's useful for quoting text from other sources.
+> It can span multiple lines.
+
+\`\`\`javascript
+// This is a JavaScript code block
+function greet(name) {
+    console.log(\`Hello, \${name}!\`);
+}
+greet('Developer');
+\`\`\`
+
+---
+
+## Tables
+
+Tables are structured with pipes and hyphens:
+
+| Left-aligned | Center-aligned | Right-aligned |
+| :----------- | :------------: | ------------: |
+| Content      |    Content     |      Content |
+| Item         |      Item      |          Item |
+
+## Links and Images
+
+A link to the [Vue.js documentation](https://vuejs.org/).
+
+An image:
+![Vue Logo](https://vuejs.org/images/logo.png)
+`;
+
+const markdownStylesConfig = {
+    title: 'Customize Markdown Styles',
+    getStyles: () => ({ ...docStore.styles }),
+    updateStyleAction: docStore.updateStyle,
+    getMarkdownIt: docStore.getMarkdownIt,
+    sampleMarkdown: sampleMarkdown,
+    styleCategories: {
+        'Headings': ['h1', 'h2', 'h3', 'h4'],
+        'Text': ['p', 'em', 'strong', 'code', 'blockquote'],
+        'Lists': ['ul', 'ol', 'li'],
+        'Links & Media': ['a', 'img'],
+        'Tables': ['table', 'tr', 'th', 'td'],
+        'Other': ['hr', 'pre']
+    },
+    extraFieldsTitle: 'Additional Settings', // Changed title
+    extraFields: [
+        { id: 'googleFontFamily', label: 'Google Font Family (e.g., Inter, Open Sans)', type: 'input', inputType: 'text', modelKey: 'googleFontFamily', placeholder: 'e.g., Inter:wght@400;700' }, // Added Google Font field
+        {
+            id: 'customCSS',
+            label: 'Custom CSS Block',
+            type: 'textarea',
+            modelKey: 'customCSS',
+            rows: 8,
+            placeholder: '/* Add any custom CSS here */\n.my-custom-class {\n  color: #ff0000;\n}\n\n/* You can also override existing styles */\nh1 {\n  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);\n}'
+        }
+    ]
+};
+</script>
+----- END: /home/kris/Development/panino/frontend/src/pages/StylesPage.vue -----
+
+----- START: /home/kris/Development/panino/frontend/src/store/docStore.js -----
+// src/store/docStore.js
+import { defineStore } from 'pinia'
+import { computed } from 'vue'
+import { useStructureStore } from './structureStore'
+import { useContentStore } from './contentStore'
+import { useMarkdownStore } from './markdownStore'
+import { useSyncStore } from './syncStore'
+import { useImportExportStore } from './importExportStore'
+import { useAuthStore } from './authStore'
+
+export const useDocStore = defineStore('docStore', () => {
+  const structureStore = useStructureStore()
+  const contentStore = useContentStore()
+  const markdownStore = useMarkdownStore()
+  const syncStore = useSyncStore()
+  const importExportStore = useImportExportStore()
+  const authStore = useAuthStore()
+
+  const data = computed(() => structureStore.data)
+  const selectedFileId = computed(() => structureStore.selectedFileId)
+  const selectedFolderId = computed(() => structureStore.selectedFolderId)
+  const openFolders = computed(() => structureStore.openFolders)
+
+  const styles = computed(() => markdownStore.styles)
+  const printStyles = computed(() => markdownStore.printStyles)
+
+  const itemsArray = computed(() => structureStore.itemsArray)
+  const rootItems = computed(() => structureStore.rootItems)
+  const selectedFile = computed(() => structureStore.selectedFile)
+  const selectedFileContent = computed(() => contentStore.selectedFileContent)
+
+  /**
+   * Initialize CouchDB, do a one-time pull, and load structure.
+   * (We no longer force live sync to be enabled here—user can enable it manually.)
+   */
+  async function initCouchDB() {
+    await syncStore.initializeDB()
+    
+    // If user is authenticated and not a guest, we'll pull from remote
+    if (authStore.isAuthenticated && authStore.user?.name !== 'guest') {
+      await syncStore.oneTimePull()
+    }
+    
+    await structureStore.loadStructure()
+    return true
+  }
+
+  async function destroyLocalDB(username) {
+    await syncStore.destroyDB(username)
+  }
+
+  function resetStore() {
+    structureStore.resetStore()
+    contentStore.clearCache()
+  }
+
+  function renameItem(itemId, newName) {
+    return structureStore.renameItem(itemId, newName)
+  }
+  
+  function selectFolder(folderId) {
+    structureStore.selectFolder(folderId)
+  }
+  
+  function selectFile(fileId) {
+    structureStore.selectFile(fileId)
+  }
+
+  function updateStyle(key, newVal) {
+    markdownStore.updateStyle(key, newVal)
+  }
+  
+  function getMarkdownIt() {
+    return markdownStore.getMarkdownIt()
+  }
+
+  function updatePrintStyle(key, newVal) {
+    markdownStore.updatePrintStyle(key, newVal)
+  }
+  
+  function getPrintMarkdownIt() {
+    return markdownStore.getPrintMarkdownIt()
+  }
+
+  /**
+   * Return up to `limit` most recently edited files,
+   * based on each file's `lastModified`.
+   */
+  async function getRecentDocuments(limit = 10) {
+    const fileDocs = await syncStore.allFileDocs()
+    const items = []
+
+    for (const row of fileDocs.rows) {
+      const doc = row.doc
+      if (doc && doc._id.startsWith('file:')) {
+        const fileId = doc._id.substring(5)
+        const structureItem = data.value.structure[fileId]
+        if (structureItem) {
+          const displayedDate = doc.lastModified || doc.createdTime || ''
+          items.push({
+            id: fileId,
+            name: structureItem.name,
+            displayedDate
+          })
+        }
+      }
+    }
+
+    items.sort((a, b) => new Date(b.displayedDate) - new Date(a.displayedDate))
+    return items.slice(0, limit)
+  }
+
+    // Add this function to the returned object in docStore.js
+  async function exportJson() {
+    // Make sure to await the Promise so we return the actual string
+    const jsonString = await importExportStore.exportDataAsJsonString();
+    return jsonString;
+  } 
+  return {
+    data,
+    selectedFileId,
+    selectedFolderId,
+    openFolders,
+    styles,
+    printStyles,
+    itemsArray,
+    rootItems,
+    selectedFile,
+    selectedFileContent,
+    structureStore,
+    syncStore,
+
+    getChildren: structureStore.getChildren,
+    createFile: structureStore.createFile,
+    createFolder: structureStore.createFolder,
+    deleteItem: structureStore.deleteItem,
+    renameItem,
+    selectFolder,
+    selectFile,
+    toggleFolder: structureStore.toggleFolder,
+    updateFileContent: contentStore.updateContent,
+
+    exportJson: exportJson,
+    exportZip: importExportStore.exportDataAsZip,
+    importData: importExportStore.importData,
+
+    updateStyle,
+    getMarkdownIt,
+    updatePrintStyle,
+    getPrintMarkdownIt,
+
+    initCouchDB,
+    destroyLocalDB,
+    resetStore,
+
+    getRecentDocuments
+  }
+})
+----- END: /home/kris/Development/panino/frontend/src/store/docStore.js -----
+
+----- START: /home/kris/Development/panino/frontend/src/store/markdownStore.js -----
+// frontend/src/store/markdownStore.js
+import { defineStore } from 'pinia'
+import { ref, watch } from 'vue'
+import MarkdownIt from 'markdown-it'
+import markdownItTaskLists from 'markdown-it-task-lists'
+import PouchDB from 'pouchdb-browser'
+import { useAuthStore } from './authStore'
+import { useSyncStore } from './syncStore'
+
+export const useMarkdownStore = defineStore('markdownStore', () => {
+    const authStore = useAuthStore()
+    const syncStore = useSyncStore()
+
+    /* ------------------------------------------------------------------
+     * Helpers for local DB access & debounce
+     * ----------------------------------------------------------------*/
+    function getLocalDB() {
+        if (!authStore.isAuthenticated || authStore.user?.name === 'guest') {
+            return new PouchDB('pn-markdown-notes-guest')
+        }
+        return new PouchDB(`pn-markdown-notes-${authStore.user.name.toLowerCase()}`)
+    }
+
+    function debounce(fn, wait = 500) {
+        let t
+        return (...args) => {
+            clearTimeout(t)
+            t = setTimeout(() => fn(...args), wait)
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * 1) Preview styles (improved defaults)
+     * ----------------------------------------------------------------*/
+    const styles = ref({
+        h1: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.875rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 1rem; display: block; color: #2c3e50;',
+        h2: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.5rem; font-weight: bold; margin-top: 1.2rem; margin-bottom: 0.8rem; display: block; color: #34495e;',
+        h3: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.25rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.6rem; display: block; color: #34495e;',
+        h4: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.125rem; font-weight: 600; margin-top: 0.8rem; margin-bottom: 0.5rem; display: block; color: #5d6d7e;',
+        p: 'font-family: Georgia, "Times New Roman", serif; font-size: 1rem; line-height: 1.6; margin-bottom: 0.8rem; text-align: justify;',
+        ul: 'font-family: Georgia, "Times New Roman", serif; list-style-type: disc; margin: 0.8rem 0; padding-left: 1.5rem;',
+        ol: 'font-family: Georgia, "Times New Roman", serif; list-style-type: decimal; margin: 0.8rem 0; padding-left: 1.5rem;',
+        li: 'margin-bottom: 0.4rem; padding-left: 0.3rem;',
+        code: 'font-family: "Courier New", Monaco, monospace; background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 0.2rem 0.4rem; border-radius: 3px; font-size: 0.9rem;',
+        pre: 'font-family: "Courier New", Monaco, monospace; background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 0.8rem; border-radius: 3px; margin: 0.8rem 0; overflow-x: auto; font-size: 0.9rem;',
+        blockquote: 'font-family: Georgia, "Times New Roman", serif; border-left: 4px solid #3498db; padding: 0.8rem 1rem; margin: 1rem 0; font-style: italic; color: #5d6d7e; background-color: #f8f9fa;',
+        hr: 'border: none; border-top: 2px solid #bdc3c7; margin: 1.5rem 0;',
+        em: 'font-style: italic;',
+        strong: 'font-weight: bold; color: #2c3e50;',
+        a: 'color: #3498db; text-decoration: underline; font-weight: 500;',
+        img: 'max-width: 100%; height: auto; margin: 1rem 0;',
+        table: 'font-family: Arial, Helvetica, sans-serif; border-collapse: collapse; border: 2px solid #34495e; margin: 1rem 0; width: 100%;',
+        tr: 'border-bottom: 1px solid #bdc3c7;',
+        th: 'border: 1px solid #34495e; background-color: #ecf0f1; padding: 0.8rem; text-align: left; font-weight: bold; color: #2c3e50;',
+        td: 'border: 1px solid #bdc3c7; padding: 0.8rem;',
+        customCSS: `/* Custom styles for enhanced preview */
+.document-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    background: white;
+}
+
+/* Additional typography improvements */
+h1:first-child {
+    margin-top: 0;
+}
+
+/* Better spacing for nested lists */
+ul ul, ol ol, ul ol, ol ul {
+    margin: 0.3rem 0;
+}
+
+/* Enhanced code block styling */
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+}`,
+        googleFontFamily: 'Inter', // New field for Google Fonts
+    })
+
+    /* ------------------------------------------------------------------
+     * 2) Print styles (professional defaults)
+     * ----------------------------------------------------------------*/
+    const printStyles = ref({
+        /* --- Headings (serif) --- */
+        h1: "font-family: 'Ivar Display', serif; font-size: 2.4rem; font-weight: 700; line-height: 1.1; word-spacing: 0.02em; margin-top: 2.6rem; margin-bottom: 1.2rem; color: #242A49; page-break-after: avoid;",
+        h2: "font-family: 'Ivar Display', serif; font-size: 1.1rem; font-weight: 700; line-height: 1.4; word-spacing: 0.02em; margin-top: 2rem; margin-bottom: 1rem; color: #242A49; page-break-after: avoid;",
+        h3: "font-family: 'Ivar Display', serif; font-size: 1.35rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.4rem; margin-bottom: 0.8rem; color: #2F3B62; page-break-after: avoid;",
+        h4: "font-family: 'Ivar Display', serif; font-size: 1.0rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.2rem; margin-bottom: 0.6rem; color: #334066; page-break-after: avoid;",
+
+        /* --- Body & Lists (sans-serif) --- */
+        p: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.7; margin-bottom: 1.05rem; color: #242A49; orphans: 3; widows: 3; page-break-inside: avoid;",
+        ul: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.6; list-style-type: disc; list-style-position: outside; margin: 1rem 0 1rem 1.4rem; padding-inline-start: 0; page-break-inside: avoid;",
+        ol: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.6; list-style-type: decimal; list-style-position: outside; margin: 1rem 0 1rem 1.4rem; padding-inline-start: 0; page-break-inside: avoid;",
+        li: "margin: 0 0 0.35rem; padding-left: 0.25rem; page-break-inside: avoid;",
+
+        /* --- Code & Preformatted --- */
+        code: "font-family: 'JetBrains Mono', monospace; background: #23272e; color: #f6f8fa; padding: 0.18em 0.5em; border-radius: 5px; font-size: 0.97em; line-height: 1.5;",
+        pre: "font-family: 'JetBrains Mono', monospace; background: #23272e; color: #f6f8fa; border: none; padding: 1em 1.5em; border-radius: 8px; margin: 1.5rem 0; overflow-x: auto; font-size: 0.97em; line-height: 1.6; page-break-inside: avoid;",
+
+        /* --- Blockquote, Divider & Accents --- */
+        blockquote: "border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; padding: 1rem 1.5rem; margin: 1.5rem 0; font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-style: italic; font-size: 1.07rem; line-height: 1.7; page-break-inside: avoid;",
+        hr: "border: none; border-top: 3px dotted #242A49; margin: 2.2rem 0; page-break-after: avoid;",
+        strong: "font-weight: 700; color: #FF335F;",
+        em: "font-style: italic;",
+        a: "color: #FF335F; text-decoration: underline; font-weight: 500;",
+
+        /* --- Imagery --- */
+        img: "max-width: 100%; height: auto; margin: 1.2rem 0; border-radius: 7px; box-shadow: 0 3px 6px rgba(36,42,73,0.1); page-break-inside: avoid;",
+
+        /* --- Tables (sans-serif) --- */
+        table: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; border-collapse: separate; border-spacing: 0; width: 100%; margin: 1.3rem 0; background: #F8FAFC; page-break-inside: avoid; break-inside: avoid;",
+        tr: "border-bottom: 1px solid #E5E7EB; page-break-inside: avoid; break-inside: avoid;",
+        th: "background: #E5ECF6; padding: 1em 0.7em; text-align: left; font-weight: 600; color: #242A49; font-size: 10pt; page-break-inside: avoid; break-inside: avoid;",
+        td: "padding: 0.85em 0.7em; color: #2F3B62; font-size: 10pt; line-height: 1.4; page-break-inside: avoid; break-inside: avoid;",
+
+        /* --- Header / Footer meta --- */
+        printHeaderHtml: "Professional Document",
+        printFooterHtml: "Page %p of %P",
+        headerFontSize: "10",
+        headerFontColor: "#666666",
+        headerAlign: "center",
+        footerFontSize: "10",
+        footerFontColor: "#666666",
+        footerAlign: "center",
+        enablePageNumbers: true,
+        googleFontFamily: 'Roboto', // New field for Google Fonts
+        // The default customCSS is already provided in the prompt
+
+        /* --- Global print overrides --- */
+        customCSS: `
+    @page { margin: 2.5cm; size: A4; }
+
+    body {
+        font-family: 'Messina Sans', 'Inter', Arial, sans-serif;
+        font-size: 11pt;
+        line-height: 1.7;
+        color: red !important;
+        background: red !important;
+    }
+
+    h1, h2, h3, h4, h5, h6 { page-break-after: avoid; page-break-inside: avoid; }
+
+    ul, ol, li,
+    table, figure, img, blockquote, pre { page-break-inside: avoid !important; break-inside: avoid !important; }
+
+    ul, ol { list-style-position: outside; margin-left: 1.4rem; padding-inline-start: 0; }
+    li { margin: 0 0 0.35rem; }
+
+    blockquote { border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; }
+
+    hr { border: none; border-top: 3px dotted #242A49; }
+
+    table { font-family: 'Messina Sans', 'Inter', Arial, sans-serif; }
+
+    .no-print { display: none !important; }
+    .page-break { page-break-before: always; }
+    .page-break-after { page-break-after: always; }
+`,
+    });
+
+
+    /* ------------------------------------------------------------------
+     * Google Fonts Integration
+     * ----------------------------------------------------------------*/
+
+    // Cache for fetched font data (Base64)
+    const fontCache = ref(new Map()); // Use ref to make it reactive for dev tools inspection
+
+    /**
+     * Fetches Google Fonts CSS and converts font files to Base64.
+     * Tries to get TTF/WOFF for jsPDF compatibility.
+     * @param {string} fontFamily e.g., 'Roboto:wght@400;700&display=swap'
+     * @returns {Promise<{css: string, fonts: Array<{name: string, data: string, format: string, style: string, weight: string, cssRule: string}>}>}
+     */
+    async function getGoogleFontData(fontFamily) {
+        if (!fontFamily || fontFamily.trim() === '') {
+            return { css: '', fonts: [] };
+        }
+
+        if (fontCache.value.has(fontFamily)) { // Access value property for ref
+            return fontCache.value.get(fontFamily);
+        }
+
+        console.log(`Fetching Google Font data for: ${fontFamily}`);
+        // Attempt to request formats more compatible with jsPDF (truetype or woff)
+        // Note: Google Fonts may still serve woff2 if it deems it optimal for the browser.
+        const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(fontFamily)}&display=swap`;
+
+        try {
+            const cssResponse = await fetch(url);
+            if (!cssResponse.ok) {
+                throw new Error(`Failed to fetch font CSS from Google Fonts: ${cssResponse.statusText}`);
+            }
+            let cssText = await cssResponse.text();
+
+            // Regex to capture the entire @font-face block and its URL/format/font-family
+            // This regex is refined to correctly capture the entire @font-face block including its contents
+            // and then extract the URL, format, font-family, font-style, and font-weight.
+            const fontFaceRuleRegex = /(@font-face\s*{[\s\S]*?})/g; // Captures entire @font-face blocks
+            const urlFormatRegex = /url\s*\(\s*['"]?([^'"]+)['"]?\)\s*format\s*\(['"]?([^'"]+)['"]?\)/i;
+            const fontFamilyRegex = /font-family:\s*['"]?([^'"]+)['"]?/i;
+            const fontStyleRegex = /font-style:\s*([^;]+)/i;
+            const fontWeightRegex = /font-weight:\s*([^;]+)/i;
+
+            let ruleMatch;
+            const fetchedFonts = [];
+            let processedCssText = cssText;
+
+            while ((ruleMatch = fontFaceRuleRegex.exec(cssText)) !== null) {
+                const fullRule = ruleMatch[1]; // The entire @font-face block
+                const urlFormatMatch = urlFormatRegex.exec(fullRule);
+
+                if (urlFormatMatch) {
+                    const fontUrl = urlFormatMatch[1];
+                    const format = urlFormatMatch[2];
+
+                    const fontFamilyMatch = fontFamilyRegex.exec(fullRule);
+                    const name = fontFamilyMatch ? fontFamilyMatch[1] : `anonymous-font-${Date.now()}`;
+
+                    const fontStyleMatch = fontStyleRegex.exec(fullRule);
+                    const style = fontStyleMatch ? fontStyleMatch[1].trim() : 'normal';
+
+                    const fontWeightMatch = fontWeightRegex.exec(fullRule);
+                    const weight = fontWeightMatch ? fontWeightMatch[1].trim() : 'normal';
+
+                    try {
+                        const fontResponse = await fetch(fontUrl);
+                        if (!fontResponse.ok) {
+                            console.warn(`Failed to fetch font file ${fontUrl}: ${fontResponse.statusText}`);
+                            continue;
+                        }
+                        const fontBlob = await fontResponse.blob();
+                        const base64Data = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(fontBlob);
+                        });
+
+                        fetchedFonts.push({
+                            name, // This is the font-family name from CSS
+                            data: base64Data, // Base64 data of the font file
+                            format, // Original format from Google Fonts (e.g., 'woff2', 'truetype')
+                            style,
+                            weight,
+                            cssRule: fullRule // Store the full CSS rule for later reference
+                        });
+
+                        // Replace original URL in the CSS with Base64 data for rendering in iframe
+                        processedCssText = processedCssText.replace(fontUrl, base64Data);
+
+                    } catch (fontError) {
+                        console.error(`Error processing font file ${fontUrl}:`, fontError);
+                    }
+                }
+            }
+
+            const result = { css: processedCssText, fonts: fetchedFonts };
+            fontCache.value.set(fontFamily, result); // Access value property for ref
+            return result;
+        } catch (error) {
+            console.error('Error fetching Google Fonts:', error);
+            // Return empty if there's an error, to avoid breaking the app
+            return { css: '', fonts: [] };
+        }
+    }
+
+
+    /* ------------------------------------------------------------------
+     * 3) Persistence: load & save styles
+     * ----------------------------------------------------------------*/
+    let stylesLoaded = false
+
+    async function loadStylesFromDB() {
+        if (!syncStore.isInitialized) {
+            await syncStore.initializeDB()
+        }
+        try {
+            const db = getLocalDB()
+            const doc = await db.get('markdownStylesDoc')
+            if (doc.previewStyles) {
+                Object.assign(styles.value, doc.previewStyles)
+            }
+            if (doc.printStyles) {
+                const loadedPrintStyles = doc.printStyles;
+                for (const key in printStyles.value) {
+                    if (loadedPrintStyles.hasOwnProperty(key)) {
+                        printStyles.value[key] = loadedPrintStyles[key];
+                    }
+                }
+            }
+            stylesLoaded = true
+        } catch (err) {
+            if (err.status === 404) {
+                stylesLoaded = true
+            } else {
+                console.error('[markdownStore] Failed to load styles', err)
+            }
+        }
+    }
+
+    const saveStylesDebounced = debounce(saveStylesToDB, 500)
+
+    async function saveStylesToDB() {
+        if (!stylesLoaded) return
+        try {
+            const db = getLocalDB()
+            let doc
+            try {
+                doc = await db.get('markdownStylesDoc')
+            } catch (err) {
+                if (err.status === 404) {
+                    doc = { _id: 'markdownStylesDoc' }
+                } else {
+                    throw err
+                }
+            }
+            doc.previewStyles = { ...styles.value }
+            doc.printStyles = { ...printStyles.value }
+            doc.lastModified = new Date().toISOString()
+            await db.put(doc)
+        } catch (err) {
+            console.error('[markdownStore] Failed to save styles', err)
+        }
+    }
+
+    // Load styles once syncStore is ready
+    if (syncStore.isInitialized) {
+        loadStylesFromDB()
+    } else {
+        watch(() => syncStore.isInitialized, (v) => {
+            if (v) loadStylesFromDB()
+        })
+    }
+
+    /* ------------------------------------------------------------------
+     * 4) Mutators that also persist
+     * ----------------------------------------------------------------*/
+    function updateStyle(key, newVal) {
+        if (styles.value[key] !== undefined) {
+            styles.value[key] = newVal
+            saveStylesDebounced()
+        }
+    }
+
+    function updatePrintStyle(key, newVal) {
+        if (printStyles.value[key] !== undefined) {
+            printStyles.value[key] = newVal
+            saveStylesDebounced()
+            // Harmonize preview styles with print styles for font families
+            if (key === 'googleFontFamily') {
+                styles.value.googleFontFamily = newVal;
+                // Also update individual font-family properties in preview styles
+                const commonFontProperties = ['h1', 'h2', 'h3', 'h4', 'p', 'ul', 'ol', 'li', 'blockquote', 'table', 'th', 'td'];
+                commonFontProperties.forEach(styleKey => {
+                    if (styles.value[styleKey]) {
+                        // Regex to replace or add font-family
+                        let updatedCss = styles.value[styleKey].replace(/font-family:([^;]+);?/g, '').trim();
+                        updatedCss = `font-family: '${newVal.split(':')[0].trim().replace(/\+/g, ' ')}', sans-serif; ${updatedCss}`;
+                        styles.value[styleKey] = updatedCss.trim();
+                    }
+                });
+            }
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * 5) CSS injection helpers
+     * ----------------------------------------------------------------*/
+    function applyCSSToElement(element, cssString) {
+        if (!cssString || !element) return
+
+        // Parse CSS string and apply individual properties
+        const declarations = cssString.split(';').filter(decl => decl.trim())
+        declarations.forEach(declaration => {
+            const [property, value] = declaration.split(':').map(s => s.trim())
+            if (property && value) {
+                // Convert kebab-case to camelCase for JavaScript
+                const camelProperty = property.replace(/-([a-z])/g, (match, letter) => letter.toUpperCase())
+                try {
+                    element.style[camelProperty] = value
+                } catch (e) {
+                    console.warn(`Failed to apply CSS property ${property}: ${value}`, e)
+                }
+            }
+        })
+    }
+
+    function addCustomCSSToDocument(cssString, documentRef = document) {
+        if (!cssString || !cssString.trim()) return
+
+        // Remove existing custom style element
+        const existingStyle = documentRef.getElementById('markdown-custom-styles')
+        if (existingStyle) {
+            existingStyle.remove()
+        }
+
+        // Create and append new style element
+        const styleElement = documentRef.createElement('style')
+        styleElement.id = 'markdown-custom-styles'
+        styleElement.textContent = cssString
+        documentRef.head.appendChild(styleElement)
+    }
+
+    /* ------------------------------------------------------------------
+     * 6) Markdown-it helper & CSS-based renderer
+     * ----------------------------------------------------------------*/
+    function configureRenderer(md, styleMap) {
+        // Apply custom CSS to document if provided
+        if (styleMap.customCSS) {
+            addCustomCSSToDocument(styleMap.customCSS)
+        }
+        // Inject Google Font CSS if available
+        if (styleMap.googleFontData && styleMap.googleFontData.css) {
+            addCustomCSSToDocument(styleMap.googleFontData.css, document);
+        }
+
+        // Headings
+        md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
+            const token = tokens[idx]
+            const css = styleMap[token.tag]
+            if (css) {
+                token.attrSet('style', css)
+            }
+            return self.renderToken(tokens, idx, opts)
+        }
+
+        // Paragraphs
+        const defPara = md.renderer.rules.paragraph_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.paragraph_open = (tokens, idx, opts, env, self) => {
+            const css = styleMap.p
+            if (css) {
+                tokens[idx].attrSet('style', css)
+            }
+            return defPara(tokens, idx, opts, env, self)
+        }
+
+        // Lists
+        md.renderer.rules.bullet_list_open = (t, i, o, e, s) => {
+            const css = styleMap.ul
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.ordered_list_open = (t, i, o, e, s) => {
+            const css = styleMap.ol
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        const defLi = md.renderer.rules.list_item_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.list_item_open = (tokens, idx, opts, env, self) => {
+            const css = styleMap.li
+            if (css) tokens[idx].attrSet('style', css)
+            return defLi(tokens, idx, opts, env, self)
+        }
+
+        // Inline code
+        const defCodeInline = md.renderer.rules.code_inline || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.code_inline = (t, i, o, e, s) => {
+            const css = styleMap.code
+            if (css) t[i].attrSet('style', css)
+            t[i].content = md.utils.escapeHtml(t[i].content)
+            return defCodeInline(t, i, o, e, s)
+        }
+
+        // Code blocks
+        const defFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.fence = (t, i, o, e, s) => {
+            const css = styleMap.pre
+            if (css) t[i].attrSet('style', css)
+            t[i].content = md.utils.escapeHtml(t[i].content)
+            return defFence(t, i, o, e, s)
+        }
+        const defCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o))
+        md.renderer.rules.code_block = (t, i, o, e, s) => {
+            const css = styleMap.pre
+            if (css) t[i].attrSet('style', css)
+            t[i].content = md.utils.escapeHtml(t[i].content)
+            return defCodeBlock(t, i, o, e, s)
+        }
+
+        // Blockquote
+        md.renderer.rules.blockquote_open = (t, i, o, e, s) => {
+            const css = styleMap.blockquote
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+
+        // HR
+        md.renderer.rules.hr = (t, i, o, e, s) => {
+            const css = styleMap.hr
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+
+        // Em / strong
+        md.renderer.rules.em_open = (t, i, o, e, s) => {
+            const css = styleMap.em
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.strong_open = (t, i, o, e, s) => {
+            const css = styleMap.strong
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+
+        // Links
+        md.renderer.rules.link_open = (t, i, o, e, s) => {
+            const css = styleMap.a
+            if (css) t[i].attrSet('style', css)
+            const href = t[i].attrGet('href')
+            if (href && (href.startsWith('http') || href.startsWith('//'))) {
+                t[i].attrSet('target', '_blank')
+                t[i].attrSet('rel', 'noopener noreferrer')
+            }
+            return s.renderToken(t, i, o)
+        }
+
+        // Images
+        md.renderer.rules.image = (t, i, o, e, s) => {
+            const css = styleMap.img
+            if (css) t[i].attrSet('style', css)
+            t[i].attrSet('loading', 'lazy')
+            return s.renderToken(t, i, o)
+        }
+
+        // Tables
+        md.renderer.rules.table_open = (t, i, o, e, s) => {
+            const css = styleMap.table
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.tr_open = (t, i, o, e, s) => {
+            const css = styleMap.tr
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.th_open = (t, i, o, e, s) => {
+            const css = styleMap.th
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.td_open = (t, i, o, e, s) => {
+            const css = styleMap.td
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+    }
+
+    function baseMd() {
+        return new MarkdownIt({ html: true, linkify: true, typographer: true, breaks: true })
+            .use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true })
+    }
+
+    function getMarkdownIt() {
+        const md = baseMd()
+        configureRenderer(md, styles.value)
+        return md
+    }
+
+    async function getPrintMarkdownIt() {
+        const md = baseMd()
+        // Fetch and embed Google Fonts for print if specified
+        const googleFontData = await getGoogleFontData(printStyles.value.googleFontFamily);
+        const printStyleMap = { ...printStyles.value, googleFontData };
+        configureRenderer(md, printStyleMap);
+        return md
+    }
+
+    /* ------------------------------------------------------------------
+     * Expose store API
+     * ----------------------------------------------------------------*/
+    return {
+        // Reactive maps
+        styles,
+        printStyles,
+
+        // Mutators
+        updateStyle,
+        updatePrintStyle,
+
+        // Renderers
+        getMarkdownIt,
+        getPrintMarkdownIt,
+
+        // CSS utilities
+        applyCSSToElement,
+        addCustomCSSToDocument,
+        getGoogleFontData // Expose this for testing or other uses
+    }
+})
+----- END: /home/kris/Development/panino/frontend/src/store/markdownStore.js -----
+
