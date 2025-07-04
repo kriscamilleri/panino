@@ -91,7 +91,8 @@ function debounce(fn, wait) {
 const isProduction = import.meta.env.PROD
 const devImageServiceUrl =
   import.meta.env.VITE_IMAGE_SERVICE_URL || 'http://localhost:3001'
-const imageServiceUrl = isProduction ? '' : devImageServiceUrl
+
+  const imageServiceUrl = isProduction ? '' : devImageServiceUrl
 
 /* ───── stores & refs ───── */
 const docStore = useDocStore()

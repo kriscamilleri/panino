@@ -48,7 +48,8 @@
                 <button @click="insertTable"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
                     title="Insert Table" data-testid="submenu-document-table">
-                    <Table class="w-4 h-4" /><span>Table</span>
+                    <Table class="w-4 h-4" />
+                    <span>Table</span>
                 </button>
 
                 <button @click="insertCodeBlock"
@@ -75,8 +76,6 @@
                 <input ref="imageInput" type="file" accept="image/*" class="hidden" @change="handleImageSelect" />
 
                 <div class="w-px h-6 bg-gray-300 mx-2"></div>
-
-
 
                 <!-- Find / Replace -->
                 <div class="flex items-center gap-2">
@@ -146,12 +145,8 @@
                     <FolderArchive class="w-4 h-4" /><span>Export Markdown</span>
                 </BaseButton>
 
-                <BaseButton @click="handlePrint" data-testid="submenu-tools-print-document">
-                    <Printer class="w-4 h-4" /><span>Print Document</span>
-                </BaseButton>
-
-                <BaseButton @click="goToPrintStyles" data-testid="submenu-tools-print-styles">
-                    <Printer class="w-4 h-4" /><span>Print Styles</span>
+                <BaseButton @click="goToPrintStyles" data-testid="submenu-tools-print">
+                    <Printer class="w-4 h-4" /><span>Print</span>
                 </BaseButton>
             </div>
         </div>
@@ -259,7 +254,7 @@ function replaceAll(term, repl) {
     editorRef().replaceAll?.(term, repl)
 }
 
-/* Navigation & exports (unchanged) */
+/* Navigation & exports */
 function goToStyles() {
     router.push('/styles')
 }
@@ -287,70 +282,6 @@ async function handleExportZip() {
     } catch (err) {
         console.error(err)
         alert('Failed to export ZIP.')
-    }
-}
-async function handlePrint() {
-    if (!docStore.selectedFile) {
-        alert('Please select a file to print')
-        return
-    }
-    const printWindow = window.open('', '_blank')
-    if (!printWindow) {
-        alert('Please allow popup windows for printing')
-        return
-    }
-    const printMd = docStore.getPrintMarkdownIt()
-    const content = printMd.render(docStore.selectedFileContent || '')
-
-    const { printHeaderHtml = '', printFooterHtml = '' } = docStore.printStyles
-
-    const basePrintStyles = `
-      <style>
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          line-height: 1.6;
-          max-width: 800px;
-          margin: 40px auto;
-          padding: 0 20px;
-        }
-        @media print {
-          body { margin: 1.6cm; }
-          pre, code { white-space: pre-wrap; }
-        }
-      </style>
-    `
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${docStore.selectedFile.name}</title>
-        <link
-          rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css"
-          integrity="sha512-wnea99uKIC3TJF7v4eKk4Y+lMz2Mklv18+r4na2Gn1abDRPPOeef95xTzdwGD9e6zXJBteMIhZ1+68QC5byJZw=="
-          crossorigin="anonymous"
-          referrerpolicy="no-referrer"
-        />
-        ${basePrintStyles}
-      </head>
-      <body>
-        ${printHeaderHtml}
-        ${content}
-        ${printFooterHtml}
-      </body>
-      </html>
-    `)
-
-    printWindow.document.close()
-
-    printWindow.onload = () => {
-        setTimeout(() => {
-            printWindow.print()
-            printWindow.onafterprint = () => {
-                printWindow.close()
-            }
-        }, 500)
     }
 }
 </script>

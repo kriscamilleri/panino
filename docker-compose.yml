@@ -56,5 +56,17 @@ services:
       couchdb:
         condition: service_healthy
 
+  font-service:
+    build:
+      context: ./backend/font-service
+    environment:
+      - PORT=3002
+      - NODE_ENV=production
+    ports:
+      - "127.0.0.1:3002:3002"
+    depends_on:
+      couchdb:
+        condition: service_healthy
+
 volumes:
   couchdb_data:

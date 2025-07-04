@@ -40,7 +40,7 @@ This is a paragraph containing **bold text**, _italic text_, and \`inline code\`
 \`\`\`javascript
 // This is a JavaScript code block
 function greet(name) {
-  console.log(\`Hello, \${name}!\`);
+    console.log(\`Hello, \${name}!\`);
 }
 greet('Developer');
 \`\`\`
@@ -53,7 +53,7 @@ Tables are structured with pipes and hyphens:
 
 | Left-aligned | Center-aligned | Right-aligned |
 | :----------- | :------------: | ------------: |
-| Content      |    Content     |       Content |
+| Content      |    Content     |      Content |
 | Item         |      Item      |          Item |
 
 ## Links and Images
@@ -66,7 +66,7 @@ An image:
 
 const markdownStylesConfig = {
     title: 'Customize Markdown Styles',
-    getStyles: () => ({ ...docStore.styles }), // Creates a reactive copy for local editing
+    getStyles: () => ({ ...docStore.styles }),
     updateStyleAction: docStore.updateStyle,
     getMarkdownIt: docStore.getMarkdownIt,
     sampleMarkdown: sampleMarkdown,
@@ -78,6 +78,17 @@ const markdownStylesConfig = {
         'Tables': ['table', 'tr', 'th', 'td'],
         'Other': ['hr', 'pre']
     },
-    extraFields: [] // No extra fields for regular markdown styles
+    extraFieldsTitle: 'Additional Settings', // Changed title
+    extraFields: [
+        { id: 'googleFontFamily', label: 'Google Font Family (e.g., Inter, Open Sans)', type: 'input', inputType: 'text', modelKey: 'googleFontFamily', placeholder: 'e.g., Inter:wght@400;700' }, // Added Google Font field
+        {
+            id: 'customCSS',
+            label: 'Custom CSS Block',
+            type: 'textarea',
+            modelKey: 'customCSS',
+            rows: 8,
+            placeholder: '/* Add any custom CSS here */\n.my-custom-class {\n  color: #ff0000;\n}\n\n/* You can also override existing styles */\nh1 {\n  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);\n}'
+        }
+    ]
 };
 </script>

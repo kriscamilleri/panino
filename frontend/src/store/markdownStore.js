@@ -6,6 +6,7 @@ import markdownItTaskLists from 'markdown-it-task-lists'
 import PouchDB from 'pouchdb-browser'
 import { useAuthStore } from './authStore'
 import { useSyncStore } from './syncStore'
+import { fetchGoogleFontTtf } from '@/utils/googleFontTtf.js'   // ← NEW import
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
     const authStore = useAuthStore()
@@ -28,71 +29,202 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
             t = setTimeout(() => fn(...args), wait)
         }
     }
+    const fontCache = ref(new Map())
 
     /* ------------------------------------------------------------------
-     * 1) Preview styles
+     * 1) Preview styles (improved defaults)
      * ----------------------------------------------------------------*/
     const styles = ref({
-        h1: 'text-3xl font-bold mt-4 mb-2 block',
-        h2: 'text-2xl font-semibold mt-3 mb-2 block',
-        h3: 'text-xl font-semibold mt-2 mb-1 block',
-        h4: 'text-lg font-semibold mt-2 mb-1 block text-gray-600',
-        p: 'mb-2 leading-relaxed',
-        ul: 'list-disc list-inside mb-2',
-        ol: 'list-decimal list-inside mb-2',
-        li: 'ml-5 mb-1',
-        code: 'bg-gray-100 text-sm px-1 py-0.5 rounded',
-        pre: 'bg-gray-100 p-2 rounded my-2 overflow-x-auto text-sm',
-        blockquote: 'border-l-4 border-gray-300 pl-4 italic my-2',
-        hr: 'border-t my-4',
-        em: 'italic',
-        strong: 'font-bold',
-        a: 'text-blue-600 underline',
-        img: 'max-w-full h-auto my-2',
-        table: 'border-collapse border border-gray-300 my-2 w-full',
-        tr: 'border-t border-gray-200',
-        th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold',
-        td: 'border border-gray-300 px-2 py-1'
+        h1: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.875rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 1rem; display: block; color: #2c3e50;',
+        h2: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.5rem; font-weight: bold; margin-top: 1.2rem; margin-bottom: 0.8rem; display: block; color: #34495e;',
+        h3: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.25rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.6rem; display: block; color: #34495e;',
+        h4: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.125rem; font-weight: 600; margin-top: 0.8rem; margin-bottom: 0.5rem; display: block; color: #5d6d7e;',
+        p: 'font-family: Georgia, "Times New Roman", serif; font-size: 1rem; line-height: 1.6; margin-bottom: 0.8rem; text-align: justify;',
+        ul: 'font-family: Georgia, "Times New Roman", serif; list-style-type: disc; margin: 0.8rem 0; padding-left: 1.5rem;',
+        ol: 'font-family: Georgia, "Times New Roman", serif; list-style-type: decimal; margin: 0.8rem 0; padding-left: 1.5rem;',
+        li: 'margin-bottom: 0.4rem; padding-left: 0.3rem;',
+        code: 'font-family: "Courier New", Monaco, monospace; background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 0.2rem 0.4rem; border-radius: 3px; font-size: 0.9rem;',
+        pre: 'font-family: "Courier New", Monaco, monospace; background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 0.8rem; border-radius: 3px; margin: 0.8rem 0; overflow-x: auto; font-size: 0.9rem;',
+        blockquote: 'font-family: Georgia, "Times New Roman", serif; border-left: 4px solid #3498db; padding: 0.8rem 1rem; margin: 1rem 0; font-style: italic; color: #5d6d7e; background-color: #f8f9fa;',
+        hr: 'border: none; border-top: 2px solid #bdc3c7; margin: 1.5rem 0;',
+        em: 'font-style: italic;',
+        strong: 'font-weight: bold; color: #2c3e50;',
+        a: 'color: #3498db; text-decoration: underline; font-weight: 500;',
+        img: 'max-width: 100%; height: auto; margin: 1rem 0;',
+        table: 'font-family: Arial, Helvetica, sans-serif; border-collapse: collapse; border: 2px solid #34495e; margin: 1rem 0; width: 100%;',
+        tr: 'border-bottom: 1px solid #bdc3c7;',
+        th: 'border: 1px solid #34495e; background-color: #ecf0f1; padding: 0.8rem; text-align: left; font-weight: bold; color: #2c3e50;',
+        td: 'border: 1px solid #bdc3c7; padding: 0.8rem;',
+        customCSS: `/* Custom styles for enhanced preview */
+.document-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    background: white;
+}
+
+/* Additional typography improvements */
+h1:first-child {
+    margin-top: 0;
+}
+
+/* Better spacing for nested lists */
+ul ul, ol ol, ul ol, ol ul {
+    margin: 0.3rem 0;
+}
+
+/* Enhanced code block styling */
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+}`,
+        googleFontFamily: 'Inter', // New field for Google Fonts
     })
 
     /* ------------------------------------------------------------------
-     * 2) Print styles
+     * 2) Print styles (professional defaults)
      * ----------------------------------------------------------------*/
     const printStyles = ref({
-        h1: 'font-bold text-2xl my-2 block',
-        h2: 'font-bold text-xl my-2 block',
-        h3: 'font-bold text-lg my-1 block',
-        h4: 'font-semibold text-base my-1 block text-gray-700',
-        p: 'mb-2 leading-relaxed',
-        ul: 'list-disc mb-2 ml-8',
-        ol: 'list-decimal mb-2 ml-8',
-        li: 'mb-1',
-        code: 'bg-gray-200 px-1 py-0.5 rounded text-sm font-mono',
-        pre: 'bg-gray-200 p-2 rounded my-2 overflow-x-auto text-sm font-mono',
-        blockquote: 'border-l-4 border-gray-300 pl-4 italic my-2',
-        hr: 'border-t my-4',
-        em: 'italic',
-        strong: 'font-bold',
-        a: 'underline text-blue-700',
-        img: 'max-w-full h-auto my-2',
-        table: 'border-collapse border border-gray-300 my-2 w-full',
-        tr: 'border-t border-gray-200',
-        th: 'border border-gray-300 bg-gray-100 px-2 py-1 text-left font-semibold',
-        td: 'border border-gray-300 px-2 py-1',
+        /* --- Headings (serif) --- */
+        h1: "font-family: 'Ivar Display', serif; font-size: 2.4rem; font-weight: 700; line-height: 1.1; word-spacing: 0.02em; margin-top: 2.6rem; margin-bottom: 1.2rem; color: #242A49; page-break-after: avoid;",
+        h2: "font-family: 'Ivar Display', serif; font-size: 1.1rem; font-weight: 700; line-height: 1.4; word-spacing: 0.02em; margin-top: 2rem; margin-bottom: 1rem; color: #242A49; page-break-after: avoid;",
+        h3: "font-family: 'Ivar Display', serif; font-size: 1.35rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.4rem; margin-bottom: 0.8rem; color: #2F3B62; page-break-after: avoid;",
+        h4: "font-family: 'Ivar Display', serif; font-size: 1.0rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.2rem; margin-bottom: 0.6rem; color: #334066; page-break-after: avoid;",
 
-        printHeaderHtml: 'My Document Header',
-        printFooterHtml: 'Page %p of %P',
-        
-        // New properties for header/footer styling
-        headerFontSize: "10", // Store as string, convert to number in component
-        headerFontColor: "#808080", // Gray
-        headerAlign: "center", // 'left', 'center', 'right'
+        /* --- Body & Lists (sans-serif) --- */
+        p: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.7; margin-bottom: 1.05rem; color: #242A49; orphans: 3; widows: 3; page-break-inside: avoid;",
+        ul: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.6; list-style-type: disc; list-style-position: outside; margin: 1rem 0 1rem 1.4rem; padding-inline-start: 0; page-break-inside: avoid;",
+        ol: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.6; list-style-type: decimal; list-style-position: outside; margin: 1rem 0 1rem 1.4rem; padding-inline-start: 0; page-break-inside: avoid;",
+        li: "margin: 0 0 0.35rem; padding-left: 0.25rem; page-break-inside: avoid;",
+
+        /* --- Code & Preformatted --- */
+        code: "font-family: 'JetBrains Mono', monospace; background: #23272e; color: #f6f8fa; padding: 0.18em 0.5em; border-radius: 5px; font-size: 0.97em; line-height: 1.5;",
+        pre: "font-family: 'JetBrains Mono', monospace; background: #23272e; color: #f6f8fa; border: none; padding: 1em 1.5em; border-radius: 8px; margin: 1.5rem 0; overflow-x: auto; font-size: 0.97em; line-height: 1.6; page-break-inside: avoid;",
+
+        /* --- Blockquote, Divider & Accents --- */
+        blockquote: "border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; padding: 1rem 1.5rem; margin: 1.5rem 0; font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-style: italic; font-size: 1.07rem; line-height: 1.7; page-break-inside: avoid;",
+        hr: "border: none; border-top: 3px dotted #242A49; margin: 2.2rem 0; page-break-after: avoid;",
+        strong: "font-weight: 700; color: #FF335F;",
+        em: "font-style: italic;",
+        a: "color: #FF335F; text-decoration: underline; font-weight: 500;",
+
+        /* --- Imagery --- */
+        img: "max-width: 100%; height: auto; margin: 1.2rem 0; border-radius: 7px; box-shadow: 0 3px 6px rgba(36,42,73,0.1); page-break-inside: avoid;",
+
+        /* --- Tables (sans-serif) --- */
+        table: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; border-collapse: separate; border-spacing: 0; width: 100%; margin: 1.3rem 0; background: #F8FAFC; page-break-inside: avoid; break-inside: avoid;",
+        tr: "border-bottom: 1px solid #E5E7EB; page-break-inside: avoid; break-inside: avoid;",
+        th: "background: #E5ECF6; padding: 1em 0.7em; text-align: left; font-weight: 600; color: #242A49; font-size: 10pt; page-break-inside: avoid; break-inside: avoid;",
+        td: "padding: 0.85em 0.7em; color: #2F3B62; font-size: 10pt; line-height: 1.4; page-break-inside: avoid; break-inside: avoid;",
+
+        /* --- Header / Footer meta --- */
+        printHeaderHtml: "Professional Document",
+        printFooterHtml: "Page %p of %P",
+        headerFontSize: "10",
+        headerFontColor: "#666666",
+        headerAlign: "center",
         footerFontSize: "10",
-        footerFontColor: "#808080",
+        footerFontColor: "#666666",
         footerAlign: "center",
-        enablePageNumbers: true // New property
+        enablePageNumbers: true,
+        googleFontFamily: 'Roboto', // New field for Google Fonts
+        // The default customCSS is already provided in the prompt
 
-    })
+        /* --- Global print overrides --- */
+        customCSS: `
+    @page { margin: 2.5cm; size: A4; }
+
+    body {
+        font-family: 'Messina Sans', 'Inter', Arial, sans-serif;
+        font-size: 11pt;
+        line-height: 1.7;
+        color: red !important;
+        background: red !important;
+    }
+
+    h1, h2, h3, h4, h5, h6 { page-break-after: avoid; page-break-inside: avoid; }
+
+    ul, ol, li,
+    table, figure, img, blockquote, pre { page-break-inside: avoid !important; break-inside: avoid !important; }
+
+    ul, ol { list-style-position: outside; margin-left: 1.4rem; padding-inline-start: 0; }
+    li { margin: 0 0 0.35rem; }
+
+    blockquote { border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; }
+
+    hr { border: none; border-top: 3px dotted #242A49; }
+
+    table { font-family: 'Messina Sans', 'Inter', Arial, sans-serif; }
+
+    .no-print { display: none !important; }
+    .page-break { page-break-before: always; }
+    .page-break-after { page-break-after: always; }
+`,
+    });
+
+
+    
+  /**
+   * Fetch Google Font CSS (for the live HTML preview) **and**
+   * Base-64-encoded TTF binaries (for jsPDF embedding).
+   *
+   * @param {string} fontFamily – "Roboto" or "Inter:wght@400;700"
+   * @return {Promise<{css:string, fonts:Array<{name,data,format,style,weight}>}>}
+   */
+  async function getGoogleFontData (fontFamily) {
+    if (!fontFamily || !fontFamily.trim()) {
+      return { css: '', fonts: [] }
+    }
+
+    if (fontCache.value.has(fontFamily)) {
+      return fontCache.value.get(fontFamily)
+    }
+
+    try {
+      /* ---------- 1. Grab TTF URLs from google-webfonts-helper ---------- */
+      const variants   = await fetchGoogleFontTtf(fontFamily)
+      const fonts      = []
+
+      for (const v of variants) {
+        const key = `${v.family}-${v.weight}-${v.style}`
+        if (fontCache.value.has(key)) {
+          fonts.push(fontCache.value.get(key))
+          continue
+        }
+
+        const blob = await fetch(v.url).then(r => r.blob())
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result)
+          reader.onerror   = reject
+          reader.readAsDataURL(blob)
+        })
+
+        const fontObj = {
+          name  : v.family,
+          data  : base64,          // data:…;base64,
+          format: 'truetype',
+          style : v.style,
+          weight: v.weight,
+        }
+
+        fontCache.value.set(key, fontObj) // cache each variant
+        fonts.push(fontObj)
+      }
+
+      /* ---------- 2. CSS import for the live preview iframe ------------- */
+      const css = `@import url('https://fonts.googleapis.com/css2` +
+                  `?family=${encodeURIComponent(fontFamily)}&display=swap');`
+
+      const result = { css, fonts }
+      fontCache.value.set(fontFamily, result)
+      return result
+    } catch (err) {
+      console.error('[markdownStore] Google-Font fetch failed', err)
+      return { css: '', fonts: [] }
+    }
+  }
 
     /* ------------------------------------------------------------------
      * 3) Persistence: load & save styles
@@ -101,7 +233,6 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
 
     async function loadStylesFromDB() {
         if (!syncStore.isInitialized) {
-            // wait until DB is ready (LoadingPage ensures this normally)
             await syncStore.initializeDB()
         }
         try {
@@ -111,7 +242,6 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
                 Object.assign(styles.value, doc.previewStyles)
             }
             if (doc.printStyles) {
-                 // Merge carefully to include new default fields if not present in DB
                 const loadedPrintStyles = doc.printStyles;
                 for (const key in printStyles.value) {
                     if (loadedPrintStyles.hasOwnProperty(key)) {
@@ -122,7 +252,7 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
             stylesLoaded = true
         } catch (err) {
             if (err.status === 404) {
-                stylesLoaded = true // no saved doc, keep defaults
+                stylesLoaded = true
             } else {
                 console.error('[markdownStore] Failed to load styles', err)
             }
@@ -154,7 +284,7 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         }
     }
 
-    // Kick‑off load once syncStore is ready
+    // Load styles once syncStore is ready
     if (syncStore.isInitialized) {
         loadStylesFromDB()
     } else {
@@ -177,99 +307,204 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         if (printStyles.value[key] !== undefined) {
             printStyles.value[key] = newVal
             saveStylesDebounced()
+            // Harmonize preview styles with print styles for font families
+            if (key === 'googleFontFamily') {
+                styles.value.googleFontFamily = newVal;
+                // Also update individual font-family properties in preview styles
+                const commonFontProperties = ['h1', 'h2', 'h3', 'h4', 'p', 'ul', 'ol', 'li', 'blockquote', 'table', 'th', 'td'];
+                commonFontProperties.forEach(styleKey => {
+                    if (styles.value[styleKey]) {
+                        // Regex to replace or add font-family
+                        let updatedCss = styles.value[styleKey].replace(/font-family:([^;]+);?/g, '').trim();
+                        updatedCss = `font-family: '${newVal.split(':')[0].trim().replace(/\+/g, ' ')}', sans-serif; ${updatedCss}`;
+                        styles.value[styleKey] = updatedCss.trim();
+                    }
+                });
+            }
         }
     }
 
     /* ------------------------------------------------------------------
-     * 5) Markdown‑it helper & rule overrides
+     * 5) CSS injection helpers
      * ----------------------------------------------------------------*/
-    function addClassToToken(token, className) {
-        if (!className) return
-        const existing = token.attrGet('class')
-        if (existing) {
-            const parts = existing.split(' ')
-            if (!parts.includes(className)) token.attrJoin('class', className)
-        } else {
-            token.attrPush(['class', className])
-        }
+    function applyCSSToElement(element, cssString) {
+        if (!cssString || !element) return
+
+        // Parse CSS string and apply individual properties
+        const declarations = cssString.split(';').filter(decl => decl.trim())
+        declarations.forEach(declaration => {
+            const [property, value] = declaration.split(':').map(s => s.trim())
+            if (property && value) {
+                // Convert kebab-case to camelCase for JavaScript
+                const camelProperty = property.replace(/-([a-z])/g, (match, letter) => letter.toUpperCase())
+                try {
+                    element.style[camelProperty] = value
+                } catch (e) {
+                    console.warn(`Failed to apply CSS property ${property}: ${value}`, e)
+                }
+            }
+        })
     }
 
+    function addCustomCSSToDocument(cssString, documentRef = document) {
+        if (!cssString || !cssString.trim()) return
+
+        // Remove existing custom style element
+        const existingStyle = documentRef.getElementById('markdown-custom-styles')
+        if (existingStyle) {
+            existingStyle.remove()
+        }
+
+        // Create and append new style element
+        const styleElement = documentRef.createElement('style')
+        styleElement.id = 'markdown-custom-styles'
+        styleElement.textContent = cssString
+        documentRef.head.appendChild(styleElement)
+    }
+
+    /* ------------------------------------------------------------------
+     * 6) Markdown-it helper & CSS-based renderer
+     * ----------------------------------------------------------------*/
     function configureRenderer(md, styleMap) {
+        // Apply custom CSS to document if provided
+        if (styleMap.customCSS) {
+            addCustomCSSToDocument(styleMap.customCSS)
+        }
+        // Inject Google Font CSS if available
+        if (styleMap.googleFontData && styleMap.googleFontData.css) {
+            addCustomCSSToDocument(styleMap.googleFontData.css, document);
+        }
+
         // Headings
         md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
-            addClassToToken(tokens[idx], styleMap[tokens[idx].tag])
+            const token = tokens[idx]
+            const css = styleMap[token.tag]
+            if (css) {
+                token.attrSet('style', css)
+            }
             return self.renderToken(tokens, idx, opts)
         }
 
         // Paragraphs
         const defPara = md.renderer.rules.paragraph_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.paragraph_open = (tokens, idx, opts, env, self) => {
-            addClassToToken(tokens[idx], styleMap.p)
+            const css = styleMap.p
+            if (css) {
+                tokens[idx].attrSet('style', css)
+            }
             return defPara(tokens, idx, opts, env, self)
         }
 
         // Lists
         md.renderer.rules.bullet_list_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.ul); return s.renderToken(t, i, o)
+            const css = styleMap.ul
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
         }
         md.renderer.rules.ordered_list_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.ol); return s.renderToken(t, i, o)
+            const css = styleMap.ol
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
         }
         const defLi = md.renderer.rules.list_item_open || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.list_item_open = (tokens, idx, opts, env, self) => {
-            addClassToToken(tokens[idx], styleMap.li); return defLi(tokens, idx, opts, env, self)
+            const css = styleMap.li
+            if (css) tokens[idx].attrSet('style', css)
+            return defLi(tokens, idx, opts, env, self)
         }
 
         // Inline code
         const defCodeInline = md.renderer.rules.code_inline || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.code_inline = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.code); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeInline(t, i, o, e, s)
+            const css = styleMap.code
+            if (css) t[i].attrSet('style', css)
+            t[i].content = md.utils.escapeHtml(t[i].content)
+            return defCodeInline(t, i, o, e, s)
         }
 
-        // Fenced/indented code blocks
+        // Code blocks
         const defFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.fence = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defFence(t, i, o, e, s)
+            const css = styleMap.pre
+            if (css) t[i].attrSet('style', css)
+            t[i].content = md.utils.escapeHtml(t[i].content)
+            return defFence(t, i, o, e, s)
         }
         const defCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o))
         md.renderer.rules.code_block = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.pre); t[i].content = md.utils.escapeHtml(t[i].content); return defCodeBlock(t, i, o, e, s)
+            const css = styleMap.pre
+            if (css) t[i].attrSet('style', css)
+            t[i].content = md.utils.escapeHtml(t[i].content)
+            return defCodeBlock(t, i, o, e, s)
         }
 
         // Blockquote
         md.renderer.rules.blockquote_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.blockquote); return s.renderToken(t, i, o)
+            const css = styleMap.blockquote
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
         }
 
         // HR
         md.renderer.rules.hr = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.hr); return s.renderToken(t, i, o)
+            const css = styleMap.hr
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
         }
 
         // Em / strong
-        md.renderer.rules.em_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.em); return s.renderToken(t, i, o) }
-        md.renderer.rules.strong_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.strong); return s.renderToken(t, i, o) }
+        md.renderer.rules.em_open = (t, i, o, e, s) => {
+            const css = styleMap.em
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.strong_open = (t, i, o, e, s) => {
+            const css = styleMap.strong
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
 
         // Links
         md.renderer.rules.link_open = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.a)
+            const css = styleMap.a
+            if (css) t[i].attrSet('style', css)
             const href = t[i].attrGet('href')
             if (href && (href.startsWith('http') || href.startsWith('//'))) {
-                t[i].attrSet('target', '_blank'); t[i].attrSet('rel', 'noopener noreferrer')
+                t[i].attrSet('target', '_blank')
+                t[i].attrSet('rel', 'noopener noreferrer')
             }
             return s.renderToken(t, i, o)
         }
 
         // Images
         md.renderer.rules.image = (t, i, o, e, s) => {
-            addClassToToken(t[i], styleMap.img); t[i].attrSet('loading', 'lazy'); return s.renderToken(t, i, o)
+            const css = styleMap.img
+            if (css) t[i].attrSet('style', css)
+            t[i].attrSet('loading', 'lazy')
+            return s.renderToken(t, i, o)
         }
 
         // Tables
-        md.renderer.rules.table_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.table); return s.renderToken(t, i, o) }
-        md.renderer.rules.tr_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.tr); return s.renderToken(t, i, o) }
-        md.renderer.rules.th_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.th); return s.renderToken(t, i, o) }
-        md.renderer.rules.td_open = (t, i, o, e, s) => { addClassToToken(t[i], styleMap.td); return s.renderToken(t, i, o) }
+        md.renderer.rules.table_open = (t, i, o, e, s) => {
+            const css = styleMap.table
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.tr_open = (t, i, o, e, s) => {
+            const css = styleMap.tr
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.th_open = (t, i, o, e, s) => {
+            const css = styleMap.th
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
+        md.renderer.rules.td_open = (t, i, o, e, s) => {
+            const css = styleMap.td
+            if (css) t[i].attrSet('style', css)
+            return s.renderToken(t, i, o)
+        }
     }
 
     function baseMd() {
@@ -283,9 +518,12 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         return md
     }
 
-    function getPrintMarkdownIt() {
+    async function getPrintMarkdownIt() {
         const md = baseMd()
-        configureRenderer(md, printStyles.value)
+        // Fetch and embed Google Fonts for print if specified
+        const googleFontData = await getGoogleFontData(printStyles.value.googleFontFamily);
+        const printStyleMap = { ...printStyles.value, googleFontData };
+        configureRenderer(md, printStyleMap);
         return md
     }
 
@@ -303,6 +541,11 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
 
         // Renderers
         getMarkdownIt,
-        getPrintMarkdownIt
+        getPrintMarkdownIt,
+
+        // CSS utilities
+        applyCSSToElement,
+        addCustomCSSToDocument,
+        getGoogleFontData // Expose this for testing or other uses
     }
 })
