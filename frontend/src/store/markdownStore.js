@@ -87,13 +87,13 @@ pre code {
      * ----------------------------------------------------------------*/
     const printStyles = ref({
         /* --- Headings (serif) --- */
-        h1: "font-family: 'Ivar Display', serif; font-size: 2.4rem; font-weight: 700; line-height: 1.1; word-spacing: 0.02em; margin-top: 2.6rem; margin-bottom: 1.2rem; color: #242A49; page-break-after: avoid;",
-        h2: "font-family: 'Ivar Display', serif; font-size: 1.1rem; font-weight: 700; line-height: 1.4; word-spacing: 0.02em; margin-top: 2rem; margin-bottom: 1rem; color: #242A49; page-break-after: avoid;",
-        h3: "font-family: 'Ivar Display', serif; font-size: 1.35rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.4rem; margin-bottom: 0.8rem; color: #2F3B62; page-break-after: avoid;",
-        h4: "font-family: 'Ivar Display', serif; font-size: 1.0rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.2rem; margin-bottom: 0.6rem; color: #334066; page-break-after: avoid;",
+        h1: "font-family: 'Manufacturing Consent', system-ui; font-size: 2.4rem; font-weight: 700; line-height: 1.1; word-spacing: 0.02em; margin-top: 2.6rem; margin-bottom: 1.2rem; color: #242A49; page-break-after: avoid;",
+        h2: "font-family: 'Roboto', serif; font-size: 1.1rem; font-weight: 700; line-height: 1.4; word-spacing: 0.02em; margin-top: 2rem; margin-bottom: 1rem; color: #242A49; page-break-after: avoid;",
+        h3: "font-family: 'Roboto', serif; font-size: 1.35rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.4rem; margin-bottom: 0.8rem; color: #2F3B62; page-break-after: avoid;",
+        h4: "font-family: 'Roboto', serif; font-size: 1.0rem; font-weight: 600; line-height: 1.3; word-spacing: 0.02em; margin-top: 1.2rem; margin-bottom: 0.6rem; color: #334066; page-break-after: avoid;",
 
         /* --- Body & Lists (sans-serif) --- */
-        p: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.7; margin-bottom: 1.05rem; color: #242A49; orphans: 3; widows: 3; page-break-inside: avoid;",
+        p: "font-family: 'Roboto', sans-serif; font-size: 1rem; line-height: 1.7; margin-bottom: 1.05rem; color: #242A49; orphans: 3; widows: 3; page-break-inside: avoid;",
         ul: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.6; list-style-type: disc; list-style-position: outside; margin: 1rem 0 1rem 1.4rem; padding-inline-start: 0; page-break-inside: avoid;",
         ol: "font-family: 'Messina Sans', 'Inter', Arial, sans-serif; font-size: 1rem; line-height: 1.6; list-style-type: decimal; list-style-position: outside; margin: 1rem 0 1rem 1.4rem; padding-inline-start: 0; page-break-inside: avoid;",
         li: "margin: 0 0 0.35rem; padding-left: 0.25rem; page-break-inside: avoid;",
@@ -128,7 +128,7 @@ pre code {
         footerFontColor: "#666666",
         footerAlign: "center",
         enablePageNumbers: true,
-        googleFontFamily: 'Roboto', // New field for Google Fonts
+        googleFontFamily: 'Manufacturing Consent', // New field for Google Fonts
         // The default customCSS is already provided in the prompt
 
         /* --- Global print overrides --- */
@@ -136,7 +136,6 @@ pre code {
     @page { margin: 2.5cm; size: A4; }
 
     body {
-        font-family: 'Messina Sans', 'Inter', Arial, sans-serif;
         font-size: 11pt;
         line-height: 1.7;
         color: red !important;
