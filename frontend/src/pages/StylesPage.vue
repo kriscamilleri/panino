@@ -1,11 +1,20 @@
 <template>
-    <CustomizeStylesPage :config="markdownStylesConfig" previewType="html" />
+  <StyleCustomizer :config="markdownStylesConfig">
+    <div class="h-full overflow-y-auto p-8">
+      <div
+        id="preview-content"
+        v-html="previewHtmlContent"
+        data-testid="preview-content"
+      ></div>
+    </div>
+  </StyleCustomizer>
 </template>
 
 <script setup>
-import CustomizeStylesPage from './CustomizeStylesPage.vue';
+import { computed } from 'vue';
 import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
+import StyleCustomizer from '@/components/StyleCustomizer.vue';
 
 const docStore = useDocStore();
 const markdownStore = useMarkdownStore();
@@ -50,8 +59,6 @@ greet('Developer');
 
 ## Tables
 
-Tables are structured with pipes and hyphens:
-
 | Left-aligned | Center-aligned | Right-aligned |
 | :----------- | :------------: | ------------: |
 | Content      |    Content     |      Content |
@@ -66,31 +73,44 @@ An image:
 `;
 
 const markdownStylesConfig = {
-    title: 'Customize Markdown Styles',
-    getStyles: () => ({ ...docStore.styles }),
-    updateStyleAction: docStore.updateStyle,
-    getMarkdownIt: docStore.getMarkdownIt,
-    sampleMarkdown: sampleMarkdown,
-    styleCategories: {
-        'Headings': ['h1', 'h2', 'h3', 'h4'],
-        'Text': ['p', 'em', 'strong', 'code', 'blockquote'],
-        'Lists': ['ul', 'ol', 'li'],
-        'Links & Media': ['a', 'img'],
-        'Tables': ['table', 'tr', 'th', 'td'],
-        'Other': ['hr', 'pre']
+  title: 'Customize Markdown Styles',
+  getStyles: () => ({ ...docStore.styles }),
+  updateStyleAction: docStore.updateStyle,
+  getMarkdownIt: docStore.getMarkdownIt,
+  sampleMarkdown,
+  styleCategories: {
+    Headings: ['h1', 'h2', 'h3', 'h4'],
+    Text: ['p', 'em', 'strong', 'code', 'blockquote'],
+    Lists: ['ul', 'ol', 'li'],
+    'Links & Media': ['a', 'img'],
+    Tables: ['table', 'tr', 'th', 'td'],
+    Other: ['hr', 'pre']
+  },
+  extraFieldsTitle: 'Additional Settings',
+  extraFields: [
+    {
+      id: 'googleFontFamily',
+      label: 'Google Font Family (e.g., Inter, Open Sans)',
+      type: 'input',
+      inputType: 'text',
+      modelKey: 'googleFontFamily',
+      placeholder: 'e.g., Inter:wght@400;700'
     },
-    extraFieldsTitle: 'Additional Settings',
-    extraFields: [
-        { id: 'googleFontFamily', label: 'Google Font Family (e.g., Inter, Open Sans)', type: 'input', inputType: 'text', modelKey: 'googleFontFamily', placeholder: 'e.g., Inter:wght@400;700' },
-        {
-            id: 'customCSS',
-            label: 'Custom CSS Block',
-            type: 'textarea',
-            modelKey: 'customCSS',
-            rows: 8,
-            placeholder: '/* Add any custom CSS here */\n.my-custom-class {\n  color: #ff0000;\n}\n\n/* You can also override existing styles */\nh1 {\n  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);\n}'
-        }
-    ],
-    resetStyles: () => markdownStore.resetStyles()
+    {
+      id: 'customCSS',
+      label: 'Custom CSS Block',
+      type: 'textarea',
+      modelKey: 'customCSS',
+      rows: 8,
+      placeholder:
+        '/* Add any custom CSS here */\n.my-custom-class {\n  color: #ff0000;\n}\n\n/* You can also override existing styles */\nh1 {\n  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);\n}'
+    }
+  ],
+  resetStyles: () => markdownStore.resetStyles()
 };
+
+const previewHtmlContent = computed(() => {
+  const md = markdownStylesConfig.getMarkdownIt();
+  return md.render(markdownStylesConfig.sampleMarkdown);
+});
 </script>
