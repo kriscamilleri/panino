@@ -5,11 +5,12 @@
 <script setup>
 import CustomizeStylesPage from './CustomizeStylesPage.vue';
 import { useDocStore } from '@/store/docStore';
+import { useMarkdownStore } from '@/store/markdownStore';
 
 const docStore = useDocStore();
+const markdownStore = useMarkdownStore();
 
-const sampleMarkdown = `
-# Sample Document for Markdown Preview
+const sampleMarkdown = `# Sample Document for Markdown Preview
 
 This document demonstrates how your selected markdown styles will appear in the application's live preview pane.
 
@@ -78,9 +79,9 @@ const markdownStylesConfig = {
         'Tables': ['table', 'tr', 'th', 'td'],
         'Other': ['hr', 'pre']
     },
-    extraFieldsTitle: 'Additional Settings', // Changed title
+    extraFieldsTitle: 'Additional Settings',
     extraFields: [
-        { id: 'googleFontFamily', label: 'Google Font Family (e.g., Inter, Open Sans)', type: 'input', inputType: 'text', modelKey: 'googleFontFamily', placeholder: 'e.g., Inter:wght@400;700' }, // Added Google Font field
+        { id: 'googleFontFamily', label: 'Google Font Family (e.g., Inter, Open Sans)', type: 'input', inputType: 'text', modelKey: 'googleFontFamily', placeholder: 'e.g., Inter:wght@400;700' },
         {
             id: 'customCSS',
             label: 'Custom CSS Block',
@@ -89,6 +90,7 @@ const markdownStylesConfig = {
             rows: 8,
             placeholder: '/* Add any custom CSS here */\n.my-custom-class {\n  color: #ff0000;\n}\n\n/* You can also override existing styles */\nh1 {\n  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);\n}'
         }
-    ]
+    ],
+    resetStyles: () => markdownStore.resetStyles()
 };
 </script>

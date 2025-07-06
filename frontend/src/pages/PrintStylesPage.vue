@@ -9,6 +9,7 @@
                     </div>
                 </div>
                 <div class="flex items-center space-x-2">
+
                     <button @click="toggleStylesCustomization"
                         class="px-4 py-2 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-2"
                         :class="{ 'bg-gray-200': showStylesCustomization }">
@@ -31,26 +32,55 @@
                             <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">{{ category }}</h2>
                             <div v-for="(value, key) in styles" :key="key" class="space-y-2">
                                 <label :for="key" class="block text-sm font-medium text-gray-700">{{ key }}</label>
-                                <textarea :id="key"
-                                    v-model="editableStyleMap[key]"
+                                <textarea :id="key" v-model="editableStyleMap[key]"
                                     @input="handleStyleChange(key, $event.target.value)"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
-                                    rows="3"
-                                    :placeholder="`CSS styles for ${key} element`" />
+                                    rows="3" :placeholder="`CSS styles for ${key} element`" />
                             </div>
                         </div>
-                        <div v-if="printStylesConfig.extraFields && printStylesConfig.extraFields.length > 0" class="space-y-4 pt-8 border-t">
-                            <h2 class="text-lg font-semibold text-gray-700">{{ printStylesConfig.extraFieldsTitle || 'Additional Settings' }}</h2>
+                        <div v-if="printStylesConfig.extraFields && printStylesConfig.extraFields.length > 0"
+                            class="space-y-4 pt-8 border-t">
+                            <h2 class="text-lg font-semibold text-gray-700">{{ printStylesConfig.extraFieldsTitle ||
+                                'Additional Settings' }}</h2>
                             <div v-for="field in printStylesConfig.extraFields" :key="field.id" class="space-y-2">
-                                <label :for="field.id" class="block text-sm font-medium text-gray-700">{{ field.label }}</label>
-                                <!-- Field types -->
-                                <textarea v-if="field.type === 'textarea'" :id="field.id" :rows="field.rows || 4"
+                                <label :for="field.id" class="block text-sm font-medium text-gray-700">{{ field.label
+                                    }}</label>
+
+                                <!-- Multi-select for Google Fonts -->
+                                <div v-if="field.id === 'googleFontFamily'" class="font-selector-container space-y-2">
+                                    <div
+                                        class="flex flex-wrap gap-2 p-3 border border-gray-300 rounded-md bg-gray-50 min-h-[2.5rem]">
+                                        <span v-for="font in selectedFonts" :key="font"
+                                            class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                            {{ font }}
+                                            <button @click="removeFont(font)"
+                                                class="ml-1 text-blue-600 hover:text-blue-800 font-bold">×</button>
+                                        </span>
+                                        <input v-model="fontSearchQuery" @input="searchFonts"
+                                            @keydown="handleFontInputKeydown" @focus="showFontDropdown = true"
+                                            placeholder="Search Google Fonts..."
+                                            class="flex-1 min-w-[120px] border-none outline-none bg-transparent text-sm" />
+                                    </div>
+
+                                    <!-- Font dropdown -->
+                                    <div v-if="showFontDropdown && filteredFonts.length > 0"
+                                        class="font-dropdown bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                                        <div v-for="font in filteredFonts.slice(0, 50)" :key="font"
+                                            @click="addFont(font)"
+                                            class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b border-gray-100 last:border-b-0">
+                                            {{ font }}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Other field types -->
+                                <textarea v-else-if="field.type === 'textarea'" :id="field.id" :rows="field.rows || 4"
                                     v-model="editableStyleMap[field.modelKey]"
                                     @input="handleStyleChange(field.modelKey, $event.target.value)"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
                                     :placeholder="field.placeholder"></textarea>
-                                <input v-else-if="field.type === 'input'" :id="field.id" :type="field.inputType || 'text'"
-                                    v-model="editableStyleMap[field.modelKey]"
+                                <input v-else-if="field.type === 'input'" :id="field.id"
+                                    :type="field.inputType || 'text'" v-model="editableStyleMap[field.modelKey]"
                                     @input="handleStyleChange(field.modelKey, $event.target.value)"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
                                     :class="field.inputType === 'color' ? 'h-10' : ''"
@@ -59,7 +89,8 @@
                                     v-model="editableStyleMap[field.modelKey]"
                                     @change="handleStyleChange(field.modelKey, $event.target.value)"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm">
-                                    <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.text }}</option>
+                                    <option v-for="option in field.options" :key="option.value" :value="option.value">{{
+                                        option.text }}</option>
                                 </select>
                                 <div v-else-if="field.type === 'checkbox'" class="flex items-center">
                                     <input :id="field.id" type="checkbox"
@@ -70,20 +101,31 @@
                             </div>
                         </div>
                     </div>
+
+                    <hr class="my-6">
+                    <button @click="resetStyles"
+                        class="px-4 py-2 text-red-700 bg-red-50 hover:bg-red-100 rounded flex items-center space-x-2 border border-red-200">
+                        <span>Reset to Defaults</span>
+                    </button>
                 </div>
+
             </div>
 
-            <div :class="showStylesCustomization ? 'w-1/2' : 'w-full'" class="bg-gray-200 border-l overflow-hidden" style="height: calc(100vh - 56px);">
-                <div v-if="!docStore.selectedFileContent" class="flex flex-col items-center justify-center h-full text-gray-500 p-8">
+            <div :class="showStylesCustomization ? 'w-1/2' : 'w-full'" class="bg-gray-200 border-l overflow-hidden"
+                style="height: calc(100vh - 56px);">
+                <div v-if="!docStore.selectedFileContent"
+                    class="flex flex-col items-center justify-center h-full text-gray-500 p-8">
                     <div class="text-center">
                         <h3 class="text-lg font-semibold mb-2">No Document Selected</h3>
-                        <p class="mb-4">Please select a document from the Documents panel to generate a print preview.</p>
+                        <p class="mb-4">Please select a document from the Documents panel to generate a print preview.
+                        </p>
                         <button @click="goBack" class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900">
                             Back to Editor
                         </button>
                     </div>
                 </div>
-                <iframe v-else-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none" data-testid="pdf-preview-iframe"></iframe>
+                <iframe v-else-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none"
+                    data-testid="pdf-preview-iframe"></iframe>
                 <div v-else class="flex items-center justify-center h-full text-gray-500">
                     Generating PDF preview...
                 </div>
@@ -111,13 +153,123 @@ const pdfUrl = ref('');
 const showStylesCustomization = ref(false);
 const renderedHtmlForPdf = ref('');
 
+// Google Fonts functionality
+const selectedFonts = ref([]);
+const fontSearchQuery = ref('');
+const showFontDropdown = ref(false);
+const allGoogleFonts = ref([]);
+const filteredFonts = ref([]);
+
+// Popular Google Fonts list
+const popularGoogleFonts = [
+    'Inter', 'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro', 'Raleway', 'PT Sans',
+    'Libre Baskerville', 'Merriweather', 'Playfair Display', 'Georgia', 'Times New Roman', 'Arial',
+    'Helvetica', 'Poppins', 'Nunito', 'Work Sans', 'Fira Sans', 'Oswald', 'Dancing Script', 'Lobster',
+    'Pacifico', 'Quicksand', 'Ubuntu', 'Droid Sans', 'Roboto Condensed', 'Cabin', 'Lora', 'Crimson Text',
+    'Noto Sans', 'Mukti', 'Source Code Pro', 'JetBrains Mono', 'Fira Code', 'Inconsolata', 'IBM Plex Sans',
+    'IBM Plex Serif', 'IBM Plex Mono', 'Barlow', 'DM Sans', 'Rubik', 'Karla', 'Oxygen', 'PT Serif',
+    'Titillium Web', 'Muli', 'Exo', 'Comfortaa', 'Archivo', 'Hind', 'Bitter', 'Josefin Sans'
+];
+
 const PDF_PAGE_WIDTH_PT = 590.78;
 const PDF_PAGE_HEIGHT_PT = 841.89;
 const PDF_MARGIN_PT = 36;
 const PDF_CONTENT_WIDTH_PT = PDF_PAGE_WIDTH_PT - 116.90 - 2 * PDF_MARGIN_PT;
 
-
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
+
+// Initialize Google Fonts
+onMounted(() => {
+    allGoogleFonts.value = [...popularGoogleFonts];
+
+    // Parse existing font family value
+    const currentFontFamily = editableStyleMap.value.googleFontFamily || '';
+    if (currentFontFamily) {
+        const fonts = currentFontFamily.split(',').map(f => f.trim().replace(/['"]/g, ''));
+        selectedFonts.value = fonts.filter(f => f && f !== 'sans-serif' && f !== 'serif' && f !== 'monospace');
+    }
+
+    // Initialize filtered fonts
+    searchFonts();
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', handleClickOutside);
+});
+
+function handleClickOutside(event) {
+    if (!event.target.closest('.font-selector-container')) {
+        showFontDropdown.value = false;
+    }
+}
+
+function searchFonts() {
+    const query = fontSearchQuery.value.trim().toLowerCase();
+    if (!query) {
+        filteredFonts.value = allGoogleFonts.value.filter(font => !selectedFonts.value.includes(font));
+    } else {
+        // Show fonts that match the search and aren't already selected
+        const matchingFonts = allGoogleFonts.value.filter(font =>
+            font.toLowerCase().includes(query) &&
+            !selectedFonts.value.includes(font)
+        );
+
+        // If the exact search term isn't in the list but could be a valid font, add it
+        const exactMatch = allGoogleFonts.value.find(font => font.toLowerCase() === query);
+        if (!exactMatch && query.length > 2) {
+            // Format the search term as a proper font name
+            const formattedFont = query.split(' ').map(word =>
+                word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+
+            if (!selectedFonts.value.includes(formattedFont)) {
+                matchingFonts.unshift(formattedFont);
+            }
+        }
+
+        filteredFonts.value = matchingFonts;
+    }
+    showFontDropdown.value = filteredFonts.value.length > 0;
+}
+
+function addFont(font) {
+    if (!selectedFonts.value.includes(font)) {
+        selectedFonts.value.push(font);
+        updateGoogleFontFamily();
+    }
+    fontSearchQuery.value = '';
+    filteredFonts.value = [];
+    showFontDropdown.value = false;
+}
+
+function removeFont(font) {
+    const index = selectedFonts.value.indexOf(font);
+    if (index > -1) {
+        selectedFonts.value.splice(index, 1);
+        updateGoogleFontFamily();
+    }
+}
+
+function updateGoogleFontFamily() {
+    const fontFamilyString = selectedFonts.value.join(', ');
+    handleStyleChange('googleFontFamily', fontFamilyString);
+}
+
+function handleFontInputKeydown(event) {
+    if (event.key === 'Enter' && fontSearchQuery.value.trim()) {
+        // Add the typed font directly if Enter is pressed
+        const formattedFont = fontSearchQuery.value.trim().split(' ').map(word =>
+            word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+
+        if (!selectedFonts.value.includes(formattedFont)) {
+            addFont(formattedFont);
+        }
+        event.preventDefault();
+    } else if (event.key === 'Escape') {
+        showFontDropdown.value = false;
+        fontSearchQuery.value = '';
+    }
+}
 
 /* --------------------------- Config definition -------------------------- */
 const printStylesConfig = {
@@ -154,7 +306,8 @@ const printStylesConfig = {
             rows: 6,
             placeholder: '/* Add custom CSS for print styles */\n@media print {\n  body { font-family: Georgia, serif; }\n  .page-break { page-break-before: always; }\n}'
         }
-    ]
+    ],
+    resetStyles: () => markdownStore.resetPrintStyles()
 };
 
 /* --------------------------- Style watchers ----------------------------- */
@@ -168,6 +321,15 @@ watch(
             }
         });
         editableStyleMap.value = processedStyles;
+
+        // Update selected fonts when googleFontFamily changes
+        const currentFontFamily = processedStyles.googleFontFamily || '';
+        if (currentFontFamily) {
+            const fonts = currentFontFamily.split(',').map(f => f.trim().replace(/['"]/g, ''));
+            selectedFonts.value = fonts.filter(f => f && f !== 'sans-serif' && f !== 'serif' && f !== 'monospace');
+        } else {
+            selectedFonts.value = [];
+        }
 
         const mdInstance = await docStore.getPrintMarkdownIt();
         const contentToRender = docStore.selectedFileContent || '';
@@ -187,6 +349,14 @@ function handleStyleChange(key, newValue) {
     debouncedUpdateStore(key, newValue);
 }
 function toggleStylesCustomization() { showStylesCustomization.value = !showStylesCustomization.value; }
+
+function resetStyles() {
+    if (confirm('Are you sure you want to reset all print styles to their default values? This action cannot be undone.')) {
+        if (printStylesConfig.resetStyles) {
+            printStylesConfig.resetStyles();
+        }
+    }
+}
 
 /* ----------------------- Categorisation for UI -------------------------- */
 const categorizedStyles = computed(() => {
@@ -231,7 +401,7 @@ async function regeneratePdf() {
         <head>
             <style>
                 html, body { margin: 0; padding: 0; box-sizing: border-box; }
-                font-family: ${currentPrintStyles.googleFontFamily ? `'${currentPrintStyles.googleFontFamily.split(':')[0].trim().replace(/\+/g, ' ')}',` : ''} sans-serif;
+                font-family: ${currentPrintStyles.googleFontFamily ? `'${currentPrintStyles.googleFontFamily.split(':')[0].trim().replace(/\+/g, ' ')}'` : ''} sans-serif;
                 ${currentPrintStyles.customCSS || ''}
                 ${googleFontCss || ''}
             </style>
@@ -374,10 +544,19 @@ watch(() => docStore.selectedFileContent, () => {
     // Content change triggers the styles watcher via markdown re‑render
 });
 
-onMounted(() => {});
-onUnmounted(() => { if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value); });
+onUnmounted(() => {
+    if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value);
+    document.removeEventListener('click', handleClickOutside);
+});
 
-function goBack() { router.push('/'); }
+function goBack() {
+    // Return to the previously selected document instead of going to root
+    if (docStore.selectedFileId) {
+        router.push(`/?file=${docStore.selectedFileId}`);
+    } else {
+        router.push('/');
+    }
+}
 </script>
 
 <style scoped>

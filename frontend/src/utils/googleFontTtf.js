@@ -1,7 +1,9 @@
+// frontend/src/utils/googleFontTtf.js
+
 /**
  * Runtime helper that always returns direct `.ttf` URLs for the
  * requested Google Font family by querying the public
- * “google-webfonts-helper” JSON API.
+ * "google-webfonts-helper" JSON API.
  *
  * @param {string} family   e.g. "Roboto" or "Open Sans"
  * @param {string[]} variants  defaults to the four most common
@@ -20,8 +22,7 @@ export async function fetchGoogleFontTtf(
     const fontServiceUrl = isProduction ? '' : devFontServiceUrl
 
     const id = family.trim().toLowerCase().replace(/\s+/g, '-');
-    const url = `${fontServiceUrl}/gwf/${id}?variants=${variants.join(',')}&subsets=${subsets.join(',')}`;
-    `&formats=ttf`;
+    const url = `${fontServiceUrl}/gwf/${id}?variants=${variants.join(',')}&subsets=${subsets.join(',')}&formats=ttf`;
 
     const res = await fetch(url, { mode: 'cors' });
     if (!res.ok) {
@@ -31,8 +32,8 @@ export async function fetchGoogleFontTtf(
     const json = await res.json();           // API response schema:
     // https://github.com/majodev/google-webfonts-helper#api
     return json.variants.map(v => ({
-        family: json.family,   // "Roboto", "Inter" …
-        weight: v.fontWeight,  // "400" | "700" | …
+        family: json.family,   // "Roboto", "Inter" ...
+        weight: v.fontWeight,  // "400" | "700" | ...
         style: v.fontStyle,   // "normal" | "italic"
         url: v.ttf,         // direct .ttf URL
     }));
