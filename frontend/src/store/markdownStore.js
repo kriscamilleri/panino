@@ -34,7 +34,7 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
     /* ------------------------------------------------------------------
      * 1) Preview styles (improved defaults)
      * ----------------------------------------------------------------*/
-    const styles = ref({
+    const defaultStyles = {
         h1: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.875rem; font-weight: bold; margin-top: 1.5rem; margin-bottom: 1rem; display: block; color: #2c3e50;',
         h2: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.5rem; font-weight: bold; margin-top: 1.2rem; margin-bottom: 0.8rem; display: block; color: #34495e;',
         h3: 'font-family: Arial, Helvetica, sans-serif; font-size: 1.25rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.6rem; display: block; color: #34495e;',
@@ -80,12 +80,14 @@ pre code {
     padding: 0;
 }`,
         googleFontFamily: 'Inter', // New field for Google Fonts
-    })
+    };
+
+    const styles = ref({ ...defaultStyles });
 
     /* ------------------------------------------------------------------
      * 2) Print styles (professional defaults)
      * ----------------------------------------------------------------*/
-    const printStyles = ref({
+    const defaultPrintStyles = {
         /* --- Headings (serif) --- */
         h1: "font-family: 'Manufacturing Consent', system-ui; font-size: 2.4rem; font-weight: 700; line-height: 1.1; word-spacing: 0.02em; margin-top: 2.6rem; margin-bottom: 1.2rem; color: #242A49; page-break-after: avoid;",
         h2: "font-family: 'Roboto', serif; font-size: 1.1rem; font-weight: 700; line-height: 1.4; word-spacing: 0.02em; margin-top: 2rem; margin-bottom: 1rem; color: #242A49; page-break-after: avoid;",
@@ -129,11 +131,9 @@ pre code {
         footerAlign: "center",
         enablePageNumbers: true,
         googleFontFamily: 'Manufacturing Consent', // New field for Google Fonts
-        // The default customCSS is already provided in the prompt
 
         /* --- Global print overrides --- */
-        customCSS: `
-    @page { margin: 2.5cm; size: A4; }
+        customCSS: `    @page { margin: 2.5cm; size: A4; }
 
     body {
         font-size: 11pt;
@@ -158,17 +158,17 @@ pre code {
 
     .no-print { display: none !important; }
     .page-break { page-break-before: always; }
-    .page-break-after { page-break-after: always; }
-`,
-    });
+    .page-break-after { page-break-after: always; }`,
+    };
 
+    const printStyles = ref({ ...defaultPrintStyles });
 
     
   /**
    * Fetch Google Font CSS (for the live HTML preview) **and**
    * Base-64-encoded TTF binaries (for jsPDF embedding).
    *
-   * @param {string} fontFamily – "Roboto" or "Inter:wght@400;700"
+   * @param {string} fontFamily – "Roboto" or "Inter, Open Sans" (comma-separated list)
    * @return {Promise<{css:string, fonts:Array<{name,data,format,style,weight}>}>}
    */
   async function getGoogleFontData (fontFamily) {
@@ -181,42 +181,61 @@ pre code {
     }
 
     try {
-      /* ---------- 1. Grab TTF URLs from google-webfonts-helper ---------- */
-      const variants   = await fetchGoogleFontTtf(fontFamily)
-      const fonts      = []
+      // Split comma-separated font families and process each
+      const fontFamilies = fontFamily.split(',').map(f => f.trim()).filter(f => f)
+      const allFonts = []
+      const fontImports = []
 
-      for (const v of variants) {
-        const key = `${v.family}-${v.weight}-${v.style}`
-        if (fontCache.value.has(key)) {
-          fonts.push(fontCache.value.get(key))
+      for (const singleFamily of fontFamilies) {
+        // Skip generic font families
+        if (['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy'].includes(singleFamily.toLowerCase())) {
           continue
         }
 
-        const blob = await fetch(v.url).then(r => r.blob())
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onloadend = () => resolve(reader.result)
-          reader.onerror   = reject
-          reader.readAsDataURL(blob)
-        })
+        // Remove quotes if present
+        const cleanFamily = singleFamily.replace(/['"]/g, '')
+        
+        /* ---------- 1. Grab TTF URLs from your server ---------- */
+        const variants = await fetchGoogleFontTtf(cleanFamily)
+        
+        for (const v of variants) {
+          const key = `${v.family}-${v.weight}-${v.style}`
+          if (fontCache.value.has(key)) {
+            allFonts.push(fontCache.value.get(key))
+            continue
+          }
 
-        const fontObj = {
-          name  : v.family,
-          data  : base64,          // data:…;base64,
-          format: 'truetype',
-          style : v.style,
-          weight: v.weight,
+          const blob = await fetch(v.url).then(r => r.blob())
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result)
+            reader.onerror   = reject
+            reader.readAsDataURL(blob)
+          })
+
+          const fontObj = {
+            name  : v.family,
+            data  : base64,          // data:…;base64,
+            format: 'truetype',
+            style : v.style,
+            weight: v.weight,
+          }
+
+          fontCache.value.set(key, fontObj) // cache each variant
+          allFonts.push(fontObj)
         }
 
-        fontCache.value.set(key, fontObj) // cache each variant
-        fonts.push(fontObj)
+        // Add to CSS imports (encode font name for Google Fonts URL)
+        const encodedFamily = encodeURIComponent(cleanFamily)
+        fontImports.push(`family=${encodedFamily}:wght@400;700`)
       }
 
       /* ---------- 2. CSS import for the live preview iframe ------------- */
-      const css = `@import url('https://fonts.googleapis.com/css2` +
-                  `?family=${encodeURIComponent(fontFamily)}&display=swap');`
+      const css = fontImports.length > 0 
+        ? `@import url('https://fonts.googleapis.com/css2?${fontImports.join('&')}&display=swap');`
+        : ''
 
-      const result = { css, fonts }
+      const result = { css, fonts: allFonts }
       fontCache.value.set(fontFamily, result)
       return result
     } catch (err) {
@@ -324,7 +343,20 @@ pre code {
     }
 
     /* ------------------------------------------------------------------
-     * 5) CSS injection helpers
+     * 5) Reset functions
+     * ----------------------------------------------------------------*/
+    function resetStyles() {
+        Object.assign(styles.value, defaultStyles);
+        saveStylesDebounced();
+    }
+
+    function resetPrintStyles() {
+        Object.assign(printStyles.value, defaultPrintStyles);
+        saveStylesDebounced();
+    }
+
+    /* ------------------------------------------------------------------
+     * 6) CSS injection helpers
      * ----------------------------------------------------------------*/
     function applyCSSToElement(element, cssString) {
         if (!cssString || !element) return
@@ -362,7 +394,7 @@ pre code {
     }
 
     /* ------------------------------------------------------------------
-     * 6) Markdown-it helper & CSS-based renderer
+     * 7) Markdown-it helper & CSS-based renderer
      * ----------------------------------------------------------------*/
     function configureRenderer(md, styleMap) {
         // Apply custom CSS to document if provided
@@ -537,6 +569,10 @@ pre code {
         // Mutators
         updateStyle,
         updatePrintStyle,
+
+        // Reset functions
+        resetStyles,
+        resetPrintStyles,
 
         // Renderers
         getMarkdownIt,
