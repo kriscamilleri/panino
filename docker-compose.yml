@@ -1,72 +1,73 @@
+# /docker-compose.yml
 version: '3.8'
 
 services:
-  couchdb:
-    image: couchdb:3.3.2
+  postgres:
+    image: postgres:16
+    restart: always
     environment:
-      - COUCHDB_USER=${ADMIN_USER:-admin}
-      - COUCHDB_PASSWORD=${ADMIN_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-panino}
+      POSTGRES_USER: ${POSTGRES_USER:-panino}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-panino}
     volumes:
-      - couchdb_data:/opt/couchdb/data
-    ports:
-      - "127.0.0.1:5984:5984"
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5984" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-panino} -d ${POSTGRES_DB:-panino}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  couchdb-init:
-    build:
-      context: ./backend/couchdb-init
-    environment:
-      - COUCHDB_HOST=couchdb
-      - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
+  powersync-service:
+    build: ./backend/powersync-service
+    restart: always
     depends_on:
-      couchdb:
+      postgres:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-panino}:${POSTGRES_PASSWORD:-panino}@postgres:5432/${POSTGRES_DB:-panino}
+      PORT: 7000
+
+  auth-service:
+    build: ./backend/auth-service
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-panino}:${POSTGRES_PASSWORD:-panino}@postgres:5432/${POSTGRES_DB:-panino}
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: 8000
 
   signup-service:
-    build:
-      context: ./backend/signup-service
-    environment:
-      - COUCHDB_URL=http://localhost:5984
-      - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-password}
-      - NODE_ENV=production
-      # TURNSTILE SECRET KEY (production):
-      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
-    ports:
-      - "127.0.0.1:3000:3000"
+    build: ./backend/signup-service
+    restart: always
     depends_on:
-      couchdb:
-        condition: service_healthy
+      - auth-service
+      - powersync-service
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8000
+      POWERSYNC_SERVICE_URL: http://powersync-service:7000
+      NODE_ENV: production
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
 
   image-service:
-    build:
-      context: ./backend/image-service
-    environment:
-      - COUCHDB_URL=http://couchdb:5984
-      - PORT=3001
-      - NODE_ENV=production
-    ports:
-      - "127.0.0.1:3001:3001"
+    build: ./backend/image-service
+    restart: always
     depends_on:
-      couchdb:
-        condition: service_healthy
+      - auth-service
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-panino}:${POSTGRES_PASSWORD:-panino}@postgres:5432/${POSTGRES_DB:-panino}
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: 3001
+      NODE_ENV: production
 
   font-service:
-    build:
-      context: ./backend/font-service
+    build: ./backend/font-service
+    restart: always
     environment:
-      - PORT=3002
-      - NODE_ENV=production
-    ports:
-      - "127.0.0.1:3002:3002"
-    depends_on:
-      couchdb:
-        condition: service_healthy
+      PORT: 3002
+      NODE_ENV: production
 
 volumes:
-  couchdb_data:
+  postgres-data:

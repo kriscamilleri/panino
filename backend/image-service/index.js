@@ -1,188 +1,118 @@
-import express from 'express'
-import cors from 'cors'
-import multer from 'multer'
-import fetch from 'node-fetch'
-import path from 'path'
-import { fileURLToPath } from 'url'
+// /backend/image-service/index.js
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import pg from 'pg';
+import jwt from 'jsonwebtoken';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-
-const COUCHDB_URL = process.env.COUCHDB_URL || 'http://localhost:5984'
-
-const app = express()
+const app = express();
 app.use(cors({
     origin: true,
     credentials: true
-}))
+}));
 
-// Configure multer for handling file uploads
-const storage = multer.memoryStorage()
+const { Pool } = pg;
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+});
+
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-change-me';
+const PORT = process.env.PORT || 3001;
+
+// Configure multer for handling file uploads in memory
+const storage = multer.memoryStorage();
 const upload = multer({
     storage: storage,
     limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB limit
+        fileSize: 10 * 1024 * 1024 // 10MB limit
     }
-})
+});
 
-// Helper function to get user info from session
-async function getUserFromSession(cookie) {
-    try {
-        const sessionResponse = await fetch(`${COUCHDB_URL}/_session`, {
-            headers: {
-                'Cookie': cookie || ''
-            }
-        })
+// Middleware to verify JWT
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-        const sessionData = await sessionResponse.json()
-
-        console.log("sessionData")
-        console.log(sessionData)
-        if (!sessionData.userCtx.name) {
-            return null
-        }
-        return {
-            username: sessionData.userCtx.name,
-            dbName: `pn-markdown-notes-${sessionData.userCtx.name.toLowerCase()}`
-        }
-    } catch (error) {
-        console.error('Error getting user session:', error)
-        return null
+    if (!token) {
+        return res.status(401).json({ error: 'Unauthorized: No token provided' });
     }
-}
+
+    jwt.verify(token, JWT_SECRET, { audience: 'powersync' }, (err, payload) => {
+        if (err) {
+            console.error('JWT Verification Error:', err.message);
+            return res.status(403).json({ error: 'Forbidden: Invalid token' });
+        }
+        req.user = payload; // payload contains { user_id, ... }
+        next();
+    });
+};
 
 // Health check endpoint
 app.get('/', (req, res) => {
-    res.send('Image service is running')
-})
+    res.send('Image service is running (Postgres Edition)');
+});
 
-// Upload endpoint
-app.post('/upload', upload.single('image'), async (req, res) => {
-    console.log("Upload request received")
+// POST /images - Upload an image
+app.post('/images', authenticateToken, upload.single('image'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No image file provided' });
+    }
+
+    const { user_id } = req.user;
+    if (!user_id) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid user in token' });
+    }
+
+    const { originalname, mimetype, buffer } = req.file;
+
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No image file provided' })
-        }
-        console.log("COOKIE")
-        console.log(req.headers.cookie)
+        const result = await pool.query(
+            'INSERT INTO images (user_id, filename, mime_type, data) VALUES ($1, $2, $3, $4) RETURNING id',
+            [user_id, originalname, mimetype, buffer]
+        );
 
-        const user = await getUserFromSession(req.headers.cookie)
-
-        if (!user) {
-            return res.status(401).json({ error: 'Unauthorized' })
-        }
-
-        // Create a unique document ID for the image
-        const timestamp = Date.now()
-        const docId = `img_${timestamp}`
-
-        // Prepare the document with the image as an attachment
-        const imageDoc = {
-            _id: docId,
-            type: 'image',
-            filename: req.file.originalname,
-            contentType: req.file.mimetype,
-            uploadedAt: new Date().toISOString()
-        }
-        console.log(`URL = ${COUCHDB_URL}/${user.dbName}/${docId}/image?rev=`)
-
-        // Create the document first
-        const createResponse = await fetch(`${COUCHDB_URL}/${user.dbName}/${docId}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Cookie': req.headers.cookie || ''
-            },
-            body: JSON.stringify(imageDoc)
-        })
-
-        const createData = await createResponse.json()
-        if (!createResponse.ok) {
-            throw new Error(createData.reason || 'Failed to create image document')
-        }
-        // Then add the attachment
-        const attachmentResponse = await fetch(`${COUCHDB_URL}/${user.dbName}/${docId}/image?rev=${createData.rev}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': req.file.mimetype,
-                'Cookie': req.headers.cookie || ''
-            },
-            body: req.file.buffer
-        })
-
-        if (!attachmentResponse.ok) {
-            const attachmentError = await attachmentResponse.json()
-            throw new Error(attachmentError.reason || 'Failed to upload image attachment')
-        }
-
-        // Return the URL for the uploaded image
-        res.json({
-            url: `/images/${docId}`,  // Return our service URL instead of direct CouchDB URL
-            id: docId
-        })
-
+        const imageId = result.rows[0].id;
+        res.status(201).json({
+            id: imageId,
+            url: `/images/${imageId}`
+        });
     } catch (error) {
-        console.error('Upload error:', error)
+        console.error('Image upload error:', error);
         res.status(500).json({
             error: 'Upload failed',
             details: error.message
-        })
+        });
     }
-})
+});
 
-// Serve images endpoint
-app.get('/images/:id', async (req, res) => {
+// GET /images/:id - Serve an image
+app.get('/images/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { user_id } = req.user;
+
     try {
-        const user = await getUserFromSession(req.headers.cookie)
-        if (!user) {
-            return res.status(401).json({ error: 'Unauthorized' })
+        const result = await pool.query(
+            'SELECT mime_type, data FROM images WHERE id = $1 AND user_id = $2',
+            [id, user_id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Image not found or access denied' });
         }
 
-        const imageId = req.params.id
-
-        // First, get the document to check if it exists and get its content type
-        const docResponse = await fetch(`${COUCHDB_URL}/${user.dbName}/${imageId}`, {
-            headers: {
-                'Cookie': req.headers.cookie || ''
-            }
-        })
-
-        if (!docResponse.ok) {
-            if (docResponse.status === 404) {
-                return res.status(404).json({ error: 'Image not found' })
-            }
-            throw new Error('Failed to get image document')
-        }
-
-        const doc = await docResponse.json()
-
-        // Get the image attachment
-        const attachmentResponse = await fetch(`${COUCHDB_URL}/${user.dbName}/${imageId}/image`, {
-            headers: {
-                'Cookie': req.headers.cookie || ''
-            }
-        })
-
-        if (!attachmentResponse.ok) {
-            throw new Error('Failed to get image attachment')
-        }
-
-        // Set appropriate headers
-        res.set('Content-Type', doc.contentType || 'image/jpeg')
-        res.set('Cache-Control', 'public, max-age=31536000') // Cache for 1 year
-
-        // Pipe the attachment response to our response
-        attachmentResponse.body.pipe(res)
-
+        const image = result.rows[0];
+        res.set('Content-Type', image.mime_type);
+        res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+        res.send(image.data);
     } catch (error) {
-        console.error('Error serving image:', error)
+        console.error('Error serving image:', error);
         res.status(500).json({
             error: 'Failed to serve image',
             details: error.message
-        })
+        });
     }
-})
+});
 
-const port = process.env.PORT || 3001
-app.listen(port, () => {
-    console.log(`Image service listening on port ${port}`)
-})
+app.listen(PORT, () => {
+    console.log(`Image service listening on port ${PORT}`);
+});

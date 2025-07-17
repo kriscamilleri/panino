@@ -1,175 +1,117 @@
-// src/store/importExportStore.js
-import { defineStore } from 'pinia'
-import { useStructureStore } from './structureStore'
-import { useContentStore } from './contentStore'
-import { useSyncStore } from './syncStore'
-
-// ADD these imports:
-import JSZip from 'jszip'
-import { saveAs } from 'file-saver'
+// /frontend/src/store/importExportStore.js
+import { defineStore } from 'pinia';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
+import { useSyncStore } from './syncStore';
+import { useDocStore } from './docStore';
 
 export const useImportExportStore = defineStore('importExportStore', () => {
-    const structureStore = useStructureStore()
-    const contentStore = useContentStore()
-    const syncStore = useSyncStore()
+    const syncStore = useSyncStore();
+    const docStore = useDocStore();
 
-    async function exportData() {
-        // Export in the old format for backward compatibility
-        const exportData = {}
-
-        // Export structure items
-        for (const [id, item] of Object.entries(structureStore.data.structure)) {
-            exportData[id] = item
-
-            // For files, also export their content in the old format
-            if (item.type === 'file') {
-                try {
-                    const content = await syncStore.loadContent(id)
-                    if (content) {
-                        exportData[`${id}/content`] = {
-                            id: `${id}/content`,
-                            type: 'content',
-                            text: content.text,
-                            properties: content.properties || '\n',
-                            discussions: content.discussions || {},
-                            comments: content.comments || {},
-                            hash: content.hash || Date.now(),
-                            tx: content.tx || Date.now()
-                        }
-                    }
-                } catch (err) {
-                    console.error(`Error exporting content for file ${id}:`, err)
-                }
-            }
-        }
-
-        return JSON.stringify(exportData, null, 2)
-    }
-
-    // Add this function to match the function name used in docStore.js
+    /**
+     * Exports all user data (folders, notes) from the local SQLite DB into a JSON string.
+     */
     async function exportDataAsJsonString() {
-        return await exportData()
-    }
+        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
 
-    async function importData(newData) {
-        try {
-            if (typeof newData !== 'object' || newData === null) {
-                throw new Error('Invalid data structure')
-            }
+        const foldersResult = await syncStore.execute('SELECT * FROM folders');
+        const notesResult = await syncStore.execute('SELECT * FROM notes');
 
-            const validatedStructure = {}
-            const contentPromises = []
+        const data = {
+            folders: foldersResult.rows?._array || [],
+            notes: notesResult.rows?._array || []
+        };
 
-            // First pass: validate and collect structure items
-            for (const [key, item] of Object.entries(newData)) {
-                if (!item || typeof item !== 'object') {
-                    throw new Error(`Invalid item for key ${key}`)
-                }
-                if (!item.id || !item.type) {
-                    throw new Error(`Missing id or type for ${key}`)
-                }
-
-                // Handle structure items (files and folders)
-                if (item.type === 'file' || item.type === 'folder') {
-                    if (!item.name) {
-                        throw new Error(`${item.type} ${item.id} missing name`)
-                    }
-                    validatedStructure[item.id] = {
-                        ...item,
-                        hash: item.hash || Date.now(),
-                        tx: item.tx || Date.now()
-                    }
-
-                    // Look for corresponding content
-                    if (item.type === 'file') {
-                        const contentKey = `${item.id}/content`
-                        const contentItem = newData[contentKey]
-
-                        if (contentItem && contentItem.type === 'content') {
-                            contentPromises.push(
-                                syncStore.saveContent(item.id, contentItem.text || '')
-                            )
-                        } else {
-                            // If no content found, create empty content
-                            contentPromises.push(
-                                syncStore.saveContent(item.id, '')
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Save the validated structure
-            await syncStore.saveStructure(validatedStructure)
-            await structureStore.loadStructure()
-
-            // Wait for all content to be saved
-            await Promise.all(contentPromises)
-
-            // Reset UI state
-            structureStore.selectedFileId = null
-            structureStore.openFolders = new Set()
-
-            // Select the first file if available
-            const firstFile = Object.values(validatedStructure).find(item => item.type === 'file')
-            if (firstFile) {
-                await structureStore.selectFile(firstFile.id)
-            }
-
-            console.log('Import completed successfully')
-        } catch (error) {
-            console.error('Import failed:', error)
-            throw error
-        }
+        return JSON.stringify(data, null, 2);
     }
 
     /**
-     * NEW: Export entire workspace as a ZIP file with actual folder structure
+     * Exports all user data into a ZIP archive with a proper folder structure.
      */
     async function exportDataAsZip() {
-        // 1. Build an in-memory tree of all items from structure store
-        const structure = structureStore.data.structure
+        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
 
-        // 2. Create a new JSZip instance
-        const zip = new JSZip()
+        const zip = new JSZip();
 
-        // A helper function to walk the structure tree
-        async function addFolderOrFileToZip(parentZipFolder, item) {
-            if (item.type === 'folder') {
-                // Create a folder in the ZIP
-                const newFolder = parentZipFolder.folder(item.name)
-                // Then add each child
-                const children = Object.values(structure).filter(
-                    (child) => child.parentId === item.id
-                )
-                for (const child of children) {
-                    await addFolderOrFileToZip(newFolder, child)
-                }
-            } else if (item.type === 'file') {
-                // Load the file content
-                const contentDoc = await syncStore.loadContent(item.id)
-                const content = contentDoc?.text ?? ''
-                // Create a .md file in the ZIP
-                parentZipFolder.file(item.name, content)
+        const { rows: folderRows } = await syncStore.execute('SELECT * FROM folders');
+        const { rows: noteRows } = await syncStore.execute('SELECT * FROM notes');
+        const folders = folderRows?._array || [];
+        const notes = noteRows?._array || [];
+
+        const folderMap = new Map(folders.map(f => [f.id, f]));
+
+        // Create a path for each folder and note
+        const paths = new Map();
+        function getPath(itemId, isFolder) {
+            if (paths.has(itemId)) return paths.get(itemId);
+
+            const item = isFolder ? folderMap.get(itemId) : notes.find(n => n.id === itemId);
+            if (!item) return '';
+
+            const parentId = isFolder ? item.parent_id : item.folder_id;
+            if (!parentId) return item.name || item.title;
+
+            const parentPath = getPath(parentId, true);
+            const path = `${parentPath}/${item.name || item.title}`;
+            paths.set(itemId, path);
+            return path;
+        }
+
+        // Add folders to zip
+        for (const folder of folders) {
+            const path = getPath(folder.id, true);
+            zip.folder(path);
+        }
+
+        // Add notes to zip
+        for (const note of notes) {
+            const path = getPath(note.id, false);
+            zip.file(`${path}.md`, note.content || '');
+        }
+
+        const blob = await zip.generateAsync({ type: 'blob' });
+        saveAs(blob, 'panino-export.zip');
+    }
+
+    /**
+     * Imports data from a JSON object into the local SQLite database.
+     */
+    async function importData(data) {
+        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
+        if (!data || !Array.isArray(data.folders) || !Array.isArray(data.notes)) {
+            throw new Error('Invalid import data format. Expected { folders: [], notes: [] }');
+        }
+
+        // It's safer to clear existing data to avoid conflicts.
+        await syncStore.execute('DELETE FROM notes');
+        await syncStore.execute('DELETE FROM folders');
+
+        await syncStore.powerSync.writeTransaction(async (tx) => {
+            // Batch insert folders
+            for (const folder of data.folders) {
+                await tx.executeAsync(
+                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                    [folder.id, folder.user_id, folder.name, folder.parent_id, folder.created_at]
+                );
             }
-        }
+            // Batch insert notes
+            for (const note of data.notes) {
+                await tx.executeAsync(
+                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [note.id, note.user_id, note.folder_id, note.title, note.content, note.created_at, note.updated_at]
+                );
+            }
+        });
 
-        // 3. Find "root" items (no parentId) and add them
-        const rootItems = Object.values(structure).filter((i) => !i.parentId)
-        for (const rootItem of rootItems) {
-            await addFolderOrFileToZip(zip, rootItem)
-        }
-
-        // 4. Generate the ZIP as a Blob
-        const blob = await zip.generateAsync({ type: 'blob' })
-        // 5. Trigger a download via file-saver
-        saveAs(blob, 'markdown-notes.zip')
+        // Trigger a refresh of the stores
+        await docStore.loadInitialData();
+        console.log('Import completed successfully.');
     }
 
     return {
-        exportData,
-        exportDataAsJsonString, // Add this export to match the function name used in docStore.js
+        exportDataAsJsonString,
+        exportDataAsZip,
         importData,
-        exportDataAsZip
-    }
-})
+    };
+});
