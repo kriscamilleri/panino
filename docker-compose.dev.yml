@@ -1,82 +1,96 @@
+# /docker-compose.dev.yml
 version: '3.8'
 
 services:
-  couchdb:
-    image: couchdb:3.3.2
+  postgres:
+    image: postgres:16
     ports:
-      - "127.0.0.1:5984:5984"
+      - "127.0.0.1:5432:5432"
     environment:
-      - COUCHDB_USER=${COUCHDB_USER}
-      - COUCHDB_PASSWORD=${COUCHDB_PASSWORD}
+      POSTGRES_DB: panino
+      POSTGRES_USER: panino
+      POSTGRES_PASSWORD: panino
     volumes:
-      - couchdb_data:/opt/couchdb/data
+      - postgres-data:/var/lib/postgresql/data
+      - ./backend/postgres-init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5984" ]
+      test: [ "CMD-SHELL", "pg_isready -U panino -d panino" ]
       interval: 5s
       timeout: 5s
-      retries: 3
+      retries: 5
 
-  couchdb-init:
-    build:
-      context: ./backend/couchdb-init
-    environment:
-      - COUCHDB_HOST=${COUCHDB_HOST}
-      - ADMIN_USER=${COUCHDB_USER}
-      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
-    volumes:
-      - ./backend/couchdb-init:/app
-      - /app/node_modules
+  powersync-service:
+    build: ./backend/powersync-service
+    ports:
+      - "127.0.0.1:7000:7000"
     depends_on:
-      couchdb:
+      postgres:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://panino:panino@postgres:5432/panino
+      PORT: 7000
+    volumes:
+      - ./backend/powersync-service:/app
+      - /app/node_modules
+
+  auth-service:
+    build: ./backend/auth-service
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://panino:panino@postgres:5432/panino
+      JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
+      PORT: 8000
+    volumes:
+      - ./backend/auth-service:/app
+      - /app/node_modules
 
   signup-service:
-    build:
-      context: ./backend/signup-service
+    build: ./backend/signup-service
     ports:
       - "127.0.0.1:3000:3000"
+    depends_on:
+      - auth-service
+      - powersync-service
     environment:
-      - COUCHDB_URL=${COUCHDB_URL}
-      - ADMIN_USER=${COUCHDB_USER}
-      - ADMIN_PASSWORD=${COUCHDB_PASSWORD}
-      - NODE_ENV=development
-      # TURNSTILE SECRET KEY for server-side verification:
-      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
+      AUTH_SERVICE_URL: http://auth-service:8000
+      POWERSYNC_SERVICE_URL: http://powersync-service:7000
+      NODE_ENV: development
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
     volumes:
-      - ./backend/couchdb-init:/app
+      - ./backend/signup-service:/app
       - /app/node_modules
     command: npm run start
-    depends_on:
-      - couchdb-init
 
   image-service:
-    build:
-      context: ./backend/image-service
+    build: ./backend/image-service
     ports:
       - "127.0.0.1:3001:3001"
+    depends_on:
+      - auth-service
     environment:
-      - COUCHDB_URL=${COUCHDB_URL}
-      - PORT=3001
-      - NODE_ENV=development
+      DATABASE_URL: postgres://panino:panino@postgres:5432/panino
+      JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
+      PORT: 3001
+      NODE_ENV: development
     volumes:
       - ./backend/image-service:/app
       - /app/node_modules
     command: npm run start
-    depends_on:
-      couchdb:
-        condition: service_healthy
 
   font-service:
-    build:
-      context: ./backend/font-service
-    environment:
-      - PORT=3002
-      - NODE_ENV=production
+    build: ./backend/font-service
     ports:
       - "127.0.0.1:3002:3002"
-    depends_on:
-      couchdb:
-        condition: service_healthy
+    environment:
+      PORT: 3002
+      NODE_ENV: development
+    volumes:
+      - ./backend/font-service:/app
+      - /app/node_modules
 
   frontend:
     build:
@@ -85,19 +99,21 @@ services:
     ports:
       - "127.0.0.1:5173:5173"
     environment:
-      - NODE_ENV=development
-      - VITE_COUCHDB_URL=${COUCHDB_URL}
-      - VITE_IMAGE_SERVICE_URL=http://localhost:3001
-      - VITE_FONT_SERVICE_URL=http://localhost:3002
-      # TURNSTILE SITE KEY for client-side widget:
-      - VITE_TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}
+      NODE_ENV: development
+      VITE_AUTH_SERVICE_URL: http://localhost:8000
+      VITE_IMAGE_SERVICE_URL: http://localhost:3001
+      VITE_FONT_SERVICE_URL: http://localhost:3002
+      VITE_POWERSYNC_URL: http://localhost:7000
+      VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY}
     volumes:
       - ./frontend:/app
       - /app/node_modules
     command: npm run dev -- --host
     depends_on:
       - signup-service
-      # - image-service
+      - image-service
+      - auth-service
+      - powersync-service
 
 volumes:
-  couchdb_data:
+  postgres-data:

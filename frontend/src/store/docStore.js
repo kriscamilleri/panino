@@ -1,158 +1,103 @@
-// src/store/docStore.js
-import { defineStore } from 'pinia'
-import { computed } from 'vue'
-import { useStructureStore } from './structureStore'
-import { useContentStore } from './contentStore'
-import { useMarkdownStore } from './markdownStore'
-import { useSyncStore } from './syncStore'
-import { useImportExportStore } from './importExportStore'
-import { useAuthStore } from './authStore'
+// /frontend/src/store/docStore.js
+import { defineStore } from 'pinia';
+import { computed } from 'vue';
+import { useStructureStore } from './structureStore';
+import { useMarkdownStore } from './markdownStore';
+import { useSyncStore } from './syncStore';
+import { useImportExportStore } from './importExportStore';
+import { useAuthStore } from './authStore';
 
 export const useDocStore = defineStore('docStore', () => {
-  const structureStore = useStructureStore()
-  const contentStore = useContentStore()
-  const markdownStore = useMarkdownStore()
-  const syncStore = useSyncStore()
-  const importExportStore = useImportExportStore()
-  const authStore = useAuthStore()
+  const structureStore = useStructureStore();
+  const markdownStore = useMarkdownStore();
+  const syncStore = useSyncStore();
+  const importExportStore = useImportExportStore();
 
-  const data = computed(() => structureStore.data)
-  const selectedFileId = computed(() => structureStore.selectedFileId)
-  const selectedFolderId = computed(() => structureStore.selectedFolderId)
-  const openFolders = computed(() => structureStore.openFolders)
+  const selectedFileId = computed(() => structureStore.selectedFileId);
+  const selectedFolderId = computed(() => structureStore.selectedFolderId);
+  const openFolders = computed(() => structureStore.openFolders);
+  const styles = computed(() => markdownStore.styles);
+  const printStyles = computed(() => markdownStore.printStyles);
+  const rootItems = computed(() => structureStore.rootItems);
+  const selectedFile = computed(() => structureStore.selectedFile);
 
-  const styles = computed(() => markdownStore.styles)
-  const printStyles = computed(() => markdownStore.printStyles)
+  // Directly get content from the structure store, which now handles it.
+  const selectedFileContent = computed(() => structureStore.selectedFileContent);
 
-  const itemsArray = computed(() => structureStore.itemsArray)
-  const rootItems = computed(() => structureStore.rootItems)
-  const selectedFile = computed(() => structureStore.selectedFile)
-  const selectedFileContent = computed(() => contentStore.selectedFileContent)
-
-  /**
-   * Initialize CouchDB, do a one-time pull, and load structure.
-   * (We no longer force live sync to be enabled here—user can enable it manually.)
-   */
-  async function initCouchDB() {
-    await syncStore.initializeDB()
-    
-    // If user is authenticated and not a guest, we'll pull from remote
-    if (authStore.isAuthenticated && authStore.user?.name !== 'guest') {
-      await syncStore.oneTimePull()
-    }
-    
-    await structureStore.loadStructure()
-    return true
+  async function loadInitialData() {
+    await markdownStore.loadStylesFromDB();
+    await structureStore.loadStructure();
   }
 
-  async function destroyLocalDB(username) {
-    await syncStore.destroyDB(username)
+  async function resetStore() {
+    // This needs to be a coordinated reset.
+    // 1. Disconnect and clear the database via syncStore
+    await syncStore.resetDatabase();
+    // 2. Reset the state of all data-holding stores
+    structureStore.resetStore();
+    markdownStore.resetStyles();
+    markdownStore.resetPrintStyles();
+    console.log('All stores have been reset.');
   }
 
-  function resetStore() {
-    structureStore.resetStore()
-    contentStore.clearCache()
+  function getChildren(parentId) {
+    return structureStore.getChildren(parentId);
   }
 
-  function renameItem(itemId, newName) {
-    return structureStore.renameItem(itemId, newName)
-  }
-  
-  function selectFolder(folderId) {
-    structureStore.selectFolder(folderId)
-  }
-  
-  function selectFile(fileId) {
-    structureStore.selectFile(fileId)
-  }
-
-  function updateStyle(key, newVal) {
-    markdownStore.updateStyle(key, newVal)
-  }
-  
-  function getMarkdownIt() {
-    return markdownStore.getMarkdownIt()
-  }
-
-  function updatePrintStyle(key, newVal) {
-    markdownStore.updatePrintStyle(key, newVal)
-  }
-  
-  function getPrintMarkdownIt() {
-    return markdownStore.getPrintMarkdownIt()
-  }
-
-  /**
-   * Return up to `limit` most recently edited files,
-   * based on each file's `lastModified`.
-   */
   async function getRecentDocuments(limit = 10) {
-    const fileDocs = await syncStore.allFileDocs()
-    const items = []
-
-    for (const row of fileDocs.rows) {
-      const doc = row.doc
-      if (doc && doc._id.startsWith('file:')) {
-        const fileId = doc._id.substring(5)
-        const structureItem = data.value.structure[fileId]
-        if (structureItem) {
-          const displayedDate = doc.lastModified || doc.createdTime || ''
-          items.push({
-            id: fileId,
-            name: structureItem.name,
-            displayedDate
-          })
-        }
-      }
+    // This query now hits the local SQLite DB via PowerSync
+    const query = `
+        SELECT id, title as name, updated_at as displayedDate
+        FROM notes
+        ORDER BY updated_at DESC
+        LIMIT ?
+    `;
+    try {
+      const results = await syncStore.execute(query, [limit]);
+      return results.rows?._array || [];
+    } catch (error) {
+      console.error('Failed to get recent documents:', error);
+      return [];
     }
-
-    items.sort((a, b) => new Date(b.displayedDate) - new Date(a.displayedDate))
-    return items.slice(0, limit)
   }
 
-    // Add this function to the returned object in docStore.js
-  async function exportJson() {
-    // Make sure to await the Promise so we return the actual string
-    const jsonString = await importExportStore.exportDataAsJsonString();
-    return jsonString;
-  } 
   return {
-    data,
+    // State & Getters
     selectedFileId,
     selectedFolderId,
     openFolders,
     styles,
     printStyles,
-    itemsArray,
     rootItems,
     selectedFile,
     selectedFileContent,
+
+    // Expose stores for direct access where needed
     structureStore,
     syncStore,
+    markdownStore,
 
-    getChildren: structureStore.getChildren,
+    // Actions
+    loadInitialData,
+    resetStore,
+    getChildren,
     createFile: structureStore.createFile,
     createFolder: structureStore.createFolder,
     deleteItem: structureStore.deleteItem,
-    renameItem,
-    selectFolder,
-    selectFile,
+    renameItem: structureStore.renameItem,
+    selectFile: structureStore.selectFile,
+    selectFolder: structureStore.selectFolder,
     toggleFolder: structureStore.toggleFolder,
-    updateFileContent: contentStore.updateContent,
+    updateFileContent: structureStore.updateFileContent,
 
-    exportJson: exportJson,
+    exportJson: importExportStore.exportDataAsJsonString,
     exportZip: importExportStore.exportDataAsZip,
     importData: importExportStore.importData,
 
-    updateStyle,
-    getMarkdownIt,
-    updatePrintStyle,
-    getPrintMarkdownIt,
-
-    initCouchDB,
-    destroyLocalDB,
-    resetStore,
-
+    updateStyle: markdownStore.updateStyle,
+    getMarkdownIt: markdownStore.getMarkdownIt,
+    updatePrintStyle: markdownStore.updatePrintStyle,
+    getPrintMarkdownIt: markdownStore.getPrintMarkdownIt,
     getRecentDocuments
-  }
-})
+  };
+});

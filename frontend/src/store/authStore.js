@@ -1,227 +1,95 @@
-// src/store/authStore.js
-import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import PouchDB from 'pouchdb-browser'
-import { useDocStore } from '@/store/docStore'
+// /frontend/src/store/authStore.js
+import { defineStore } from 'pinia';
+import { ref, computed, watch } from 'vue';
+import { useSyncStore } from './syncStore';
+import { useDocStore } from './docStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost'
-const COUCHDB_PORT = import.meta.env.VITE_COUCHDB_PORT || '5984'
-const SIGNUP_PORT = import.meta.env.VITE_SIGNUP_PORT || '3000'
-
-const COUCHDB_URL = `${API_BASE_URL}:${COUCHDB_PORT}`
-const SIGNUP_URL = `${API_BASE_URL}:${SIGNUP_PORT}`
+const AUTH_SERVICE_URL = import.meta.env.VITE_AUTH_SERVICE_URL || 'http://localhost:8000';
+const SIGNUP_SERVICE_URL = import.meta.env.VITE_SIGNUP_SERVICE_URL || 'http://localhost:3000';
 
 export const useAuthStore = defineStore('authStore', () => {
-    const user = ref(null)
-    const isAuthenticated = ref(false)
-    const lastLoggedInUser = ref(null)
+    const token = ref(localStorage.getItem('jwt_token'));
+    const user = ref(null); // Will hold { id, email }
 
-    // Track active databases to ensure proper cleanup
-    const activeDatabases = new Set()
+    const isAuthenticated = computed(() => !!token.value);
+    const powersyncToken = computed(() => token.value);
 
-    async function login(username, password) {
-        try {
-            // Clean up previous user's data if needed
-            if (lastLoggedInUser.value && lastLoggedInUser.value.toLowerCase() !== username.toLowerCase()) {
-                await cleanupPreviousUserData(lastLoggedInUser.value)
-            }
-
-            // Attempt login with CouchDB
-            const response = await fetch(`${COUCHDB_URL}/_session`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ name: username, password }),
-                credentials: 'include'
-            })
-
-            if (!response.ok) {
-                throw new Error('Login failed')
-            }
-
-            const data = await response.json()
-
-            // Update user state
-            user.value = {
-                name: username,
-                roles: data.roles,
-                dbName: `pn-markdown-notes-${username.toLowerCase()}`
-            }
-            isAuthenticated.value = true
-            lastLoggedInUser.value = username
-
-            return true
-        } catch (error) {
-            console.error('Login error:', error)
-            throw error
-        }
-    }
-
-    async function continueAsGuest() {
-        // If there's a previously logged in user, clean up that data
-        if (lastLoggedInUser.value) {
-            await cleanupPreviousUserData(lastLoggedInUser.value)
-        }
-
-        user.value = {
-            name: 'guest',
-            roles: []
-        }
-        isAuthenticated.value = true
-        lastLoggedInUser.value = 'guest'
-    }
-
-    async function cleanupPreviousUserData(previousUsername) {
-        console.log(`Cleaning up data for previous user: ${previousUsername}`)
-
-        try {
-            // Reset any stores that might cache data
-            const docStore = useDocStore()
-            await docStore.resetStore()
-            await docStore.destroyLocalDB(previousUsername)
-            
-            // Destroy local PouchDB databases that might reference the old user
-            const prevLower = previousUsername.toLowerCase()
-            const dbNames = [
-                `pn-markdown-notes-${prevLower}`,
-                `_pouch_pn-markdown-notes-${prevLower}`
-            ]
-
-            for (const dbName of dbNames) {
-                if (activeDatabases.has(dbName)) {
-                    try {
-                        const db = new PouchDB(dbName)
-                        await db.destroy()
-                        activeDatabases.delete(dbName)
-                        console.log(`Successfully destroyed database: ${dbName}`)
-                    } catch (err) {
-                        console.error(`Error destroying database ${dbName}:`, err)
-                    }
-                }
-            }
-
-            // Clear any old IndexedDB data that might linger
+    // This watcher is the central point for handling auth state changes.
+    watch(token, (newToken) => {
+        const syncStore = useSyncStore();
+        if (newToken) {
+            localStorage.setItem('jwt_token', newToken);
             try {
-                const dbs = await window.indexedDB.databases()
-                for (const db of dbs) {
-                    if (db.name.includes(prevLower)) {
-                        await window.indexedDB.deleteDatabase(db.name)
-                        console.log(`Deleted IndexedDB database: ${db.name}`)
-                    }
-                }
-            } catch (err) {
-                console.error('Error cleaning IndexedDB:', err)
+                const payload = JSON.parse(atob(newToken.split('.')[1]));
+                user.value = { id: payload.user_id, email: payload.email }; // Assuming email is in token
+            } catch (e) {
+                console.error("Failed to decode JWT:", e);
+                user.value = null;
+                token.value = null; // Clear invalid token
             }
-        } catch (err) {
-            console.error('Error during data cleanup:', err)
+        } else {
+            localStorage.removeItem('jwt_token');
+            user.value = null;
         }
+        // Always trigger PowerSync to connect or disconnect based on the new token state.
+        if (syncStore.isInitialized) {
+            syncStore.handleConnectionState();
+        }
+    }, { immediate: true });
+
+    async function signup(email, password, turnstileToken = '') {
+        const response = await fetch(`${SIGNUP_SERVICE_URL}/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password, 'cf-turnstile-response': turnstileToken }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.details || data.error || 'Signup failed');
+        }
+        // Signup success, client should now log in.
+        return data;
+    }
+
+    async function login(email, password) {
+        const response = await fetch(`${AUTH_SERVICE_URL}/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+        });
+
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Login failed');
+        }
+
+        // On successful login, clear any old data and set the new token.
+        const docStore = useDocStore();
+        await docStore.resetStore();
+        token.value = data.token; // The watcher will handle the rest.
     }
 
     async function logout() {
-        try {
-            // 1. End CouchDB session
-            await fetch(`${COUCHDB_URL}/_session`, {
-                method: 'DELETE',
-                credentials: 'include'
-            })
-
-            // 2. Store current username before resetting the state
-            const currentUsername = user.value?.name
-            
-            // 3. Reset auth store state
-            user.value = null
-            isAuthenticated.value = false
-            const previousUser = lastLoggedInUser.value
-            lastLoggedInUser.value = null
-
-            // 4. Clean up the current user's data
-            if (currentUsername) {
-                await cleanupPreviousUserData(currentUsername)
-            }
-
-            console.log(`Logout complete. Cleaned up data for: ${previousUser}`)
-        } catch (error) {
-            console.error('Logout error:', error)
-            throw error
-        }
+        const docStore = useDocStore();
+        await docStore.resetStore();
+        token.value = null; // The watcher will disconnect PowerSync.
     }
 
+    // Called by the global route guard to initialize auth state on page load.
     async function checkAuth() {
-        try {
-            const response = await fetch(`${COUCHDB_URL}/_session`, {
-                credentials: 'include'
-            })
-            const data = await response.json()
-
-            if (data.userCtx.name) {
-                // If a different user is detected, clean up previous data
-                if (
-                    lastLoggedInUser.value &&
-                    lastLoggedInUser.value.toLowerCase() !== data.userCtx.name.toLowerCase()
-                ) {
-                    await cleanupPreviousUserData(lastLoggedInUser.value)
-                }
-
-                user.value = {
-                    name: data.userCtx.name,
-                    roles: data.userCtx.roles,
-                    dbName: `pn-markdown-notes-${data.userCtx.name.toLowerCase()}`
-                }
-                isAuthenticated.value = true
-                lastLoggedInUser.value = data.userCtx.name
-
-                return true
-            }
-            return false
-        } catch (error) {
-            console.error('Auth check error:', error)
-            return false
-        }
-    }
-
-    /**
-     * SIGNUP now accepts a `turnstileToken` param and sends it to the signup-service
-     */
-    async function signup(username, password, turnstileToken = '') {
-        try {
-            const response = await fetch(`${SIGNUP_URL}/signup`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    username,
-                    password,
-                    'cf-turnstile-response': turnstileToken
-                })
-            })
-
-            const data = await response.json()
-            if (!response.ok) {
-                console.error('Signup error (from signup-service):', data)
-                throw new Error(data.reason || data.error || 'Signup service failed')
-            }
-
-            return true
-        } catch (error) {
-            console.error('Signup error:', error)
-            throw error
-        }
-    }
-
-    // Track database creation
-    function registerDatabase(dbName) {
-        activeDatabases.add(dbName)
+        // This is now simpler: just load from localStorage. The watcher does the work.
+        token.value = localStorage.getItem('jwt_token');
     }
 
     return {
+        token,
         user,
         isAuthenticated,
-        lastLoggedInUser,
+        powersyncToken,
+        signup,
         login,
         logout,
-        checkAuth,
-        signup,
-        continueAsGuest,
-        registerDatabase
-    }
-})
+        checkAuth
+    };
+});

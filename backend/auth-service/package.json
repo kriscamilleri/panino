@@ -1,17 +1,17 @@
 {
-    "name": "image-service",
+    "name": "auth-service",
     "version": "1.0.0",
-    "description": "Image upload service for markdown editor",
+    "description": "Handles user authentication and JWT generation.",
     "type": "module",
     "main": "index.js",
     "scripts": {
         "start": "node index.js"
     },
     "dependencies": {
+        "bcryptjs": "^2.4.3",
         "cors": "^2.8.5",
         "express": "^4.18.2",
         "jsonwebtoken": "^9.0.2",
-        "multer": "^1.4.5-lts.1",
         "pg": "^8.11.3"
     }
 }

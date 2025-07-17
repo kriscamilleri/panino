@@ -11,7 +11,7 @@ const signupConfig = {
     type: 'signup',
     title: 'Sign Up',
     fields: [
-        { name: 'username', label: 'Username', type: 'text', required: true, minLength: 3 },
+        { name: 'email', label: 'Email Address', type: 'email', required: true },
         { name: 'password', label: 'Password', type: 'password', required: true, minLength: 6 },
         { name: 'confirmPassword', label: 'Confirm Password', type: 'password', required: true, matches: 'password' }
     ],
@@ -19,8 +19,8 @@ const signupConfig = {
     loadingText: 'Creating account...',
     submitAction: async (formData, turnstileToken) => {
         // Signup and then login
-        await authStore.signup(formData.username, formData.password, turnstileToken || '');
-        await authStore.login(formData.username, formData.password);
+        await authStore.signup(formData.email, formData.password, turnstileToken || '');
+        await authStore.login(formData.email, formData.password);
     },
     showPasswordRequirements: true,
     showTurnstile: !!import.meta.env.VITE_TURNSTILE_SITE_KEY,

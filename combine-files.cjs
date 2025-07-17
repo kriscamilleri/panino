@@ -29,17 +29,17 @@ const minimist = require('minimist');
 /* ------------------------------------------------------------------ */
 const argv = minimist(process.argv.slice(2), {
   string: ['path', 'file-types', 'output-file'],
-  alias:  { p: 'path', f: 'file-types', o: 'output-file' },
+  alias: { p: 'path', f: 'file-types', o: 'output-file' },
   default: {
     path: process.cwd(),
     // You can mix extensions *and* exact filenames, separated by commas.
     //   e.g. ".js,.vue,docStore.js,PrintStylesPage.vue"
-    'file-types': ',.js,.json,.yml,.vue,.html',
+    'file-types': ',.js,.json,.yml,.vue,.html,.sql',
     'output-file': 'combined_content.txt',
   },
 });
 
-const baseDir    = path.resolve(argv.path);
+const baseDir = path.resolve(argv.path);
 const fileTokens = argv['file-types'].split(',').map(s => s.trim()).filter(Boolean);
 const outputFile = path.resolve(argv['output-file']);
 
@@ -53,10 +53,10 @@ function patternToRegExp(pattern) {
   if (dirOnly) modified = modified.slice(0, -1);
 
   modified = modified
-    .replace(/\./g,  '\\.')
-    .replace(/\*\*/g,'(.+)?')
-    .replace(/\*/g,  '[^/]+')
-    .replace(/\?/g,  '[^/]');
+    .replace(/\./g, '\\.')
+    .replace(/\*\*/g, '(.+)?')
+    .replace(/\*/g, '[^/]+')
+    .replace(/\?/g, '[^/]');
 
   return new RegExp(`^${modified}${dirOnly ? '(?:/.*)?$' : '$'}`);
 }
@@ -77,8 +77,8 @@ function createGitignoreFilter(dir) {
   }
 
   return relPath => !patterns.some(({ raw, re }) => {
-    if (raw === 'node_modules'     && relPath.includes('node_modules'))     return true;
-    if (raw === 'package-lock.json'&& relPath.endsWith('package-lock.json'))return true;
+    if (raw === 'node_modules' && relPath.includes('node_modules')) return true;
+    if (raw === 'package-lock.json' && relPath.endsWith('package-lock.json')) return true;
     return re.test(relPath);
   });
 }
@@ -88,7 +88,7 @@ function createGitignoreFilter(dir) {
 /* ------------------------------------------------------------------ */
 function getFiles(startDir, tokens) {
   const isAllowed = createGitignoreFilter(startDir);
-  const results   = [];
+  const results = [];
 
   const stack = [startDir];
   while (stack.length) {
@@ -104,10 +104,10 @@ function getFiles(startDir, tokens) {
         continue;
       }
 
-      const ext      = path.extname(full);
+      const ext = path.extname(full);
       const filename = path.basename(full);
       const match =
-        (ext && tokens.includes(ext))      || // by extension (".js")
+        (ext && tokens.includes(ext)) || // by extension (".js")
         tokens.includes(filename);            // by exact filename
 
       if (match && isAllowed(path.relative(startDir, full).replace(/\\/g, '/')))
@@ -128,6 +128,15 @@ function getFiles(startDir, tokens) {
 /* ------------------------------------------------------------------ */
 function concatFiles(files, dest) {
   fs.writeFileSync(dest, '');                          // clear / create
+
+  const promptFile = './prompt.md';
+  if (fs.existsSync(promptFile)) {
+    const promptContent = fs.readFileSync(promptFile, 'utf8');
+    fs.appendFileSync(
+      dest,
+      `${promptContent}\n\n CODE:\n\n`
+    );
+  }
 
   for (const file of files) {
     const content = fs.readFileSync(file, 'utf8');

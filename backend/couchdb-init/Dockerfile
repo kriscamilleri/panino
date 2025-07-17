@@ -1,5 +1,5 @@
 # Simple Dockerfile for our couchdb-init service
-FROM node:16-alpine
+FROM node:24.4.0-alpine
 
 WORKDIR /usr/src/app
 

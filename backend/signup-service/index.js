@@ -1,162 +1,102 @@
-import express from 'express'
-import fetch from 'node-fetch'
-import cors from 'cors'
-import { URLSearchParams } from 'url'  // For Turnstile verification POST body
+// /backend/signup-service/index.js
+import express from 'express';
+import fetch from 'node-fetch';
+import cors from 'cors';
+import { URLSearchParams } from 'url';
 
-const COUCHDB_URL = 'http://couchdb:5984'
-const ADMIN_USER = process.env.ADMIN_USER || 'admin'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'password'
-const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || ''
+const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://auth-service:8000';
+const POWERSYNC_SERVICE_URL = process.env.POWERSYNC_SERVICE_URL || 'http://powersync-service:7000';
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
 
-const app = express()
-app.use(cors()) // This allows all origins
-app.use(express.json())
+const app = express();
+app.use(cors());
+app.use(express.json());
 
 // Health check
 app.get('/', (req, res) => {
-   res.send('Sign-up service is running.')
-})
+   res.send('Sign-up service is running.');
+});
+
+async function verifyTurnstile(token) {
+   const verifyURL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+   const formData = new URLSearchParams();
+   formData.append('secret', TURNSTILE_SECRET_KEY);
+   formData.append('response', token);
+
+   const turnstileRes = await fetch(verifyURL, { method: 'POST', body: formData });
+   const turnstileData = await turnstileRes.json();
+   return turnstileData.success;
+}
 
 /**
  * POST /signup
- * Creates a user in CouchDB.
- * Expects JSON body: { username: string, password: string, cf-turnstile-response: string }
+ * Creates a user via auth-service, then registers with powersync-service.
+ * Expects JSON body: { email: string, password: string, "cf-turnstile-response": string }
  */
 app.post('/signup', async (req, res) => {
    try {
-      const { username, password, 'cf-turnstile-response': turnstileToken } = req.body
-      if (!username || !password) {
-         return res.status(400).json({
-            error: 'Missing username or password'
-         })
+      const { email, password, 'cf-turnstile-response': turnstileToken } = req.body;
+
+      if (!email || !password) {
+         return res.status(400).json({ error: 'Missing email or password' });
       }
 
-      // Verify Turnstile if a secret key is present
+      // 1. Verify Turnstile if enabled
       if (TURNSTILE_SECRET_KEY) {
-         if (!turnstileToken) {
-            return res.status(400).json({
-               error: 'Missing Turnstile token'
-            })
-         }
-         // Validate with Cloudflare
-         const verifyURL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-         const formData = new URLSearchParams()
-         formData.append('secret', TURNSTILE_SECRET_KEY)
-         formData.append('response', turnstileToken)
-         console.log('Turnstile verification:', formData.toString())
-         // If you have the user's IP in a header, you can append that:
-         // formData.append('remoteip', req.ip)
-
-         const turnstileRes = await fetch(verifyURL, {
-            method: 'POST',
-            body: formData
-         })
-         const turnstileData = await turnstileRes.json()
-
-         if (!turnstileData.success) {
-            console.error('Turnstile failed verification:', turnstileData)
-            return res.status(400).json({
-               error: 'Captcha verification failed'
-            })
+         if (!turnstileToken || !(await verifyTurnstile(turnstileToken))) {
+            return res.status(400).json({ error: 'Captcha verification failed' });
          }
       }
 
-      // Create user in _users database
-      const userDoc = {
-         _id: `org.couchdb.user:${username}`,
-         name: username,
-         roles: [],
-         type: 'user',
-         password: password
+      // 2. Call auth-service to create the user in Postgres
+      const authResponse = await fetch(`${AUTH_SERVICE_URL}/signup`, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ email, password }),
+      });
+
+      const authData = await authResponse.json();
+      if (!authResponse.ok) {
+         return res.status(authResponse.status).json({
+            error: 'Failed to create user',
+            details: authData.error
+         });
       }
 
-      // Create user in _users database
-      const userResponse = await fetch(`${COUCHDB_URL}/_users/org.couchdb.user:${username}`, {
+      const { id: userId } = authData;
+
+      // 3. Call powersync-service to trigger an initial sync for the new user
+      // This pre-warms the sync bucket for the user.
+      const powerSyncResponse = await fetch(`${POWERSYNC_SERVICE_URL}/v1/users`, {
          method: 'PUT',
-         headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64')
-         },
-         body: JSON.stringify(userDoc)
-      })
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ users: [{ id: userId }] }),
+      });
 
-      const userData = await userResponse.json()
-      if (!userResponse.ok) {
-         console.error('Failed to create user:', userData)
-         return res.status(userResponse.status).json({
-            error: userData.error,
-            reason: userData.reason
-         })
+      if (!powerSyncResponse.ok) {
+         // This is not a fatal error for signup, so we'll just log it.
+         // The client will trigger a sync on first login anyway.
+         console.warn(`Failed to register user ${userId} with PowerSync service:`, await powerSyncResponse.text());
       }
 
-      // Create user database
-      const dbName = `pn-markdown-notes-${username}`
-      const createDbResponse = await fetch(`${COUCHDB_URL}/${dbName}`, {
-         method: 'PUT',
-         headers: {
-            'Authorization': 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64')
-         }
-      })
-
-      if (!createDbResponse.ok) {
-         const dbError = await createDbResponse.json()
-         // If database already exists, continue
-         if (dbError.error !== 'file_exists') {
-            console.error('Failed to create database:', dbError)
-            return res.status(createDbResponse.status).json({
-               error: dbError.error,
-               reason: dbError.reason
-            })
-         }
-      }
-
-      // Set security permissions for the database
-      const securityDoc = {
-         admins: {
-            names: [],
-            roles: []
-         },
-         members: {
-            names: [username],
-            roles: []
-         }
-      }
-
-      const securityResponse = await fetch(`${COUCHDB_URL}/${dbName}/_security`, {
-         method: 'PUT',
-         headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Basic ' + Buffer.from(`${ADMIN_USER}:${ADMIN_PASSWORD}`).toString('base64')
-         },
-         body: JSON.stringify(securityDoc)
-      })
-
-      if (!securityResponse.ok) {
-         const secError = await securityResponse.json()
-         console.error('Failed to set security:', secError)
-         return res.status(securityResponse.status).json({
-            error: secError.error,
-            reason: secError.reason
-         })
-      }
-
-      return res.json({
+      // 4. Return success to the client.
+      // The client will proceed to log in to get a JWT.
+      return res.status(201).json({
          ok: true,
-         id: userData.id,
-         rev: userData.rev,
-         database: dbName
-      })
+         message: 'User created successfully. Please log in.',
+         userId: userId
+      });
+
    } catch (err) {
-      console.error('Signup service error:', err)
+      console.error('Signup service error:', err);
       res.status(500).json({
          error: 'Internal Server Error',
          reason: err.message
-      })
+      });
    }
-})
+});
 
-// Start server
-const port = process.env.PORT || 3000
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
-   console.log(`Signup service listening on port ${port}`)
-})
+   console.log(`Signup service listening on port ${port}`);
+});

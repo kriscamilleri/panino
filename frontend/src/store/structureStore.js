@@ -1,282 +1,167 @@
-// src/store/structureStore.js
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { useContentStore } from './contentStore'
-import { useSyncStore } from './syncStore'
-import { useAuthStore } from './authStore'
+// /frontend/src/store/structureStore.js
+import { defineStore } from 'pinia';
+import { ref, computed, watch } from 'vue';
+import { useSyncStore } from './syncStore';
+import { v4 as uuidv4 } from 'uuid'; // Use a proper UUID generator
 
 export const useStructureStore = defineStore('structureStore', () => {
-    /* ──────────────────────────────
-       ▸ state
-    ────────────────────────────── */
-    const data             = ref({ structure: {} })
-    const selectedFileId   = ref(null)
-    const selectedFolderId = ref(null)
-    const openFolders      = ref(new Set())
+    const syncStore = useSyncStore();
 
-    /* ──────────────────────────────
-       ▸ other stores
-    ────────────────────────────── */
-    const contentStore = useContentStore()
-    const syncStore    = useSyncStore()
-    const authStore    = useAuthStore()
+    // Reactive state for the entire structure
+    const folders = ref([]);
+    const notes = ref([]);
 
-    /* ──────────────────────────────
-       ▸ computed helpers
-    ────────────────────────────── */
-    const itemsArray = computed(() => Object.values(data.value.structure))
+    // UI State
+    const selectedFileId = ref(null);
+    const selectedFolderId = ref(null);
+    const openFolders = ref(new Set());
+
+    // Watch for PowerSync initialization
+    watch(() => syncStore.isInitialized, (ready) => {
+        if (ready) {
+            // Setup live queries
+            syncStore.powerSync.watch('SELECT * FROM folders', [], (result) => {
+                folders.value = result.rows?._array || [];
+            });
+            syncStore.powerSync.watch('SELECT * FROM notes', [], (result) => {
+                notes.value = result.rows?._array || [];
+            });
+        }
+    }, { immediate: true });
+
+    // Computed properties to derive the tree structure
+    const allItems = computed(() => [...folders.value, ...notes.value].map(item => ({
+        ...item,
+        // Normalize type for UI
+        type: item.title !== undefined ? 'file' : 'folder',
+        name: item.title ?? item.name
+    })));
 
     const rootItems = computed(() => {
-        const folders = itemsArray.value.filter(i => !i.parentId && i.type === 'folder')
-        const files   = itemsArray.value.filter(i => !i.parentId && i.type === 'file')
-        return [...folders.sort(sortByName), ...files.sort(sortByName)]
-    })
+        const sorted = allItems.value
+            .filter(i => i.parent_id == null && i.folder_id == null)
+            .sort((a, b) => {
+                if (a.type === b.type) return a.name.localeCompare(b.name);
+                return a.type === 'folder' ? -1 : 1;
+            });
+        return sorted;
+    });
 
     const selectedFile = computed(() => {
-        if (!selectedFileId.value) return null
-        return data.value.structure[selectedFileId.value] || null
-    })
+        return notes.value.find(n => n.id === selectedFileId.value) || null;
+    });
 
-    /* ──────────────────────────────
-       ▸ utility helpers
-    ────────────────────────────── */
-    function sortByName(a, b) {
-        return (a.name || '').localeCompare(b.name || '')
-    }
+    const selectedFileContent = computed(() => selectedFile.value?.content || '');
 
-    function generateId() {
-        return Math.random().toString(36).substring(2, 15)
-    }
-
-    /** Return direct children (folders first, then files) */
     function getChildren(parentId) {
-        const folders = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'folder')
-        const files   = itemsArray.value.filter(i => i.parentId === parentId && i.type === 'file')
-        return [...folders.sort(sortByName), ...files.sort(sortByName)]
+        const children = allItems.value
+            .filter(i => i.parent_id === parentId || i.folder_id === parentId)
+            .sort((a, b) => {
+                if (a.type === b.type) return a.name.localeCompare(b.name);
+                return a.type === 'folder' ? -1 : 1;
+            });
+        return children;
     }
 
-    /** True if an item with the same name already exists in the destination folder */
-    function hasDuplicateName(name, parentId, excludeId = null) {
-        const norm = (name || '').trim().toLowerCase()
-        return itemsArray.value.some(i =>
-            i.id !== excludeId &&
-            (i.parentId || null) === (parentId || null) &&
-            (i.name || '').trim().toLowerCase() === norm
-        )
-    }
-
-    /** Protect against moving a folder into its own descendant */
-    function isDescendant(ancestorId, potentialChildId) {
-        let cur = potentialChildId
-        while (cur) {
-            if (cur === ancestorId) return true
-            const n = data.value.structure[cur]
-            cur = n ? n.parentId : null
-        }
-        return false
-    }
-
-    /* ──────────────────────────────
-       ▸ create
-    ────────────────────────────── */
+    // Actions
     async function createFile(name, parentId = null) {
-        if (hasDuplicateName(name, parentId)) {
-            alert(`A document named “${name}” already exists in this folder.`)
-            return null
-        }
-
-        const id = generateId()
-        data.value.structure[id] = {
-            id, type: 'file', name, parentId,
-            hash: Date.now(), tx: Date.now()
-        }
-
-        await contentStore.initializeContent(id)
-        await selectFile(id)
-        if (parentId) openFolders.value.add(parentId)
-        await saveStructure()
-        return id
+        const newNote = {
+            id: uuidv4(),
+            folder_id: parentId,
+            title: name,
+            content: `# ${name}\n\n`,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+        await syncStore.execute('INSERT INTO notes (id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+            [newNote.id, newNote.folder_id, newNote.title, newNote.content, newNote.created_at, newNote.updated_at]
+        );
+        await selectFile(newNote.id);
     }
 
-    function createFolder(name, parentId = null) {
-        if (hasDuplicateName(name, parentId)) {
-            alert(`A folder named “${name}” already exists in this folder.`)
-            return null
-        }
-
-        const id = generateId()
-        data.value.structure[id] = {
-            id, type: 'folder', name, parentId,
-            hash: Date.now(), tx: Date.now()
-        }
-
-        if (parentId) openFolders.value.add(parentId)
-        saveStructure()
-        return id
+    async function createFolder(name, parentId = null) {
+        const newFolder = {
+            id: uuidv4(),
+            parent_id: parentId,
+            name: name,
+            created_at: new Date().toISOString()
+        };
+        await syncStore.execute('INSERT INTO folders (id, parent_id, name, created_at) VALUES (?, ?, ?, ?)',
+            [newFolder.id, newFolder.parent_id, newFolder.name, newFolder.created_at]
+        );
     }
 
-    /* ──────────────────────────────
-       ▸ delete
-    ────────────────────────────── */
-    async function deleteItem(id) {
-        const node = data.value.structure[id]
-        if (!node) return
-
-        if (node.type === 'folder') {
-            for (const child of getChildren(id)) await deleteItem(child.id)
-            openFolders.value.delete(id)
-            if (selectedFolderId.value === id) selectedFolderId.value = null
+    async function deleteItem(id, type) {
+        if (type === 'folder') {
+            // Recursively delete children first (a more robust solution would use transactions or backend logic)
+            const children = getChildren(id);
+            for (const child of children) {
+                await deleteItem(child.id, child.type);
+            }
+            await syncStore.execute('DELETE FROM folders WHERE id = ?', [id]);
+        } else {
+            await syncStore.execute('DELETE FROM notes WHERE id = ?', [id]);
         }
-
-        if (node.type === 'file') {
-            await contentStore.deleteContent(id)
-            if (selectedFileId.value === id) selectedFileId.value = null
-        }
-
-        delete data.value.structure[id]
-        await saveStructure()
     }
 
-    /* ──────────────────────────────
-       ▸ select
-    ────────────────────────────── */
-    async function selectFile(fileId) {
-        selectedFolderId.value = null
-        await contentStore.loadContent(fileId)
-        selectedFileId.value = fileId
+    async function renameItem(id, newName, type) {
+        if (type === 'folder') {
+            await syncStore.execute('UPDATE folders SET name = ? WHERE id = ?', [newName, id]);
+        } else {
+            await syncStore.execute('UPDATE notes SET title = ?, updated_at = ? WHERE id = ?', [newName, new Date().toISOString(), id]);
+        }
+    }
+
+    async function moveItem(itemId, newParentId, type) {
+        if (type === 'folder') {
+            await syncStore.execute('UPDATE folders SET parent_id = ? WHERE id = ?', [newParentId, itemId]);
+        } else {
+            await syncStore.execute('UPDATE notes SET folder_id = ?, updated_at = ? WHERE id = ?', [newParentId, new Date().toISOString(), itemId]);
+        }
+    }
+
+    async function updateFileContent(fileId, newContent) {
+        await syncStore.execute('UPDATE notes SET content = ?, updated_at = ? WHERE id = ?', [newContent, new Date().toISOString(), fileId]);
+    }
+
+    function selectFile(fileId) {
+        selectedFileId.value = fileId;
+        selectedFolderId.value = null;
     }
 
     function selectFolder(folderId) {
-        selectedFileId.value   = null
-        selectedFolderId.value = folderId
+        selectedFileId.value = null;
+        selectedFolderId.value = folderId;
     }
 
-    /* ──────────────────────────────
-       ▸ rename
-    ────────────────────────────── */
-    async function renameItem(itemId, newName) {
-        const item = data.value.structure[itemId]
-        if (!item) return
-
-        if (hasDuplicateName(newName, item.parentId, itemId)) {
-            alert(`An item named “${newName}” already exists in this folder.`)
-            return
-        }
-
-        item.name = newName
-        item.tx   = Date.now()
-        item.hash = Date.now()
-        await saveStructure()
-    }
-
-    /* ──────────────────────────────
-       ▸ move (used by drag-and-drop)
-    ────────────────────────────── */
-    async function moveItem(itemId, newParentId = null) {
-        const item = data.value.structure[itemId]
-        if (!item) return false
-
-        // destination must be null (root) or an existing folder
-        if (newParentId &&
-            (!data.value.structure[newParentId] || data.value.structure[newParentId].type !== 'folder')) {
-            return false
-        }
-
-        // no change
-        if ((item.parentId || null) === (newParentId || null)) return false
-
-        // prevent folder→descendant
-        if (item.type === 'folder' && newParentId && isDescendant(itemId, newParentId)) {
-            alert('Cannot move a folder into one of its own sub-folders.')
-            return false
-        }
-
-        // duplicate-name guard
-        if (hasDuplicateName(item.name, newParentId, itemId)) {
-            alert(`An item named “${item.name}” already exists in the destination.`)
-            return false
-        }
-
-        item.parentId = newParentId
-        item.tx       = Date.now()
-        item.hash     = Date.now()
-
-        if (newParentId) openFolders.value.add(newParentId)
-        await saveStructure()
-        return true
-    }
-
-    /* ──────────────────────────────
-       ▸ folder UI helpers
-    ────────────────────────────── */
     function toggleFolder(folderId) {
-        openFolders.value.has(folderId)
-            ? openFolders.value.delete(folderId)
-            : openFolders.value.add(folderId)
-    }
-
-    /* ──────────────────────────────
-       ▸ persistence
-    ────────────────────────────── */
-    async function saveStructure() {
-        await syncStore.saveStructure(data.value.structure)
-    }
-
-    async function loadStructure() {
-        const structure = await syncStore.loadStructure()
-        if (!structure) return
-
-        data.value.structure = JSON.parse(JSON.stringify(structure))
-
-        // choose initial file
-        const username  = authStore.user?.name
-        const welcomeId = username && username !== 'guest' ? `welcome-${username}` : 'welcome'
-        if (structure[welcomeId]) {
-            selectedFileId.value = welcomeId
-        } else if (structure['welcome']) {
-            selectedFileId.value = 'welcome'
+        if (openFolders.value.has(folderId)) {
+            openFolders.value.delete(folderId);
         } else {
-            const firstFile = Object.values(structure).find(i => i.type === 'file')
-            if (firstFile) selectedFileId.value = firstFile.id
+            openFolders.value.add(folderId);
         }
     }
 
     function resetStore() {
-        data.value             = { structure: {} }
-        selectedFileId.value   = null
-        selectedFolderId.value = null
-        openFolders.value      = new Set()
+        folders.value = [];
+        notes.value = [];
+        selectedFileId.value = null;
+        selectedFolderId.value = null;
+        openFolders.value = new Set();
     }
 
-    /* ──────────────────────────────
-       ▸ exposed API
-    ────────────────────────────── */
+    async function loadStructure() {
+        // With watcher, this is now mostly a no-op, but we can ensure a default file is selected.
+        if (notes.value.length > 0 && !selectedFileId.value) {
+            selectFile(notes.value[0].id);
+        }
+    }
+
     return {
-        // state
-        data,
-        selectedFileId,
-        selectedFolderId,
-        openFolders,
-
-        // getters
-        itemsArray,
-        rootItems,
-        selectedFile,
-
-        // operations
-        getChildren,
-        createFile,
-        createFolder,
-        deleteItem,
-        selectFile,
-        selectFolder,
-        renameItem,
-        moveItem,
-        toggleFolder,
-
-        // persistence
-        saveStructure,
-        loadStructure,
-        resetStore
-    }
-})
+        folders, notes, allItems, rootItems,
+        selectedFileId, selectedFolderId, openFolders, selectedFile, selectedFileContent,
+        getChildren, createFile, createFolder, deleteItem, renameItem, moveItem,
+        selectFile, selectFolder, toggleFolder, updateFileContent,
+        resetStore, loadStructure
+    };
+});

@@ -1,14 +1,35 @@
-// /frontend/src/store/markdownStore.js
+// frontend/src/store/markdownStore.js
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
+import PouchDB from 'pouchdb-browser'
+import { useAuthStore } from './authStore'
 import { useSyncStore } from './syncStore'
-import { fetchGoogleFontTtf } from '@/utils/googleFontTtf.js'
+import { fetchGoogleFontTtf } from '@/utils/googleFontTtf.js'   // ← NEW import
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
-    const syncStore = useSyncStore();
+    const authStore = useAuthStore()
+    const syncStore = useSyncStore()
 
+    /* ------------------------------------------------------------------
+     * Helpers for local DB access & debounce
+     * ----------------------------------------------------------------*/
+    function getLocalDB() {
+        if (!authStore.isAuthenticated || authStore.user?.name === 'guest') {
+            return new PouchDB('pn-markdown-notes-guest')
+        }
+        return new PouchDB(`pn-markdown-notes-${authStore.user.name.toLowerCase()}`)
+    }
+
+    function debounce(fn, wait = 500) {
+        let t
+        return (...args) => {
+            clearTimeout(t)
+            t = setTimeout(() => fn(...args), wait)
+        }
+    }
+    const fontCache = ref(new Map())
 
     /* ------------------------------------------------------------------
      * 1) Preview styles (improved defaults)
@@ -60,6 +81,12 @@ pre code {
 }`,
         googleFontFamily: 'Inter', // New field for Google Fonts
     };
+
+    const styles = ref({ ...defaultStyles });
+
+    /* ------------------------------------------------------------------
+     * 2) Print styles (professional defaults)
+     * ----------------------------------------------------------------*/
     const defaultPrintStyles = {
         /* --- Headings (serif) --- */
         h1: "font-family: 'Manufacturing Consent', system-ui; font-size: 2.4rem; font-weight: 700; line-height: 1.1; word-spacing: 0.02em; margin-top: 2.6rem; margin-bottom: 1.2rem; color: #242A49; page-break-after: avoid;",
@@ -134,165 +161,241 @@ pre code {
     .page-break-after { page-break-after: always; }`,
     };
 
-    const styles = ref({ ...defaultStyles });
     const printStyles = ref({ ...defaultPrintStyles });
-    const fontCache = ref(new Map());
-    let settingsLoaded = false;
 
-    // Debounce DB writes
-    const debounce = (fn, wait) => {
-        let t;
-        return (...args) => {
-            clearTimeout(t);
-            t = setTimeout(() => fn(...args), wait);
-        };
-    };
+    
+  /**
+   * Fetch Google Font CSS (for the live HTML preview) **and**
+   * Base-64-encoded TTF binaries (for jsPDF embedding).
+   *
+   * @param {string} fontFamily – "Roboto" or "Inter, Open Sans" (comma-separated list)
+   * @return {Promise<{css:string, fonts:Array<{name,data,format,style,weight}>}>}
+   */
+  async function getGoogleFontData (fontFamily) {
+    if (!fontFamily || !fontFamily.trim()) {
+      return { css: '', fonts: [] }
+    }
 
-    const saveStylesToDB = debounce(async () => {
-        if (!settingsLoaded || !syncStore.isInitialized) return;
-        try {
-            await syncStore.execute(
-                `INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?), (?, ?)`,
-                [
-                    'previewStyles', JSON.stringify(styles.value),
-                    'printStyles', JSON.stringify(printStyles.value)
-                ]
-            );
-        } catch (err) {
-            console.error('[markdownStore] Failed to save styles', err);
+    if (fontCache.value.has(fontFamily)) {
+      return fontCache.value.get(fontFamily)
+    }
+
+    try {
+      // Split comma-separated font families and process each
+      const fontFamilies = fontFamily.split(',').map(f => f.trim()).filter(f => f)
+      const allFonts = []
+      const fontImports = []
+
+      for (const singleFamily of fontFamilies) {
+        // Skip generic font families
+        if (['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy'].includes(singleFamily.toLowerCase())) {
+          continue
         }
-    }, 500);
+
+        // Remove quotes if present
+        const cleanFamily = singleFamily.replace(/['"]/g, '')
+        
+        /* ---------- 1. Grab TTF URLs from your server ---------- */
+        const variants = await fetchGoogleFontTtf(cleanFamily)
+        
+        for (const v of variants) {
+          const key = `${v.family}-${v.weight}-${v.style}`
+          if (fontCache.value.has(key)) {
+            allFonts.push(fontCache.value.get(key))
+            continue
+          }
+
+          const blob = await fetch(v.url).then(r => r.blob())
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result)
+            reader.onerror   = reject
+            reader.readAsDataURL(blob)
+          })
+
+          const fontObj = {
+            name  : v.family,
+            data  : base64,          // data:…;base64,
+            format: 'truetype',
+            style : v.style,
+            weight: v.weight,
+          }
+
+          fontCache.value.set(key, fontObj) // cache each variant
+          allFonts.push(fontObj)
+        }
+
+        // Add to CSS imports (encode font name for Google Fonts URL)
+        const encodedFamily = encodeURIComponent(cleanFamily)
+        fontImports.push(`family=${encodedFamily}:wght@400;700`)
+      }
+
+      /* ---------- 2. CSS import for the live preview iframe ------------- */
+      const css = fontImports.length > 0 
+        ? `@import url('https://fonts.googleapis.com/css2?${fontImports.join('&')}&display=swap');`
+        : ''
+
+      const result = { css, fonts: allFonts }
+      fontCache.value.set(fontFamily, result)
+      return result
+    } catch (err) {
+      console.error('[markdownStore] Google-Font fetch failed', err)
+      return { css: '', fonts: [] }
+    }
+  }
+
+    /* ------------------------------------------------------------------
+     * 3) Persistence: load & save styles
+     * ----------------------------------------------------------------*/
+    let stylesLoaded = false
 
     async function loadStylesFromDB() {
-        if (!syncStore.isInitialized) return;
+        if (!syncStore.isInitialized) {
+            await syncStore.initializeDB()
+        }
         try {
-            const result = await syncStore.execute(`SELECT key, value FROM settings WHERE key IN ('previewStyles', 'printStyles')`);
-            const loadedSettings = result.rows?._array || [];
-
-            const preview = loadedSettings.find(s => s.key === 'previewStyles');
-            if (preview) Object.assign(styles.value, JSON.parse(preview.value));
-
-            const print = loadedSettings.find(s => s.key === 'printStyles');
-            if (print) Object.assign(printStyles.value, JSON.parse(print.value));
-
-            settingsLoaded = true;
+            const db = getLocalDB()
+            const doc = await db.get('markdownStylesDoc')
+            if (doc.previewStyles) {
+                Object.assign(styles.value, doc.previewStyles)
+            }
+            if (doc.printStyles) {
+                const loadedPrintStyles = doc.printStyles;
+                for (const key in printStyles.value) {
+                    if (loadedPrintStyles.hasOwnProperty(key)) {
+                        printStyles.value[key] = loadedPrintStyles[key];
+                    }
+                }
+            }
+            stylesLoaded = true
         } catch (err) {
-            console.error('[markdownStore] Failed to load styles', err);
-            settingsLoaded = true; // Avoid getting stuck
+            if (err.status === 404) {
+                stylesLoaded = true
+            } else {
+                console.error('[markdownStore] Failed to load styles', err)
+            }
         }
     }
 
-    // Watch for DB initialization to load settings
-    watch(() => syncStore.isInitialized, (ready) => {
-        if (ready) loadStylesFromDB();
-    }, { immediate: true });
+    const saveStylesDebounced = debounce(saveStylesToDB, 500)
 
-    // Actions
-    function updateStyle(key, value) {
+    async function saveStylesToDB() {
+        if (!stylesLoaded) return
+        try {
+            const db = getLocalDB()
+            let doc
+            try {
+                doc = await db.get('markdownStylesDoc')
+            } catch (err) {
+                if (err.status === 404) {
+                    doc = { _id: 'markdownStylesDoc' }
+                } else {
+                    throw err
+                }
+            }
+            doc.previewStyles = { ...styles.value }
+            doc.printStyles = { ...printStyles.value }
+            doc.lastModified = new Date().toISOString()
+            await db.put(doc)
+        } catch (err) {
+            console.error('[markdownStore] Failed to save styles', err)
+        }
+    }
+
+    // Load styles once syncStore is ready
+    if (syncStore.isInitialized) {
+        loadStylesFromDB()
+    } else {
+        watch(() => syncStore.isInitialized, (v) => {
+            if (v) loadStylesFromDB()
+        })
+    }
+
+    /* ------------------------------------------------------------------
+     * 4) Mutators that also persist
+     * ----------------------------------------------------------------*/
+    function updateStyle(key, newVal) {
         if (styles.value[key] !== undefined) {
-            styles.value[key] = value;
-            saveStylesToDB();
+            styles.value[key] = newVal
+            saveStylesDebounced()
         }
     }
 
-    function updatePrintStyle(key, value) {
+    function updatePrintStyle(key, newVal) {
         if (printStyles.value[key] !== undefined) {
-            printStyles.value[key] = value;
-            saveStylesToDB();
+            printStyles.value[key] = newVal
+            saveStylesDebounced()
+            // Harmonize preview styles with print styles for font families
+            if (key === 'googleFontFamily') {
+                styles.value.googleFontFamily = newVal;
+                // Also update individual font-family properties in preview styles
+                const commonFontProperties = ['h1', 'h2', 'h3', 'h4', 'p', 'ul', 'ol', 'li', 'blockquote', 'table', 'th', 'td'];
+                commonFontProperties.forEach(styleKey => {
+                    if (styles.value[styleKey]) {
+                        // Regex to replace or add font-family
+                        let updatedCss = styles.value[styleKey].replace(/font-family:([^;]+);?/g, '').trim();
+                        updatedCss = `font-family: '${newVal.split(':')[0].trim().replace(/\+/g, ' ')}', sans-serif; ${updatedCss}`;
+                        styles.value[styleKey] = updatedCss.trim();
+                    }
+                });
+            }
         }
     }
 
+    /* ------------------------------------------------------------------
+     * 5) Reset functions
+     * ----------------------------------------------------------------*/
     function resetStyles() {
-        styles.value = { ...defaultStyles };
-        saveStylesToDB();
+        Object.assign(styles.value, defaultStyles);
+        saveStylesDebounced();
     }
 
     function resetPrintStyles() {
-        printStyles.value = { ...defaultPrintStyles };
-        saveStylesToDB();
+        Object.assign(printStyles.value, defaultPrintStyles);
+        saveStylesDebounced();
     }
 
-    /**
-     * Fetch Google Font CSS (for the live HTML preview) **and**
-     * Base-64-encoded TTF binaries (for jsPDF embedding).
-     *
-     * @param {string} fontFamily – "Roboto" or "Inter, Open Sans" (comma-separated list)
-     * @return {Promise<{css:string, fonts:Array<{name,data,format,style,weight}>}>}
-     */
-    async function getGoogleFontData(fontFamily) {
-        if (!fontFamily || !fontFamily.trim()) {
-            return { css: '', fonts: [] }
-        }
+    /* ------------------------------------------------------------------
+     * 6) CSS injection helpers
+     * ----------------------------------------------------------------*/
+    function applyCSSToElement(element, cssString) {
+        if (!cssString || !element) return
 
-        if (fontCache.value.has(fontFamily)) {
-            return fontCache.value.get(fontFamily)
-        }
-
-        try {
-            // Split comma-separated font families and process each
-            const fontFamilies = fontFamily.split(',').map(f => f.trim()).filter(f => f)
-            const allFonts = []
-            const fontImports = []
-
-            for (const singleFamily of fontFamilies) {
-                // Skip generic font families
-                if (['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy'].includes(singleFamily.toLowerCase())) {
-                    continue
+        // Parse CSS string and apply individual properties
+        const declarations = cssString.split(';').filter(decl => decl.trim())
+        declarations.forEach(declaration => {
+            const [property, value] = declaration.split(':').map(s => s.trim())
+            if (property && value) {
+                // Convert kebab-case to camelCase for JavaScript
+                const camelProperty = property.replace(/-([a-z])/g, (match, letter) => letter.toUpperCase())
+                try {
+                    element.style[camelProperty] = value
+                } catch (e) {
+                    console.warn(`Failed to apply CSS property ${property}: ${value}`, e)
                 }
-
-                // Remove quotes if present
-                const cleanFamily = singleFamily.replace(/['"]/g, '')
-
-                /* ---------- 1. Grab TTF URLs from your server ---------- */
-                const variants = await fetchGoogleFontTtf(cleanFamily)
-
-                for (const v of variants) {
-                    const key = `${v.family}-${v.weight}-${v.style}`
-                    if (fontCache.value.has(key)) {
-                        allFonts.push(fontCache.value.get(key))
-                        continue
-                    }
-
-                    const blob = await fetch(v.url).then(r => r.blob())
-                    const base64 = await new Promise((resolve, reject) => {
-                        const reader = new FileReader()
-                        reader.onloadend = () => resolve(reader.result)
-                        reader.onerror = reject
-                        reader.readAsDataURL(blob)
-                    })
-
-                    const fontObj = {
-                        name: v.family,
-                        data: base64,          // data:…;base64,
-                        format: 'truetype',
-                        style: v.style,
-                        weight: v.weight,
-                    }
-
-                    fontCache.value.set(key, fontObj) // cache each variant
-                    allFonts.push(fontObj)
-                }
-
-                // Add to CSS imports (encode font name for Google Fonts URL)
-                const encodedFamily = encodeURIComponent(cleanFamily)
-                fontImports.push(`family=${encodedFamily}:wght@400;700`)
             }
-
-            /* ---------- 2. CSS import for the live preview iframe ------------- */
-            const css = fontImports.length > 0
-                ? `@import url('https://fonts.googleapis.com/css2?${fontImports.join('&')}&display=swap');`
-                : ''
-
-            const result = { css, fonts: allFonts }
-            fontCache.value.set(fontFamily, result)
-            return result
-        } catch (err) {
-            console.error('[markdownStore] Google-Font fetch failed', err)
-            return { css: '', fonts: [] }
-        }
+        })
     }
 
+    function addCustomCSSToDocument(cssString, documentRef = document) {
+        if (!cssString || !cssString.trim()) return
 
+        // Remove existing custom style element
+        const existingStyle = documentRef.getElementById('markdown-custom-styles')
+        if (existingStyle) {
+            existingStyle.remove()
+        }
+
+        // Create and append new style element
+        const styleElement = documentRef.createElement('style')
+        styleElement.id = 'markdown-custom-styles'
+        styleElement.textContent = cssString
+        documentRef.head.appendChild(styleElement)
+    }
+
+    /* ------------------------------------------------------------------
+     * 7) Markdown-it helper & CSS-based renderer
+     * ----------------------------------------------------------------*/
     function configureRenderer(md, styleMap) {
         // Apply custom CSS to document if provided
         if (styleMap.customCSS) {
@@ -435,6 +538,11 @@ pre code {
         }
     }
 
+    function baseMd() {
+        return new MarkdownIt({ html: true, linkify: true, typographer: true, breaks: true })
+            .use(markdownItTaskLists, { enabled: true, label: true, labelAfter: true })
+    }
+
     function getMarkdownIt() {
         const md = baseMd()
         configureRenderer(md, styles.value)
@@ -449,11 +557,30 @@ pre code {
         configureRenderer(md, printStyleMap);
         return md
     }
+
+    /* ------------------------------------------------------------------
+     * Expose store API
+     * ----------------------------------------------------------------*/
     return {
-        styles, printStyles,
-        updateStyle, updatePrintStyle,
-        resetStyles, resetPrintStyles,
-        getMarkdownIt, getPrintMarkdownIt,
-        getGoogleFontData
-    };
-});
+        // Reactive maps
+        styles,
+        printStyles,
+
+        // Mutators
+        updateStyle,
+        updatePrintStyle,
+
+        // Reset functions
+        resetStyles,
+        resetPrintStyles,
+
+        // Renderers
+        getMarkdownIt,
+        getPrintMarkdownIt,
+
+        // CSS utilities
+        applyCSSToElement,
+        addCustomCSSToDocument,
+        getGoogleFontData // Expose this for testing or other uses
+    }
+})
