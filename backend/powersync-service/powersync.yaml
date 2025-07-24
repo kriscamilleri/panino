@@ -1,0 +1,28 @@
+# backend/powersync-service/powersync.yaml
+
+replication:
+  connections:
+    - type: postgresql
+      hostname: postgres
+      port: 5432
+      username: panino
+      password: panino
+      database: panino
+      ssl: false
+      sslmode: disable # 'verify-full' (default) or 'verify-ca' or 'disable'
+      sync_rules: sync.rules.yaml
+
+storage:
+  type: postgresql
+  hostname: postgres
+  port: 5432
+  username: panino
+  password: panino
+  database: panino
+  sslmode: disable # 'verify-full' (default) or 'verify-ca' or 'disable'
+  ssl: false
+
+auth:
+  static_keys:
+    - id: "key1"
+      secret: !env PS_JWT_SECRET

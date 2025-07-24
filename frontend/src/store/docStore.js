@@ -25,7 +25,7 @@ export const useDocStore = defineStore('docStore', () => {
   const selectedFileContent = computed(() => structureStore.selectedFileContent);
 
   async function loadInitialData() {
-    await markdownStore.loadStylesFromDB();
+    // await markdownStore.loadStylesFromDB();
     await structureStore.loadStructure();
   }
 

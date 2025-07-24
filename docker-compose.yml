@@ -19,14 +19,20 @@ services:
       retries: 5
 
   powersync-service:
-    build: ./backend/powersync-service
+    # Use the official image
+    image: journeyapps/powersync-service:latest
     restart: always
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-panino}:${POSTGRES_PASSWORD:-panino}@postgres:5432/${POSTGRES_DB:-panino}
-      PORT: 7000
+      POWERSYNC_CONFIG_PATH: /config/powersync.yaml
+      # Also disable SSL for the production compose file
+      PS_DATA_SOURCE_URI: postgres://${POSTGRES_USER:-panino}:${POSTGRES_PASSWORD:-panino}@postgres:5432/${POSTGRES_DB:-panino}?sslmode=disable
+      PS_JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      # Mount the configuration directory
+      - ./backend/powersync-service:/config
 
   auth-service:
     build: ./backend/auth-service
