@@ -1,84 +1,67 @@
 // /frontend/src/store/syncStore.js
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { PowerSyncDatabase } from '@journeyapps/powersync-sdk-web';
-import { WASQLitePowerSyncDatabaseOpenFactory } from '@journeyapps/powersync-sdk-web';
+import { PowerSyncDatabase } from '@powersync/web';
+import { AppSchema } from '@/utils/appSchema.js';
 import { useAuthStore } from './authStore';
-
-// Define the schema for the local SQLite database.
-const AppSchema = {
-  version: 1,
-  tables: [
-    {
-      name: 'users',
-      columns: [
-        { name: 'email', type: 'TEXT' },
-        { name: 'created_at', type: 'TEXT' }
-      ]
-    },
-    {
-      name: 'folders',
-      columns: [
-        { name: 'user_id', type: 'TEXT' },
-        { name: 'name', type: 'TEXT' },
-        { name: 'parent_id', type: 'TEXT' },
-        { name: 'created_at', type: 'TEXT' }
-      ]
-    },
-    {
-      name: 'notes',
-      columns: [
-        { name: 'user_id', type: 'TEXT' },
-        { name: 'folder_id', type: 'TEXT' },
-        { name: 'title', type: 'TEXT' },
-        { name: 'content', type: 'TEXT' },
-        { name: 'created_at', type: 'TEXT' },
-        { name: 'updated_at', type: 'TEXT' }
-      ]
-    },
-    {
-      name: 'images',
-      columns: [
-        { name: 'user_id', type: 'TEXT' },
-        { name: 'filename', type: 'TEXT' },
-        { name: 'mime_type', type: 'TEXT' },
-        { name: 'data', type: 'BLOB' },
-        { name: 'created_at', type: 'TEXT' }
-      ]
-    },
-    {
-      name: 'settings', // For local-only UI/Markdown settings
-      columns: [
-        { name: 'key', type: 'TEXT', primaryKey: true },
-        { name: 'value', type: 'TEXT' }
-      ],
-      localOnly: true
-    }
-  ]
-};
 
 export const useSyncStore = defineStore('syncStore', () => {
   const powerSync = ref(null);
   const isInitialized = ref(false);
+  const syncEnabled = ref(true);
 
   const getAuthStore = () => useAuthStore();
 
   async function initializeDB() {
+    console.log('Starting PowerSync initialization...');
+
     if (powerSync.value) {
-      await powerSync.value.disconnectAndClose();
+      console.log('Cleaning up existing PowerSync instance...');
+      try {
+        await powerSync.value.disconnectAndClear();
+      } catch (error) {
+        console.warn('Error during cleanup:', error);
+      }
       powerSync.value = null;
+      isInitialized.value = false;
     }
-    const db = new PowerSyncDatabase({
-      database: { dbName: 'panino.db' },
-      schema: AppSchema,
-      factory: WASQLitePowerSyncDatabaseOpenFactory
-    });
 
-    powerSync.value = db;
-    isInitialized.value = true;
-    console.log('PowerSync local database initialized.');
+    try {
+      console.log('Creating PowerSync database instance...');
 
-    handleConnectionState();
+      // Modern PowerSync initialization syntax
+      const db = new PowerSyncDatabase({
+        database: {
+          dbFilename: 'panino.db'
+        },
+        schema: AppSchema
+      });
+
+      console.log('Initializing PowerSync database...');
+      // Initialize the database
+      await db.init();
+
+      powerSync.value = db;
+      isInitialized.value = true;
+      console.log('✅ PowerSync local database initialized successfully.');
+
+      // Try to handle connection state
+      await handleConnectionState();
+    } catch (error) {
+      console.error('❌ Failed to initialize PowerSync database:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+
+      // Set flags to indicate failure but don't throw
+      // This allows the app to continue in a degraded state
+      powerSync.value = null;
+      isInitialized.value = false;
+
+      throw new Error(`PowerSync initialization failed: ${error.message}`);
+    }
   }
 
   async function handleConnectionState() {
@@ -86,8 +69,9 @@ export const useSyncStore = defineStore('syncStore', () => {
       console.warn('Cannot handle connection state, PowerSync not initialized.');
       return;
     }
+
     const authStore = getAuthStore();
-    if (authStore.isAuthenticated) {
+    if (authStore.isAuthenticated && syncEnabled.value) {
       console.log('User is authenticated, connecting to PowerSync service...');
       try {
         await powerSync.value.connect({
@@ -97,10 +81,22 @@ export const useSyncStore = defineStore('syncStore', () => {
         console.log('Successfully connected to PowerSync.');
       } catch (error) {
         console.error('Failed to connect to PowerSync:', error);
+        // Don't throw here - allow offline usage
       }
     } else {
-      console.log('User is not authenticated, disconnecting from PowerSync service.');
-      await powerSync.value.disconnect();
+      console.log('User is not authenticated or sync disabled, disconnecting from PowerSync service.');
+      try {
+        await powerSync.value.disconnect();
+      } catch (error) {
+        console.error('Error disconnecting from PowerSync:', error);
+      }
+    }
+  }
+
+  function setSyncEnabled(enabled) {
+    syncEnabled.value = enabled;
+    if (isInitialized.value) {
+      handleConnectionState();
     }
   }
 
@@ -111,22 +107,40 @@ export const useSyncStore = defineStore('syncStore', () => {
 
   async function resetDatabase() {
     if (powerSync.value) {
-      await powerSync.value.disconnectAndClose();
+      await powerSync.value.disconnectAndClear();
     }
     powerSync.value = null;
     isInitialized.value = false;
-    const dbRequest = window.indexedDB.deleteDatabase('panino.db');
-    dbRequest.onsuccess = () => console.log("Database cleared successfully");
-    dbRequest.onerror = (e) => console.error("Error clearing database", e);
+
+    // Clear IndexedDB database
+    try {
+      const deleteReq = window.indexedDB.deleteDatabase('panino.db');
+      await new Promise((resolve, reject) => {
+        deleteReq.onsuccess = () => {
+          console.log("Database cleared successfully");
+          resolve();
+        };
+        deleteReq.onerror = (e) => {
+          console.error("Error clearing database", e);
+          reject(e);
+        };
+      });
+    } catch (error) {
+      console.error("Failed to clear database:", error);
+    }
+
+    // Reinitialize
     await initializeDB();
   }
 
   return {
     powerSync,
     isInitialized,
+    syncEnabled,
     initializeDB,
     execute,
     handleConnectionState,
+    setSyncEnabled,
     resetDatabase
   };
 });

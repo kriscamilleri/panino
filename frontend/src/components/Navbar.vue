@@ -41,10 +41,8 @@
                 <div class="hidden md:flex items-center space-x-4">
                     <!-- Show user name if authenticated -->
                     <div v-if="authStore.isAuthenticated" class="text-gray-500" data-testid="navbar-username-display">
-                        {{
-                            authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase())
-                            || 'Guest'
-                        }}
+                        {{ authStore.user }}
+
                     </div>
 
                     <!-- About link -->

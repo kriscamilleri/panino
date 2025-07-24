@@ -1,11 +1,14 @@
 # /docker-compose.dev.yml
 version: '3.8'
 
+
 services:
   postgres:
     image: postgres:16
     ports:
       - "127.0.0.1:5432:5432"
+    # This command is critical to ensure the server does not use SSL
+    command: -c 'ssl=off'
     environment:
       POSTGRES_DB: panino
       POSTGRES_USER: panino
@@ -20,18 +23,18 @@ services:
       retries: 5
 
   powersync-service:
-    build: ./backend/powersync-service
+    image: journeyapps/powersync-service:latest
     ports:
       - "127.0.0.1:7000:7000"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://panino:panino@postgres:5432/panino
-      PORT: 7000
+      POWERSYNC_CONFIG_PATH: /config/powersync.yaml
+      # The PS_DATA_SOURCE_URI variable has been REMOVED
+      PS_JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
     volumes:
-      - ./backend/powersync-service:/app
-      - /app/node_modules
+      - ./backend/powersync-service:/config
 
   auth-service:
     build: ./backend/auth-service
@@ -41,12 +44,14 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://panino:panino@postgres:5432/panino
+      # Keep this explicit setting for consistency
+      DATABASE_URL: postgres://panino:panino@postgres:5432/panino?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
     volumes:
       - ./backend/auth-service:/app
       - /app/node_modules
+      
 
   signup-service:
     build: ./backend/signup-service
