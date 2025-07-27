@@ -58,8 +58,9 @@ export const useUiStore = defineStore('uiStore', () => {
     async function loadSettingsFromDB() {
         if (!syncStore.isInitialized) return;
         try {
-            const result = await syncStore.execute(`SELECT value FROM settings WHERE id = 'uiSettings'`);
-            const row = result.rows?._array[0];
+            const results = await syncStore.execute(`SELECT value FROM settings WHERE id = 'uiSettings'`);
+            // CORRECTED: Access the first element of the array directly
+            const row = results[0];
             if (row && row.value) {
                 const settings = JSON.parse(row.value);
                 showDocuments.value = settings.showDocuments ?? true;
@@ -68,12 +69,11 @@ export const useUiStore = defineStore('uiStore', () => {
                 showStats.value = settings.showStats ?? false;
                 showMetadata.value = settings.showMetadata ?? false;
             } else {
-                // If no settings found, reset to defaults
                 resetToDefaults();
             }
         } catch (err) {
             console.error('[uiStore] Failed to load UI settings:', err);
-            resetToDefaults(); // Reset on error to ensure a consistent state
+            resetToDefaults();
         } finally {
             settingsLoaded = true;
         }

@@ -1,166 +1,272 @@
-// /frontend/src/store/syncStore.js
+// frontend/src/store/syncStore.js
 import { defineStore } from 'pinia';
-import { ref, markRaw } from 'vue';
-import { PowerSyncDatabase } from '@powersync/web';
-
-import { AppSchema } from './appSchema.js';
+import { markRaw, ref } from 'vue';
+import initWasm from '@vlcn.io/crsqlite-wasm';
+import wasmUrl from '@vlcn.io/crsqlite-wasm/crsqlite.wasm?url';
 import { useAuthStore } from './authStore';
 
+const API_URL = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
+
+const DB_SCHEMA = `
+  PRAGMA foreign_keys = ON;
+
+  CREATE TABLE IF NOT EXISTS users   (id TEXT PRIMARY KEY NOT NULL, email TEXT, created_at TEXT);
+  CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, name TEXT, parent_id TEXT, created_at TEXT);
+  CREATE TABLE IF NOT EXISTS notes   (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, folder_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT);
+  CREATE TABLE IF NOT EXISTS images  (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, filename TEXT, mime_type TEXT, data BLOB, created_at TEXT);
+  CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY NOT NULL, value TEXT);
+
+  SELECT crsql_as_crr('users');
+  SELECT crsql_as_crr('folders');
+  SELECT crsql_as_crr('notes');
+  SELECT crsql_as_crr('images');
+  SELECT crsql_as_crr('settings');
+`;
+
 export const useSyncStore = defineStore('syncStore', () => {
-  const powerSync = ref(null);
+  /* -------------------------------------------------------
+   * State
+   * -----------------------------------------------------*/
+  const sqlite = ref(null); // wasm module root
+  const db = ref(null);     // db handle
   const isInitialized = ref(false);
+
   const syncEnabled = ref(true);
-  let statusSubscription = null; // To hold our subscription for cleanup
+  const isSyncing = ref(false);
 
-  const getAuthStore = () => useAuthStore();
+  let syncTimer = null;
 
-  async function initializeDB() {
-    console.log('Starting PowerSync initialization...');
+  /* -------------------------------------------------------
+   * Local clock + site id helpers
+   * -----------------------------------------------------*/
+  function getClock() {
+    return Number(localStorage.getItem('crsqlite_clock') || 0);
+  }
+  function setClock(v) {
+    localStorage.setItem('crsqlite_clock', String(v));
+  }
+  function getSiteId() {
+    return localStorage.getItem('crsqlite_site_id') || '';
+  }
+  function setSiteId(id) {
+    localStorage.setItem('crsqlite_site_id', id);
+  }
 
-    if (powerSync.value) {
-      console.log('Cleaning up existing PowerSync instance...');
-      try {
-        await powerSync.value.disconnectAndClear();
-        statusSubscription?.close(); // Unsubscribe from the old instance
+  /* -------------------------------------------------------
+   * Public API
+   * -----------------------------------------------------*/
+  async function execute(sql, params = []) {
 
-      } catch (error) {
-        console.warn('Error during cleanup:', error);
-      }
-      powerSync.value = null;
-      isInitialized.value = false;
+    // 🛡️ ADD THIS GUARD CLAUSE
+    if (!isInitialized.value || !db.value) {
+      console.warn('[syncStore] DB not initialized. Aborting execute.');
+      return []; // Return an empty array to prevent the app from crashing
     }
+    return db.value.execO(sql, params);
+  }
 
+  // expose raw db so legacy calls like syncStore.db.exec still work
+  function getDb() {
+    return db.value;
+  }
+
+  /* -------------------------------------------------------
+   * Tx helper
+   * -----------------------------------------------------*/
+  function withTx(fn) {
+    db.value.exec('BEGIN');
     try {
-      console.log('Creating PowerSync database instance...');
-
-      const db = new PowerSyncDatabase({
-        database: {
-          dbFilename: 'panino.db',
-          debugMode: process.env.NODE_ENV !== 'production'
-        },
-        schema: AppSchema
-      });
-      // ================================================================
-      // ✅ FINAL CORRECTED DEBUGGING CODE
-      // ================================================================
-      console.log('[DEBUG] PowerSync instance after init:', db);
-
-      // ================================================================
-
-      console.log('Initializing PowerSync database...');
-      // Initialize the database
-      await db.init();
-
-      console.log(db)
-
-      powerSync.value = markRaw(db);
-      console.log(db.listeners)
-      isInitialized.value = true;
-      console.log('✅ PowerSync local database initialized successfully.');
-      statusSubscription = db.connectionStateStream.subscribe((status) => {
-        connectionStatus.value = status.state;
-        console.log(`Connection state changed: ${status.state}`);
-
-        if (status.state === ConnectionState.Error) {
-          console.error('PowerSync connection error:', status.error);
-        }
-      });
-      // Try to handle connection state
-      await handleConnectionState();
-    } catch (error) {
-      console.error('❌ Failed to initialize PowerSync database:', error);
-      console.error('Error details:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      });
-
-      // Set flags to indicate failure but don't throw
-      // This allows the app to continue in a degraded state
-      powerSync.value = null;
-      isInitialized.value = false;
-
-      throw new Error(`PowerSync initialization failed: ${error.message}`);
+      const res = fn();
+      db.value.exec('COMMIT');
+      return res;
+    } catch (e) {
+      try { db.value.exec('ROLLBACK'); } catch (_) { }
+      throw e;
     }
   }
 
-  async function handleConnectionState() {
-    if (!powerSync.value) {
-      console.warn('Cannot handle connection state, PowerSync not initialized.');
-      return;
+  /* -------------------------------------------------------
+   * Init / Reset
+   * -----------------------------------------------------*/
+  async function initializeDB() {
+    if (isInitialized.value && db.value) return;
+
+    console.log('[syncStore] Initializing crsqlite wasm…');
+
+    // ---- WASM INIT ----
+    const wasmLocator = (file) => {
+      // Older Emscripten APIs pass the filename to locateFile.
+      // Just return our emitted URL for any .wasm request.
+      if (file && file.endsWith('.wasm')) return wasmUrl;
+      return wasmUrl; // safe fallback
+    };
+
+    // Try once with both keys to satisfy any version of the lib.
+    sqlite.value = markRaw(await initWasm(() => wasmUrl));
+
+    // ---- OPEN DB ----
+    const auth = useAuthStore();
+    const dbName = auth.isAuthenticated
+      ? `panino-${auth.user.id}.db`
+      : 'panino-guest.db';
+
+    db.value = markRaw(await sqlite.value.open(dbName));
+    db.value.exec(DB_SCHEMA);
+
+    // Cache site_id
+    if (!getSiteId()) {
+      const row = db.value.execO(`SELECT hex(crsql_site_id()) AS id`)[0];
+      if (row?.id) setSiteId(row.id.toLowerCase());
     }
 
-    const authStore = getAuthStore();
-    if (authStore.isAuthenticated && syncEnabled.value) {
-      console.log('User is authenticated, connecting to PowerSync service...');
-      try {
-        await powerSync.value.connect({
-          endpoint: import.meta.env.VITE_POWERSYNC_URL,
-          token: authStore.powersyncToken
-        });
-        console.log('Successfully connected to PowerSync.');
-
-      } catch (error) {
-        console.error('Failed to connect to PowerSync:', error);
-        // Don't throw here - allow offline usage
-      }
-    } else {
-      console.log('User is not authenticated or sync disabled, disconnecting from PowerSync service.');
-      try {
-        await powerSync.value.disconnect();
-      } catch (error) {
-        console.error('Error disconnecting from PowerSync:', error);
-      }
-    }
-  }
-
-  function setSyncEnabled(enabled) {
-    syncEnabled.value = enabled;
-    if (isInitialized.value) {
-      handleConnectionState();
-    }
-  }
-
-  async function execute(sql, args = []) {
-    if (!powerSync.value) throw new Error('PowerSync not initialized');
-    return await powerSync.value.execute(sql, args);
+    isInitialized.value = true;
+    scheduleSync();
   }
 
   async function resetDatabase() {
-    if (powerSync.value) {
-      await powerSync.value.disconnectAndClear();
+    cancelSync();
+    if (db.value) {
+      try { await db.value.close(); } catch (_) { }
     }
-    powerSync.value = null;
+    db.value = null;
     isInitialized.value = false;
-
-    // Clear IndexedDB database
-    try {
-      const deleteReq = window.indexedDB.deleteDatabase('panino.db');
-      await new Promise((resolve, reject) => {
-        deleteReq.onsuccess = () => {
-          console.log("Database cleared successfully");
-          resolve();
-        };
-        deleteReq.onerror = (e) => {
-          console.error("Error clearing database", e);
-          reject(e);
-        };
-      });
-    } catch (error) {
-      console.error("Failed to clear database:", error);
-    }
-
-    // DO NOT re-initialize here. Let the LoadingPage handle it.
+    setClock(0);
   }
 
+  /* -------------------------------------------------------
+   * Sync logic
+   * -----------------------------------------------------*/
+
+  /* -------------------------------------------------------
+  * Sync logic
+  * -----------------------------------------------------*/
+
+  // Helper function to convert a hex string to a Uint8Array
+  function hexToUint8Array(hexString) {
+    if (!hexString || hexString.length % 2 !== 0) {
+      return null;
+    }
+    const bytes = new Uint8Array(hexString.length / 2);
+    for (let i = 0; i < hexString.length; i += 2) {
+      bytes[i / 2] = parseInt(hexString.substring(i, i + 2), 16);
+    }
+    return bytes;
+  }
+
+  async function sync() {
+    if (!syncEnabled.value || !isInitialized.value || isSyncing.value) return;
+    isSyncing.value = true;
+    try {
+      const myClock = getClock();
+      const mySite = getSiteId();
+
+      // 1. Local changes since last clock
+      const localChanges = db.value.execO(
+        `SELECT "table", pk, cid, val, col_version, db_version,
+                hex(site_id) AS site_id, seq, cl
+                FROM crsql_changes
+                WHERE db_version > ?
+                ORDER BY db_version ASC`,
+        [myClock]
+      );
+
+      // ✅ ADD THIS LOG
+      if (localChanges.length > 0) {
+        console.log('CLIENT: Sending changes to server:', JSON.stringify(localChanges, null, 2));
+      }
+
+      // 2. Send + receive
+      const resp = await fetch(`${API_URL}/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('jwt_token') || ''}`
+        },
+        body: JSON.stringify({
+          since: myClock,
+          siteId: mySite,
+          changes: localChanges
+        })
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `Sync failed: ${resp.status}`);
+      }
+
+      const { changes: remoteChanges, clock: newClock } = await resp.json();
+
+      // 3. Apply remote changes
+      if (remoteChanges?.length) {
+        const insertSQL = `
+          INSERT INTO crsql_changes
+            ("table", pk, cid, val, col_version, db_version, site_id, seq, cl)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        withTx(() => {
+          for (const ch of remoteChanges) {
+            db.value.exec(insertSQL, [
+              ch.table,
+              hexToUint8Array(ch.pk), // This is the fix
+              ch.cid,
+              ch.val,
+              Number(ch.col_version) || 0,
+              Number(ch.db_version) || 0,
+              hexToUint8Array(ch.site_id),
+              Number(ch.seq) || 0,
+              Number(ch.cl) || 0
+            ]);
+          }
+        });
+      }
+
+      // 4. Update clock
+      setClock(newClock ?? myClock);
+    } catch (e) {
+      console.error('[syncStore] sync error', e);
+    } finally {
+      isSyncing.value = false;
+    }
+  }
+
+  function scheduleSync(intervalMs = 5000) {
+    cancelSync();
+    if (!syncEnabled.value) return;
+    syncTimer = setInterval(sync, intervalMs);
+  }
+
+  function cancelSync() {
+    if (syncTimer) {
+      clearInterval(syncTimer);
+      syncTimer = null;
+    }
+  }
+
+  function setSyncEnabled(v) {
+    syncEnabled.value = v;
+    if (v) scheduleSync();
+    else cancelSync();
+  }
+
+  /* -------------------------------------------------------
+   * Exports
+   * -----------------------------------------------------*/
   return {
-    powerSync,
+    // state
     isInitialized,
     syncEnabled,
-    initializeDB,
+    isSyncing,
+
+    // db access
+    db: { get value() { return getDb(); } },
     execute,
-    handleConnectionState,
-    setSyncEnabled,
-    resetDatabase
+
+    // lifecycle
+    initializeDB,
+    resetDatabase,
+
+    // sync
+    sync,
+    setSyncEnabled
   };
 });

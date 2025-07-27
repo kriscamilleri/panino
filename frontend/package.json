@@ -4,42 +4,33 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "llm": "node ./generate-llm-file.cjs",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "test:prepare": "npx playwright install",
-    "test-int": "npx playwright test"
+    "preview": "vite preview"
   },
   "dependencies": {
-    "@journeyapps/wa-sqlite": "^1.0.0",
-    "@powersync/web": "^1.23.1",
-    "@vueuse/core": "^10.11.1",
-    "dompurify": "^3.2.3",
+    "@vlcn.io/crsqlite-wasm": "^0.16.0",
+    "@vueuse/core": "^10.11.0",
+    "dompurify": "^3.1.5",
     "events": "^3.3.0",
     "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
-    "jspdf": "^3.0.1",
+    "jspdf": "^2.5.1",
     "jszip": "^3.10.1",
     "lodash-es": "^4.17.21",
-    "lucide-vue-next": "^0.469.0",
+    "lucide-vue-next": "^0.395.0",
     "markdown-it": "^14.1.0",
     "markdown-it-task-lists": "^2.1.1",
-    "pinia": "^2.3.0",
+    "pinia": "^2.1.7",
     "uuid": "^9.0.1",
-    "vue": "^3.5.13",
-    "vue-router": "^4.5.0"
+    "vue": "^3.4.27",
+    "vue-router": "^4.3.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.45.1",
-    "@vitejs/plugin-vue": "^5.2.1",
-    "@vue/test-utils": "^2.4.6",
-    "autoprefixer": "^10.4.20",
-    "happy-dom": "^17.4.6",
-    "postcss": "^8.4.49",
-    "rollup-plugin-copy": "^3.5.0",
-    "tailwindcss": "^3.4.17",
-    "vite": "^6.0.3",
-    "vitest": "^3.1.2"
+    "@vitejs/plugin-vue": "^5.0.5",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "vite": "^5.3.1"
   }
 }

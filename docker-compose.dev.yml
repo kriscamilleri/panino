@@ -2,99 +2,22 @@
 version: '3.8'
 
 services:
-  postgres:
-    # ... (no changes here) ...
-    image: postgres:16
-    ports:
-      - "127.0.0.1:5432:5432"
-    command: >
-      postgres
-        -c wal_level=logical
-        -c max_wal_senders=10
-        -c max_replication_slots=10
-        -c track_commit_timestamp=on
-        -c 'ssl=off'
-    environment:
-      POSTGRES_DB: panino
-      POSTGRES_USER: panino
-      POSTGRES_PASSWORD: panino
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./backend/postgres-init:/docker-entrypoint-initdb.d
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U panino -d panino" ]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  powersync-service:
-    # ... (no changes here) ...
-    image: journeyapps/powersync-service:latest
-    ports:
-      - "127.0.0.1:7000:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      POWERSYNC_CONFIG_PATH: /config/powersync.yaml
-      PS_DATA_SOURCE_URI: postgres://panino:panino@postgres:5432/panino?sslmode=disable  
-      PS_JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
-    volumes:
-      - ./backend/powersync-service:/config
-
-  # RENAMED from auth-service to api-service
+  # The unified backend service for auth, sync, and images
   api-service:
-    build: ./backend/api-service  # UPDATED build path
+    build: ./backend/api-service
     ports:
       - "127.0.0.1:8000:8000"
-    depends_on:
-      powersync-service: 
-        condition: service_started
-      postgres:
-        condition: service_healthy
     environment:
-      DATABASE_URL: postgres://panino:panino@postgres:5432/panino?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
-    volumes:
-      - ./backend/api-service:/app # UPDATED volume path
-      - /app/node_modules
-      
-  signup-service:
-    build: ./backend/signup-service
-    ports:
-      - "127.0.0.1:3000:3000"
-    depends_on:
-      - api-service             # UPDATED dependency
-      - powersync-service
-    environment:
-      AUTH_SERVICE_URL: http://api-service:8000 # UPDATED URL
-      POWERSYNC_SERVICE_URL: http://powersync-service:7000
-      NODE_ENV: development
-      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
-    volumes:
-      - ./backend/signup-service:/app
-      - /app/node_modules
-    command: npm run start
-
-  image-service:
-    build: ./backend/image-service
-    ports:
-      - "127.0.0.1:3001:3001"
-    depends_on:
-      - api-service              # UPDATED dependency
-    environment:
-      DATABASE_URL: postgres://panino:panino@postgres:5432/panino
-      JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
-      PORT: 3001
       NODE_ENV: development
     volumes:
-      - ./backend/image-service:/app
+      - ./backend/api-service:/app
+      - ./backend/api-service/data:/app/data # Persist SQLite DBs
       - /app/node_modules
-    command: npm run start
 
+  # The font service is a simple proxy, kept separate for clarity
   font-service:
-    # ... (no changes here) ...
     build: ./backend/font-service
     ports:
       - "127.0.0.1:3002:3002"
@@ -106,7 +29,6 @@ services:
       - /app/node_modules
 
   frontend:
-    # ... (frontend depends on the new api-service) ...
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
@@ -114,20 +36,13 @@ services:
       - "127.0.0.1:5173:5173"
     environment:
       NODE_ENV: development
-      VITE_AUTH_SERVICE_URL: http://localhost:8000 # This remains the same as it's from the browser's perspective
-      VITE_IMAGE_SERVICE_URL: http://localhost:3001
+      VITE_API_SERVICE_URL: http://localhost:8000 # Unified API URL
       VITE_FONT_SERVICE_URL: http://localhost:3002
-      VITE_POWERSYNC_URL: http://localhost:7000
       VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY}
     volumes:
       - ./frontend:/app
       - /app/node_modules
     command: npm run dev -- --host
     depends_on:
-      - signup-service
-      - image-service
-      - api-service             # UPDATED dependency
-      - powersync-service
-
-volumes:
-  postgres-data:
+      - api-service
+      - font-service

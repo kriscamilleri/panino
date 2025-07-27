@@ -4,15 +4,15 @@ import { ref, computed, watch } from 'vue';
 import { useSyncStore } from './syncStore';
 import { useDocStore } from './docStore';
 
-const AUTH_SERVICE_URL = import.meta.env.VITE_AUTH_SERVICE_URL || 'http://localhost:8000';
-const SIGNUP_SERVICE_URL = import.meta.env.VITE_SIGNUP_SERVICE_URL || 'http://localhost:3000';
+// The single, unified API URL
+const API_SERVICE_URL = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
 
 export const useAuthStore = defineStore('authStore', () => {
     const token = ref(localStorage.getItem('jwt_token'));
     const user = ref(null);
 
     const isAuthenticated = computed(() => !!token.value);
-    const powersyncToken = computed(() => token.value);
+    const powersyncToken = computed(() => token.value); // Kept for conceptual clarity if needed
 
     watch(token, (newToken) => {
         const syncStore = useSyncStore();
@@ -29,15 +29,15 @@ export const useAuthStore = defineStore('authStore', () => {
         } else {
             localStorage.removeItem('jwt_token');
             user.value = null;
-            // When logging out, explicitly disconnect
-            if (syncStore.powerSync?.value) {
-                syncStore.powerSync.value.disconnect();
+            if (syncStore.isInitialized) {
+                syncStore.resetDatabase();
             }
         }
     }, { immediate: true });
 
     async function signup(email, password, turnstileToken = '') {
-        const response = await fetch(`${SIGNUP_SERVICE_URL}/signup`, {
+        // Corrected URL: points to the main api-service
+        const response = await fetch(`${API_SERVICE_URL}/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password, 'cf-turnstile-response': turnstileToken }),
@@ -50,7 +50,7 @@ export const useAuthStore = defineStore('authStore', () => {
     }
 
     async function login(email, password) {
-        const response = await fetch(`${AUTH_SERVICE_URL}/login`, {
+        const response = await fetch(`${API_SERVICE_URL}/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),
@@ -61,22 +61,17 @@ export const useAuthStore = defineStore('authStore', () => {
             throw new Error(data.error || 'Login failed');
         }
 
-        // Disconnect and clear the database of the PREVIOUS session.
         const syncStore = useSyncStore();
         if (syncStore.isInitialized) {
-            await syncStore.resetDatabase(); // This should now ONLY clear, not re-initialize
+            await syncStore.resetDatabase();
         }
 
-        // Set the new token. The UI will navigate to /loading, which handles initialization.
         token.value = data.token;
     }
 
     async function logout() {
-        // Clear the local state and database
         const docStore = useDocStore();
         await docStore.resetStore();
-
-        // Clear the token, which triggers the watcher to update localStorage
         token.value = null;
     }
 
