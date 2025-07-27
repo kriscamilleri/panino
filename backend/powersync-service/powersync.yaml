@@ -1,4 +1,5 @@
-# backend/powersync-service/powersync.yaml
+sync_rules:
+  path: /config/sync.rules.yaml   # make sure this is the real path inside the container
 
 replication:
   connections:
@@ -9,8 +10,7 @@ replication:
       password: panino
       database: panino
       ssl: false
-      sslmode: disable # 'verify-full' (default) or 'verify-ca' or 'disable'
-      sync_rules: sync.rules.yaml
+      sslmode: disable
 
 storage:
   type: postgresql
@@ -19,10 +19,11 @@ storage:
   username: panino
   password: panino
   database: panino
-  sslmode: disable # 'verify-full' (default) or 'verify-ca' or 'disable'
+  sslmode: disable
   ssl: false
 
 auth:
   static_keys:
     - id: "key1"
       secret: !env PS_JWT_SECRET
+  user_id_claim: user_id

@@ -1,12 +1,15 @@
+// /home/kris/Development/panino/frontend/src/store/appSchema.js
 import { Schema, Table, column } from '@powersync/web';
 
 // Define tables using PowerSync's Table class
 const users = new Table({
+    id: column.text, // <<< ADD THIS
     email: column.text,
     created_at: column.text
 });
 
 const folders = new Table({
+    id: column.text, // <<< ADD THIS
     user_id: column.text,
     name: column.text,
     parent_id: column.text,
@@ -14,6 +17,7 @@ const folders = new Table({
 });
 
 const notes = new Table({
+    id: column.text, // <<< ADD THIS
     user_id: column.text,
     folder_id: column.text,
     title: column.text,
@@ -23,6 +27,7 @@ const notes = new Table({
 });
 
 const images = new Table({
+    id: column.text, // <<< ADD THIS
     user_id: column.text,
     filename: column.text,
     mime_type: column.text,
@@ -31,10 +36,9 @@ const images = new Table({
 });
 
 const settings = new Table({
-    key: column.text,
+    id: column.text,
     value: column.text
 }, {
-    // Table options - this table is local-only and won't sync
     localOnly: true
 });
 

@@ -1,14 +1,19 @@
 # /docker-compose.dev.yml
 version: '3.8'
 
-
 services:
   postgres:
+    # ... (no changes here) ...
     image: postgres:16
     ports:
       - "127.0.0.1:5432:5432"
-    # This command is critical to ensure the server does not use SSL
-    command: -c 'ssl=off'
+    command: >
+      postgres
+        -c wal_level=logical
+        -c max_wal_senders=10
+        -c max_replication_slots=10
+        -c track_commit_timestamp=on
+        -c 'ssl=off'
     environment:
       POSTGRES_DB: panino
       POSTGRES_USER: panino
@@ -23,45 +28,47 @@ services:
       retries: 5
 
   powersync-service:
+    # ... (no changes here) ...
     image: journeyapps/powersync-service:latest
     ports:
-      - "127.0.0.1:7000:7000"
+      - "127.0.0.1:7000:8080"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       POWERSYNC_CONFIG_PATH: /config/powersync.yaml
-      # The PS_DATA_SOURCE_URI variable has been REMOVED
+      PS_DATA_SOURCE_URI: postgres://panino:panino@postgres:5432/panino?sslmode=disable  
       PS_JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
     volumes:
       - ./backend/powersync-service:/config
 
-  auth-service:
-    build: ./backend/auth-service
+  # RENAMED from auth-service to api-service
+  api-service:
+    build: ./backend/api-service  # UPDATED build path
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
+      powersync-service: 
+        condition: service_started
       postgres:
         condition: service_healthy
     environment:
-      # Keep this explicit setting for consistency
       DATABASE_URL: postgres://panino:panino@postgres:5432/panino?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
     volumes:
-      - ./backend/auth-service:/app
+      - ./backend/api-service:/app # UPDATED volume path
       - /app/node_modules
       
-
   signup-service:
     build: ./backend/signup-service
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
-      - auth-service
+      - api-service             # UPDATED dependency
       - powersync-service
     environment:
-      AUTH_SERVICE_URL: http://auth-service:8000
+      AUTH_SERVICE_URL: http://api-service:8000 # UPDATED URL
       POWERSYNC_SERVICE_URL: http://powersync-service:7000
       NODE_ENV: development
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
@@ -75,7 +82,7 @@ services:
     ports:
       - "127.0.0.1:3001:3001"
     depends_on:
-      - auth-service
+      - api-service              # UPDATED dependency
     environment:
       DATABASE_URL: postgres://panino:panino@postgres:5432/panino
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
@@ -87,6 +94,7 @@ services:
     command: npm run start
 
   font-service:
+    # ... (no changes here) ...
     build: ./backend/font-service
     ports:
       - "127.0.0.1:3002:3002"
@@ -98,6 +106,7 @@ services:
       - /app/node_modules
 
   frontend:
+    # ... (frontend depends on the new api-service) ...
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
@@ -105,7 +114,7 @@ services:
       - "127.0.0.1:5173:5173"
     environment:
       NODE_ENV: development
-      VITE_AUTH_SERVICE_URL: http://localhost:8000
+      VITE_AUTH_SERVICE_URL: http://localhost:8000 # This remains the same as it's from the browser's perspective
       VITE_IMAGE_SERVICE_URL: http://localhost:3001
       VITE_FONT_SERVICE_URL: http://localhost:3002
       VITE_POWERSYNC_URL: http://localhost:7000
@@ -117,7 +126,7 @@ services:
     depends_on:
       - signup-service
       - image-service
-      - auth-service
+      - api-service             # UPDATED dependency
       - powersync-service
 
 volumes:

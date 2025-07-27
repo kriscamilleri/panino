@@ -36,27 +36,27 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         td: 'border: 1px solid #bdc3c7; padding: 0.8rem;',
         customCSS: `/* Custom styles for enhanced preview */
 .document-container {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 2rem;
-    background: white;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    background: white;
 }
 
 /* Additional typography improvements */
 h1:first-child {
-    margin-top: 0;
+    margin-top: 0;
 }
 
 /* Better spacing for nested lists */
 ul ul, ol ol, ul ol, ol ul {
-    margin: 0.3rem 0;
+    margin: 0.3rem 0;
 }
 
 /* Enhanced code block styling */
 pre code {
-    background: none;
-    border: none;
-    padding: 0;
+    background: none;
+    border: none;
+    padding: 0;
 }`,
         googleFontFamily: 'Inter', // New field for Google Fonts
     };
@@ -106,32 +106,32 @@ pre code {
         googleFontFamily: 'Manufacturing Consent', // New field for Google Fonts
 
         /* --- Global print overrides --- */
-        customCSS: `    @page { margin: 2.5cm; size: A4; }
+        customCSS: `    @page { margin: 2.5cm; size: A4; }
 
-    body {
-        font-size: 11pt;
-        line-height: 1.7;
-        color: red !important;
-        background: red !important;
-    }
+    body {
+        font-size: 11pt;
+        line-height: 1.7;
+        color: red !important;
+        background: red !important;
+    }
 
-    h1, h2, h3, h4, h5, h6 { page-break-after: avoid; page-break-inside: avoid; }
+    h1, h2, h3, h4, h5, h6 { page-break-after: avoid; page-break-inside: avoid; }
 
-    ul, ol, li,
-    table, figure, img, blockquote, pre { page-break-inside: avoid !important; break-inside: avoid !important; }
+    ul, ol, li,
+    table, figure, img, blockquote, pre { page-break-inside: avoid !important; break-inside: avoid !important; }
 
-    ul, ol { list-style-position: outside; margin-left: 1.4rem; padding-inline-start: 0; }
-    li { margin: 0 0 0.35rem; }
+    ul, ol { list-style-position: outside; margin-left: 1.4rem; padding-inline-start: 0; }
+    li { margin: 0 0 0.35rem; }
 
-    blockquote { border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; }
+    blockquote { border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; }
 
-    hr { border: none; border-top: 3px dotted #242A49; }
+    hr { border: none; border-top: 3px dotted #242A49; }
 
-    table { font-family: 'Messina Sans', 'Inter', Arial, sans-serif; }
+    table { font-family: 'Messina Sans', 'Inter', Arial, sans-serif; }
 
-    .no-print { display: none !important; }
-    .page-break { page-break-before: always; }
-    .page-break-after { page-break-after: always; }`,
+    .no-print { display: none !important; }
+    .page-break { page-break-before: always; }
+    .page-break-after { page-break-after: always; }`,
     };
 
     const styles = ref({ ...defaultStyles });
@@ -151,13 +151,17 @@ pre code {
     const saveStylesToDB = debounce(async () => {
         if (!settingsLoaded || !syncStore.isInitialized) return;
         try {
-            await syncStore.execute(
-                `INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?), (?, ?)`,
-                [
-                    'previewStyles', JSON.stringify(styles.value),
-                    'printStyles', JSON.stringify(printStyles.value)
-                ]
-            );
+            // Use a transaction for atomicity
+            await syncStore.powerSync.writeTransaction(async (tx) => {
+                await tx.execute(
+                    'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+                    ['previewStyles', JSON.stringify(styles.value)]
+                );
+                await tx.execute(
+                    'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+                    ['printStyles', JSON.stringify(printStyles.value)]
+                );
+            });
         } catch (err) {
             console.error('[markdownStore] Failed to save styles', err);
         }
@@ -166,13 +170,13 @@ pre code {
     async function loadStylesFromDB() {
         if (!syncStore.isInitialized) return;
         try {
-            const result = await syncStore.execute(`SELECT key, value FROM settings WHERE key IN ('previewStyles', 'printStyles')`);
+            const result = await syncStore.execute(`SELECT id, value FROM settings WHERE id IN ('previewStyles', 'printStyles')`);
             const loadedSettings = result.rows?._array || [];
 
-            const preview = loadedSettings.find(s => s.key === 'previewStyles');
+            const preview = loadedSettings.find(s => s.id === 'previewStyles');
             if (preview) Object.assign(styles.value, JSON.parse(preview.value));
 
-            const print = loadedSettings.find(s => s.key === 'printStyles');
+            const print = loadedSettings.find(s => s.id === 'printStyles');
             if (print) Object.assign(printStyles.value, JSON.parse(print.value));
 
             settingsLoaded = true;
@@ -263,7 +267,7 @@ pre code {
 
                     const fontObj = {
                         name: v.family,
-                        data: base64,          // data:…;base64,
+                        data: base64,          // data:…;base64,
                         format: 'truetype',
                         style: v.style,
                         weight: v.weight,
@@ -292,15 +296,50 @@ pre code {
         }
     }
 
+    /**
+     * ✅ ADDED: Helper function to create a base instance of MarkdownIt with common plugins.
+     */
+    const baseMd = () => {
+        return new MarkdownIt({
+            html: true,
+            linkify: true,
+            typographer: true,
+        }).use(markdownItTaskLists);
+    };
+
+    /**
+     * ✅ ADDED: Injects a string of CSS into a <style> tag in the document's <head>.
+     * This is used for applying custom user styles for the preview.
+     * @param {string} cssContent The CSS rules to inject.
+     * @param {Document} targetDoc The document to inject into (defaults to window.document).
+     */
+    function addCustomCSSToDocument(cssContent, targetDoc = document) {
+        const styleId = 'markdown-custom-styles';
+        let styleElement = targetDoc.getElementById(styleId);
+        if (!styleElement) {
+            styleElement = targetDoc.createElement('style');
+            styleElement.id = styleId;
+            targetDoc.head.appendChild(styleElement);
+        }
+        // This will overwrite previous custom styles, which is intended
+        // as this is part of a full re-render cycle.
+        styleElement.textContent = cssContent;
+    }
+
 
     function configureRenderer(md, styleMap) {
+        let combinedCSS = '';
         // Apply custom CSS to document if provided
         if (styleMap.customCSS) {
-            addCustomCSSToDocument(styleMap.customCSS)
+            combinedCSS += styleMap.customCSS;
         }
         // Inject Google Font CSS if available
         if (styleMap.googleFontData && styleMap.googleFontData.css) {
-            addCustomCSSToDocument(styleMap.googleFontData.css, document);
+            combinedCSS += styleMap.googleFontData.css;
+        }
+
+        if (combinedCSS) {
+            addCustomCSSToDocument(combinedCSS);
         }
 
         // Headings

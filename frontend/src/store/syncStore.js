@@ -1,7 +1,8 @@
 // /frontend/src/store/syncStore.js
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { ref, markRaw } from 'vue';
 import { PowerSyncDatabase } from '@powersync/web';
+
 import { AppSchema } from './appSchema.js';
 import { useAuthStore } from './authStore';
 
@@ -9,6 +10,7 @@ export const useSyncStore = defineStore('syncStore', () => {
   const powerSync = ref(null);
   const isInitialized = ref(false);
   const syncEnabled = ref(true);
+  let statusSubscription = null; // To hold our subscription for cleanup
 
   const getAuthStore = () => useAuthStore();
 
@@ -19,6 +21,8 @@ export const useSyncStore = defineStore('syncStore', () => {
       console.log('Cleaning up existing PowerSync instance...');
       try {
         await powerSync.value.disconnectAndClear();
+        statusSubscription?.close(); // Unsubscribe from the old instance
+
       } catch (error) {
         console.warn('Error during cleanup:', error);
       }
@@ -29,22 +33,38 @@ export const useSyncStore = defineStore('syncStore', () => {
     try {
       console.log('Creating PowerSync database instance...');
 
-      // Modern PowerSync initialization syntax
       const db = new PowerSyncDatabase({
         database: {
-          dbFilename: 'panino.db'
+          dbFilename: 'panino.db',
+          debugMode: process.env.NODE_ENV !== 'production'
         },
         schema: AppSchema
       });
+      // ================================================================
+      // ✅ FINAL CORRECTED DEBUGGING CODE
+      // ================================================================
+      console.log('[DEBUG] PowerSync instance after init:', db);
+
+      // ================================================================
 
       console.log('Initializing PowerSync database...');
       // Initialize the database
       await db.init();
 
-      powerSync.value = db;
+      console.log(db)
+
+      powerSync.value = markRaw(db);
+      console.log(db.listeners)
       isInitialized.value = true;
       console.log('✅ PowerSync local database initialized successfully.');
+      statusSubscription = db.connectionStateStream.subscribe((status) => {
+        connectionStatus.value = status.state;
+        console.log(`Connection state changed: ${status.state}`);
 
+        if (status.state === ConnectionState.Error) {
+          console.error('PowerSync connection error:', status.error);
+        }
+      });
       // Try to handle connection state
       await handleConnectionState();
     } catch (error) {
@@ -79,6 +99,7 @@ export const useSyncStore = defineStore('syncStore', () => {
           token: authStore.powersyncToken
         });
         console.log('Successfully connected to PowerSync.');
+
       } catch (error) {
         console.error('Failed to connect to PowerSync:', error);
         // Don't throw here - allow offline usage
@@ -129,8 +150,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       console.error("Failed to clear database:", error);
     }
 
-    // Reinitialize
-    await initializeDB();
+    // DO NOT re-initialize here. Let the LoadingPage handle it.
   }
 
   return {

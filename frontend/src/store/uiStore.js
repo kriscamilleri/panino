@@ -47,8 +47,8 @@ export const useUiStore = defineStore('uiStore', () => {
         };
         try {
             await syncStore.execute(
-                `INSERT OR REPLACE INTO settings (key, value) VALUES ('uiSettings', ?)`,
-                [JSON.stringify(settings)]
+                `INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)`,
+                ['uiSettings', JSON.stringify(settings)]
             );
         } catch (err) {
             console.error('[uiStore] Failed to save UI settings:', err);
@@ -58,7 +58,7 @@ export const useUiStore = defineStore('uiStore', () => {
     async function loadSettingsFromDB() {
         if (!syncStore.isInitialized) return;
         try {
-            const result = await syncStore.execute(`SELECT value FROM settings WHERE key = 'uiSettings'`);
+            const result = await syncStore.execute(`SELECT value FROM settings WHERE id = 'uiSettings'`);
             const row = result.rows?._array[0];
             if (row && row.value) {
                 const settings = JSON.parse(row.value);

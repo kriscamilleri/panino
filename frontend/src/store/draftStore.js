@@ -13,9 +13,10 @@ export const useDraftStore = defineStore('draftStore', () => {
     const drafts = ref({})
 
     function getDraft(fileId) {
-        return drafts.value[fileId] || ''
+        return Object.prototype.hasOwnProperty.call(drafts.value, fileId)
+            ? drafts.value[fileId]
+            : undefined
     }
-
     function setDraft(fileId, text) {
         drafts.value[fileId] = text
     }
