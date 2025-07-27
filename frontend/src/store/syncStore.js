@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { PowerSyncDatabase } from '@powersync/web';
-import { AppSchema } from '@/utils/appSchema.js';
+import { AppSchema } from './appSchema.js';
 import { useAuthStore } from './authStore';
 
 export const useSyncStore = defineStore('syncStore', () => {

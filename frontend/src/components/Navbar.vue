@@ -40,9 +40,9 @@
                 <!-- Desktop menu items -->
                 <div class="hidden md:flex items-center space-x-4">
                     <!-- Show user name if authenticated -->
-                    <div v-if="authStore.isAuthenticated" class="text-gray-500" data-testid="navbar-username-display">
-                        {{ authStore.user }}
 
+                    <div v-if="authStore.isAuthenticated" class="text-gray-500" data-testid="navbar-username-display">
+                        {{ authStore.user?.name || authStore.user?.email || authStore.user?.id }}
                     </div>
 
                     <!-- About link -->

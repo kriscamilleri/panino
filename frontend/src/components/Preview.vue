@@ -9,6 +9,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import DOMPurify from 'dompurify'
@@ -16,16 +17,16 @@ import DOMPurify from 'dompurify'
 const docStore = useDocStore()
 const draftStore = useDraftStore()
 
-const file = computed(() => docStore.selectedFile)
+// pull the ref directly
+const { selectedFile: file, selectedFileContent } = storeToRefs(docStore)
 
-// We want: preview text = draft if it exists, otherwise docStore content
+// preview text = draft if present, else DB content
 const text = computed(() => {
     if (!file.value) return ''
     const draft = draftStore.getDraft(file.value.id)
-    return draft || docStore.selectedFileContent
+    return draft || selectedFileContent.value
 })
 
-// Convert markdown => HTML using docStore’s “preview” MarkdownIt instance
 const renderedHtml = computed(() => {
     const md = docStore.getMarkdownIt()
     const raw = md.render(text.value || '')

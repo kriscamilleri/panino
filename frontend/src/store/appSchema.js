@@ -1,4 +1,3 @@
-// /frontend/src/lib/AppSchema.js
 import { Schema, Table, column } from '@powersync/web';
 
 // Define tables using PowerSync's Table class
