@@ -28,3 +28,4 @@ README.md
 generate-llm-file.js
 combined_content.txt
 src/assets/data.json
+frontend/dist

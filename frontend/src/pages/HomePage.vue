@@ -1,23 +1,17 @@
 <template>
     <div class="h-screen flex flex-col overflow-hidden">
-        <!-- Top Navbar -->
         <Navbar />
 
-        <!-- Sub Menu Bar -->
         <SubMenuBar />
 
-        <!-- Main content area -->
         <div ref="mainContent" class="flex flex-1 overflow-hidden" data-testid="homepage-main-content">
-            <!-- Sidebar (Documents) + Resizer -->
             <SidebarWithResizer :isMobileView="isMobileView" />
 
-            <!-- Content area (Folder preview or Editor+Preview) -->
             <ContentArea :isMobileView="isMobileView" />
         </div>
 
-        <!-- Import Modal -->
         <ImportModal :show="ui.showImportModal" @close="ui.closeImportModal()" @import-success="handleImportSuccess"
-            data-testid="homepage-import-modal" />
+                     data-testid="homepage-import-modal" />
     </div>
 </template>
 
@@ -44,9 +38,9 @@ onMounted(() => window.addEventListener('resize', handleResize))
 onUnmounted(() => window.removeEventListener('resize', handleResize))
 
 // Sync store on route param changes
-function applyRouteSelection() {
+async function applyRouteSelection() {
     if (route.params.fileId) {
-        docStore.selectFile(route.params.fileId)
+        await docStore.selectFile(route.params.fileId)
     } else if (route.params.folderId) {
         docStore.selectFolder(route.params.folderId)
     } else {
@@ -59,5 +53,6 @@ watch(() => route.params.folderId, applyRouteSelection)
 
 function handleImportSuccess() {
     console.log('Import successful')
+    ui.addToast('Data imported successfully!');
 }
 </script>

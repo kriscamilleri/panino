@@ -12,14 +12,14 @@
     "test-int": "npx playwright test"
   },
   "dependencies": {
-    "@powersync/web": "^1.23.1",
     "@journeyapps/wa-sqlite": "^1.0.0",
+    "@powersync/web": "^1.23.1",
     "@vueuse/core": "^10.11.1",
     "dompurify": "^3.2.3",
     "events": "^3.3.0",
     "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.1",
+    "jspdf": "^3.0.1",
     "jszip": "^3.10.1",
     "lodash-es": "^4.17.21",
     "lucide-vue-next": "^0.469.0",

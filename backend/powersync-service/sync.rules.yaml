@@ -1,52 +1,16 @@
 # /backend/powersync-service/sync.rules.yaml
-# Simple sync rules that grant read/write access to a user's own data.
-# This uses the `user_id` claim from the JWT issued by our auth-service.
-version: "1"
-tables:
-  - table: users
-    # Only sync the current user's own record.
-    select: SELECT * FROM users WHERE id = token.user_id
-    # Disallow client-side inserts/updates/deletes on the users table for security.
-    insert: false
-    update: false
-    delete: false
-
-  - table: folders
-    # Sync all folders owned by the current user.
-    select: SELECT * FROM folders WHERE user_id = token.user_id
-    # Allow clients to create, update, and delete their own folders.
-    insert:
-      # The client provides all columns except the user_id.
-      columns: [id, name, parent_id, created_at]
-      # The server sets the user_id from the token.
-      query: INSERT INTO folders (id, name, parent_id, created_at, user_id) VALUES ($1, $2, $3, $4, token.user_id)
-    update:
-      # The client provides the columns to update.
-      columns: [name, parent_id]
-      # The server ensures the update only affects the user's own data.
-      query: UPDATE folders SET name = $2, parent_id = $3 WHERE id = $1 AND user_id = token.user_id
-    delete:
-      # The server ensures the delete only affects the user's own data.
-      query: DELETE FROM folders WHERE id = $1 AND user_id = token.user_id
-
-  - table: notes
-    # Sync all notes owned by the current user.
-    select: SELECT * FROM notes WHERE user_id = token.user_id
-    insert:
-      columns: [id, folder_id, title, content, created_at, updated_at]
-      query: INSERT INTO notes (id, folder_id, title, content, created_at, updated_at, user_id) VALUES ($1, $2, $3, $4, $5, $6, token.user_id)
-    update:
-      columns: [folder_id, title, content, updated_at]
-      query: UPDATE notes SET folder_id = $2, title = $3, content = $4, updated_at = $5 WHERE id = $1 AND user_id = token.user_id
-    delete:
-      query: DELETE FROM notes WHERE id = $1 AND user_id = token.user_id
-
-  - table: images
-    # Sync all images owned by the current user.
-    select: SELECT id, user_id, filename, mime_type, created_at FROM images WHERE user_id = token.user_id
-    # The 'data' column (BYTEA) is not synced to the client to save bandwidth and storage.
-    # The client will fetch images via the image-service as needed.
-    insert: false
-    update: false
-    delete:
-      query: DELETE FROM images WHERE id = $1 AND user_id = token.user_id
+bucket_definitions:
+  by_user:
+    parameters: SELECT request.user_id() AS user_id
+    data:
+      # FIXED: Removed the non-existent "name" column from the users table query
+      - SELECT id, email FROM users WHERE id = bucket.user_id
+      - SELECT id, name, parent_id, created_at, user_id
+        FROM folders
+        WHERE user_id = bucket.user_id
+      - SELECT id, folder_id, title, content, created_at, updated_at, user_id
+        FROM notes
+        WHERE user_id = bucket.user_id
+      - SELECT id, user_id, filename, mime_type, created_at
+        FROM images
+        WHERE user_id = bucket.user_id
