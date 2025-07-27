@@ -27,13 +27,20 @@ export const useDocStore = defineStore('docStore', () => {
     async function loadInitialData() {
         // This is now handled by structureStore's watcher, but we can ensure a default file is selected.
         if (rootItems.value.length > 0 && !selectedFileId.value) {
-           const firstFile = rootItems.value.find(item => item.type === 'file');
-           if (firstFile) {
-               structureStore.selectFile(firstFile.id);
-           }
+            const firstFile = rootItems.value.find(item => item.type === 'file');
+            if (firstFile) {
+                structureStore.selectFile(firstFile.id);
+            }
         }
     }
-
+    // NEW function to be called after sync
+    async function refreshData() {
+        await structureStore.loadRootItems();
+        // Re-fetch current file data if one is selected
+        if (structureStore.selectedFileId) {
+            await structureStore.selectFile(structureStore.selectedFileId);
+        }
+    }
     async function resetStore() {
         await syncStore.resetDatabase();
         structureStore.resetStore();
@@ -44,14 +51,15 @@ export const useDocStore = defineStore('docStore', () => {
 
     async function getRecentDocuments(limit = 10) {
         const query = `
-            SELECT id, title as name, updated_at as displayedDate
-            FROM notes
-            ORDER BY updated_at DESC
-            LIMIT ?
-        `;
+      SELECT id, title as name, updated_at as displayedDate
+      FROM notes
+      ORDER BY updated_at DESC
+      LIMIT ?
+  `;
         try {
+            // CORRECTED: The result is the array itself
             const results = await syncStore.execute(query, [limit]);
-            return results.rows?._array || [];
+            return results || [];
         } catch (error) {
             console.error('Failed to get recent documents:', error);
             return [];
@@ -98,6 +106,8 @@ export const useDocStore = defineStore('docStore', () => {
         getMarkdownIt: markdownStore.getMarkdownIt,
         updatePrintStyle: markdownStore.updatePrintStyle,
         getPrintMarkdownIt: markdownStore.getPrintMarkdownIt,
-        getRecentDocuments
+        getRecentDocuments,
+        refreshData, // Expose the new function
+
     };
 });

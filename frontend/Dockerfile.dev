@@ -1,11 +1,15 @@
-FROM node:24-slim
+FROM node:20-alpine
+
 
 WORKDIR /app
 
+# We copy package.json first to leverage Docker layer caching
 COPY package*.json ./
 
 RUN npm install
 
-EXPOSE 5173
+# This line is not needed as the volume will mount the source code
+# COPY . .
 
-CMD ["npm", "run", "dev", "--", "--host"]
+EXPOSE 5173
+# The command is specified in docker-compose.dev.yml

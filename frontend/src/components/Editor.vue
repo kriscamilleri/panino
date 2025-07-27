@@ -61,7 +61,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, defineExpose } from 'vue';
+import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';

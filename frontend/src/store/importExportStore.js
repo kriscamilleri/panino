@@ -15,12 +15,13 @@ export const useImportExportStore = defineStore('importExportStore', () => {
     async function exportDataAsJsonString() {
         if (!syncStore.isInitialized) throw new Error('Sync not ready.');
 
-        const foldersResult = await syncStore.execute('SELECT * FROM folders');
-        const notesResult = await syncStore.execute('SELECT * FROM notes');
+        // CORRECTED: Results are arrays directly
+        const folders = await syncStore.execute('SELECT * FROM folders');
+        const notes = await syncStore.execute('SELECT * FROM notes');
 
         const data = {
-            folders: foldersResult.rows?._array || [],
-            notes: notesResult.rows?._array || []
+            folders: folders || [],
+            notes: notes || []
         };
 
         return JSON.stringify(data, null, 2);
