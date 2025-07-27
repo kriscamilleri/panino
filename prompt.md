@@ -1,6 +1,1 @@
-I just migrated this backend from pouchdb+couchdb to powersync+sqlite+postgres. It was a pretty major refactoring. Now I'm still encountering errors - slowly but surely we must resolve them. My current error is:
-
-Initialization Failed
-We couldn't set up the local database. This might be due to an unsupported browser or a critical error.
-
-Cannot read properties of undefined (reading 'execute')
+I just migrated this backend from pouchdb+couchdb to powersync+sqlite+postgres. It was a pretty major refactoring. Now I'm still encountering errors - slowly but surely we must resolve them. My current issue is that When I create a file it does not appear in the sidebar, the editor, or in the preview. In th editor and the preview I see the text No file selected. 

@@ -1,11 +1,10 @@
 // /frontend/src/store/docStore.js
 import { defineStore } from 'pinia';
-import { computed } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useStructureStore } from './structureStore';
 import { useMarkdownStore } from './markdownStore';
 import { useSyncStore } from './syncStore';
 import { useImportExportStore } from './importExportStore';
-import { useAuthStore } from './authStore';
 
 export const useDocStore = defineStore('docStore', () => {
   const structureStore = useStructureStore();
@@ -13,27 +12,24 @@ export const useDocStore = defineStore('docStore', () => {
   const syncStore = useSyncStore();
   const importExportStore = useImportExportStore();
 
-  const selectedFileId = computed(() => structureStore.selectedFileId);
-  const selectedFolderId = computed(() => structureStore.selectedFolderId);
-  const openFolders = computed(() => structureStore.openFolders);
-  const styles = computed(() => markdownStore.styles);
-  const printStyles = computed(() => markdownStore.printStyles);
-  const rootItems = computed(() => structureStore.rootItems);
-  const selectedFile = computed(() => structureStore.selectedFile);
+  // Pull refs out of the other stores WITHOUT wrapping them in computed again
+  const {
+    selectedFileId,
+    selectedFolderId,
+    openFolders,
+    rootItems,
+    selectedFile,
+    selectedFileContent
+  } = storeToRefs(structureStore);
 
-  // Directly get content from the structure store, which now handles it.
-  const selectedFileContent = computed(() => structureStore.selectedFileContent);
+  const { styles, printStyles } = storeToRefs(markdownStore);
 
   async function loadInitialData() {
-    // await markdownStore.loadStylesFromDB();
     await structureStore.loadStructure();
   }
 
   async function resetStore() {
-    // This needs to be a coordinated reset.
-    // 1. Disconnect and clear the database via syncStore
     await syncStore.resetDatabase();
-    // 2. Reset the state of all data-holding stores
     structureStore.resetStore();
     markdownStore.resetStyles();
     markdownStore.resetPrintStyles();
@@ -45,7 +41,6 @@ export const useDocStore = defineStore('docStore', () => {
   }
 
   async function getRecentDocuments(limit = 10) {
-    // This query now hits the local SQLite DB via PowerSync
     const query = `
         SELECT id, title as name, updated_at as displayedDate
         FROM notes
@@ -62,7 +57,7 @@ export const useDocStore = defineStore('docStore', () => {
   }
 
   return {
-    // State & Getters
+    // State & Getters (forwarded refs)
     selectedFileId,
     selectedFolderId,
     openFolders,
@@ -72,7 +67,7 @@ export const useDocStore = defineStore('docStore', () => {
     selectedFile,
     selectedFileContent,
 
-    // Expose stores for direct access where needed
+    // Expose stores if you still need direct access
     structureStore,
     syncStore,
     markdownStore,

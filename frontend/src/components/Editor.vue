@@ -20,11 +20,11 @@
       <div class="flex gap-4">
         <div class="flex items-center gap-2">
           <span class="font-medium">Name:</span>
-          <span data-testid="editor-metadata-name">{{ file.name }}</span>
+          <span data-testid="editor-metadata-name">{{ file.title || file.name }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Type:</span>
-          <span data-testid="editor-metadata-type">{{ file.type }}</span>
+          <span data-testid="editor-metadata-type">file</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Last Updated:</span>
@@ -62,6 +62,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, defineExpose } from 'vue';
+import { storeToRefs } from 'pinia';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
 import { useDraftStore } from '@/store/draftStore';
@@ -87,12 +88,14 @@ const draftStore = useDraftStore();
 const authStore = useAuthStore();
 const textareaRef = ref(null);
 
+// grab the ref directly, not a computed-of-a-ref
+const { selectedFile: file } = storeToRefs(docStore);
+
 /* ───── upload state ───── */
 const isUploading = ref(false);
 const uploadError = ref('');
 
-/* ───── reactive file & draft ───── */
-const file = computed(() => docStore.selectedFile);
+/* ───── reactive draft ───── */
 const contentDraft = ref('');
 
 watch(
@@ -150,7 +153,7 @@ async function uploadImage(fileObj) {
     const formData = new FormData();
     formData.append('image', fileObj);
 
-    const response = await fetch(`${imageServiceUrl}/images`, { // CORRECTED ENDPOINT
+    const response = await fetch(`${imageServiceUrl}/images`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${authStore.token}`
@@ -163,7 +166,6 @@ async function uploadImage(fileObj) {
       throw new Error(err.error || 'Upload failed');
     }
     const data = await response.json();
-    // Construct the full URL to the image using the same service
     const finalUrl = `${imageServiceUrl}${data.url}`;
     insertAtCursor(`![${fileObj.name}](${finalUrl})\n`);
   } catch (err) {
@@ -225,7 +227,7 @@ function findNext(term) {
   let fromIdx = textarea.selectionEnd;
   const text = contentDraft.value;
   let idx = text.indexOf(term, fromIdx);
-  if (idx === -1) idx = text.indexOf(term, 0); // wrap around
+  if (idx === -1) idx = text.indexOf(term, 0);
   if (idx > -1) {
     textarea.focus();
     textarea.setSelectionRange(idx, idx + term.length);
