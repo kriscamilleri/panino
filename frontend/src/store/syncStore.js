@@ -94,14 +94,6 @@ export const useSyncStore = defineStore('syncStore', () => {
     console.log('[syncStore] Initializing crsqlite wasm…');
 
     // ---- WASM INIT ----
-    const wasmLocator = (file) => {
-      // Older Emscripten APIs pass the filename to locateFile.
-      // Just return our emitted URL for any .wasm request.
-      if (file && file.endsWith('.wasm')) return wasmUrl;
-      return wasmUrl; // safe fallback
-    };
-
-    // Try once with both keys to satisfy any version of the lib.
     sqlite.value = markRaw(await initWasm(() => wasmUrl));
 
     // ---- OPEN DB ----
@@ -113,10 +105,31 @@ export const useSyncStore = defineStore('syncStore', () => {
     db.value = markRaw(await sqlite.value.open(dbName));
     db.value.exec(DB_SCHEMA);
 
-    // Cache site_id
-    if (!getSiteId()) {
-      const row = db.value.execO(`SELECT hex(crsql_site_id()) AS id`)[0];
-      if (row?.id) setSiteId(row.id.toLowerCase());
+    // ✅ FIX: More robust site_id initialization
+    let siteId = getSiteId();
+    if (!siteId) {
+      console.log('[syncStore] No site_id in localStorage, querying from DB...');
+      // The result is an array of objects
+      const rows = await db.value.execO(`SELECT hex(crsql_site_id()) AS id`);
+
+      // Log the raw result for debugging
+      console.log('[syncStore] Raw site_id query result:', rows);
+
+      const row = rows[0];
+      if (row && typeof row.id === 'string' && row.id.length > 0) {
+        siteId = row.id.toLowerCase();
+        console.log(`[syncStore] Fetched and saved new site_id: ${siteId}`);
+        setSiteId(siteId);
+      } else {
+        // This is a critical failure. The app cannot sync without a site ID.
+        // Throwing an error here will display it on the loading page.
+        throw new Error(
+          "Fatal: Could not retrieve crsql_site_id from the database. " +
+          `Query returned: ${JSON.stringify(rows)}`
+        );
+      }
+    } else {
+      console.log(`[syncStore] Found existing site_id in localStorage: ${siteId}`);
     }
 
     isInitialized.value = true;
@@ -161,7 +174,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       const mySite = getSiteId();
 
       // 1. Local changes since last clock
-      const localChanges = db.value.execO(
+      const queryResult = await db.value.execO(
         `SELECT "table", pk, cid, val, col_version, db_version,
                 hex(site_id) AS site_id, seq, cl
                 FROM crsql_changes
@@ -169,6 +182,7 @@ export const useSyncStore = defineStore('syncStore', () => {
                 ORDER BY db_version ASC`,
         [myClock]
       );
+      const localChanges = Array.from(queryResult || []);
 
       // ✅ ADD THIS LOG
       if (localChanges.length > 0) {
