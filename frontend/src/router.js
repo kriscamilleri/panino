@@ -6,6 +6,9 @@ import SignupForm from '@/components/SignupForm.vue'
 import LoadingPage from '@/pages/LoadingPage.vue'
 import PrintStylesPage from '@/pages/PrintStylesPage.vue'
 import TermsOfServicePage from '@/pages/TermsOfServicePage.vue'
+import SettingsPage from '@/pages/SettingsPage.vue'
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage.vue'
+import ResetPasswordPage from '@/pages/ResetPasswordPage.vue'
 
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -19,7 +22,6 @@ export const router = createRouter({
       component: HomePage,
       meta: { keepAlive: true }
     },
-    // file route
     {
       path: '/doc/:fileId',
       name: 'doc',
@@ -27,7 +29,6 @@ export const router = createRouter({
       props: true,
       meta: { keepAlive: true }
     },
-    // folder route
     {
       path: '/folder/:folderId',
       name: 'folder',
@@ -66,6 +67,22 @@ export const router = createRouter({
       path: '/terms',
       name: 'terms',
       component: TermsOfServicePage
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: SettingsPage
+    },
+    {
+      path: '/forgot-password',
+      name: 'forgot-password',
+      component: ForgotPasswordPage
+    },
+    {
+      path: '/reset-password/:token',
+      name: 'reset-password',
+      component: ResetPasswordPage,
+      props: true
     }
   ]
 })
@@ -81,7 +98,7 @@ router.beforeEach(async (to, from, next) => {
   // If NOT authenticated, redirect to login
   if (
     !authStore.isAuthenticated &&
-    !['login','signup','loading','terms'].includes(to.name)
+    !['login', 'signup', 'loading', 'terms', 'forgot-password', 'reset-password'].includes(to.name)
   ) {
     return next({ name: 'login' })
   }

@@ -36,6 +36,15 @@ export const useStructureStore = defineStore('structureStore', () => {
     // --- Getters / Computed ---
     const selectedFileContent = computed(() => selectedFile.value?.content || '');
 
+    // --- New Action for Refreshing ---
+    async function reFetchSelectedFile() {
+        if (selectedFileId.value) {
+            console.log(`[StructureStore] Re-fetching content for file ID: ${selectedFileId.value}`);
+            const result = await syncStore.execute('SELECT * FROM notes WHERE id = ?', [selectedFileId.value]);
+            selectedFile.value = result[0] || null;
+        }
+    }
+
     // --- Read Actions ---
 
     async function loadRootItems() {
@@ -44,8 +53,8 @@ export const useStructureStore = defineStore('structureStore', () => {
             SELECT id, name, 'folder' as type FROM folders WHERE parent_id IS NULL
             UNION ALL
             SELECT id, title as name, 'file' as type FROM notes WHERE folder_id IS NULL
-            ORDER BY type, name;
-        `;
+            ORDER BY type DESC, name
+        `.trim();
         rootItems.value = await syncStore.execute(query);
     }
 
@@ -55,8 +64,8 @@ export const useStructureStore = defineStore('structureStore', () => {
             SELECT id, name, 'folder' as type FROM folders WHERE parent_id = ?
             UNION ALL
             SELECT id, title as name, 'file' as type FROM notes WHERE folder_id = ?
-            ORDER BY type, name;
-        `;
+            ORDER BY type DESC, name
+        `.trim();
         return await syncStore.execute(query, [parentId, parentId]);
     }
 
@@ -138,13 +147,13 @@ export const useStructureStore = defineStore('structureStore', () => {
         // NOTE: This function was missing in your provided file but is called from TreeItem.vue.
         // Assuming it looks like this, add .value.
         const oldParentResult = await syncStore.execute(`
-    SELECT
-      CASE
-        WHEN (SELECT parent_id FROM folders WHERE id = ?) IS NOT NULL THEN (SELECT parent_id FROM folders WHERE id = ?)
-        WHEN (SELECT folder_id FROM notes WHERE id = ?) IS NOT NULL THEN (SELECT folder_id FROM notes WHERE id = ?)
-        ELSE NULL
-      END as old_parent_id
-  `, [itemId, itemId, itemId, itemId]);
+            SELECT
+                CASE
+                    WHEN (SELECT parent_id FROM folders WHERE id = ?) IS NOT NULL THEN (SELECT parent_id FROM folders WHERE id = ?)
+                    WHEN (SELECT folder_id FROM notes WHERE id = ?) IS NOT NULL THEN (SELECT folder_id FROM notes WHERE id = ?)
+                    ELSE NULL
+                END as old_parent_id
+        `.trim(), [itemId, itemId, itemId, itemId]);
         const oldParentId = oldParentResult[0]?.old_parent_id;
 
         if (type === 'folder') {
@@ -210,6 +219,7 @@ export const useStructureStore = defineStore('structureStore', () => {
         selectFolder,
         toggleFolder,
         updateFileContent,
+        reFetchSelectedFile,
         resetStore
     };
 });

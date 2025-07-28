@@ -10,6 +10,13 @@ services:
       PORT: 8000
       NODE_ENV: production
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+      # SMTP Production Settings
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      FRONTEND_URL: ${FRONTEND_URL}
     volumes:
       - api-data:/app/data # Persist SQLite DBs
 

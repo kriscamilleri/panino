@@ -98,18 +98,21 @@ const uploadError = ref('');
 /* ───── reactive draft ───── */
 const contentDraft = ref('');
 
-watch(
-  file,
-  async (newFile) => {
-    if (newFile?.id) {
-      const existingDraft = draftStore.getDraft(newFile.id);
-      contentDraft.value = existingDraft ?? newFile.content ?? '';
-    } else {
-      contentDraft.value = '';
-    }
-  },
-  { immediate: true, deep: true }
-);
+// ✅ FINAL FIX: This watcher ONLY runs when the user selects a DIFFERENT file.
+// It no longer reacts to background content changes for the current file, which
+// completely eliminates the stuttering and text-reordering issue.
+watch(() => file.value?.id, (newId) => {
+  if (newId) {
+    // When a new file is selected, load its content into the draft *once*.
+    const newContent = file.value.content ?? '';
+    contentDraft.value = newContent;
+    draftStore.setDraft(newId, newContent);
+  } else {
+    // No file is selected, so clear the editor.
+    contentDraft.value = '';
+  }
+}, { immediate: true });
+
 
 /* ───── stats ───── */
 const wordCount = computed(() => (contentDraft.value ? contentDraft.value.trim().split(/\s+/).filter(Boolean).length : 0));

@@ -13,6 +13,7 @@ import { authRoutes, authenticateToken } from './auth.js';
 import { syncRoutes } from './sync.js';
 import { imageRoutes } from './image.js';
 import { signupRoutes } from './signup.js';
+import { passwordResetRoutes } from './passwordReset.js';
 import { initDb } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,25 +31,27 @@ const wss = new WebSocketServer({ server }); // Create a WebSocket server
 const PORT = process.env.PORT || 8000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
 
-// Store user ID for each active WebSocket connection
+// ✅ FIX: Store an object with userId and siteId for each client
 const clients = new Map();
 
 wss.on('connection', (ws, req) => {
     console.log('WebSocket client connected');
-    const token = new URL(req.url, `http://${req.headers.host}`).searchParams.get('token');
+    const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
+    const token = params.get('token');
+    const siteId = params.get('siteId');
 
-    if (!token) return ws.close(1008, 'Token required');
+    if (!token || !siteId) return ws.close(1008, 'Token and siteId required');
 
     jwt.verify(token, JWT_SECRET, (err, payload) => {
         if (err) return ws.close(1008, 'Invalid token');
 
         const userId = payload.user_id;
-        clients.set(ws, userId);
-        console.log(`Client associated with user_id: ${userId}`);
+        clients.set(ws, { userId, siteId });
+        console.log(`Client associated with user_id: ${userId} and siteId: ${siteId}`);
 
         ws.on('close', () => {
             clients.delete(ws);
-            console.log(`Client for user_id: ${userId} disconnected`);
+            console.log(`Client for user_id: ${userId} with siteId: ${siteId} disconnected`);
         });
     });
 });
@@ -64,8 +67,14 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 // --- Routes ---
-app.use(authRoutes);
+// Public routes
 app.use(signupRoutes);
+app.use(passwordResetRoutes);
+
+// Routes that are mixed public/private
+app.use(authRoutes);
+
+// Authenticated routes
 app.use(authenticateToken);
 app.use(syncRoutes);
 app.use(imageRoutes);

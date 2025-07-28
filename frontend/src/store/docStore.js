@@ -37,7 +37,8 @@ export const useDocStore = defineStore('docStore', () => {
         console.log('[DocStore] Refreshing data after sync.');
         await structureStore.loadRootItems();
         if (structureStore.selectedFileId) {
-            await structureStore.selectFile(structureStore.selectedFileId); // Re-fetch selected file
+            // This is the key change: explicitly re-fetch the current file's data
+            await structureStore.reFetchSelectedFile();
         }
     }
 

@@ -9,18 +9,19 @@ import { useDocStore } from './docStore';
 const API_URL = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
 const WS_URL = API_URL.replace(/^http/, 'ws');
 
+// ✅ FIX: Add the 'name' column to the users table schema
 const DB_SCHEMA = `
-  PRAGMA foreign_keys = ON;
-  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY NOT NULL, email TEXT, created_at TEXT);
-  CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, name TEXT, parent_id TEXT, created_at TEXT);
-  CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, folder_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT);
-  CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, filename TEXT, mime_type TEXT, data BLOB, created_at TEXT);
-  CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY NOT NULL, value TEXT);
-  SELECT crsql_as_crr('users');
-  SELECT crsql_as_crr('folders');
-  SELECT crsql_as_crr('notes');
-  SELECT crsql_as_crr('images');
-  SELECT crsql_as_crr('settings');
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY NOT NULL, name TEXT, email TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, name TEXT, parent_id TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, folder_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, filename TEXT, mime_type TEXT, data BLOB, created_at TEXT);
+CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY NOT NULL, value TEXT);
+SELECT crsql_as_crr('users');
+SELECT crsql_as_crr('folders');
+SELECT crsql_as_crr('notes');
+SELECT crsql_as_crr('images');
+SELECT crsql_as_crr('settings');
 `;
 
 export const useSyncStore = defineStore('syncStore', () => {
@@ -31,7 +32,6 @@ export const useSyncStore = defineStore('syncStore', () => {
   const isSyncing = ref(false);
   const ws = ref(null);
 
-  // Debounce sync calls to bundle rapid local changes
   const debouncedSync = debounce(() => sync(), 500);
 
   function getClock() { return Number(localStorage.getItem('crsqlite_clock') || 0); }
@@ -54,6 +54,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       db.value.exec('COMMIT');
       return res;
     } catch (e) {
+      console.error('Failed running transaction, rolling back.', e);
       try { db.value.exec('ROLLBACK'); } catch (_) { }
       throw e;
     }
@@ -83,7 +84,6 @@ export const useSyncStore = defineStore('syncStore', () => {
       }
     }
 
-    // ✅ HOOK: Trigger sync whenever the local DB changes.
     db.value.onUpdate(() => {
       console.log("Local DB update detected, triggering sync.");
       debouncedSync();
@@ -103,7 +103,7 @@ export const useSyncStore = defineStore('syncStore', () => {
   }
 
   function hexToUint8Array(hex) {
-    if (!hex || hex.length % 2 !== 0) return null;
+    if (!hex || hex.length % 2 !== 0) return new Uint8Array();
     const bytes = new Uint8Array(hex.length / 2);
     for (let i = 0; i < hex.length; i += 2) {
       bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
@@ -120,8 +120,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       const mySite = getSiteId();
 
       const localChanges = await db.value.execO(
-        `SELECT "table", pk, cid, val, col_version, db_version, hex(site_id) AS site_id, seq, cl
-         FROM crsql_changes WHERE db_version > ? ORDER BY db_version ASC`,
+        `SELECT "table", pk, cid, val, col_version, db_version, hex(site_id) AS site_id, seq, cl FROM crsql_changes WHERE db_version > ? ORDER BY db_version ASC`,
         [myClock]
       );
 
@@ -150,7 +149,6 @@ export const useSyncStore = defineStore('syncStore', () => {
             ]);
           }
         });
-        // After applying changes, refresh the main document store
         useDocStore().refreshData();
       }
 
@@ -162,14 +160,14 @@ export const useSyncStore = defineStore('syncStore', () => {
     }
   }
 
-  // --- WebSocket Actions ---
   function connectWebSocket() {
     if (ws.value || !syncEnabled.value) return;
     const auth = useAuthStore();
-    if (!auth.token) return;
+    const siteId = getSiteId();
+    if (!auth.token || !siteId) return;
 
     console.log('[Sync] Connecting WebSocket...');
-    ws.value = new WebSocket(`${WS_URL}?token=${auth.token}`);
+    ws.value = new WebSocket(`${WS_URL}?token=${auth.token}&siteId=${siteId}`);
 
     ws.value.onopen = () => console.log('[Sync] WebSocket connected.');
     ws.value.onclose = () => { ws.value = null; console.log('[Sync] WebSocket disconnected.'); };
