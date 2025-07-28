@@ -210,7 +210,9 @@ router.post('/sync', (req, res, next) => {
        ORDER BY db_version ASC
     `).all(since, mySiteBlob, mySiteBlob);
 
-        const newClock = remote.length ? remote[remote.length - 1].db_version : since;
+        // Get the highest version number from the server's database after applying changes.
+        const clockRow = db.prepare(`SELECT max(db_version) as version FROM crsql_changes`).get();
+        const newClock = clockRow.version ?? since; // Use the server's latest version, or the client's if server is empty.
 
         res.json({ changes: remote, clock: newClock });
     } catch (err) {
