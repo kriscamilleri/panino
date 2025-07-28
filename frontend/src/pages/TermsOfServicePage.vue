@@ -13,7 +13,7 @@
         <main class="flex-1 overflow-y-auto p-6 max-w-2xl mx-auto leading-relaxed">
             <section class="mb-6">
                 <h2 class="text-lg font-semibold mb-2">Last Updated</h2>
-                <p>2025-07-14</p>
+                <p>2025-07-28</p>
             </section>
 
             <section class="mb-6">
@@ -52,13 +52,17 @@
                 <h2 class="text-lg font-semibold mb-2">3. User Accounts &amp; Data Storage</h2>
                 <ul class="list-disc ml-6">
                     <li>
-                        <strong>Technology Stack:</strong> This service uses PostgreSQL for primary data storage, with
-                        PowerSync enabling local-first capabilities on your device via SQLite (WASM).
+                        <strong>Technology Stack:</strong> This service uses a local-first architecture powered by
+                        <strong>cr-sqlite</strong>. Your notes are stored primarily on your own device in a SQLite
+                        database (via WebAssembly) and securely synchronized with a dedicated, per-user SQLite database
+                        on
+                        our server.
                     </li>
                     <li>
-                        <strong>Data Security:</strong> User data is segregated using PostgreSQL's row-level security.
-                        Data in transit is protected by TLS (HTTPS). At rest, any server- or disk-level encryption
-                        employed is at our discretion.
+                        <strong>Data Security:</strong> User data is physically segregated on the server, as each
+                        account's data resides in its own separate database file. This provides a strong level of
+                        isolation. Data in transit is protected by TLS (HTTPS). At rest, any server- or disk-level
+                        encryption employed is at our discretion.
                     </li>
                     <li>
                         <strong>No Backups on Public Instance:</strong> No backups are taken of user data

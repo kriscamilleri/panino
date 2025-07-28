@@ -151,18 +151,18 @@ pre code {
     const saveStylesToDB = debounce(async () => {
         if (!settingsLoaded || !syncStore.isInitialized) return;
         try {
-            // Use a transaction for atomicity
-            await syncStore.powerSync.writeTransaction(async (tx) => {
-                await tx.execute(
-                    'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-                    ['previewStyles', JSON.stringify(styles.value)]
-                );
-                await tx.execute(
-                    'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-                    ['printStyles', JSON.stringify(printStyles.value)]
-                );
-            });
+            await syncStore.db.value.exec('BEGIN TRANSACTION;');
+            await syncStore.db.value.exec(
+                'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+                ['previewStyles', JSON.stringify(styles.value)]
+            );
+            await syncStore.db.value.exec(
+                'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+                ['printStyles', JSON.stringify(printStyles.value)]
+            );
+            await syncStore.db.value.exec('COMMIT;');
         } catch (err) {
+            await syncStore.db.value.exec('ROLLBACK;');
             console.error('[markdownStore] Failed to save styles', err);
         }
     }, 500);

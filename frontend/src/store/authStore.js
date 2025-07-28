@@ -12,7 +12,6 @@ export const useAuthStore = defineStore('authStore', () => {
     const user = ref(null);
 
     const isAuthenticated = computed(() => !!token.value);
-    const powersyncToken = computed(() => token.value); // Kept for conceptual clarity if needed
 
     watch(token, (newToken) => {
         const syncStore = useSyncStore();
@@ -55,21 +54,23 @@ export const useAuthStore = defineStore('authStore', () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),
         });
-
         const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.error || 'Login failed');
-        }
+        if (!response.ok) throw new Error(data.error || 'Login failed');
 
         const syncStore = useSyncStore();
-        if (syncStore.isInitialized) {
-            await syncStore.resetDatabase();
-        }
+        if (syncStore.isInitialized) await syncStore.resetDatabase();
 
         token.value = data.token;
+
+        // ✅ CONNECT: Establish WebSocket after getting the token
+        syncStore.connectWebSocket();
     }
 
     async function logout() {
+        // ✅ DISCONNECT: Close WebSocket before clearing data
+        const syncStore = useSyncStore();
+        syncStore.disconnectWebSocket();
+
         const docStore = useDocStore();
         await docStore.resetStore();
         token.value = null;
@@ -77,10 +78,14 @@ export const useAuthStore = defineStore('authStore', () => {
 
     async function checkAuth() {
         token.value = localStorage.getItem('jwt_token');
+        // ✅ CONNECT on app load if already authenticated
+        if (isAuthenticated.value) {
+            useSyncStore().connectWebSocket();
+        }
     }
 
     return {
-        token, user, isAuthenticated, powersyncToken,
+        token, user, isAuthenticated,
         signup, login, logout, checkAuth
     };
 });

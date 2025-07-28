@@ -11,7 +11,6 @@ export const useDocStore = defineStore('docStore', () => {
     const markdownStore = useMarkdownStore();
     const syncStore = useSyncStore();
     const importExportStore = useImportExportStore();
-
     // Pull refs out of the other stores WITHOUT wrapping them in computed again
     const {
         selectedFileId,
@@ -25,22 +24,23 @@ export const useDocStore = defineStore('docStore', () => {
     const { styles, printStyles } = storeToRefs(markdownStore);
 
     async function loadInitialData() {
-        // This is now handled by structureStore's watcher, but we can ensure a default file is selected.
-        if (rootItems.value.length > 0 && !selectedFileId.value) {
-            const firstFile = rootItems.value.find(item => item.type === 'file');
+        // This is now mainly for selecting a default file after the initial sync
+        await structureStore.loadRootItems(); // Ensure root items are loaded
+        if (structureStore.rootItems.length > 0 && !structureStore.selectedFileId) {
+            const firstFile = structureStore.rootItems.find(item => item.type === 'file');
             if (firstFile) {
                 structureStore.selectFile(firstFile.id);
             }
         }
     }
-    // NEW function to be called after sync
     async function refreshData() {
+        console.log('[DocStore] Refreshing data after sync.');
         await structureStore.loadRootItems();
-        // Re-fetch current file data if one is selected
         if (structureStore.selectedFileId) {
-            await structureStore.selectFile(structureStore.selectedFileId);
+            await structureStore.selectFile(structureStore.selectedFileId); // Re-fetch selected file
         }
     }
+
     async function resetStore() {
         await syncStore.resetDatabase();
         structureStore.resetStore();
@@ -50,12 +50,7 @@ export const useDocStore = defineStore('docStore', () => {
     }
 
     async function getRecentDocuments(limit = 10) {
-        const query = `
-      SELECT id, title as name, updated_at as displayedDate
-      FROM notes
-      ORDER BY updated_at DESC
-      LIMIT ?
-  `;
+        const query = `SELECT id, title as name, updated_at as displayedDate FROM notes ORDER BY updated_at DESC LIMIT ?`;
         try {
             // CORRECTED: The result is the array itself
             const results = await syncStore.execute(query, [limit]);
@@ -101,6 +96,8 @@ export const useDocStore = defineStore('docStore', () => {
         exportJson: importExportStore.exportDataAsJsonString,
         exportZip: importExportStore.exportDataAsZip,
         importData: importExportStore.importData,
+        exportStackEditJson: importExportStore.exportDataAsStackEditJsonString,
+        importStackEditData: importExportStore.importStackEditData,
 
         updateStyle: markdownStore.updateStyle,
         getMarkdownIt: markdownStore.getMarkdownIt,

@@ -1,17 +1,24 @@
 <template>
     <div class="h-screen flex flex-col overflow-hidden">
+
         <Navbar />
+
 
         <SubMenuBar />
 
         <div ref="mainContent" class="flex flex-1 overflow-hidden" data-testid="homepage-main-content">
+
             <SidebarWithResizer :isMobileView="isMobileView" />
 
+
             <ContentArea :isMobileView="isMobileView" />
+
         </div>
 
+
         <ImportModal :show="ui.showImportModal" @close="ui.closeImportModal()" @import-success="handleImportSuccess"
-                     data-testid="homepage-import-modal" />
+            data-testid="homepage-import-modal" />
+
     </div>
 </template>
 
@@ -54,5 +61,6 @@ watch(() => route.params.folderId, applyRouteSelection)
 function handleImportSuccess() {
     console.log('Import successful')
     ui.addToast('Data imported successfully!');
+    docStore.loadInitialData();
 }
 </script>

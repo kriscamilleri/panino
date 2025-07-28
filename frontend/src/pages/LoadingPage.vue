@@ -27,7 +27,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup>// /frontend/src/pages/LoadingPage.vue
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSyncStore } from '@/store/syncStore';
@@ -47,6 +47,10 @@ async function initialize() {
   try {
     statusMessage.value = 'Initializing local database...';
     await syncStore.initializeDB();
+
+    // ✅ FIX: Perform the first sync to pull data from the server.
+    statusMessage.value = 'Syncing with server...';
+    await syncStore.sync();
 
     statusMessage.value = 'Loading data...';
     await docStore.loadInitialData();
