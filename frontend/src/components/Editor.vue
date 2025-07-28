@@ -78,7 +78,7 @@ function debounce(fn, wait) {
 }
 
 const isProduction = import.meta.env.PROD;
-const devImageServiceUrl = import.meta.env.VITE_IMAGE_SERVICE_URL || 'http://localhost:3001';
+const devImageServiceUrl = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:3001';
 const imageServiceUrl = isProduction ? '/api/images' : devImageServiceUrl;
 
 /* ───── stores & refs ───── */

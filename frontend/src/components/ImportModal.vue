@@ -2,37 +2,35 @@
 
 <template>
     <div v-if="show" class="fixed inset-0 flex items-center justify-center z-50" data-testid="import-modal-container">
-        <!-- Backdrop -->
         <div class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"></div>
 
-        <!-- Modal -->
         <div class="relative bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
-            <!-- Header -->
             <div class="px-6 py-4 border-b">
                 <div class="flex justify-between items-center">
                     <h3 class="text-xl font-semibold text-gray-800">Import Data</h3>
                     <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 transition-colors"
                         data-testid="import-modal-close-button">
+
                         <X class="w-5 h-5" />
+
                     </button>
                 </div>
             </div>
 
-            <!-- Content -->
             <div class="px-6 py-4 flex-1 overflow-y-auto">
-                <!-- Drag and drop zone -->
                 <div class="mb-6">
                     <div class="border-2 border-dashed rounded-lg p-8 text-center transition-colors" :class="[
                         isDragging
                             ? 'border-gray-800 bg-gray-50'
                             : 'border-gray-300 hover:border-gray-400'
-                    ]" @dragenter.prevent="isDragging = true" @dragleave.prevent="isDragging = false" @dragover.prevent
-                        @drop.prevent="handleDrop" data-testid="import-modal-dropzone">
+                    ]" @dragenter.prevent="isDragging = true" @dragleave.prevent="isDragging = false"
+                        @dragover.prevent @drop.prevent="handleDrop" data-testid="import-modal-dropzone">
 
                         <div v-if="isDragging" class="text-gray-800 font-medium">
                             Drop your file here
                         </div>
                         <div v-else class="space-y-2">
+
                             <Upload class="w-12 h-12 mx-auto text-gray-400" />
                             <p class="text-gray-600 font-medium">
                                 Drag and drop your JSON file here
@@ -45,11 +43,11 @@
                                            transition-colors" data-testid="import-modal-choose-file-button">
                                 Choose File
                             </button>
+
                         </div>
                     </div>
                 </div>
 
-                <!-- Manual JSON input -->
                 <div class="space-y-2">
                     <label class="block text-sm font-medium text-gray-700">
                         Or paste your JSON data here:
@@ -59,17 +57,28 @@
                                      focus:border-blue-500" data-testid="import-modal-json-textarea"></textarea>
                 </div>
 
-                <!-- Error message -->
+                <div class="mt-4">
+                    <div class="flex items-center">
+                        <input id="stackedit-format" type="checkbox" v-model="isStackEditFormat"
+                            class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500"
+                            data-testid="import-modal-stackedit-toggle">
+                        <label for="stackedit-format" class="ml-2 block text-sm text-gray-900">Import from StackEdit
+                            format</label>
+                    </div>
+                </div>
+
                 <div v-if="error" class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md"
                     data-testid="import-modal-error">
                     <div class="flex">
+
                         <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
                         <p class="text-sm text-red-600">{{ error }}</p>
+
                     </div>
                 </div>
+
             </div>
 
-            <!-- Footer -->
             <div class="px-6 py-4 bg-gray-50 rounded-b-lg border-t">
                 <div class="flex justify-end space-x-3">
                     <button @click="$emit('close')" class="px-4 py-2 text-sm font-medium text-gray-700
@@ -106,6 +115,7 @@ const isDragging = ref(false)
 const jsonData = ref('')
 const error = ref('')
 const fileInput = ref(null)
+const isStackEditFormat = ref(false);
 
 function handleDrop(e) {
     isDragging.value = false
@@ -153,7 +163,11 @@ async function importData() {
     }
     try {
         const data = JSON.parse(jsonData.value)
-        await docStore.importData(data)
+        if (isStackEditFormat.value) {
+            await docStore.importStackEditData(data);
+        } else {
+            await docStore.importData(data);
+        }
         emit('import-success')
         emit('close')
     } catch (err) {
