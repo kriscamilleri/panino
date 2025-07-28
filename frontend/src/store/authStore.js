@@ -19,7 +19,8 @@ export const useAuthStore = defineStore('authStore', () => {
             localStorage.setItem('jwt_token', newToken);
             try {
                 const payload = JSON.parse(atob(newToken.split('.')[1]));
-                user.value = { id: payload.user_id, email: payload.email };
+                // Store basic info from token, full profile fetched separately
+                user.value = { id: payload.user_id, name: payload.name, email: payload.email };
             } catch (e) {
                 console.error("Failed to decode JWT:", e);
                 user.value = null;
@@ -34,12 +35,11 @@ export const useAuthStore = defineStore('authStore', () => {
         }
     }, { immediate: true });
 
-    async function signup(email, password, turnstileToken = '') {
-        // Corrected URL: points to the main api-service
+    async function signup(name, email, password, turnstileToken = '') {
         const response = await fetch(`${API_SERVICE_URL}/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, 'cf-turnstile-response': turnstileToken }),
+            body: JSON.stringify({ name, email, password, 'cf-turnstile-response': turnstileToken }),
         });
         const data = await response.json();
         if (!response.ok) {
@@ -61,13 +61,10 @@ export const useAuthStore = defineStore('authStore', () => {
         if (syncStore.isInitialized) await syncStore.resetDatabase();
 
         token.value = data.token;
-
-        // ✅ CONNECT: Establish WebSocket after getting the token
         syncStore.connectWebSocket();
     }
 
     async function logout() {
-        // ✅ DISCONNECT: Close WebSocket before clearing data
         const syncStore = useSyncStore();
         syncStore.disconnectWebSocket();
 
@@ -78,14 +75,59 @@ export const useAuthStore = defineStore('authStore', () => {
 
     async function checkAuth() {
         token.value = localStorage.getItem('jwt_token');
-        // ✅ CONNECT on app load if already authenticated
         if (isAuthenticated.value) {
             useSyncStore().connectWebSocket();
         }
     }
 
+    async function fetchMe() {
+        if (!isAuthenticated.value) return;
+        const response = await fetch(`${API_SERVICE_URL}/me`, {
+            headers: { Authorization: `Bearer ${token.value}` }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to fetch user profile');
+        user.value = { ...user.value, ...data }; // Merge with existing data
+        return user.value;
+    }
+
+    async function updatePassword(currentPassword, newPassword) {
+        const response = await fetch(`${API_SERVICE_URL}/me/password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token.value}` },
+            body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to update password');
+        return data;
+    }
+
+    async function forgotPassword(email) {
+        const response = await fetch(`${API_SERVICE_URL}/forgot-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Request failed');
+        return data;
+    }
+
+    async function resetPassword(token, newPassword) {
+        const response = await fetch(`${API_SERVICE_URL}/reset-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, newPassword })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Password reset failed');
+        return data;
+    }
+
     return {
         token, user, isAuthenticated,
-        signup, login, logout, checkAuth
+        signup, login, logout, checkAuth,
+        fetchMe, // ✅ FIX: Expose the fetchMe function
+        updatePassword, forgotPassword, resetPassword
     };
 });

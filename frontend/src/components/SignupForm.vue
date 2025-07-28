@@ -1,16 +1,21 @@
 <template>
+       
     <AuthForm :config="signupConfig" />
 </template>
 
 <script setup>
 import AuthForm from './AuthForm.vue';
 import { useAuthStore } from '@/store/authStore';
+import { useRouter } from 'vue-router';
 
 const authStore = useAuthStore();
+const router = useRouter();
+
 const signupConfig = {
     type: 'signup',
     title: 'Sign Up',
     fields: [
+        { name: 'name', label: 'Full Name', type: 'text', required: true },
         { name: 'email', label: 'Email Address', type: 'email', required: true },
         { name: 'password', label: 'Password', type: 'password', required: true, minLength: 6 },
         { name: 'confirmPassword', label: 'Confirm Password', type: 'password', required: true, matches: 'password' }
@@ -19,8 +24,9 @@ const signupConfig = {
     loadingText: 'Creating account...',
     submitAction: async (formData, turnstileToken) => {
         // Signup and then login
-        await authStore.signup(formData.email, formData.password, turnstileToken || '');
+        await authStore.signup(formData.name, formData.email, formData.password, turnstileToken || '');
         await authStore.login(formData.email, formData.password);
+        router.push({ name: 'loading', params: { timestamp: Date.now() } });
     },
     showPasswordRequirements: true,
     showTurnstile: !!import.meta.env.VITE_TURNSTILE_SITE_KEY,

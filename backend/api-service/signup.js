@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { URLSearchParams } from 'url';
-import { getAuthDb } from './db.js';
+import { getAuthDb, getUserDb } from './db.js';
 
 export const signupRoutes = express.Router();
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
@@ -22,9 +22,9 @@ async function verifyTurnstile(token) {
 
 // POST /signup
 signupRoutes.post('/signup', async (req, res) => {
-    const { email, password, 'cf-turnstile-response': turnstileToken } = req.body;
-    if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
+    const { name, email, password, 'cf-turnstile-response': turnstileToken } = req.body;
+    if (!email || !password || !name) {
+        return res.status(400).json({ error: 'Name, email, and password are required' });
     }
 
     if (!(await verifyTurnstile(turnstileToken))) {
@@ -35,9 +35,20 @@ signupRoutes.post('/signup', async (req, res) => {
         const db = getAuthDb();
         const password_hash = bcrypt.hashSync(password, 10);
         const userId = uuidv4();
+        const createdAt = new Date().toISOString();
 
-        const stmt = db.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)');
-        stmt.run(userId, email, password_hash);
+        const stmt = db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)');
+        stmt.run(userId, name, email, password_hash, createdAt);
+
+        // Pre-populate the user's own database to ensure the user record exists for sync
+        try {
+            const userDb = getUserDb(userId);
+            const userStmt = userDb.prepare('INSERT INTO users (id, name, email, created_at) VALUES (?, ?, ?, ?)');
+            userStmt.run(userId, name, email, createdAt);
+        } catch (e) {
+            console.error(`Could not pre-populate user data for ${userId}:`, e);
+        }
+
 
         res.status(201).json({ ok: true, message: 'User created successfully', userId });
     } catch (error) {

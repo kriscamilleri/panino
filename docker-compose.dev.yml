@@ -11,10 +11,24 @@ services:
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
       NODE_ENV: development
+      # Email settings (e.g., for MailHog or other test SMTP)
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-"Panino Dev <noreply@panino.dev>"}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     volumes:
       - ./backend/api-service:/app
       - ./backend/api-service/data:/app/data # Persist SQLite DBs
       - /app/node_modules
+
+  # Add MailHog for local email testing
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "127.0.0.1:1025:1025" # SMTP
+      - "127.0.0.1:8025:8025" # Web UI
 
   # The font service is a simple proxy, kept separate for clarity
   font-service:
@@ -46,3 +60,4 @@ services:
     depends_on:
       - api-service
       - font-service
+      - mailhog

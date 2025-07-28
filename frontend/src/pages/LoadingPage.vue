@@ -27,7 +27,7 @@
   </div>
 </template>
 
-<script setup>// /frontend/src/pages/LoadingPage.vue
+<script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSyncStore } from '@/store/syncStore';

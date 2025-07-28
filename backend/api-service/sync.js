@@ -136,17 +136,16 @@ router.post('/sync', (req, res, next) => {
             });
             applyChanges(changes);
 
-            // ✅ NOTIFY other clients after applying changes
+            // ✅ FIX: Notify other clients, excluding the one that sent the changes.
             const { clients } = req;
-            const requestorSiteIdHex = siteId ? toSiteIdBlob(siteId).toString('hex') : null;
+            const requestorSiteId = siteId; // The siteId from the POST body is the sender's ID
 
-            clients.forEach((clientUserId, clientWs) => {
-                // Poke all other clients for the same user
-                if (clientUserId === userId) {
-                    // A more robust check would involve comparing site IDs, but for simplicity,
-                    // we poke all clients for this user. The originating client will just
-                    // perform a harmless extra sync.
+            clients.forEach((clientInfo, clientWs) => {
+                // clientInfo is now an object: { userId, siteId }
+                // Poke all clients for the same user EXCEPT the one who sent the changes.
+                if (clientInfo.userId === userId && clientInfo.siteId !== requestorSiteId) {
                     if (clientWs.readyState === 1) { // WebSocket.OPEN
+                        console.log(`Poking client with siteId: ${clientInfo.siteId}`);
                         clientWs.send(JSON.stringify({ type: 'sync' }));
                     }
                 }
