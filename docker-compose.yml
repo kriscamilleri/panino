@@ -19,6 +19,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL}
     volumes:
       - api-data:/app/data # Persist SQLite DBs
+      - uploads-data:/app/uploads # Persist uploaded files
 
   font-service:
     build: ./backend/font-service
@@ -29,3 +30,4 @@ services:
 
 volumes:
   api-data:
+  uploads-data:

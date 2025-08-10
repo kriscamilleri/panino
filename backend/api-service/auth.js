@@ -32,12 +32,26 @@ authRoutes.post('/login', (req, res) => {
 
 // Middleware to authenticate JWT
 export const authenticateToken = (req, res, next) => {
+    let token;
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.sendStatus(401);
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        // Standard case: token from Authorization header
+        token = authHeader.split(' ')[1];
+    } else if (req.query.token) {
+        // Fallback for requests that cannot set headers (e.g., <img> src)
+        token = req.query.token;
+    }
+
+    if (!token) {
+        return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    }
 
     jwt.verify(token, JWT_SECRET, (err, payload) => {
-        if (err) return res.sendStatus(403);
+        if (err) {
+            console.error('JWT verification failed:', err.message);
+            return res.status(403).json({ error: 'Forbidden: Invalid token' });
+        }
         req.user = { user_id: payload.user_id };
         next();
     });
