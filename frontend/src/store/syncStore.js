@@ -9,13 +9,12 @@ import { useDocStore } from './docStore';
 const API_URL = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
 const WS_URL = API_URL.replace(/^http/, 'ws');
 
-// ✅ FIX: Add the 'name' column to the users table schema
 const DB_SCHEMA = `
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY NOT NULL, name TEXT, email TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, name TEXT, parent_id TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, folder_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT);
-CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, filename TEXT, mime_type TEXT, data BLOB, created_at TEXT);
+CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, filename TEXT, mime_type TEXT, path TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY NOT NULL, value TEXT);
 SELECT crsql_as_crr('users');
 SELECT crsql_as_crr('folders');
@@ -47,15 +46,16 @@ export const useSyncStore = defineStore('syncStore', () => {
     return db.value.execO(sql, params);
   }
 
-  function withTx(fn) {
-    db.value.exec('BEGIN');
+  // ✅ FIX: Make the transaction wrapper async to handle async operations correctly
+  async function withTx(fn) {
+    await db.value.exec('BEGIN');
     try {
-      const res = fn();
-      db.value.exec('COMMIT');
+      const res = await fn();
+      await db.value.exec('COMMIT');
       return res;
     } catch (e) {
       console.error('Failed running transaction, rolling back.', e);
-      try { db.value.exec('ROLLBACK'); } catch (_) { }
+      try { await db.value.exec('ROLLBACK'); } catch (_) { }
       throw e;
     }
   }
@@ -140,15 +140,20 @@ export const useSyncStore = defineStore('syncStore', () => {
       if (remoteChanges?.length) {
         console.log(`Applying ${remoteChanges.length} remote changes.`);
         const insertSQL = `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, seq, cl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-        withTx(() => {
+
+        // ✅ FIX: Use the async transaction wrapper and await all promises inside
+        await withTx(async () => {
+          const promises = [];
           for (const ch of remoteChanges) {
-            db.value.exec(insertSQL, [
+            promises.push(db.value.exec(insertSQL, [
               ch.table, hexToUint8Array(ch.pk), ch.cid, ch.val,
               ch.col_version, ch.db_version, hexToUint8Array(ch.site_id),
               ch.seq, ch.cl
-            ]);
+            ]));
           }
+          await Promise.all(promises);
         });
+
         useDocStore().refreshData();
       }
 

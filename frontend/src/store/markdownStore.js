@@ -4,6 +4,7 @@ import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { useSyncStore } from './syncStore'
+import { useAuthStore } from './authStore'
 import { fetchGoogleFontTtf } from '@/utils/googleFontTtf.js'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
@@ -36,27 +37,27 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
         td: 'border: 1px solid #bdc3c7; padding: 0.8rem;',
         customCSS: `/* Custom styles for enhanced preview */
 .document-container {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 2rem;
-    background: white;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+    background: white;
 }
 
 /* Additional typography improvements */
 h1:first-child {
-    margin-top: 0;
+    margin-top: 0;
 }
 
 /* Better spacing for nested lists */
 ul ul, ol ol, ul ol, ol ul {
-    margin: 0.3rem 0;
+    margin: 0.3rem 0;
 }
 
 /* Enhanced code block styling */
 pre code {
-    background: none;
-    border: none;
-    padding: 0;
+    background: none;
+    border: none;
+    padding: 0;
 }`,
         googleFontFamily: 'Inter', // New field for Google Fonts
     };
@@ -106,32 +107,32 @@ pre code {
         googleFontFamily: 'Manufacturing Consent', // New field for Google Fonts
 
         /* --- Global print overrides --- */
-        customCSS: `    @page { margin: 2.5cm; size: A4; }
+        customCSS: `     @page { margin: 2.5cm; size: A4; }
 
-    body {
-        font-size: 11pt;
-        line-height: 1.7;
-        color: red !important;
-        background: red !important;
-    }
+    body {
+        font-size: 11pt;
+        line-height: 1.7;
+        color: red !important;
+        background: red !important;
+    }
 
-    h1, h2, h3, h4, h5, h6 { page-break-after: avoid; page-break-inside: avoid; }
+    h1, h2, h3, h4, h5, h6 { page-break-after: avoid; page-break-inside: avoid; }
 
-    ul, ol, li,
-    table, figure, img, blockquote, pre { page-break-inside: avoid !important; break-inside: avoid !important; }
+    ul, ol, li,
+    table, figure, img, blockquote, pre { page-break-inside: avoid !important; break-inside: avoid !important; }
 
-    ul, ol { list-style-position: outside; margin-left: 1.4rem; padding-inline-start: 0; }
-    li { margin: 0 0 0.35rem; }
+    ul, ol { list-style-position: outside; margin-left: 1.4rem; padding-inline-start: 0; }
+    li { margin: 0 0 0.35rem; }
 
-    blockquote { border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; }
+    blockquote { border-left: 4px solid #FF335F; background: #F6F8FC; color: #334066; }
 
-    hr { border: none; border-top: 3px dotted #242A49; }
+    hr { border: none; border-top: 3px dotted #242A49; }
 
-    table { font-family: 'Messina Sans', 'Inter', Arial, sans-serif; }
+    table { font-family: 'Messina Sans', 'Inter', Arial, sans-serif; }
 
-    .no-print { display: none !important; }
-    .page-break { page-break-before: always; }
-    .page-break-after { page-break-after: always; }`,
+    .no-print { display: none !important; }
+    .page-break { page-break-before: always; }
+    .page-break-after { page-break-after: always; }`,
     };
 
     const styles = ref({ ...defaultStyles });
@@ -267,7 +268,7 @@ pre code {
 
                     const fontObj = {
                         name: v.family,
-                        data: base64,          // data:…;base64,
+                        data: base64,       // data:…;base64,
                         format: 'truetype',
                         style: v.style,
                         weight: v.weight,
@@ -328,6 +329,7 @@ pre code {
 
 
     function configureRenderer(md, styleMap) {
+        const authStore = useAuthStore(); // Get auth store for token access
         let combinedCSS = '';
         // Apply custom CSS to document if provided
         if (styleMap.customCSS) {
@@ -443,13 +445,44 @@ pre code {
             return s.renderToken(t, i, o)
         }
 
-        // Images
-        md.renderer.rules.image = (t, i, o, e, s) => {
-            const css = styleMap.img
-            if (css) t[i].attrSet('style', css)
-            t[i].attrSet('loading', 'lazy')
-            return s.renderToken(t, i, o)
-        }
+        // ✅ FIX: Intercept image rendering to add auth tokens
+        const defaultImageRenderer = md.renderer.rules.image || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.image = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            const srcIndex = token.attrIndex('src');
+
+            if (srcIndex >= 0) {
+                let src = token.attrs[srcIndex][1];
+                const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
+
+                // Check if it's an internal API image URL and we are authenticated.
+                // This handles both absolute URLs (e.g., http://localhost:8000/images/...)
+                // and relative URLs (e.g., /images/...).
+                const isInternalImage = (apiUrl && src.startsWith(apiUrl) && src.includes('/images/')) ||
+                    (!src.startsWith('http') && src.startsWith('/images/'));
+
+                if (isInternalImage && authStore.token) {
+                    try {
+                        // Use a base URL for parsing, even for relative paths
+                        const url = new URL(src, window.location.origin);
+                        url.searchParams.set('token', authStore.token);
+                        token.attrs[srcIndex][1] = apiUrl ? url.href : url.pathname + url.search;
+                    } catch (e) {
+                        console.error("Failed to parse image URL for token injection:", src, e);
+                    }
+                }
+            }
+
+            // Apply inline styles from settings
+            const css = styleMap.img;
+            if (css) token.attrSet('style', css);
+            token.attrSet('loading', 'lazy');
+
+            // Call the original/default renderer to finish the job
+            return defaultImageRenderer(tokens, idx, options, env, self);
+        };
 
         // Tables
         md.renderer.rules.table_open = (t, i, o, e, s) => {
