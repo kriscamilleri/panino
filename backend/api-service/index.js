@@ -25,13 +25,19 @@ if (!fs.existsSync(dataDir)) {
 initDb();
 
 const app = express();
+
+// Add CORP header to all responses to comply with frontend's COEP policy
+app.use((req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+});
+
 const server = createServer(app); // Create an HTTP server
 const wss = new WebSocketServer({ server }); // Create a WebSocket server
 
 const PORT = process.env.PORT || 8000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
 
-// ✅ FIX: Store an object with userId and siteId for each client
 const clients = new Map();
 
 wss.on('connection', (ws, req) => {

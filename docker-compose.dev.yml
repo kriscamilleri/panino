@@ -21,6 +21,7 @@ services:
     volumes:
       - ./backend/api-service:/app
       - ./backend/api-service/data:/app/data # Persist SQLite DBs
+      - ./backend/api-service/uploads:/app/uploads # Persist uploaded files
       - /app/node_modules
 
   # Add MailHog for local email testing

@@ -4,6 +4,7 @@ import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { useSyncStore } from './syncStore'
+import { useAuthStore } from './authStore'
 import { fetchGoogleFontTtf } from '@/utils/googleFontTtf.js'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
@@ -438,13 +439,44 @@ ul, ol, table, figure, img, blockquote, pre {
             return s.renderToken(t, i, o)
         }
 
-        // Images
-        md.renderer.rules.image = (t, i, o, e, s) => {
-            const css = styleMap.img
-            if (css) t[i].attrSet('style', css)
-            t[i].attrSet('loading', 'lazy')
-            return s.renderToken(t, i, o)
-        }
+        // ✅ FIX: Intercept image rendering to add auth tokens
+        const defaultImageRenderer = md.renderer.rules.image || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.image = (tokens, idx, options, env, self) => {
+            const token = tokens[idx];
+            const srcIndex = token.attrIndex('src');
+
+            if (srcIndex >= 0) {
+                let src = token.attrs[srcIndex][1];
+                const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
+
+                // Check if it's an internal API image URL and we are authenticated.
+                // This handles both absolute URLs (e.g., http://localhost:8000/images/...)
+                // and relative URLs (e.g., /images/...).
+                const isInternalImage = (apiUrl && src.startsWith(apiUrl) && src.includes('/images/')) ||
+                    (!src.startsWith('http') && src.startsWith('/images/'));
+
+                if (isInternalImage && authStore.token) {
+                    try {
+                        // Use a base URL for parsing, even for relative paths
+                        const url = new URL(src, window.location.origin);
+                        url.searchParams.set('token', authStore.token);
+                        token.attrs[srcIndex][1] = apiUrl ? url.href : url.pathname + url.search;
+                    } catch (e) {
+                        console.error("Failed to parse image URL for token injection:", src, e);
+                    }
+                }
+            }
+
+            // Apply inline styles from settings
+            const css = styleMap.img;
+            if (css) token.attrSet('style', css);
+            token.attrSet('loading', 'lazy');
+
+            // Call the original/default renderer to finish the job
+            return defaultImageRenderer(tokens, idx, options, env, self);
+        };
 
         // Tables
         md.renderer.rules.table_open = (t, i, o, e, s) => {
