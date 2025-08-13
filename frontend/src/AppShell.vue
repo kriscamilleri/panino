@@ -1,5 +1,4 @@
 <template>
-    <!-- Main outlet for page components -->
     <router-view v-slot="{ Component }">
         <component :is="Component" />
     </router-view>

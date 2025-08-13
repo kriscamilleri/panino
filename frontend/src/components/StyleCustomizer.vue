@@ -8,6 +8,11 @@
           <Settings class="w-4 h-4" />
           <span>{{ showStylesCustomization ? 'Hide' : 'Show' }} Styles</span>
         </button>
+        <button v-if="config.getDebugHtml" @click="showDebugHtml"
+          class="px-3 py-1.5 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-md hover:bg-yellow-100 flex items-center space-x-2">
+          <Bug class="w-4 h-4" />
+          <span>Debug HTML</span>
+        </button>
         <button @click="goBack"
           class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 flex items-center space-x-2">
           <ArrowLeft class="w-4 h-4" />
@@ -114,21 +119,21 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Settings } from 'lucide-vue-next';
+import { ArrowLeft, Settings, Bug } from 'lucide-vue-next';
 import { useDebounceFn } from '@vueuse/core';
 import AccountNav from './AccountNav.vue';
 
 const props = defineProps({
-  /** 
-   * config must provide:
-   *  - title: string
-   *  - getStyles(): object
-   *  - updateStyleAction(key, value): void
-   *  - styleCategories: Record<string, string[]>
-   *  - extraFields?: Array<{ id, label, type, modelKey, … }>
-   *  - extraFieldsTitle?: string
-   *  - resetStyles(): void
-   *  - onBack?(): void
+  /** * config must provide:
+   * - title: string
+   * - getStyles(): object
+   * - updateStyleAction(key, value): void
+   * - styleCategories: Record<string, string[]>
+   * - extraFields?: Array<{ id, label, type, modelKey, … }>
+   * - extraFieldsTitle?: string
+   * - resetStyles(): void
+   * - onBack?(): void
+   * - getDebugHtml?(): string // Optional for debug button
    */
   config: { type: Object, required: true }
 });
@@ -298,6 +303,17 @@ function goBack() {
     props.config.onBack();
   } else {
     router.push('/');
+  }
+}
+
+function showDebugHtml() {
+  const htmlContent = props.config.getDebugHtml();
+  if (htmlContent) {
+    const newWindow = window.open();
+    newWindow.document.write(htmlContent);
+    newWindow.document.close();
+  } else {
+    alert('Debug HTML is not available yet. Please wait a moment for it to generate.');
   }
 }
 </script>

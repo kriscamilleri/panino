@@ -8,21 +8,16 @@
             Please select a document from the Documents panel to generate a print
             preview.
           </p>
-          <button
-            @click="printStylesConfig.onBack()"
-            class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
-          >
+          <button @click="printStylesConfig.onBack()"
+            class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900">
             Back to Editor
           </button>
         </div>
+
       </template>
 
-      <iframe
-        v-else-if="pdfUrl"
-        :src="pdfUrl"
-        class="w-full h-full border-none"
-        data-testid="pdf-preview-iframe"
-      ></iframe>
+      <iframe v-else-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none"
+        data-testid="pdf-preview-iframe"></iframe>
 
       <div v-else class="flex items-center justify-center h-full text-gray-500">
         Generating PDF preview...
@@ -50,6 +45,7 @@ const editableStyleMap = ref({});
 const pdfUrl = ref('');
 // rendered HTML string for jsPDF
 const renderedHtmlForPdf = ref('');
+const finalHtmlForPdf = ref('');
 
 // debounce PDF regen
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
@@ -60,10 +56,11 @@ const printStylesConfig = {
   getStyles: () => ({ ...docStore.printStyles }),
   updateStyleAction: docStore.updatePrintStyle,
   getMarkdownIt: docStore.getPrintMarkdownIt,
+  getDebugHtml: () => finalHtmlForPdf.value,
   styleCategories: {
     'Element Styles': [
-      'h1','h2','h3','h4','p','em','strong','code','blockquote',
-      'ul','ol','li','a','img','table','tr','th','td','hr','pre'
+      'h1', 'h2', 'h3', 'h4', 'p', 'em', 'strong', 'code', 'blockquote',
+      'ul', 'ol', 'li', 'a', 'img', 'table', 'tr', 'th', 'td', 'hr', 'pre'
     ]
   },
   extraFieldsTitle: 'Print Header & Footer Settings',
@@ -222,17 +219,22 @@ async function regeneratePdf() {
     styles.googleFontFamily
   );
 
+  const bodyFontFamily = styles.googleFontFamily
+    ? `${styles.googleFontFamily}, sans-serif`
+    : 'sans-serif';
+
   const html = `
     <html><head><style>
-      html, body { margin:0; padding:0; box-sizing:border-box; }
-      font-family: ${
-        styles.googleFontFamily
-          ? `'${styles.googleFontFamily
-              .split(':')[0]
-              .trim()
-              .replace(/\+/g, ' ')}'`
-          : ''
-      } sans-serif;
+      html, body { 
+        margin:0;
+        padding:0;
+        box-sizing:border-box;
+        /* --- FIX: Disable common ligatures to prevent character clipping in PDF --- */
+        font-variant-ligatures: no-common-ligatures;
+      }
+      body {
+        font-family: ${bodyFontFamily};
+      }
       ${styles.customCSS || ''}
       ${gfCss || ''}
     </style></head>
@@ -242,6 +244,8 @@ async function regeneratePdf() {
       </div>
     </body></html>
   `;
+  finalHtmlForPdf.value = html;
+
   doc.open();
   doc.write(html);
   doc.close();
@@ -310,8 +314,8 @@ async function regeneratePdf() {
           styles.headerAlign === 'center'
             ? PDF_PAGE_WIDTH_PT / 2
             : styles.headerAlign === 'right'
-            ? PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT
-            : PDF_MARGIN_PT;
+              ? PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT
+              : PDF_MARGIN_PT;
         pdf.text(hdr, x, PDF_MARGIN_PT, {
           align: styles.headerAlign || 'center',
           maxWidth: PDF_CONTENT_WIDTH_PT
@@ -334,8 +338,8 @@ async function regeneratePdf() {
           styles.footerAlign === 'center'
             ? PDF_PAGE_WIDTH_PT / 2
             : styles.footerAlign === 'right'
-            ? PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT
-            : PDF_MARGIN_PT;
+              ? PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT
+              : PDF_MARGIN_PT;
         pdf.text(ftext, x, PDF_PAGE_HEIGHT_PT - PDF_MARGIN_PT, {
           align: styles.footerAlign || 'center',
           maxWidth: PDF_CONTENT_WIDTH_PT
