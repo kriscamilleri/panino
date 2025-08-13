@@ -25,3 +25,7 @@ dist-ssr
 
 combined_content.txt
 .env
+backend/api-service/data/_users.db
+print_rendering_context.txt
+selected_files.txt
+prompt.md
