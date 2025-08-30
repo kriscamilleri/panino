@@ -50,6 +50,62 @@ const finalHtmlForPdf = ref('');
 // debounce PDF regen
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
 
+/**
+ * Wraps punctuation characters in a span with `display: inline-block`
+ * to fix a rendering bug in jsPDF where punctuation spacing is incorrect.
+ * This version uses a TreeWalker for robust DOM traversal.
+ * @param {string} htmlString The raw HTML string.
+ * @returns {string} The processed HTML string with punctuation wrapped.
+ */
+function wrapPunctuation(htmlString) {
+  if (!htmlString) return '';
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = htmlString;
+
+  const punctuationRegex = /([.,!?;:"'(){}[\]<>@#$%^&*`~_=\-|/\\])/g;
+
+  // Use a TreeWalker to safely find all text nodes.
+  const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_TEXT);
+  const nodesToProcess = [];
+  let currentNode;
+  while (currentNode = walker.nextNode()) {
+    nodesToProcess.push(currentNode);
+  }
+
+  // Process the collected nodes. This avoids issues with modifying a live NodeList.
+  nodesToProcess.forEach(node => {
+    const parent = node.parentNode;
+    // Avoid processing text within these tags to prevent breaking code blocks, etc.
+    if (parent && ['SCRIPT', 'STYLE', 'PRE', 'CODE'].includes(parent.nodeName)) {
+      return;
+    }
+
+    const text = node.textContent;
+    if (punctuationRegex.test(text)) {
+      const fragment = document.createDocumentFragment();
+      // Split the text by the punctuation, keeping the delimiters.
+      const parts = text.split(punctuationRegex);
+
+      parts.forEach(part => {
+        if (part.match(punctuationRegex)) {
+          const span = document.createElement('span');
+          span.style.display = 'inline-block';
+          span.textContent = part;
+          fragment.appendChild(span);
+        } else if (part) {
+          fragment.appendChild(document.createTextNode(part));
+        }
+      });
+      // Replace the original text node with the new fragment.
+      if (parent) {
+        parent.replaceChild(fragment, node);
+      }
+    }
+  });
+
+  return tempDiv.innerHTML;
+}
+
 // config object passed into StyleCustomizer
 const printStylesConfig = {
   title: 'Customize Print Styles',
@@ -177,8 +233,8 @@ watch(
     renderedHtmlForPdf.value = docStore.selectedFileContent
       ? md.render(docStore.selectedFileContent)
       : `<div style="color: #6b7280; text-align: center; padding: 2rem;">
-           No document selected. Please select a document to print.
-         </div>`;
+          No document selected. Please select a document to print.
+        </div>`;
     debouncedRegeneratePdf();
   },
   { deep: true, immediate: true }
@@ -223,6 +279,9 @@ async function regeneratePdf() {
     ? `${styles.googleFontFamily}, sans-serif`
     : 'sans-serif';
 
+  // Apply the punctuation fix before creating the final HTML
+  const processedHtml = wrapPunctuation(renderedHtmlForPdf.value);
+
   const html = `
     <html><head><style>
       html, body { 
@@ -240,7 +299,7 @@ async function regeneratePdf() {
     </style></head>
     <body>
       <div class="document-container" style="padding: ${PDF_MARGIN_PT}pt;">
-        ${renderedHtmlForPdf.value}
+        ${processedHtml}
       </div>
     </body></html>
   `;
@@ -249,6 +308,7 @@ async function regeneratePdf() {
   doc.open();
   doc.write(html);
   doc.close();
+
 
   // 3) build PDF
   const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -281,6 +341,7 @@ async function regeneratePdf() {
     const ftrSz = parseFloat(styles.footerFontSize) || 10;
     const hdrHt = hdr ? hdrSz * 1.5 : 0;
     const ftrHt = ftrTpl ? ftrSz * 1.5 : 0;
+    
 
     await pdf.html(doc.body, {
       margin: [PDF_MARGIN_PT + hdrHt, PDF_MARGIN_PT, PDF_MARGIN_PT + ftrHt, PDF_MARGIN_PT],
@@ -368,7 +429,3 @@ onUnmounted(() => {
   }
 });
 </script>
-
-<style scoped>
-/* everything else inherited from StyleCustomizer */
-</style>
