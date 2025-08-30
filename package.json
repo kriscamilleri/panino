@@ -1,5 +1,9 @@
 {
   "dependencies": {
     "minimist": "^1.2.8"
+  },
+  "scripts": {
+    "llm": "node combine-files.cjs",
+    "llmfe": "node combine-files.cjs --path ./frontend/"
   }
 }
