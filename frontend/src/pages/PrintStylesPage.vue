@@ -13,13 +13,19 @@
             Back to Editor
           </button>
         </div>
-
       </template>
 
       <iframe v-else-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none"
         data-testid="pdf-preview-iframe"></iframe>
 
       <div v-else class="flex items-center justify-center h-full text-gray-500">
+        <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none"
+          viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+          </path>
+        </svg>
         Generating PDF preview...
       </div>
     </div>
@@ -29,121 +35,73 @@
 <script setup>
 import { ref, watch, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { useDebounceFn } from '@vueuse/core';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';
 import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
-import { jsPDF } from 'jspdf';
-import { useDebounceFn } from '@vueuse/core';
+import { useAuthStore } from '@/store/authStore';
 
 const router = useRouter();
 const docStore = useDocStore();
 const markdownStore = useMarkdownStore();
+const authStore = useAuthStore();
+const API_URL = import.meta.env.VITE_API_SERVICE_URL;
 
-// local copy of print styles
-const editableStyleMap = ref({});
-// generated PDF blob URL
 const pdfUrl = ref('');
-// rendered HTML string for jsPDF
-const renderedHtmlForPdf = ref('');
-const finalHtmlForPdf = ref('');
+const finalHtmlForPdf = ref(''); // For the debug button
 
-// debounce PDF regen
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
 
-/**
- * Wraps punctuation characters in a span with `display: inline-block`
- * to fix a rendering bug in jsPDF where punctuation spacing is incorrect.
- * This version uses a TreeWalker for robust DOM traversal.
- * @param {string} htmlString The raw HTML string.
- * @returns {string} The processed HTML string with punctuation wrapped.
- */
-function wrapPunctuation(htmlString) {
-  if (!htmlString) return '';
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = htmlString;
-
-  const punctuationRegex = /([.,!?;:"'(){}[\]<>@#$%^&*`~_=\-|/\\])/g;
-
-  // Use a TreeWalker to safely find all text nodes.
-  const walker = document.createTreeWalker(tempDiv, NodeFilter.SHOW_TEXT);
-  const nodesToProcess = [];
-  let currentNode;
-  while (currentNode = walker.nextNode()) {
-    nodesToProcess.push(currentNode);
-  }
-
-  // Process the collected nodes. This avoids issues with modifying a live NodeList.
-  nodesToProcess.forEach(node => {
-    const parent = node.parentNode;
-    // Avoid processing text within these tags to prevent breaking code blocks, etc.
-    if (parent && ['SCRIPT', 'STYLE', 'PRE', 'CODE'].includes(parent.nodeName)) {
-      return;
-    }
-
-    const text = node.textContent;
-    if (punctuationRegex.test(text)) {
-      const fragment = document.createDocumentFragment();
-      // Split the text by the punctuation, keeping the delimiters.
-      const parts = text.split(punctuationRegex);
-
-      parts.forEach(part => {
-        if (part.match(punctuationRegex)) {
-          const span = document.createElement('span');
-          span.style.display = 'inline-block';
-          span.textContent = part;
-          fragment.appendChild(span);
-        } else if (part) {
-          fragment.appendChild(document.createTextNode(part));
-        }
-      });
-      // Replace the original text node with the new fragment.
-      if (parent) {
-        parent.replaceChild(fragment, node);
-      }
-    }
-  });
-
-  return tempDiv.innerHTML;
-}
-
-// config object passed into StyleCustomizer
 const printStylesConfig = {
   title: 'Customize Print Styles',
   getStyles: () => ({ ...docStore.printStyles }),
   updateStyleAction: docStore.updatePrintStyle,
-  getMarkdownIt: docStore.getPrintMarkdownIt,
   getDebugHtml: () => finalHtmlForPdf.value,
+  
+  // Add the missing styleCategories
   styleCategories: {
-    'Element Styles': [
-      'h1', 'h2', 'h3', 'h4', 'p', 'em', 'strong', 'code', 'blockquote',
-      'ul', 'ol', 'li', 'a', 'img', 'table', 'tr', 'th', 'td', 'hr', 'pre'
-    ]
+    'Headings': ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+    'Text Elements': ['p', 'em', 'strong', 'code', 'blockquote'],
+    'Lists': ['ul', 'ol', 'li'],
+    'Links & Media': ['a', 'img'],
+    'Tables': ['table', 'tr', 'th', 'td'],
+    'Code & Preformatted': ['pre', 'code'],
+    'Layout': ['hr', 'div']
   },
+  
   extraFieldsTitle: 'Print Header & Footer Settings',
   extraFields: [
     {
       id: 'googleFontFamily',
-      label: 'Google Font Family (e.g., Roboto, Open Sans)',
+      label: 'Google Font Family (e.g., Inter, Open Sans)',
       type: 'input',
       inputType: 'text',
       modelKey: 'googleFontFamily',
-      placeholder: 'e.g., Roboto:wght@400;700'
+      placeholder: 'e.g., Inter, Open Sans'
     },
     {
       id: 'printHeaderHtml',
-      label: 'Page Header Text/HTML',
+      label: 'Print Header HTML',
       type: 'textarea',
       modelKey: 'printHeaderHtml',
-      rows: 2,
-      placeholder: 'Text for page headers. Basic HTML allowed.'
+      rows: 3,
+      placeholder: 'HTML for page header (e.g., <h3>My Document</h3>)'
+    },
+    {
+      id: 'printFooterHtml',
+      label: 'Print Footer HTML', 
+      type: 'textarea',
+      modelKey: 'printFooterHtml',
+      rows: 3,
+      placeholder: 'HTML for page footer (e.g., Page %p of %P)'
     },
     {
       id: 'headerFontSize',
-      label: 'Header Font Size (pt)',
+      label: 'Header Font Size (px)',
       type: 'input',
       inputType: 'number',
       modelKey: 'headerFontSize',
-      placeholder: 'e.g., 10'
+      placeholder: '12'
     },
     {
       id: 'headerFontColor',
@@ -164,27 +122,18 @@ const printStylesConfig = {
       ]
     },
     {
-      id: 'printFooterHtml',
-      label: 'Page Footer Text/HTML',
-      type: 'textarea',
-      modelKey: 'printFooterHtml',
-      rows: 2,
-      placeholder:
-        'Use %p for current page, %P for total pages (if enabled). Basic HTML allowed.'
-    },
-    {
       id: 'footerFontSize',
-      label: 'Footer Font Size (pt)',
-      type: 'input',
+      label: 'Footer Font Size (px)',
+      type: 'input', 
       inputType: 'number',
       modelKey: 'footerFontSize',
-      placeholder: 'e.g., 10'
+      placeholder: '10'
     },
     {
       id: 'footerFontColor',
       label: 'Footer Font Color',
       type: 'input',
-      inputType: 'color',
+      inputType: 'color', 
       modelKey: 'footerFontColor'
     },
     {
@@ -200,7 +149,7 @@ const printStylesConfig = {
     },
     {
       id: 'enablePageNumbers',
-      label: 'Enable Page Numbers in Footer',
+      label: 'Enable Page Numbers',
       type: 'checkbox',
       modelKey: 'enablePageNumbers'
     },
@@ -209,219 +158,70 @@ const printStylesConfig = {
       label: 'Custom Print CSS',
       type: 'textarea',
       modelKey: 'customCSS',
-      rows: 6,
-      placeholder:
-        '/* Add custom CSS for print styles */\n@media print {\n  body { font-family: Georgia, serif; }\n  .page-break { page-break-before: always; }\n}'
+      rows: 8,
+      placeholder: '/* Custom CSS for print layout */'
     }
   ],
+  
   resetStyles: () => markdownStore.resetPrintStyles(),
   onBack: () => {
     if (docStore.selectedFileId) {
-      router.push(`/?file=${docStore.selectedFileId}`);
+      router.push({ name: 'doc', params: { fileId: docStore.selectedFileId } });
     } else {
       router.push('/');
     }
   }
 };
 
-// whenever the store’s printStyles change, update our local map & regen HTML
-watch(
-  () => printStylesConfig.getStyles(),
-  async newStyles => {
-    editableStyleMap.value = { ...newStyles };
-    const md = await printStylesConfig.getMarkdownIt();
-    renderedHtmlForPdf.value = docStore.selectedFileContent
-      ? md.render(docStore.selectedFileContent)
-      : `<div style="color: #6b7280; text-align: center; padding: 2rem;">
-          No document selected. Please select a document to print.
-        </div>`;
-    debouncedRegeneratePdf();
-  },
-  { deep: true, immediate: true }
-);
-
-// regenerate on content change too
-watch(() => docStore.selectedFileContent, () => debouncedRegeneratePdf());
-
-// PDF layout constants
-const PDF_PAGE_WIDTH_PT = 590.78;
-const PDF_PAGE_HEIGHT_PT = 841.89;
-const PDF_MARGIN_PT = 36;
-const PDF_CONTENT_WIDTH_PT = PDF_PAGE_WIDTH_PT - 116.90 - 2 * PDF_MARGIN_PT;
-
 async function regeneratePdf() {
-  if (!docStore.selectedFileContent) {
-    if (pdfUrl.value) {
-      URL.revokeObjectURL(pdfUrl.value);
-      pdfUrl.value = '';
-    }
+  if (!docStore.selectedFileContent || !authStore.token) {
+    if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value);
+    pdfUrl.value = '';
     return;
   }
 
-  const styles = editableStyleMap.value;
-
-  // 1) hidden iframe
-  const iframe = document.createElement('iframe');
-  iframe.style.width = `${PDF_CONTENT_WIDTH_PT}pt`;
-  iframe.style.height = '0px';
-  iframe.style.visibility = 'hidden';
-  iframe.style.position = 'absolute';
-  iframe.style.left = '-9999px';
-  document.body.appendChild(iframe);
-  const doc = iframe.contentDocument || iframe.contentWindow.document;
-
-  // 2) get Google-Font CSS + TTF blobs
-  const { css: gfCss, fonts } = await markdownStore.getGoogleFontData(
-    styles.googleFontFamily
-  );
-
-  const bodyFontFamily = styles.googleFontFamily
-    ? `${styles.googleFontFamily}, sans-serif`
-    : 'sans-serif';
-
-  // Apply the punctuation fix before creating the final HTML
-  const processedHtml = wrapPunctuation(renderedHtmlForPdf.value);
-
-  const html = `
-    <html><head><style>
-      html, body { 
-        margin:0;
-        padding:0;
-        box-sizing:border-box;
-        /* --- FIX: Disable common ligatures to prevent character clipping in PDF --- */
-        font-variant-ligatures: no-common-ligatures;
-      }
-      body {
-        font-family: ${bodyFontFamily};
-      }
-      ${styles.customCSS || ''}
-      ${gfCss || ''}
-    </style></head>
-    <body>
-      <div class="document-container" style="padding: ${PDF_MARGIN_PT}pt;">
-        ${processedHtml}
-      </div>
-    </body></html>
-  `;
-  finalHtmlForPdf.value = html;
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-
-  // 3) build PDF
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-  const registered = {};
-
-  // embed each fetched TTF
-  for (const f of fonts) {
-    try {
-      if (f.format?.includes('woff')) continue;
-      const name = f.name.replace(/ /g, '_') + `_${f.weight}_${f.style}.ttf`;
-      const b64 = f.data.split(',')[1];
-      let jsStyle = 'normal';
-      if (f.style.includes('italic')) jsStyle = 'italic';
-      if (['bold', '700', '800', '900'].includes(`${f.weight}`)) {
-        jsStyle = jsStyle === 'italic' ? 'bolditalic' : 'bold';
-      }
-      pdf.addFileToVFS(name, b64);
-      pdf.addFont(name, f.name, jsStyle);
-      registered[f.name] = registered[f.name] || {};
-      registered[f.name][jsStyle] = f.name;
-    } catch (e) {
-      console.error(`Failed to register font ${f.name}:`, e);
-    }
-  }
-
   try {
-    const hdr = styles.printHeaderHtml || '';
-    const ftrTpl = styles.printFooterHtml || '';
-    const hdrSz = parseFloat(styles.headerFontSize) || 10;
-    const ftrSz = parseFloat(styles.footerFontSize) || 10;
-    const hdrHt = hdr ? hdrSz * 1.5 : 0;
-    const ftrHt = ftrTpl ? ftrSz * 1.5 : 0;
-    
+    const md = await markdownStore.getPrintMarkdownIt();
+    const htmlContent = md.render(docStore.selectedFileContent);
+    const cssStyles = markdownStore.printStylesCssString;
 
-    await pdf.html(doc.body, {
-      margin: [PDF_MARGIN_PT + hdrHt, PDF_MARGIN_PT, PDF_MARGIN_PT + ftrHt, PDF_MARGIN_PT],
-      width: PDF_CONTENT_WIDTH_PT,
-      windowWidth: iframe.contentWindow.innerWidth,
-      autoPaging: 'text',
-      html2canvas: {
-        scale: 1.0,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false
-      }
+    finalHtmlForPdf.value = `<style>${cssStyles}</style>
+      ${htmlContent}`;
+
+    const response = await fetch(`${API_URL}/render-pdf`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authStore.token}`
+      },
+      body: JSON.stringify({ 
+        htmlContent, 
+        cssStyles,
+        printStyles: docStore.printStyles // ✅ Add this line to pass print styles
+      })
     });
 
-    const pageCount = pdf.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      pdf.setPage(i);
-
-      // choose embedded font if available
-      const primary = styles.googleFontFamily
-        ? styles.googleFontFamily.split(':')[0].trim().replace(/\+/g, ' ')
-        : '';
-      const useFont = registered[primary]?.normal ? primary : 'Helvetica';
-      pdf.setFont(useFont, 'normal');
-
-      // header
-      if (hdr) {
-        pdf.setFontSize(hdrSz);
-        pdf.setTextColor(styles.headerFontColor || '#000000');
-        let x =
-          styles.headerAlign === 'center'
-            ? PDF_PAGE_WIDTH_PT / 2
-            : styles.headerAlign === 'right'
-              ? PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT
-              : PDF_MARGIN_PT;
-        pdf.text(hdr, x, PDF_MARGIN_PT, {
-          align: styles.headerAlign || 'center',
-          maxWidth: PDF_CONTENT_WIDTH_PT
-        });
-      }
-
-      // footer
-      let ftext = '';
-      if (styles.enablePageNumbers && ftrTpl) {
-        ftext = ftrTpl
-          .replace(/%p/g, `${i}`)
-          .replace(/%P/g, `${pageCount}`);
-      } else if (ftrTpl) {
-        ftext = ftrTpl.replace(/%p/g, '').replace(/%P/g, '').trim();
-      }
-      if (ftext) {
-        pdf.setFontSize(ftrSz);
-        pdf.setTextColor(styles.footerFontColor || '#000000');
-        let x =
-          styles.footerAlign === 'center'
-            ? PDF_PAGE_WIDTH_PT / 2
-            : styles.footerAlign === 'right'
-              ? PDF_PAGE_WIDTH_PT - PDF_MARGIN_PT
-              : PDF_MARGIN_PT;
-        pdf.text(ftext, x, PDF_PAGE_HEIGHT_PT - PDF_MARGIN_PT, {
-          align: styles.footerAlign || 'center',
-          maxWidth: PDF_CONTENT_WIDTH_PT
-        });
-      }
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`PDF generation failed: ${errorText}`);
     }
 
-    const blob = pdf.output('blob');
+    const blob = await response.blob();
     if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value);
     pdfUrl.value = URL.createObjectURL(blob);
-  } catch (err) {
-    console.error('PDF generation failed:', err);
-    if (pdfUrl.value) {
-      URL.revokeObjectURL(pdfUrl.value);
-      pdfUrl.value = '';
-    }
-    alert(`PDF generation failed: ${err.message}. Check console for details.`);
-  } finally {
-    if (iframe.parentNode) document.body.removeChild(iframe);
+
+  } catch (error) {
+    console.error('Failed to regenerate PDF:', error);
+    alert('Failed to update PDF preview. See console for details.');
   }
 }
+
+// Watch for any changes in print styles or selected content
+watch(
+  () => [docStore.printStyles, docStore.selectedFileContent],
+  () => { debouncedRegeneratePdf() },
+  { deep: true, immediate: true }
+);
 
 onUnmounted(() => {
   if (pdfUrl.value) {

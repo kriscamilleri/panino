@@ -1,6 +1,6 @@
 // /frontend/src/store/markdownStore.js
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { useSyncStore } from './syncStore'
@@ -9,6 +9,51 @@ import { fetchGoogleFontTtf } from '@/utils/googleFontTtf.js'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
   const syncStore = useSyncStore();
+
+   const printStylesCssString = computed(() => {
+    const s = printStyles.value;
+    let css = '';
+
+    // Handle Google Font import
+    if (s.googleFontFamily) {
+      const families = s.googleFontFamily
+        .split(',')
+        .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
+        .join('&');
+      if (families) {
+        css += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n\n`;
+      }
+    }
+
+    // Add a base body style using the primary font
+    const primaryFont = s.googleFontFamily?.split(',')[0]?.trim()?.replace(/['"]/g, '');
+    if (primaryFont) {
+      css += `body { font-family: "${primaryFont}", sans-serif; }\n\n`;
+    }
+
+    // Generate rules for each element by filtering out non-CSS keys
+    for (const key in s) {
+      if (
+        Object.prototype.hasOwnProperty.call(s, key) &&
+        s[key] &&
+        ![
+          'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
+          'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
+          'footerFontColor', 'footerAlign', 'enablePageNumbers'
+        ].includes(key)
+      ) {
+        // This is a normal style rule, add it
+        css += `${key} { ${s[key]} }\n`;
+      }
+    }
+
+    // Append custom CSS last to allow overrides
+    if (s.customCSS) {
+      css += `\n/* --- Custom CSS --- */\n${s.customCSS}\n`;
+    }
+
+    return css;
+  });
 
 
   /* ------------------------------------------------------------------
@@ -67,8 +112,12 @@ pre > code {
     googleFontFamily: 'Source Sans 3, JetBrains Mono, Playfair Display',
 
     customCSS: `
-
 /* ------------------------------
+   Element Styles
+   ------------------------------ */
+h1 {
+  font-family: "Playfair Display";
+  font-size: 2.5rem;/* ------------------------------
    Element Styles
    ------------------------------ */
 h1 {
@@ -77,7 +126,6 @@ h1 {
   line-height: 1.15;
   color: #111827;
   font-weight: 600;
-  letter-spacing: 0.025rem;
 }
 h2 {
   font-family: "Playfair Display";
@@ -135,172 +183,7 @@ table, figure, img, blockquote, pre {
 .page-break {
   page-break-before: always;
 }/* ==============================
-   LISTS — stable, print-safe markers for html2canvas/jsPDF
-   (no list-style, fixed px, no transforms)
-   ============================== */
-
-:root{
-  --li-gap: 0rem;        /* space between marker box and text */
-  --marker-w: 2.2em;      /* reserved width for marker column */
-  --line-h: 1.45;         /* keep li line-height consistent */
-  --indent-step: 0rem; /* extra indent per nesting level */
-  --ol-suffix: ".";       /* separator for ordered lists */
-
-  /* fixed px sizes so rasterizers keep crisp shapes */
-  --b1: 6px;   /* level-1 filled circle */
-  --b2: 7px;   /* level-2 ring size */
-  --b3: 7px;   /* level-3 square */
-  --dash-w: 14px; /* level-4 dash width */
-  --dash-h: 2px;  /* level-4 dash height */
-}
-
-/* Reset native markers and spacing */
-ul, ol{
-  list-style: none;
-  padding-left: 0;
-  margin: .5rem 0;
-  line-height: var(--line-h);
-  counter-reset: none; /* will set for OL below */
-}
-
-/* Each li reserves a marker column via padding-left */
-li{
-  position: relative;
-  padding-left: calc(var(--marker-w) + var(--li-gap));
-  break-inside: avoid; /* helps avoid marker splitting across pages */
-}
-
-/* The marker box (numbers or shapes) */
-li::before{
-  position: absolute;
-  left: 0;
-  top: 0;                 /* align to first line box */
-  width: var(--marker-w);
-  /* keep number/shape vertically near baseline of first line */
-  line-height: 1.2;
-  text-align: right;
-  /* do NOT use transform (blurs in html2canvas) */
-  /* Ensure shapes render dark enough when printed */
-  color: #111;
-  content: "";           /* set by UL/OL rules below */
-}
-
-/* ---------- Ordered lists (multi-level “1.1.1.”) ---------- */
-ol{ counter-reset: item; }
-ol > li{ counter-increment: item; }
-
-/* Show full hierarchical index using counters() */
-ol > li::before{
-  content: counters(item, ".") var(--ol-suffix);
-  font-variant-numeric: tabular-nums; /* stable width in PDF */
-  white-space: nowrap;
-}
-
-/* Nested OL keep working automatically */
-li > ol{
-  margin-top: 0em;
-  margin-left: calc(var(--marker-w) + var(--li-gap) + var(--indent-step)) !important;
-  padding-left: 0;
-}
-
-/* ---------- Unordered lists (level-based shapes) ---------- */
-
-/* UL level 1 — filled circle */
-ul > li::before{
-  content: "";
-  display: inline-block;
-  vertical-align: baseline;
-  height: var(--b1);
-  width: var(--b1);
-  border-radius: 9999px;
-  background: currentColor;
-  /* place shape at right edge of marker column */
-  float: right; /* avoids text collision in some renderers */
-  margin-top: 1rem; /* nudge toward text baseline */
-}
-
-/* UL level 2 — ring */
-ul ul > li::before{
-  content: "";
-  display: inline-block;
-  height: var(--b2);
-  width: var(--b2);
-  border: 2px solid currentColor;
-  border-radius: 9999px;
-  background: transparent;
-  float: right;
-}
-
-/* UL level 3 — square */
-ul ul ul > li::before{
-  content: "";
-  display: inline-block;
-  height: var(--b3);
-  width: var(--b3);
-  background: currentColor;
-  float: right;
-}
-
-/* UL level 4+ — dash */
-ul ul ul ul > li::before{
-  content: "";
-  display: inline-block;
-  height: var(--dash-h);
-  width: var(--dash-w);
-  background: currentColor;
-  float: right;
-  margin-top: .55em;
-}
-
-/* Nested UL alignment (keeps text column straight) */
-li > ul{
-  margin-top: .25rem;
-  margin-left: calc(var(--marker-w) + var(--li-gap) + var(--indent-step)) !important;
-  padding-left: 0;
-}
-
-/* Normalize any inline styles injected by converters */
-ul[style], ol[style]{
-  margin-top: 0 !important;
-  margin-bottom: .5rem !important;
-  padding-left: 0 !important;
-}
-
-/* Keep headings/blocks from splitting markers awkwardly */
-h1, h2, h3, h4, h5, h6{ page-break-after: avoid; page-break-inside: avoid; }
-table, figure, img, blockquote, pre{ page-break-inside: avoid; }
-
-/* Print-specific nudge for marker darkness */
-@media print{
-  li::before{ color:#000; }
-}
-
-/* ------------------------------
-   Duplicate inside @media print for real print engines
-   ------------------------------ */
-@media print {
-  body {
-    font-size: 11pt;
-    line-height: 1.6;
-    font-variant-ligatures: no-common-ligatures;
-  }
-
-  h1, h2, h3, h4, h5, h6 {
-    page-break-after: avoid;
-    page-break-inside: avoid;
-  }
-
-  table, figure, img, blockquote, pre {
-    page-break-inside: avoid;
-  }
-
-  .page-break {
-    page-break-before: always;
-  }
-
-  /* Ensure markers print dark in some engines */
-  li::before { color: #000; }
-}
+ 
 
 `,
   };
@@ -707,6 +590,6 @@ table, figure, img, blockquote, pre{ page-break-inside: avoid; }
     updateStyle, updatePrintStyle,
     resetStyles, resetPrintStyles,
     getMarkdownIt, getPrintMarkdownIt,
-    getGoogleFontData
+    getGoogleFontData, printStylesCssString
   };
 });
