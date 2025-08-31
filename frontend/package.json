@@ -14,8 +14,6 @@
     "dompurify": "^3.1.5",
     "events": "^3.3.0",
     "file-saver": "^2.0.5",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.1",
     "jszip": "^3.10.1",
     "lodash-es": "^4.17.21",
     "lucide-vue-next": "^0.395.0",

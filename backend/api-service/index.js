@@ -12,6 +12,7 @@ import { URL } from 'url';
 import { authRoutes, authenticateToken } from './auth.js';
 import { syncRoutes } from './sync.js';
 import { imageRoutes } from './image.js';
+import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { initDb } from './db.js';
@@ -84,6 +85,7 @@ app.use(authRoutes);
 app.use(authenticateToken);
 app.use(syncRoutes);
 app.use(imageRoutes);
+app.use(pdfRoutes); // Mount the new PDF route
 
 // Use the server to listen, not the app
 server.listen(PORT, () => {
