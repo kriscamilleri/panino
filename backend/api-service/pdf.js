@@ -1,8 +1,12 @@
-// pdf.js
+// /backend/api-service/pdf.js
 import express from 'express';
 import puppeteer from 'puppeteer';
+import { JSDOM } from 'jsdom';
+import DOMPurify from 'dompurify';
 
 export const pdfRoutes = express.Router();
+const window = new JSDOM('').window;
+const purify = DOMPurify(window);
 
 /**
  * Launch Puppeteer with Docker-friendly flags.
@@ -11,7 +15,7 @@ const launchBrowser = () =>
   puppeteer.launch({
     headless: true,
     args: [
-      '--no-sandbox',
+      '--no-sandbox', // Note: See security docs for running in containers safely
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
@@ -62,8 +66,12 @@ async function waitForStablePageCount(page, consecutive = 3, intervalMs = 200, t
 pdfRoutes.post('/render-pdf', async (req, res) => {
   const { htmlContent, cssStyles, printStyles = {} } = req.body;
 
-  if (htmlContent === undefined || cssStyles === undefined) {
-    return res.status(400).send('Missing htmlContent or cssStyles');
+  // 🛡️ SECURITY: Sanitize all user-provided input before using it.
+  const cleanHtml = purify.sanitize(htmlContent);
+  const cleanCss = purify.sanitize(cssStyles, { ALLOWED_TAGS: ['style'], ALLOWED_ATTR: [] });
+
+  if (!cleanHtml || !cleanCss) {
+    return res.status(400).send('Missing or invalid htmlContent or cssStyles');
   }
 
   let browser;
@@ -73,6 +81,7 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
       printHeaderHtml = '',
       printFooterHtml = '',
       // Typography & alignment
+      googleFontFamily = '', // ✨ NEW: Expect a string like "Roboto, Open Sans"
       headerFontSize = '10', // px (string or number)
       headerFontColor = '#666666',
       headerAlign = 'center',
@@ -87,9 +96,9 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
       // Box sizes & offsets
       headerHeight = '1.5cm',
       footerHeight = '1.5cm',
-      headerOffset = '0cm', // positive length; rendered upward via translateY(-offset)
-      footerOffset = '0cm', // positive length; rendered downward via translateY(offset)
-      // Optional: custom Paged.js URL (e.g., local path in the container)
+      headerOffset = '0cm',
+      footerOffset = '0cm',
+      // Optional: custom Paged.js URL
       pagedJsUrl = process.env.PAGEDJS_URL || 'https://unpkg.com/pagedjs/dist/paged.polyfill.js',
       // Optional: override @page margin & size
       pageSize = 'A4',
@@ -99,32 +108,41 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
     const headerJustify = mapAlign(headerAlign);
     const footerJustify = mapAlign(footerAlign);
 
-    // Build the document (no inline <script src="..."> to avoid race with CDN);
-    // we inject Paged.js deterministically with page.addScriptTag after setContent.
+    // ✨ NEW: Generate Google Fonts link if a family is provided
+    let googleFontsLink = '';
+    if (googleFontFamily) {
+      const families = googleFontFamily
+        .split(',')
+        .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
+        .join('&');
+      if (families) {
+        googleFontsLink = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?${families}&display=swap">`;
+      }
+    }
+
+    // ✨ UPDATED: Refined CSP for better security
+const csp = `default-src 'none'; script-src https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://fonts.googleapis.com; img-src * data:;`;
+
     const fullHtml = `
       <!DOCTYPE html>
       <html>
         <head>
           <meta charset="UTF-8" />
+          <meta http-equiv="Content-Security-Policy" content="${csp}">
           <title>PDF Preview</title>
-          <style>
+          ${googleFontsLink}           <style>
             @page {
               size: ${pageSize};
               margin: ${pageMargin};
             }
-            html, body {
-              padding: 0;
-              margin: 0;
-            }
+            html, body { padding: 0; margin: 0; }
             body {
               font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif;
               line-height: 1.6;
               color: #333;
             }
-
-            /* User-provided styles */
-            ${cssStyles}
-
+            /* User-provided styles (sanitized) */
+            ${cleanCss}
             /* Ensure overlays don't capture events or affect layout */
             ._overlay-header, ._overlay-footer {
               pointer-events: none;
@@ -134,7 +152,7 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
           </style>
         </head>
         <body>
-          ${htmlContent}
+          ${cleanHtml}
         </body>
       </html>
     `;
@@ -142,46 +160,49 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
     browser = await launchBrowser();
     const page = await browser.newPage();
 
-    // Debug console from the headless page
+    // 🛡️ SECURITY: Intercept requests to block filesystem access and navigations.
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+        const url = request.url();
+        // Disallow local file access
+        if (url.startsWith('file://')) {
+            request.abort();
+        // Disallow navigation away from the initial content
+        } else if (request.isNavigationRequest() && url !== 'about:blank' && !url.startsWith('data:')) {
+            request.abort();
+        } else {
+            request.continue();
+        }
+    });
+
     page.on('console', (msg) => console.log('PAGE LOG:', msg.text()));
-
-    // Use print CSS rules
     await page.emulateMediaType('print');
-
-    // Load content and wait for network to settle (fonts, images, etc.)
     await page.setContent(fullHtml, { waitUntil: 'networkidle0', timeout: 45000 });
 
-    // 1) Explicitly load Paged.js (CDN or local). If this fails, we proceed without pagination.
     try {
       if (/^https?:\/\//i.test(pagedJsUrl)) {
         await page.addScriptTag({ url: pagedJsUrl });
       } else {
-        // Treat as file path within the container
         await page.addScriptTag({ path: pagedJsUrl });
       }
     } catch (e) {
       console.warn('Failed to load Paged.js:', e?.message || e);
     }
 
-    // 2) Start Paged and await afterRendered via a Promise.
     const totalPagesFromPaged = await page.evaluate(async () => {
       if (!window.Paged || !window.PagedPolyfill) return -1;
-
       return await new Promise((resolve) => {
         try {
           class DoneHandler extends window.Paged.Handlers.Base {
             afterRendered(flow) {
               const total = (flow && flow.total) || 0;
-              // mark for debugging/inspection (not relied upon for flow)
               document.documentElement.setAttribute('data-pagedjs-rendered', 'true');
               document.documentElement.setAttribute('data-total-pages', String(total));
-              // Let DOM settle at least one cycle
               setTimeout(() => resolve(total), 0);
             }
           }
           window.Paged.registerHandlers(DoneHandler);
           window.PagedPolyfill.preview().catch(() => resolve(-1));
-          // Safety timeout to avoid hanging forever
           setTimeout(() => resolve(-1), 15000);
         } catch (err) {
           resolve(-1);
@@ -190,14 +211,9 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
     });
 
     console.log('Paged afterRendered totalPages =', totalPagesFromPaged);
+    await waitForStablePageCount(page, 3, 250, 6000);
 
-    // 3) Double-check stability to avoid off-by-one issues while Paged finalizes spreads/blank pages.
-    const stableCount = await waitForStablePageCount(page, 3, 250, 6000);
-    console.log('Paged stable page count =', stableCount);
-
-    // 4) Paint overlays (headers/footers) **after** pagination is done/stable.
     await page.evaluate((settings) => {
-      // Skip deliberate blank pages to keep numbering aligned with actual content pages.
       const pages = document.querySelectorAll('.pagedjs_page:not(.pagedjs_blank)');
       const totalPages = Math.max(1, pages.length);
 
@@ -216,67 +232,41 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
       const makeOverlay = (which, pageNum, lastPage) => {
         const tpl = which === 'header' ? settings.headerHtml : settings.footerHtml;
         if (!tpl) return null;
-
         const el = document.createElement('div');
         el.className = which === 'header' ? '_overlay-header' : '_overlay-footer';
-        el.innerHTML = tpl
-          .replace(/%p/g, String(pageNum))
-          .replace(/%P/g, String(lastPage));
-
-        // Base overlay styles
-        el.style.position = 'absolute';
-        el.style.left = '0';
-        el.style.right = '0';
-        el.style.display = 'flex';
-        el.style.alignItems = 'center';
-        el.style.justifyContent = which === 'header' ? settings.headerJustify : settings.footerJustify;
-        el.style.fontSize = which === 'header' ? settings.headerFontSize : settings.footerFontSize;
-        el.style.color = which === 'header' ? settings.headerColor : settings.footerColor;
-        el.style.height = which === 'header' ? settings.headerHeight : settings.footerHeight;
-        el.style.overflow = 'visible';
-        el.style.zIndex = '2147483647';
-
-        // Paint into margins using translateY instead of negative top/bottom to avoid weird layout behavior.
+        el.innerHTML = tpl.replace(/%p/g, String(pageNum)).replace(/%P/g, String(lastPage));
+        Object.assign(el.style, {
+          position: 'absolute', left: '0', right: '0', display: 'flex', alignItems: 'center',
+          justifyContent: which === 'header' ? settings.headerJustify : settings.footerJustify,
+          fontSize: which === 'header' ? settings.headerFontSize : settings.footerFontSize,
+          color: which === 'header' ? settings.headerColor : settings.footerColor,
+          height: which === 'header' ? settings.headerHeight : settings.footerHeight,
+          overflow: 'visible', zIndex: '2147483647',
+        });
         if (which === 'header') {
           el.style.top = '0';
-          el.style.transform = 'translateY(' + ('-' + settings.headerOffset) + ')';
+          el.style.transform = `translateY(-${settings.headerOffset})`;
         } else {
           el.style.bottom = '0';
-          el.style.transform = 'translateY(' + settings.footerOffset + ')';
+          el.style.transform = `translateY(${settings.footerOffset})`;
         }
         return el;
       };
 
       if (pages.length === 0) {
-        // Fallback single-page: treat <body> as a page
         const body = document.body;
-        const pageNum = 1;
-        body.style.position = 'relative';
-        body.style.overflow = 'visible';
-        if (shouldShow('header', pageNum, 1)) {
-          const h = makeOverlay('header', pageNum, 1);
-          if (h) body.appendChild(h);
-        }
-        if (shouldShow('footer', pageNum, 1)) {
-          const f = makeOverlay('footer', pageNum, 1);
-          if (f) body.appendChild(f);
-        }
+        Object.assign(body.style, { position: 'relative', overflow: 'visible' });
+        if (shouldShow('header', 1, 1)) body.appendChild(makeOverlay('header', 1, 1));
+        if (shouldShow('footer', 1, 1)) body.appendChild(makeOverlay('footer', 1, 1));
         return;
       }
 
       const last = totalPages;
       pages.forEach((pageEl, i) => {
         const pageNum = i + 1;
-        pageEl.style.position = 'relative';
-        pageEl.style.overflow = 'visible';
-        if (shouldShow('header', pageNum, last)) {
-          const h = makeOverlay('header', pageNum, last);
-          if (h) pageEl.appendChild(h);
-        }
-        if (shouldShow('footer', pageNum, last)) {
-          const f = makeOverlay('footer', pageNum, last);
-          if (f) pageEl.appendChild(f);
-        }
+        Object.assign(pageEl.style, { position: 'relative', overflow: 'visible' });
+        if (shouldShow('header', pageNum, last)) pageEl.appendChild(makeOverlay('header', pageNum, last));
+        if (shouldShow('footer', pageNum, last)) pageEl.appendChild(makeOverlay('footer', pageNum, last));
       });
     }, {
       headerHtml: String(printHeaderHtml || ''),
@@ -293,11 +283,10 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
       hideFooterOnLast: !!hideFooterOnLast,
       headerHeight: String(headerHeight),
       footerHeight: String(footerHeight),
-      headerOffset: String(headerOffset).replace(/^\+/, ''), // ensure positive length; we add +/- via transform
+      headerOffset: String(headerOffset).replace(/^\+/, ''),
       footerOffset: String(footerOffset).replace(/^\+/, ''),
     });
 
-    // 5) Export the PDF
     const pdfBuffer = await page.pdf({
       format: pageSize || 'A4',
       printBackground: true,

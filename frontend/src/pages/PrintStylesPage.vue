@@ -40,6 +40,7 @@ import StyleCustomizer from '@/components/StyleCustomizer.vue';
 import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
 import { useAuthStore } from '@/store/authStore';
+import DOMPurify from 'dompurify';
 
 const router = useRouter();
 const docStore = useDocStore();
@@ -182,11 +183,18 @@ async function regeneratePdf() {
 
   try {
     const md = await markdownStore.getPrintMarkdownIt();
-    const htmlContent = md.render(docStore.selectedFileContent);
+    const rawHtmlContent = md.render(docStore.selectedFileContent);
+    const htmlContent = DOMPurify.sanitize(rawHtmlContent);
     const cssStyles = markdownStore.printStylesCssString;
 
     finalHtmlForPdf.value = `<style>${cssStyles}</style>
       ${htmlContent}`;
+
+    const sanitizedPrintStyles = {
+      ...docStore.printStyles,
+      printHeaderHtml: DOMPurify.sanitize(docStore.printStyles.printHeaderHtml || ''),
+      printFooterHtml: DOMPurify.sanitize(docStore.printStyles.printFooterHtml || ''),
+    };
 
     const response = await fetch(`${API_URL}/render-pdf`, {
       method: 'POST',
@@ -197,7 +205,7 @@ async function regeneratePdf() {
       body: JSON.stringify({ 
         htmlContent, 
         cssStyles,
-        printStyles: docStore.printStyles // ✅ Add this line to pass print styles
+        printStyles: sanitizedPrintStyles
       })
     });
 

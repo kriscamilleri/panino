@@ -9,6 +9,8 @@ import { fetchGoogleFontTtf } from '@/utils/googleFontTtf.js'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
   const syncStore = useSyncStore();
+  const authStore = useAuthStore();
+
 
    const printStylesCssString = computed(() => {
     const s = printStyles.value;
@@ -273,86 +275,6 @@ table, figure, img, blockquote, pre {
   }
 
   /**
-   * Fetch Google Font CSS (for the live HTML preview) **and**
-   * Base-64-encoded TTF binaries (for jsPDF embedding).
-   *
-   * @param {string} fontFamily – "Roboto" or "Inter, Open Sans" (comma-separated list)
-   * @return {Promise<{css:string, fonts:Array<{name,data,format,style,weight}>}>}
-   */
-  async function getGoogleFontData(fontFamily) {
-    if (!fontFamily || !fontFamily.trim()) {
-      return { css: '', fonts: [] }
-    }
-
-    if (fontCache.value.has(fontFamily)) {
-      return fontCache.value.get(fontFamily)
-    }
-
-    try {
-      // Split comma-separated font families and process each
-      const fontFamilies = fontFamily.split(',').map(f => f.trim()).filter(f => f)
-      const allFonts = []
-      const fontImports = []
-
-      for (const singleFamily of fontFamilies) {
-        // Skip generic font families
-        if (['serif', 'sans-serif', 'monospace', 'cursive', 'fantasy'].includes(singleFamily.toLowerCase())) {
-          continue
-        }
-
-        // Remove quotes if present
-        const cleanFamily = singleFamily.replace(/['"]/g, '')
-
-        /* ---------- 1. Grab TTF URLs from your server ---------- */
-        const variants = await fetchGoogleFontTtf(cleanFamily)
-
-        for (const v of variants) {
-          const key = `${v.family}-${v.weight}-${v.style}`
-          if (fontCache.value.has(key)) {
-            allFonts.push(fontCache.value.get(key))
-            continue
-          }
-
-          const blob = await fetch(v.url).then(r => r.blob())
-          const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result)
-            reader.onerror = reject
-            reader.readAsDataURL(blob)
-          })
-
-          const fontObj = {
-            name: v.family,
-            data: base64,          // data:…;base64,
-            format: 'truetype',
-            style: v.style,
-            weight: v.weight,
-          }
-
-          fontCache.value.set(key, fontObj) // cache each variant
-          allFonts.push(fontObj)
-        }
-
-        // Add to CSS imports (encode font name for Google Fonts URL)
-        const encodedFamily = encodeURIComponent(cleanFamily)
-        fontImports.push(`family=${encodedFamily}:wght@400;600;700`)
-      }
-
-      /* ---------- 2. CSS import for the live preview iframe ------------- */
-      const css = fontImports.length > 0
-        ? `@import url('https://fonts.googleapis.com/css2?${fontImports.join('&')}&display=swap');`
-        : ''
-
-      const result = { css, fonts: allFonts }
-      fontCache.value.set(fontFamily, result)
-      return result
-    } catch (err) {
-      console.error('[markdownStore] Google-Font fetch failed', err)
-      return { css: '', fonts: [] }
-    }
-  }
-
-  /**
    * ✅ ADDED: Helper function to create a base instance of MarkdownIt with common plugins.
    */
   const baseMd = () => {
@@ -383,7 +305,7 @@ table, figure, img, blockquote, pre {
   }
 
 
-  function configureRenderer(md, styleMap) {
+  function configureRenderer(md, styleMap, { injectGlobalStyles = true } = {}) {
     let combinedCSS = '';
     if (styleMap.customCSS) {
       combinedCSS += styleMap.customCSS;
@@ -407,7 +329,7 @@ table, figure, img, blockquote, pre {
       combinedCSS += styleMap.googleFontData.css;
     }
 
-    if (combinedCSS) {
+    if (combinedCSS && injectGlobalStyles) {
       addCustomCSSToDocument(combinedCSS);
     }
 
@@ -573,23 +495,22 @@ table, figure, img, blockquote, pre {
 
   function getMarkdownIt() {
     const md = baseMd()
-    configureRenderer(md, styles.value)
+    configureRenderer(md, styles.value, { injectGlobalStyles: true })
     return md
   }
 
   async function getPrintMarkdownIt() {
     const md = baseMd()
     // Fetch and embed Google Fonts for print if specified
-    const googleFontData = await getGoogleFontData(printStyles.value.googleFontFamily);
-    const printStyleMap = { ...printStyles.value, googleFontData };
-    configureRenderer(md, printStyleMap);
+    // const googleFontData = await getGoogleFontData(printStyles.value.googleFontFamily);
+    const printStyleMap = { ...printStyles.value};
+    configureRenderer(md, printStyleMap, { injectGlobalStyles: false });
     return md
   }
   return {
     styles, printStyles,
     updateStyle, updatePrintStyle,
     resetStyles, resetPrintStyles,
-    getMarkdownIt, getPrintMarkdownIt,
-    getGoogleFontData, printStylesCssString
+    getMarkdownIt, getPrintMarkdownIt,printStylesCssString
   };
 });
