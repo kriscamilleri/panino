@@ -4,6 +4,7 @@
   },
   "scripts": {
     "llm": "node combine-files.cjs",
-    "llmfe": "node combine-files.cjs --path ./frontend/"
+    "llmfe": "node combine-files.cjs --path ./frontend/",
+    "llmbe": "node combine-files.cjs --path ./backend/"
   }
 }
