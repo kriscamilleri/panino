@@ -55,7 +55,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, provide, computed } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import FolderPreview from '@/components/FolderPreview.vue'
@@ -65,7 +65,7 @@ import Preview from '@/components/Preview.vue'
 const docStore = useDocStore()
 const ui = useUiStore()
 
-// Props from parent or a store: determines if we’re in mobile layout
+// Props from parent or a store: determines if we're in mobile layout
 const props = defineProps({
     isMobileView: {
         type: Boolean,
@@ -78,6 +78,37 @@ const editorWidth = ref(500)
 const isResizing = ref(false)
 const startX = ref(0)
 const startWidth = ref(0)
+const editorRef = ref(null)
+
+// Provide editor methods to child components (like SubMenuBar)
+const editorMethods = computed(() => {
+    if (editorRef.value) {
+        return {
+            insertFormat: editorRef.value.insertFormat,
+            insertList: editorRef.value.insertList,
+            insertTable: editorRef.value.insertTable,
+            insertCodeBlock: editorRef.value.insertCodeBlock,
+            insertImagePlaceholder: editorRef.value.insertImagePlaceholder,
+            uploadImage: editorRef.value.uploadImage,
+            findNext: editorRef.value.findNext,
+            replaceNext: editorRef.value.replaceNext,
+            replaceAll: editorRef.value.replaceAll,
+        }
+    }
+    return {
+        insertFormat: () => console.warn('Editor not available'),
+        insertList: () => console.warn('Editor not available'),
+        insertTable: () => console.warn('Editor not available'),
+        insertCodeBlock: () => console.warn('Editor not available'),
+        insertImagePlaceholder: () => console.warn('Editor not available'),
+        uploadImage: () => console.warn('Editor not available'),
+        findNext: () => console.warn('Editor not available'),
+        replaceNext: () => console.warn('Editor not available'),
+        replaceAll: () => console.warn('Editor not available'),
+    }
+})
+
+provide('editorMethods', editorMethods)
 
 function startEditorResize(event) {
     if (props.isMobileView) return
@@ -97,7 +128,7 @@ function handleMouseMove(event) {
     if (!container) return
     const containerWidth = container.clientWidth
 
-    const documentsWidth = ui.showDocuments ? 300 + 4 : 0 // This is simplified; you might pass actual sidebar width as prop
+    const documentsWidth = ui.showDocuments ? 300 + 4 : 0
     const availableWidth = containerWidth - documentsWidth
 
     const diff = event.pageX - startX.value
@@ -128,10 +159,6 @@ function stopResize() {
 }
 
 function getContentContainer() {
-    // This is a hacky approach:
-    // If the parent holds a ref to the main content container, you can provide it as a prop.
-    // Or query an element with a known ID/class.
-    // Using data-testid for this is more robust
     return document.querySelector('[data-testid="content-area-container"]')
 }
 
@@ -139,9 +166,4 @@ onUnmounted(() => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
 })
-
 </script>
-
-<style scoped>
-/* Optional local styles for the content area */
-</style>
