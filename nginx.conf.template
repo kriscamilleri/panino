@@ -1,91 +1,92 @@
+# /etc/nginx/sites-available/your-domain.conf
+
+# --------------------------------------------------------------------------
+# Redirect all HTTP traffic to HTTPS
+# --------------------------------------------------------------------------
 server {
     listen 80;
     server_name ${DOMAIN};
-    return 301 https://$server_name$request_uri;
+
+    # Let's Encrypt ACME challenge
+    location ~ /.well-known/acme-challenge/ {
+        allow all;
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$server_name$request_uri;
+    }
 }
 
+# --------------------------------------------------------------------------
+# Main server block for HTTPS, static assets, and API proxy
+# --------------------------------------------------------------------------
 server {
-    listen 443 ssl;
+    listen 443 ssl http2;
     server_name ${DOMAIN};
 
-    # SSL configuration
+    # --- SSL Configuration ---
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-    
-    # Security headers
-   # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    # add_header X-Frame-Options "SAMEORIGIN" always;
-    # add_header X-XSS-Protection "1; mode=block" always;
-    # add_header X-Content-Type-Options "nosniff" always;
-    
-    # Frontend app
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384';
+    ssl_prefer_server_ciphers off;
+
+    # --- Security & Browser Feature Headers ---
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    # Required for cr-sqlite wasm with SharedArrayBuffer
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
+
+    # --- General Settings ---
+    # Set max body size to match backend limit for uploads, PDF generation, etc.
+    client_max_body_size 50M;
+
+    # --------------------------------------------------------------------------
+    # Location block for the unified API Service
+    # --------------------------------------------------------------------------
+    # This matches all known API routes handled by the single backend service.
+    location ~ ^/(signup|login|me|sync|images|render-pdf|forgot-password|reset-password) {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_redirect off;
+    }
+
+    # --------------------------------------------------------------------------
+    # Location block for the Frontend SPA, Static Assets, and WebSocket
+    # --------------------------------------------------------------------------
+    # This is the catch-all location.
     location / {
+        # First, check if the request is a WebSocket upgrade.
+        # The backend API server handles WebSocket connections on the root path for sync "pokes".
+        if ($http_upgrade = 'websocket') {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "Upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            break; # IMPORTANT: Stops processing, preventing the try_files directive below.
+        }
+
+        # If not a WebSocket, serve the Vue.js Single Page Application (SPA).
         root /var/www/${DOMAIN}/dist;
         try_files $uri $uri/ /index.html;
-        
-        # Cache static assets
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+
+        # Add a nested location block to cache static assets for better performance.
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|wasm)$ {
             expires 30d;
             add_header Cache-Control "public, no-transform";
         }
-    }
-
-    # Fauxton (CouchDB _utils) UI
-    location ^~ /_utils/ {
-        proxy_pass http://localhost:5984/_utils/;
-        proxy_redirect off;
-        proxy_buffering off;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Required for CouchDB cookie auth
-        proxy_set_header X-CouchDB-WWW-Authenticate $http_authorization;
-        
-        # WebSocket support
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-    
-    # CouchDB proxy (excluding /_utils)
-    location ~ ^/(\_session|\_all\_dbs|pn-markdown-notes) {
-        proxy_pass http://localhost:5984;
-        proxy_redirect off;
-        proxy_buffering off;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Required for CouchDB cookie auth
-        proxy_set_header X-CouchDB-WWW-Authenticate $http_authorization;
-        
-        # WebSocket support
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-    
-    # Signup service proxy
-    location /signup {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-    
-    # Image service proxy
-    location ~ ^/upload|/images/ {
-        proxy_pass http://localhost:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-         
-        # For image uploads
-        client_max_body_size 5M;
     }
 }
