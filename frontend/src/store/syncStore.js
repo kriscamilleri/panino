@@ -23,6 +23,14 @@ SELECT crsql_as_crr('images');
 SELECT crsql_as_crr('settings');
 `;
 
+function debounce(fn, wait) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+
 export const useSyncStore = defineStore('syncStore', () => {
   const sqlite = ref(null);
   const db = ref(null);
@@ -44,20 +52,6 @@ export const useSyncStore = defineStore('syncStore', () => {
       return [];
     }
     return db.value.execO(sql, params);
-  }
-
-  // ✅ FIX: Make the transaction wrapper async to handle async operations correctly
-  async function withTx(fn) {
-    await db.value.exec('BEGIN');
-    try {
-      const res = await fn();
-      await db.value.exec('COMMIT');
-      return res;
-    } catch (e) {
-      console.error('Failed running transaction, rolling back.', e);
-      try { await db.value.exec('ROLLBACK'); } catch (_) { }
-      throw e;
-    }
   }
 
   async function initializeDB() {
@@ -141,18 +135,20 @@ export const useSyncStore = defineStore('syncStore', () => {
         console.log(`Applying ${remoteChanges.length} remote changes.`);
         const insertSQL = `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, seq, cl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-        // ✅ FIX: Use the async transaction wrapper and await all promises inside
-        await withTx(async () => {
-          const promises = [];
+        await db.value.exec('BEGIN');
+        try {
           for (const ch of remoteChanges) {
-            promises.push(db.value.exec(insertSQL, [
+            await db.value.exec(insertSQL, [
               ch.table, hexToUint8Array(ch.pk), ch.cid, ch.val,
               ch.col_version, ch.db_version, hexToUint8Array(ch.site_id),
               ch.seq, ch.cl
-            ]));
+            ]);
           }
-          await Promise.all(promises);
-        });
+          await db.value.exec('COMMIT');
+        } catch (e) {
+          await db.value.exec('ROLLBACK');
+          throw e;
+        }
 
         useDocStore().refreshData();
       }
@@ -201,14 +197,6 @@ export const useSyncStore = defineStore('syncStore', () => {
     } else {
       disconnectWebSocket();
     }
-  }
-
-  function debounce(fn, wait) {
-    let t;
-    return (...args) => {
-      clearTimeout(t);
-      t = setTimeout(() => fn(...args), wait);
-    };
   }
 
   return {
