@@ -46,18 +46,35 @@ server {
     client_max_body_size 50M;
 
     # --------------------------------------------------------------------------
-    # Location block for the unified API Service
+    # Centralized Proxy Logic (Named Location) ✅ FIX
     # --------------------------------------------------------------------------
-    # This matches all known API routes handled by the single backend service.
-    location ~ ^/(signup|login|me|sync|images|render-pdf|forgot-password|reset-password) {
+    # This block is not accessible from the outside. It holds all proxy settings
+    # to avoid repetition and issues with the 'if' directive.
+    location @api_service {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
+
+        # These headers are needed for both regular API calls and WebSockets
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # These headers are specifically for WebSocket upgrades
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+
         proxy_buffering off;
         proxy_redirect off;
+    }
+
+    # --------------------------------------------------------------------------
+    # Location block for the unified API Service
+    # --------------------------------------------------------------------------
+    # This matches all known API routes handled by the single backend service.
+    location ~ ^/(signup|login|me|sync|images|render-pdf|forgot-password|reset-password) {
+        # Unconditionally pass the request to our named location handler.
+        try_files /nonexistent-file @api_service;
     }
 
     # --------------------------------------------------------------------------
@@ -65,18 +82,10 @@ server {
     # --------------------------------------------------------------------------
     # This is the catch-all location.
     location / {
-        # First, check if the request is a WebSocket upgrade.
-        # The backend API server handles WebSocket connections on the root path for sync "pokes".
+        # Use a safe internal redirect for WebSocket requests ✅ FIX
+        error_page 418 = @api_service; # Map a custom error to the named location
         if ($http_upgrade = 'websocket') {
-            proxy_pass http://127.0.0.1:8000;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "Upgrade";
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            break; # IMPORTANT: Stops processing, preventing the try_files directive below.
+            return 418; # Trigger the internal redirect
         }
 
         # If not a WebSocket, serve the Vue.js Single Page Application (SPA).
