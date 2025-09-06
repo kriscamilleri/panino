@@ -310,8 +310,22 @@ async function handleExportSQLite() {
             throw new Error('Database is not initialized')
         }
 
-        // Export the entire SQLite database as a binary file
-        const data = syncStore.db.value.export()
+        // Try to get the raw database file using CR-SQLite WASM API
+        let data;
+        if (typeof syncStore.db.value.saveToBuffer === 'function') {
+            // Method 1: saveToBuffer (if available)
+            data = syncStore.db.value.saveToBuffer()
+        } else if (typeof syncStore.db.value.export === 'function') {
+            // Method 2: export (if available)
+            data = syncStore.db.value.export()
+        } else if (typeof syncStore.sqlite.value.FS === 'object') {
+            // Method 3: Access filesystem directly
+            const dbName = syncStore.db.value.filename || 'main.db'
+            data = syncStore.sqlite.value.FS.readFile(dbName)
+        } else {
+            throw new Error('Unable to access raw database file - falling back to JSON export')
+        }
+
         const blob = new Blob([data], { type: 'application/x-sqlite3' })
         const url = URL.createObjectURL(blob)
         
@@ -324,7 +338,42 @@ async function handleExportSQLite() {
         ui.addToast('SQLite database exported successfully!')
     } catch (err) {
         console.error('Failed to export SQLite database:', err)
-        ui.addToast('Failed to export SQLite database: ' + err.message)
+        
+        // Fallback to JSON export if binary export fails
+        try {
+            const tables = ['folders', 'notes', 'images', 'settings']
+            const exportData = {
+                metadata: {
+                    exportDate: new Date().toISOString(),
+                    version: '1.0',
+                    type: 'panino-sqlite-fallback'
+                },
+                tables: {}
+            }
+
+            for (const table of tables) {
+                try {
+                    const rows = await syncStore.execute(`SELECT * FROM ${table}`)
+                    exportData.tables[table] = rows || []
+                } catch (tableErr) {
+                    exportData.tables[table] = []
+                }
+            }
+
+            const jsonString = JSON.stringify(exportData, null, 2)
+            const blob = new Blob([jsonString], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            
+            const a = document.createElement('a')
+            a.href = url
+            a.download = 'panino-database-fallback.json'
+            a.click()
+            
+            URL.revokeObjectURL(url)
+            ui.addToast('Exported as JSON fallback (SQLite binary export not available)')
+        } catch (fallbackErr) {
+            ui.addToast('Failed to export database: ' + fallbackErr.message)
+        }
     }
 }
 </script>

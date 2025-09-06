@@ -14,7 +14,6 @@
           </button>
         </div>
       </template>
-
       <iframe v-else-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none"
         data-testid="pdf-preview-iframe"></iframe>
 

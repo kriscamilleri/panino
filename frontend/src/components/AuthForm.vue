@@ -3,13 +3,13 @@
         <div class="flex flex-grow"></div>
         <div class="flex justify-center my-4 flex-col items-center">
             <h1 class="flex text-4xl text-center font-extrabold text-gray-900 mb-2">panino</h1>
-            <p class="flex text-center text-gray-600 mb-8">a
+            <p class="flex text-center text-gray-600 mb-4">a &nbsp;
                 <a target="_blank" class="text-blue-500 underline" href="https://prettyneat.io">pretty
-                    neat</a>
+                    neat</a> &nbsp;
                 note taking app
             </p>
         </div>
-        <div class="flex items-center justify-center px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-center px-4 sm:px-6 lg:px-8 mb-4">
             <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
                 <form class="space-y-6" @submit.prevent="handleSubmit">
                     <div class="flex items-center justify-between mb-3">

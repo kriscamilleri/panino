@@ -1,5 +1,4 @@
 <template>
-
     <!-- Root container (bottom-right) -->
     <div class="fixed bottom-4 right-4 flex flex-col space-y-2 z-50"> <!-- Animated list of toasts -->
         <TransitionGroup name="toast" tag="div">
