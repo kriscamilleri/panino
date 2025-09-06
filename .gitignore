@@ -26,9 +26,7 @@ dist-ssr
 combined_content.txt
 .env
 backend/api-service/data/*
+backend/api-service/uploads/*
 print_rendering_context.txt
 selected_files.txt
 prompt.md
-backend/api-service/data/0f153465-5b2d-4260-b5ad-3aef004f9837.db
-backend/api-service/data/0f153465-5b2d-4260-b5ad-3aef004f9837.db-shm
-backend/api-service/data/0f153465-5b2d-4260-b5ad-3aef004f9837.db-wal
