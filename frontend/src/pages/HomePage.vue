@@ -8,7 +8,6 @@
         </div>
         <ImportModal :show="ui.showImportModal" @close="ui.closeImportModal()" @import-success="handleImportSuccess"
             data-testid="homepage-import-modal" />
-
     </div>
 </template>
 

@@ -1,5 +1,4 @@
 <template>
-       
     <AuthForm :config="signupConfig" />
 </template>
 
