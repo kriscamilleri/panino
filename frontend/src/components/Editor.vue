@@ -31,14 +31,12 @@
           <span data-testid="editor-metadata-updated">{{ new Date(file.updated_at).toLocaleString() }}</span>
         </div>
       </div>
-
     </div>
 
     <div v-if="isUploading" class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center"
       data-testid="editor-upload-progress">
       <span class="mr-2">Uploading image...</span>
       <div class="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
-
     </div>
 
     <div v-if="uploadError" class="mb-4 p-2 bg-red-50 text-red-700 rounded" data-testid="editor-upload-error">
@@ -49,19 +47,16 @@
       <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput" @paste="handlePaste"
         class="flex-1 border p-4 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
         placeholder="Start writing..." data-testid="editor-textarea"></textarea>
-
     </div>
-
   </div>
 
   <div v-else data-testid="editor-no-file">
     <p class="text-gray-500 mt-3 ml-3">No file selected</p>
-
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
@@ -88,7 +83,6 @@ const draftStore = useDraftStore();
 const authStore = useAuthStore();
 const textareaRef = ref(null);
 
-// grab the ref directly, not a computed-of-a-ref
 const { selectedFile: file } = storeToRefs(docStore);
 
 /* ───── upload state ───── */
@@ -98,21 +92,15 @@ const uploadError = ref('');
 /* ───── reactive draft ───── */
 const contentDraft = ref('');
 
-// ✅ FINAL FIX: This watcher ONLY runs when the user selects a DIFFERENT file.
-// It no longer reacts to background content changes for the current file, which
-// completely eliminates the stuttering and text-reordering issue.
 watch(() => file.value?.id, (newId) => {
   if (newId) {
-    // When a new file is selected, load its content into the draft *once*.
     const newContent = file.value.content ?? '';
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
   } else {
-    // No file is selected, so clear the editor.
     contentDraft.value = '';
   }
 }, { immediate: true });
-
 
 /* ───── stats ───── */
 const wordCount = computed(() => (contentDraft.value ? contentDraft.value.trim().split(/\s+/).filter(Boolean).length : 0));
@@ -193,6 +181,7 @@ function insertAtCursor(text) {
     textarea.setSelectionRange(start + text.length, start + text.length);
   });
 }
+
 function insertFormat(prefix, suffix) {
   const textarea = textareaRef.value;
   if (!textarea) return;
@@ -209,16 +198,20 @@ function insertFormat(prefix, suffix) {
     }
   });
 }
+
 function insertList(prefix) {
   insertAtCursor(prefix);
 }
+
 function insertTable() {
   const tpl = `\n| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |\n`;
   insertAtCursor(tpl);
 }
+
 function insertCodeBlock() {
   insertFormat('\n```\n', '\n```');
 }
+
 function insertImagePlaceholder() {
   insertAtCursor('![Alt text](url)');
 }
@@ -236,6 +229,7 @@ function findNext(term) {
     textarea.setSelectionRange(idx, idx + term.length);
   }
 }
+
 function replaceNext(term, repl) {
   if (!term?.trim() || !textareaRef.value) return;
   const textarea = textareaRef.value;
@@ -247,22 +241,16 @@ function replaceNext(term, repl) {
     findNext(term);
   }
 }
+
 function replaceAll(term, repl) {
   if (!term?.trim()) return;
   contentDraft.value = contentDraft.value.replaceAll(term, repl);
   handleInput();
 }
 
-/* ───── expose for other components ───── */
-onMounted(() => {
-  window.__editorRef = {
-    insertFormat, insertList, insertTable, insertCodeBlock, insertImagePlaceholder,
-    uploadImage, findNext, replaceNext, replaceAll
-  };
-});
+/* ───── expose methods for parent components ───── */
 defineExpose({
   insertFormat, insertList, insertTable, insertCodeBlock, insertImagePlaceholder,
   uploadImage, findNext, replaceNext, replaceAll
 });
 </script>
-<style scoped></style>
