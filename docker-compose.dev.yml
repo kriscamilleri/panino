@@ -31,18 +31,6 @@ services:
       - "127.0.0.1:1025:1025" # SMTP
       - "127.0.0.1:8025:8025" # Web UI
 
-  # The font service is a simple proxy, kept separate for clarity
-  font-service:
-    build: ./backend/font-service
-    ports:
-      - "127.0.0.1:3002:3002"
-    environment:
-      PORT: 3002
-      NODE_ENV: development
-    volumes:
-      - ./backend/font-service:/app
-      - /app/node_modules
-
   frontend:
     build:
       context: ./frontend
@@ -52,7 +40,6 @@ services:
     environment:
       NODE_ENV: development
       VITE_API_SERVICE_URL: http://localhost:8000 # Unified API URL
-      VITE_FONT_SERVICE_URL: http://localhost:3002
       VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY}
     volumes:
       - ./frontend:/app
@@ -60,5 +47,4 @@ services:
     command: npm run dev -- --host
     depends_on:
       - api-service
-      - font-service
       - mailhog

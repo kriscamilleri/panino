@@ -21,12 +21,6 @@ services:
       - api-data:/app/data # Persist SQLite DBs
       - uploads-data:/app/uploads # Persist uploaded files
 
-  font-service:
-    build: ./backend/font-service
-    restart: always
-    environment:
-      PORT: 3002
-      NODE_ENV: production
 
 volumes:
   api-data:
