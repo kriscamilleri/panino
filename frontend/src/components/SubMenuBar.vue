@@ -18,7 +18,7 @@
                 </BaseButton>
 
                 <BaseButton @click="goToStyles" data-testid="submenu-view-styles">
-                    <Palette class="w-4 h-4" /><span>Preview Styles</span>
+                    <Palette class="w-4 h-4" /><span>Styles</span>
                 </BaseButton>
             </div>
 
@@ -114,11 +114,13 @@
                     data-testid="submenu-document-info">
                     <Info class="w-4 h-4" /><span>Info</span>
                 </BaseButton>
-
-                <div class="w-px h-6 bg-gray-300 mx-2"></div>
             </div>
 
             <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
+                <BaseButton @click="goToPrintStyles" data-testid="submenu-tools-print">
+                    <Printer class="w-4 h-4" /><span>Print</span>
+                </BaseButton>
+
                 <BaseButton @click="ui.openImportModal()" data-testid="submenu-tools-import-json">
                     <Upload class="w-4 h-4" /><span>Import JSON</span>
                 </BaseButton>
@@ -135,8 +137,8 @@
                     <FolderArchive class="w-4 h-4" /><span>Export Markdown</span>
                 </BaseButton>
 
-                <BaseButton @click="goToPrintStyles" data-testid="submenu-tools-print">
-                    <Printer class="w-4 h-4" /><span>Print</span>
+                <BaseButton @click="handleExportSQLite" data-testid="submenu-tools-export-sqlite">
+                    <Database class="w-4 h-4" /><span>Export SQLite DB</span>
                 </BaseButton>
             </div>
         </div>
@@ -148,6 +150,7 @@ import { ref, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
+import { useSyncStore } from '@/store/syncStore'
 import BaseButton from '@/components/BaseButton.vue'
 
 import {
@@ -173,11 +176,13 @@ import {
     FolderArchive,
     Printer,
     Image as ImageIcon,
-    Replace
+    Replace,
+    Database
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
 const docStore = useDocStore()
+const syncStore = useSyncStore()
 const router = useRouter()
 
 // Inject editor methods from parent component that contains the Editor
@@ -296,6 +301,30 @@ async function handleExportZip() {
     } catch (err) {
         console.error(err)
         alert('Failed to export ZIP.')
+    }
+}
+
+async function handleExportSQLite() {
+    try {
+        if (!syncStore.isInitialized || !syncStore.db.value) {
+            throw new Error('Database is not initialized')
+        }
+
+        // Export the entire SQLite database as a binary file
+        const data = syncStore.db.value.export()
+        const blob = new Blob([data], { type: 'application/x-sqlite3' })
+        const url = URL.createObjectURL(blob)
+        
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'panino-database.sqlite'
+        a.click()
+        
+        URL.revokeObjectURL(url)
+        ui.addToast('SQLite database exported successfully!')
+    } catch (err) {
+        console.error('Failed to export SQLite database:', err)
+        ui.addToast('Failed to export SQLite database: ' + err.message)
     }
 }
 </script>
