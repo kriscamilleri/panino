@@ -72,8 +72,9 @@ server {
     # Location block for the unified API Service
     # --------------------------------------------------------------------------
     # This matches all known API routes handled by the single backend service.
-    location ~ ^/(signup|login|me|sync|images|render-pdf|forgot-password|reset-password) {
-        # Unconditionally pass the request to our named location handler.
+    # Unconditionally pass the request to our named location handler.
+
+    location ~ ^/(signup|login|me|sync|images|render-pdf|forgot-password|reset-password)(/|$) {
         try_files /nonexistent-file @api_service;
     }
 
@@ -85,7 +86,6 @@ server {
         # Use a safe internal redirect for WebSocket requests ✅ FIX
         error_page 418 = @api_service; # Map a custom error to the named location
         if ($http_upgrade = 'websocket') {
-            return 418; # Trigger the internal redirect
         }
 
         # If not a WebSocket, serve the Vue.js Single Page Application (SPA).
