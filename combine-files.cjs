@@ -34,7 +34,7 @@ const argv = minimist(process.argv.slice(2), {
     path: process.cwd(),
     // You can mix extensions *and* exact filenames, separated by commas.
     //   e.g. ".js,.vue,docStore.js,PrintStylesPage.vue"
-    'file-types': ',.js,.json,.yml,.yaml,.vue,.html,.sql',
+    'file-types': ',.js,.json,.yml,.yaml,.vue,.html,.sql,Dockerfile,.cjs,.md',
     'output-file': 'combined_content.txt',
   },
 });
