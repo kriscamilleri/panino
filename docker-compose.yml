@@ -20,6 +20,8 @@ services:
     volumes:
       - api-data:/app/data # Persist SQLite DBs
       - uploads-data:/app/uploads # Persist uploaded files
+    ports:
+      - "8000:8000"
 
 
 volumes:
