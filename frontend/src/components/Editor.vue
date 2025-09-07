@@ -56,12 +56,13 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
 import { useDraftStore } from '@/store/draftStore';
 import { useAuthStore } from '@/store/authStore';
+import { useEditorStore } from '@/store/editorStore';
 
 /* ───── helpers ───── */
 function debounce(fn, wait) {
@@ -81,6 +82,7 @@ const docStore = useDocStore();
 const ui = useUiStore();
 const draftStore = useDraftStore();
 const authStore = useAuthStore();
+const editorStore = useEditorStore();
 const textareaRef = ref(null);
 
 const { selectedFile: file } = storeToRefs(docStore);
@@ -171,31 +173,45 @@ async function uploadImage(fileObj) {
 function insertAtCursor(text) {
   const textarea = textareaRef.value;
   if (!textarea) return;
+
+  const scrollPos = textarea.scrollTop;
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const currentText = contentDraft.value;
+
   contentDraft.value = currentText.slice(0, start) + text + currentText.slice(end);
   handleInput();
+
   nextTick(() => {
     textarea.focus();
     textarea.setSelectionRange(start + text.length, start + text.length);
+    textarea.scrollTop = scrollPos;
   });
 }
 
 function insertFormat(prefix, suffix) {
   const textarea = textareaRef.value;
   if (!textarea) return;
+
+  const scrollPos = textarea.scrollTop;
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
-  const selected = contentDraft.value.slice(start, end);
-  insertAtCursor(prefix + selected + suffix);
+  const selectedText = contentDraft.value.slice(start, end);
+  const newText = prefix + selectedText + suffix;
+
+  contentDraft.value =
+    contentDraft.value.slice(0, start) +
+    newText +
+    contentDraft.value.slice(end);
+
+  handleInput();
+
   nextTick(() => {
     textarea.focus();
-    if (selected) {
-      textarea.setSelectionRange(start + prefix.length, end + prefix.length);
-    } else {
-      textarea.setSelectionRange(start + prefix.length, start + prefix.length);
-    }
+    const finalStartPos = start + prefix.length;
+    const finalEndPos = end + prefix.length;
+    textarea.setSelectionRange(finalStartPos, finalEndPos);
+    textarea.scrollTop = scrollPos;
   });
 }
 
@@ -236,6 +252,7 @@ function replaceNext(term, repl) {
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   if (contentDraft.value.substring(start, end) === term) {
+    // Re-use insertAtCursor to handle text replacement and state restoration
     insertAtCursor(repl);
   } else {
     findNext(term);
@@ -249,8 +266,19 @@ function replaceAll(term, repl) {
 }
 
 /* ───── expose methods for parent components ───── */
-defineExpose({
+const exposedMethods = {
   insertFormat, insertList, insertTable, insertCodeBlock, insertImagePlaceholder,
   uploadImage, findNext, replaceNext, replaceAll
+};
+
+defineExpose(exposedMethods);
+
+/* ───── register/unregister with global store ───── */
+onMounted(() => {
+  editorStore.setEditorRef(exposedMethods);
+});
+
+onUnmounted(() => {
+  editorStore.clearEditorRef();
 });
 </script>

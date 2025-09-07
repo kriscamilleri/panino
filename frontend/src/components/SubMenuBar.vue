@@ -22,10 +22,10 @@
                 </BaseButton>
             </div>
 
-            <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="document">
+            <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="editor">
                 <button v-for="format in textFormats" :key="format.label" @click="insertFormat(format)"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                    :title="format.label" :data-testid="`submenu-document-${format.label.toLowerCase()}`">
+                    :title="format.label" :data-testid="`submenu-editor-${format.label.toLowerCase()}`">
                     <component :is="format.icon" class="w-4 h-4" /><span>{{ format.label }}</span>
                 </button>
 
@@ -33,7 +33,7 @@
 
                 <button v-for="list in listFormats" :key="list.label" @click="insertList(list)"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
-                    :title="list.label" :data-testid="`submenu-document-${list.label.toLowerCase().replace(' ', '-')}`">
+                    :title="list.label" :data-testid="`submenu-editor-${list.label.toLowerCase().replace(' ', '-')}`">
                     <component :is="list.icon" class="w-4 h-4" /><span>{{ list.label }}</span>
                 </button>
 
@@ -41,14 +41,14 @@
 
                 <button @click="insertTable"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                    title="Insert Table" data-testid="submenu-document-table">
+                    title="Insert Table" data-testid="submenu-editor-table">
                     <Table class="w-4 h-4" />
                     <span>Table</span>
                 </button>
 
                 <button @click="insertCodeBlock"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                    title="Insert Code Block" data-testid="submenu-document-code">
+                    title="Insert Code Block" data-testid="submenu-editor-code">
                     <Code2 class="w-4 h-4" /><span>Code</span>
                 </button>
 
@@ -56,13 +56,13 @@
 
                 <button @click="insertImagePlaceholder"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                    title="Insert Image Markdown" data-testid="submenu-document-image-placeholder">
+                    title="Insert Image Markdown" data-testid="submenu-editor-image-placeholder">
                     <ImageIcon class="w-4 h-4" /><span>Image</span>
                 </button>
 
                 <button @click="openImageDialog"
                     class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                    title="Insert Image From File" data-testid="submenu-document-image-upload">
+                    title="Insert Image From File" data-testid="submenu-editor-image-upload">
                     <Upload class="w-4 h-4" /><span>Image&nbsp;from&nbsp;File</span>
                 </button>
                 <input ref="imageInput" type="file" accept="image/*" class="hidden" @change="handleImageSelect" />
@@ -74,44 +74,44 @@
                         <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
                         <input type="text" placeholder="Find..." v-model="searchTerm"
                             class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500"
-                            data-testid="submenu-document-search-input" @keyup.enter="findNext(searchTerm)" />
+                            data-testid="submenu-editor-search-input" @keyup.enter="findNext(searchTerm)" />
                     </div>
                     <button @click="findNext(searchTerm)"
                         class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                        data-testid="submenu-document-search-next">
+                        data-testid="submenu-editor-search-next">
                         <ArrowRight class="w-4 h-4" /><span>Next</span>
                     </button>
 
                     <div class="flex items-center gap-1 ml-4">
                         <input id="replaceEnabled" type="checkbox" v-model="replaceEnabled"
-                            data-testid="submenu-document-replace-checkbox" />
+                            data-testid="submenu-editor-replace-checkbox" />
                         <label for="replaceEnabled" class="text-sm select-none">Replace</label>
                     </div>
 
                     <template v-if="replaceEnabled">
                         <input type="text" placeholder="Replacement…" v-model="replaceTerm"
                             class="border px-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500"
-                            data-testid="submenu-document-replace-input"
+                            data-testid="submenu-editor-replace-input"
                             @keyup.enter="replaceNext(searchTerm, replaceTerm)" />
 
                         <button @click="replaceNext(searchTerm, replaceTerm)"
                             class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            data-testid="submenu-document-replace-next">
+                            data-testid="submenu-editor-replace-next">
                             <Replace class="w-4 h-4" /><span>Go</span>
                         </button>
 
                         <button @click="replaceAll(searchTerm, replaceTerm)"
                             class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            data-testid="submenu-document-replace-all">
+                            data-testid="submenu-editor-replace-all">
                             <Replace class="w-4 h-4" /><span>All</span>
                         </button>
                     </template>
                 </div>
-                <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()" data-testid="submenu-document-stats">
+                <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()" data-testid="submenu-editor-stats">
                     <BarChart2 class="w-4 h-4" /><span>Stats</span>
                 </BaseButton>
                 <BaseButton :isActive="ui.showMetadata" @click="ui.toggleMetadata()"
-                    data-testid="submenu-document-info">
+                    data-testid="submenu-editor-info">
                     <Info class="w-4 h-4" /><span>Info</span>
                 </BaseButton>
             </div>
@@ -134,11 +134,10 @@
 </template>
 
 <script setup>
-import { ref, inject } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
-import { useSyncStore } from '@/store/syncStore'
+import { useEditorStore } from '@/store/editorStore'
 import BaseButton from '@/components/BaseButton.vue'
 
 import {
@@ -167,22 +166,8 @@ import {
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
-const docStore = useDocStore()
-const syncStore = useSyncStore()
+const editorStore = useEditorStore()
 const router = useRouter()
-
-// Inject editor methods from parent component that contains the Editor
-const editorMethods = inject('editorMethods', {
-    insertFormat: () => console.warn('Editor methods not available'),
-    insertList: () => console.warn('Editor methods not available'),
-    insertTable: () => console.warn('Editor methods not available'),
-    insertCodeBlock: () => console.warn('Editor methods not available'),
-    insertImagePlaceholder: () => console.warn('Editor methods not available'),
-    uploadImage: () => console.warn('Editor methods not available'),
-    findNext: () => console.warn('Editor methods not available'),
-    replaceNext: () => console.warn('Editor methods not available'),
-    replaceAll: () => console.warn('Editor methods not available'),
-})
 
 /* ───────── state ───────── */
 const searchTerm = ref('')
@@ -205,19 +190,19 @@ const listFormats = [
 
 /* ───────── helpers ───────── */
 function insertFormat(f) {
-    editorMethods.insertFormat(f.prefix, f.suffix)
+    editorStore.insertFormat(f.prefix, f.suffix)
 }
 function insertList(l) {
-    editorMethods.insertList(l.prefix)
+    editorStore.insertList(l.prefix)
 }
 function insertTable() {
-    editorMethods.insertTable()
+    editorStore.insertTable()
 }
 function insertCodeBlock() {
-    editorMethods.insertCodeBlock()
+    editorStore.insertCodeBlock()
 }
 function insertImagePlaceholder() {
-    editorMethods.insertImagePlaceholder()
+    editorStore.insertImagePlaceholder()
 }
 
 function openImageDialog() {
@@ -226,22 +211,22 @@ function openImageDialog() {
 function handleImageSelect(e) {
     const file = e.target.files[0]
     if (file) {
-        editorMethods.uploadImage(file)
+        editorStore.uploadImage(file)
         e.target.value = ''
     }
 }
 
 /* Find / replace */
 function findNext(term) {
-    editorMethods.findNext(term)
+    editorStore.findNext(term)
 }
 function replaceNext(term, repl) {
     if (!replaceEnabled.value) return
-    editorMethods.replaceNext(term, repl)
+    editorStore.replaceNext(term, repl)
 }
 function replaceAll(term, repl) {
     if (!replaceEnabled.value) return
-    editorMethods.replaceAll(term, repl)
+    editorStore.replaceAll(term, repl)
 }
 
 /* Navigation & exports */

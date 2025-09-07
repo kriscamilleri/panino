@@ -11,11 +11,11 @@
 
                 </BaseButton>
 
-                <BaseButton :isActive="ui.showActionBar" @click="ui.toggleActionBar()" title="Toggle Document"
-                    data-testid="navbar-document-button">
+                <BaseButton :isActive="ui.showActionBar" @click="ui.toggleActionBar()" title="Toggle Editor"
+                    data-testid="navbar-editor-button">
 
                     <Paintbrush class="md:w-4 md:h-4 w-5 h-5" />
-                    <span class="hidden md:inline">Document</span>
+                    <span class="hidden md:inline">Editor</span>
 
                 </BaseButton>
 
