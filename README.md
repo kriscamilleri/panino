@@ -109,9 +109,9 @@ VITE_TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
 ```
 
 > #### Where to Get Keys
-> JWT_SECRET: You should generate this yourself. A good method is to run openssl rand -hex 32 in your terminal.
-> TURNSTILE_SECRET_KEY & TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
-> SMTP_*: These settings are provided by your email service (e.g., Mailgun, SendGrid, Amazon SES, or your personal email provider).
+> - JWT_SECRET: You should generate this yourself. A good method is to run openssl rand -hex 32 in your terminal.
+> - TURNSTILE_SECRET_KEY & TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
+> - SMTP_*: These settings are provided by your email service (e.g., Mailgun, SendGrid, Amazon SES, or your personal email provider).
 
 
 ## License
