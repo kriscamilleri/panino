@@ -1,97 +1,70 @@
-# This map directive helps cleanly handle WebSocket upgrade headers.
-map $http_upgrade $connection_upgrade {
-    default upgrade;
-    ''      close;
-}
+# File: nginx.conf.template
 
 # --- HTTP Server: Redirects all traffic to HTTPS ---
-# This ensures that users always connect over a secure connection.
 server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
 
-    # This location block is important for Let's Encrypt's Certbot to renew certificates.
+    # Required for Let's Encrypt certificate renewal
     location /.well-known/acme-challenge/ {
-        root /var/www/html; # A standard, publicly accessible directory
+        root /var/www/html;
     }
 
-    # For all other requests, issue a permanent redirect to the HTTPS version.
+    # Redirect all other traffic to HTTPS
     location / {
         return 301 https://$host$request_uri;
     }
 }
 
 # --- HTTPS Server: Main application server ---
-# This block handles all secure traffic for your application.
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name ${DOMAIN};
 
-    # --- SSL Configuration ---
-    # The setup-nginx.cjs script runs Certbot, which will create these files.
+    # SSL configuration (managed by Certbot)
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # --- Security Headers ---
+    # Security Headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-Content-Type-Options "nosniff";
-    add_header Referrer-Policy "strict-origin-when-cross-origin";
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
 
-    # --- Logging ---
-    access_log /var/log/nginx/${DOMAIN}.access.log;
-    error_log /var/log/nginx/${DOMAIN}.error.log;
-
-    # --- Backend Service ---
-    # We define the upstream API service here. It MUST be 127.0.0.1 (localhost)
-    # because Nginx is running on the host and connecting to the port
-    # published by the Docker container.
-    set $upstream_api http://127.0.0.1:8000;
-
-    # --- API Routes ---
-    # This location block uses a regex to match all your known API endpoints
-    # and proxies them to your backend api-service.
-    location ~ ^/(login|signup|me|sync|images|render-pdf|forgot-password|reset-password) {
-        proxy_pass $upstream_api;
-
-        # Standard headers to pass information to the backend service
+    # == API Traffic ==
+    # All requests starting with /api/ will be proxied to your backend.
+    location /api/ {
+        # This line removes the "/api" prefix before forwarding the request,
+        # so your backend doesn't need to know about it.
+        rewrite ^/api/(.*)$ /$1 break;
+        
+        proxy_pass http://127.0.0.1:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Increase max body size for things like image uploads
-        client_max_body_size 50M;
+        client_max_body_size 50M; # For image uploads
     }
 
-    # --- Root Location: Serves Frontend SPA & Handles WebSockets ---
+    # == WebSocket Traffic ==
+    # A dedicated location for WebSocket connections.
+    location /ws/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400s; # Keep connection alive for 24 hours
+    }
+    
+    # == Frontend Application (Vue.js SPA) ==
+    # All other requests are served as static files.
     location / {
-        # WebSocket connections are made to the root path. We must detect the
-        # upgrade request and proxy it to the backend for real-time sync.
-        if ($http_upgrade = 'websocket') {
-            proxy_pass $upstream_api;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection $connection_upgrade;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 86400; # Keep WebSocket connections alive for a day
-            break;
-        }
-
-        # For all other requests, serve the static files of your Vue.js application.
-        # The root path is where your `deploy.sh` script places the built `dist` folder.
         root /var/www/${DOMAIN}/dist;
-        
-        # This is the magic for Single Page Applications (SPAs).
-        # It tries to find a file matching the URI, then a directory,
-        # and if neither exists, it serves /index.html to let Vue Router handle the route.
+        # This lets your Vue Router handle all non-file requests.
         try_files $uri $uri/ /index.html;
     }
 }
