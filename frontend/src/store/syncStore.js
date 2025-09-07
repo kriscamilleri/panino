@@ -6,8 +6,9 @@ import wasmUrl from '@vlcn.io/crsqlite-wasm/crsqlite.wasm?url';
 import { useAuthStore } from './authStore';
 import { useDocStore } from './docStore';
 
-const API_URL = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
-const WS_URL = API_URL.replace(/^http/, 'ws');
+const isProd = import.meta.env.PROD;
+const API_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
+const WS_URL = isProd ? window.location.origin.replace(/^http/, 'ws') + '/ws/' : API_URL.replace(/^http/, 'ws');
 
 const DB_SCHEMA = `
 PRAGMA foreign_keys = ON;

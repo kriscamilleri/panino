@@ -5,7 +5,8 @@ import { useSyncStore } from './syncStore';
 import { useDocStore } from './docStore';
 
 // The single, unified API URL
-const API_SERVICE_URL = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
+const isProd = import.meta.env.PROD;
+const API_SERVICE_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
 
 export const useAuthStore = defineStore('authStore', () => {
     const token = ref(localStorage.getItem('jwt_token'));
