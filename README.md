@@ -60,33 +60,28 @@ npm run dev
 ```
 
 
-## Environment Variables
+### Environment Variables
 
 You need to create two environment files to run the application.
 
-### 1. Root (`/.env`)
+#### 1. Root (`/.env`)
 
 This file should be placed in the root directory of the project. It configures the backend services, deployment scripts, and email settings.
 
 ```ini
 # A long, random, secure string for signing authentication tokens.
 JWT_SECRET=generate_a_strong_random_secret
-
 # Cloudflare Turnstile credentials for CAPTCHA. Get these from your Cloudflare dashboard.
 # Used for server-side verification.
 TURNSTILE_SECRET_KEY=0x4...SECRET...VI
 # Used by the Nginx setup script to create the frontend .env file.
 TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
-
 # The public URL of your frontend (e.g., [https://notes.example.com](https://notes.example.com))
 FRONTEND_URL="[https://panino.sh](https://panino.sh)"
-
 # Domain name used by the Nginx setup script (e.g., notes.example.com)
 DOMAIN="panino.sh"
-
 # Your email address for Let's Encrypt SSL certificate registration.
 EMAIL="your-email@example.com"
-
 # --- SMTP Server Settings (for password resets) ---
 # Hostname of your SMTP server.
 SMTP_HOST=smtp.mailgun.org
@@ -98,7 +93,6 @@ SMTP_USER=postmaster@yourdomain.com
 SMTP_PASS=your_smtp_password
 # The "From" address for emails sent by the application.
 SMTP_FROM="Panino <noreply@panino.sh>"
-
 # (Optional) Set to true to skip Let's Encrypt setup and handle SSL manually.
 SKIP_SSL=false
 ```
@@ -110,17 +104,14 @@ This file is used to build the frontend application. The deployment script (depl
 # The public URL where the backend API is accessible. In production, this is
 # usually the same as your main domain.
 VITE_API_SERVICE_URL="[https://panino.sh](https://panino.sh)"
-
 # Your public site key from the Cloudflare Turnstile dashboard.
 VITE_TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
 ```
 
-### Where to Get Keys:
-JWT_SECRET: You should generate this yourself. A good method is to run openssl rand -hex 32 in your terminal.
-
-TURNSTILE_SECRET_KEY & TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
-
-SMTP_*: These settings are provided by your email service (e.g., Mailgun, SendGrid, Amazon SES, or your personal email provider).
+> #### Where to Get Keys
+> JWT_SECRET: You should generate this yourself. A good method is to run openssl rand -hex 32 in your terminal.
+> TURNSTILE_SECRET_KEY & TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
+> SMTP_*: These settings are provided by your email service (e.g., Mailgun, SendGrid, Amazon SES, or your personal email provider).
 
 
 ## License
