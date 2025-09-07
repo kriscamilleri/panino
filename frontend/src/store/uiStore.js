@@ -22,6 +22,7 @@ export const useUiStore = defineStore('uiStore', () => {
 
     // Modal and Toast state (transient)
     const showImportModal = ref(false);
+    const showExportModal = ref(false);
     const toasts = ref([]);
 
     let settingsLoaded = false;
@@ -135,7 +136,7 @@ export const useUiStore = defineStore('uiStore', () => {
         // State
         showDocuments, showEditor, showPreview, showStats, showMetadata,
         showViewMenu, showActionBar, showFileMenu,
-        showImportModal, toasts,
+        showImportModal, showExportModal, toasts,
 
         // Computed
         isAnyMenuOpen,
@@ -159,6 +160,8 @@ export const useUiStore = defineStore('uiStore', () => {
 
         openImportModal: () => showImportModal.value = true,
         closeImportModal: () => showImportModal.value = false,
+        openExportModal: () => showExportModal.value = true,
+        closeExportModal: () => showExportModal.value = false,
         addToast,
         removeToast,
     };
