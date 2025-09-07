@@ -36,10 +36,8 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
         const zip = new JSZip();
 
-        const { rows: folderRows } = await syncStore.execute('SELECT * FROM folders');
-        const { rows: noteRows } = await syncStore.execute('SELECT * FROM notes');
-        const folders = folderRows?._array || [];
-        const notes = noteRows?._array || [];
+        const folders = await syncStore.execute('SELECT * FROM folders');
+        const notes = await syncStore.execute('SELECT * FROM notes');
 
         const folderMap = new Map(folders.map(f => [f.id, f]));
 
@@ -51,11 +49,17 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             const item = isFolder ? folderMap.get(itemId) : notes.find(n => n.id === itemId);
             if (!item) return '';
 
+            // Sanitize names to prevent invalid paths
+            const saneName = (item.name || item.title || "Untitled").replace(/[\/\\?%*:|"<>]/g, '_');
+
             const parentId = isFolder ? item.parent_id : item.folder_id;
-            if (!parentId) return item.name || item.title;
+            if (!parentId) {
+                paths.set(itemId, saneName);
+                return saneName;
+            }
 
             const parentPath = getPath(parentId, true);
-            const path = `${parentPath}/${item.name || item.title}`;
+            const path = `${parentPath}/${saneName}`;
             paths.set(itemId, path);
             return path;
         }
@@ -63,13 +67,17 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         // Add folders to zip
         for (const folder of folders) {
             const path = getPath(folder.id, true);
-            zip.folder(path);
+            if (path) {
+                zip.folder(path);
+            }
         }
 
         // Add notes to zip
         for (const note of notes) {
             const path = getPath(note.id, false);
-            zip.file(`${path}.md`, note.content || '');
+            if (path) {
+                zip.file(`${path}.md`, note.content || '');
+            }
         }
 
         const blob = await zip.generateAsync({ type: 'blob' });
