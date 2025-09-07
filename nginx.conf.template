@@ -1,35 +1,36 @@
-# File: nginx.conf.template
-
 # --- HTTP Server: Redirects all traffic to HTTPS ---
+# This ensures that users always connect over a secure connection.
 server {
     listen 80;
     listen [::]:80;
     server_name ${DOMAIN};
 
-    # Required for Let's Encrypt certificate renewal
+    # This location block is important for Let's Encrypt's Certbot to renew certificates.
     location /.well-known/acme-challenge/ {
-        root /var/www/html;
+        root /var/www/html; # A standard, publicly accessible directory
     }
 
-    # Redirect all other traffic to HTTPS
+    # For all other requests, issue a permanent redirect to the HTTPS version.
     location / {
         return 301 https://$host$request_uri;
     }
 }
 
 # --- HTTPS Server: Main application server ---
+# This block handles all secure traffic for your application.
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name ${DOMAIN};
 
-    # SSL configuration (managed by Certbot)
+    # --- SSL Configuration ---
+    # The setup-nginx.cjs script runs Certbot, which will create these files.
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # Security Headers
+    # --- Security Headers ---
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-Content-Type-Options "nosniff";
@@ -37,11 +38,13 @@ server {
     # == API Traffic ==
     # All requests starting with /api/ will be proxied to your backend.
     location /api/ {
-        # This line removes the "/api" prefix before forwarding the request,
-        # so your backend doesn't need to know about it.
-        rewrite ^/api/(.*)$ /$1 break;
+        # The trailing slash on the proxy_pass URL is important.
+        # It tells Nginx to replace the "/api" part of the request
+        # with "/" before sending it to the backend.
+        # e.g., a request to /api/login becomes /login for your Node.js app.
+        proxy_pass http://127.0.0.1:8000/;
         
-        proxy_pass http://127.0.0.1:8000;
+        # Standard headers to pass information to the backend service
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -52,7 +55,8 @@ server {
     # == WebSocket Traffic ==
     # A dedicated location for WebSocket connections.
     location /ws/ {
-        proxy_pass http://127.0.0.1:8000;
+        # The WebSocket server on your backend is listening at its root path.
+        proxy_pass http://127.0.0.1:8000/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -61,10 +65,12 @@ server {
     }
     
     # == Frontend Application (Vue.js SPA) ==
-    # All other requests are served as static files.
+    # All other requests are served as static files from your 'dist' folder.
     location / {
         root /var/www/${DOMAIN}/dist;
-        # This lets your Vue Router handle all non-file requests.
+        # This is the magic for Single Page Applications (SPAs).
+        # It tries to find a matching file, then a directory, and if neither
+        # exists, it serves /index.html to let Vue Router handle the route.
         try_files $uri $uri/ /index.html;
     }
 }
