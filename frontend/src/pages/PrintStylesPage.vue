@@ -45,7 +45,8 @@ const router = useRouter();
 const docStore = useDocStore();
 const markdownStore = useMarkdownStore();
 const authStore = useAuthStore();
-const API_URL = import.meta.env.VITE_API_SERVICE_URL;
+const isProd = import.meta.env.PROD;
+const API_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
 
 const pdfUrl = ref('');
 const finalHtmlForPdf = ref(''); // For the debug button
