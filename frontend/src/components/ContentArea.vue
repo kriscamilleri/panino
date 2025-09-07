@@ -1,22 +1,22 @@
 <template>
     <div class="flex flex-1 overflow-hidden flex-col md:flex-row" data-testid="content-area-container">
-                <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
+        <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
             <div class="flex-1 overflow-hidden" data-testid="content-area-folder-preview">
                 <FolderPreview :folderId="docStore.selectedFolderId" class="h-full overflow-y-auto" />
             </div>
         </template>
 
-                <template v-else-if="!docStore.selectedFolderId && !docStore.selectedFileId">
+        <template v-else-if="!docStore.selectedFolderId && !docStore.selectedFileId">
             <div class="flex-1 overflow-hidden" data-testid="content-area-recent-docs">
                 <FolderPreview folderId="__recent__" class="h-full overflow-y-auto" />
             </div>
         </template>
 
-                <template v-else>
+        <template v-else>
             <div class="flex flex-1 h-full overflow-hidden"
                 :class="{ 'flex-col': isMobileView, 'flex-row': !isMobileView }">
                 <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
-                                        <template v-if="ui.showEditor">
+                    <template v-if="ui.showEditor">
                         <div :class="{
                             'h-1/2': isMobileView && ui.showPreview,
                             'h-full': isMobileView && !ui.showPreview,
@@ -28,12 +28,12 @@
                             </div>
                         </div>
 
-                                                <div v-if="!isMobileView && ui.showPreview"
+                        <div v-if="!isMobileView && ui.showPreview"
                             class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 order-1"
                             @mousedown="startEditorResize($event)" data-testid="content-area-editor-resizer"></div>
                     </template>
 
-                                        <div v-if="ui.showPreview" :class="{
+                    <div v-if="ui.showPreview" :class="{
                         'h-1/2': isMobileView && ui.showEditor,
                         'h-full': isMobileView && !ui.showEditor,
                         'flex-1': !isMobileView
@@ -49,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, computed, defineExpose } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import FolderPreview from '@/components/FolderPreview.vue'
@@ -73,28 +73,6 @@ const isResizing = ref(false)
 const startX = ref(0)
 const startWidth = ref(0)
 const editorRef = ref(null)
-
-// Get editor methods from the Editor component instance
-const editorMethods = computed(() => {
-    if (editorRef.value) {
-        return {
-            insertFormat: editorRef.value.insertFormat,
-            insertList: editorRef.value.insertList,
-            insertTable: editorRef.value.insertTable,
-            insertCodeBlock: editorRef.value.insertCodeBlock,
-            insertImagePlaceholder: editorRef.value.insertImagePlaceholder,
-            uploadImage: editorRef.value.uploadImage,
-            findNext: editorRef.value.findNext,
-            replaceNext: editorRef.value.replaceNext,
-            replaceAll: editorRef.value.replaceAll,
-        }
-    }
-    // Return a non-functional fallback to prevent errors
-    return null
-})
-
-// Expose the editor methods for the parent component (HomePage.vue)
-defineExpose({ editorMethods })
 
 function startEditorResize(event) {
     if (props.isMobileView) return
