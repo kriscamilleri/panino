@@ -1,101 +1,97 @@
-# /etc/nginx/sites-available/your-domain.conf
+# This map directive helps cleanly handle WebSocket upgrade headers.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 
-# --------------------------------------------------------------------------
-# Redirect all HTTP traffic to HTTPS
-# --------------------------------------------------------------------------
+# --- HTTP Server: Redirects all traffic to HTTPS ---
+# This ensures that users always connect over a secure connection.
 server {
     listen 80;
+    listen [::]:80;
     server_name ${DOMAIN};
 
-    # Let's Encrypt ACME challenge
-    location ~ /.well-known/acme-challenge/ {
-        allow all;
-        root /var/www/html;
+    # This location block is important for Let's Encrypt's Certbot to renew certificates.
+    location /.well-known/acme-challenge/ {
+        root /var/www/html; # A standard, publicly accessible directory
     }
 
+    # For all other requests, issue a permanent redirect to the HTTPS version.
     location / {
-        return 301 https://$server_name$request_uri;
+        return 301 https://$host$request_uri;
     }
 }
 
-# --------------------------------------------------------------------------
-# Main server block for HTTPS, static assets, and API proxy
-# --------------------------------------------------------------------------
+# --- HTTPS Server: Main application server ---
+# This block handles all secure traffic for your application.
 server {
     listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     server_name ${DOMAIN};
 
     # --- SSL Configuration ---
+    # The setup-nginx.cjs script runs Certbot, which will create these files.
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers 'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384';
-    ssl_prefer_server_ciphers off;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # --- Security & Browser Feature Headers ---
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    # Required for cr-sqlite wasm with SharedArrayBuffer
-    add_header Cross-Origin-Opener-Policy "same-origin" always;
-    add_header Cross-Origin-Embedder-Policy "require-corp" always;
+    # --- Security Headers ---
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header Referrer-Policy "strict-origin-when-cross-origin";
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
 
-    # --- General Settings ---
-    # Set max body size to match backend limit for uploads, PDF generation, etc.
-    client_max_body_size 50M;
+    # --- Logging ---
+    access_log /var/log/nginx/${DOMAIN}.access.log;
+    error_log /var/log/nginx/${DOMAIN}.error.log;
 
-    # --------------------------------------------------------------------------
-    # Centralized Proxy Logic (Named Location) ✅ FIX
-    # --------------------------------------------------------------------------
-    # This block is not accessible from the outside. It holds all proxy settings
-    # to avoid repetition and issues with the 'if' directive.
-    location @api_service {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
+    # --- Backend Service ---
+    # We define the upstream API service here. It MUST be 127.0.0.1 (localhost)
+    # because Nginx is running on the host and connecting to the port
+    # published by the Docker container.
+    set $upstream_api http://127.0.0.1:8000;
 
-        # These headers are needed for both regular API calls and WebSockets
+    # --- API Routes ---
+    # This location block uses a regex to match all your known API endpoints
+    # and proxies them to your backend api-service.
+    location ~ ^/(login|signup|me|sync|images|render-pdf|forgot-password|reset-password) {
+        proxy_pass $upstream_api;
+
+        # Standard headers to pass information to the backend service
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # These headers are specifically for WebSocket upgrades
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "Upgrade";
-
-        proxy_buffering off;
-        proxy_redirect off;
+        # Increase max body size for things like image uploads
+        client_max_body_size 50M;
     }
 
-    # --------------------------------------------------------------------------
-    # Location block for the unified API Service
-    # --------------------------------------------------------------------------
-    # This matches all known API routes handled by the single backend service.
-    # Unconditionally pass the request to our named location handler.
-
-    location ~ ^/(signup|login|me|sync|images|render-pdf|forgot-password|reset-password)(/|$) {
-        try_files /nonexistent-file @api_service;
-    }
-
-    # --------------------------------------------------------------------------
-    # Location block for the Frontend SPA, Static Assets, and WebSocket
-    # --------------------------------------------------------------------------
-    # This is the catch-all location.
+    # --- Root Location: Serves Frontend SPA & Handles WebSockets ---
     location / {
-        # Use a safe internal redirect for WebSocket requests ✅ FIX
-        error_page 418 = @api_service; # Map a custom error to the named location
+        # WebSocket connections are made to the root path. We must detect the
+        # upgrade request and proxy it to the backend for real-time sync.
         if ($http_upgrade = 'websocket') {
+            proxy_pass $upstream_api;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 86400; # Keep WebSocket connections alive for a day
+            break;
         }
 
-        # If not a WebSocket, serve the Vue.js Single Page Application (SPA).
+        # For all other requests, serve the static files of your Vue.js application.
+        # The root path is where your `deploy.sh` script places the built `dist` folder.
         root /var/www/${DOMAIN}/dist;
+        
+        # This is the magic for Single Page Applications (SPAs).
+        # It tries to find a file matching the URI, then a directory,
+        # and if neither exists, it serves /index.html to let Vue Router handle the route.
         try_files $uri $uri/ /index.html;
-
-        # Add a nested location block to cache static assets for better performance.
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|wasm)$ {
-            expires 30d;
-            add_header Cache-Control "public, no-transform";
-        }
     }
 }
