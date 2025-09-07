@@ -46,23 +46,13 @@
                             <p class="text-sm text-gray-500">A ZIP archive containing all your notes as individual `.md` files, organized in their respective folders.</p>
                         </div>
                     </button>
-
-                    <button @click="handleExport('sqlite')"
-                        class="w-full text-left flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-sqlite-db">
-                        <Database class="w-8 h-8 text-gray-500" />
-                        <div>
-                            <p class="font-semibold text-gray-800">SQLite Database</p>
-                            <p class="text-sm text-gray-500">The raw SQLite database file. This is a full, portable backup of your local-first data.</p>
-                        </div>
-                    </button>
                 </div>
                  <div v-if="error" class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md"
-                     data-testid="export-modal-error">
-                     <div class="flex">
-                         <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
-                         <p class="text-sm text-red-600">{{ error }}</p>
-                     </div>
+                      data-testid="export-modal-error">
+                      <div class="flex">
+                           <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
+                           <p class="text-sm text-red-600">{{ error }}</p>
+                      </div>
                  </div>
             </div>
 
@@ -82,9 +72,8 @@
 <script setup>
 import { ref } from 'vue';
 import { useDocStore } from '@/store/docStore';
-import { useSyncStore } from '@/store/syncStore';
 import { useUiStore } from '@/store/uiStore';
-import { X, FileJson, FolderArchive, Database, AlertCircle } from 'lucide-vue-next';
+import { X, FileJson, FolderArchive, AlertCircle } from 'lucide-vue-next';
 
 defineProps({
     show: Boolean
@@ -92,7 +81,6 @@ defineProps({
 
 defineEmits(['close']);
 const docStore = useDocStore();
-const syncStore = useSyncStore();
 const uiStore = useUiStore();
 const error = ref('');
 
@@ -108,9 +96,6 @@ async function handleExport(format) {
                 break;
             case 'zip':
                 await exportZip();
-                break;
-            case 'sqlite':
-                await exportSQLite();
                 break;
         }
         uiStore.addToast(`Exported as ${format.toUpperCase()} successfully!`);
@@ -136,28 +121,6 @@ async function exportStackEdit() {
 
 async function exportZip() {
     await docStore.exportZip(); // This one handles its own download
-}
-
-async function exportSQLite() {
-    if (!syncStore.isInitialized || !syncStore.db.value) {
-        throw new Error('Database is not initialized');
-    }
-
-    let data;
-    // The `export` method is the modern way to get the DB buffer from cr-sqlite wasm.
-    if (typeof syncStore.db.value.export === 'function') {
-        data = await syncStore.db.value.export();
-    } else {
-         throw new Error('Direct database export is not supported by your SQLite version/build.');
-    }
-
-    if (!data || data.length === 0) {
-        throw new Error('Exported database file is empty.');
-    }
-
-    const blob = new Blob([data], { type: 'application/x-sqlite3' });
-    const url = URL.createObjectURL(blob);
-    downloadFile(url, 'panino-database.sqlite');
 }
 
 function downloadFile(url, filename) {
