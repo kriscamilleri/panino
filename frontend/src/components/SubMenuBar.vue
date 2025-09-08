@@ -22,52 +22,58 @@
                 </BaseButton>
             </div>
 
-            <div v-else-if="ui.showActionBar" class="flex flex-wrap gap-2" key="editor">
+            <div v-else-if="ui.showActionBar" class="flex flex-wrap items-center gap-2"
+                :class="{ 'editor-menu-collapsed': ui.editorMenuCollapsed }" key="editor">
                 <button v-for="format in textFormats" :key="format.label" @click="insertFormat(format)"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
                     :title="format.label" :data-testid="`submenu-editor-${format.label.toLowerCase()}`">
-                    <component :is="format.icon" class="w-4 h-4" /><span>{{ format.label }}</span>
+                    <component :is="format.icon" class="w-4 h-4" />
+                    <span class="button-text">{{ format.label }}</span>
                 </button>
 
-                <div class="w-px h-6 bg-gray-300 mx-2"></div>
+                <div class="separator"></div>
 
                 <button v-for="list in listFormats" :key="list.label" @click="insertList(list)"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1 cursor-pointer"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
                     :title="list.label" :data-testid="`submenu-editor-${list.label.toLowerCase().replace(' ', '-')}`">
-                    <component :is="list.icon" class="w-4 h-4" /><span>{{ list.label }}</span>
+                    <component :is="list.icon" class="w-4 h-4" />
+                    <span class="button-text">{{ list.label }}</span>
                 </button>
 
-                <div class="w-px h-6 bg-gray-300 mx-2"></div>
+                <div class="separator"></div>
 
                 <button @click="insertTable"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
                     title="Insert Table" data-testid="submenu-editor-table">
                     <Table class="w-4 h-4" />
-                    <span>Table</span>
+                    <span class="button-text">Table</span>
                 </button>
 
                 <button @click="insertCodeBlock"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
                     title="Insert Code Block" data-testid="submenu-editor-code">
-                    <Code2 class="w-4 h-4" /><span>Code</span>
+                    <Code2 class="w-4 h-4" />
+                    <span class="button-text">Code</span>
                 </button>
 
-                <div class="w-px h-6 bg-gray-300 mx-2"></div>
+                <div class="separator"></div>
 
                 <button @click="insertImagePlaceholder"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
                     title="Insert Image Markdown" data-testid="submenu-editor-image-placeholder">
-                    <ImageIcon class="w-4 h-4" /><span>Image</span>
+                    <ImageIcon class="w-4 h-4" />
+                    <span class="button-text">Image</span>
                 </button>
 
                 <button @click="openImageDialog"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                    title="Insert Image From File" data-testid="submenu-editor-image-upload">
-                    <Upload class="w-4 h-4" /><span>Image&nbsp;from&nbsp;File</span>
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                    title="Upload and Insert Image" data-testid="submenu-editor-image-upload">
+                    <Upload class="w-4 h-4" />
+                    <span class="button-text">Image&nbsp;from&nbsp;File</span>
                 </button>
                 <input ref="imageInput" type="file" accept="image/*" class="hidden" @change="handleImageSelect" />
 
-                <div class="w-px h-6 bg-gray-300 mx-2"></div>
+                <div class="separator"></div>
 
                 <div class="flex items-center gap-2">
                     <div class="relative">
@@ -77,16 +83,18 @@
                             data-testid="submenu-editor-search-input" @keyup.enter="findNext(searchTerm)" />
                     </div>
                     <button @click="findNext(searchTerm)"
-                        class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                        data-testid="submenu-editor-search-next">
-                        <ArrowRight class="w-4 h-4" /><span>Next</span>
+                        class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                        title="Find Next" data-testid="submenu-editor-search-next">
+                        <ArrowRight class="w-4 h-4" />
+                        <span class="button-text">Next</span>
                     </button>
 
-                    <div class="flex items-center gap-1 ml-4">
-                        <input id="replaceEnabled" type="checkbox" v-model="replaceEnabled"
-                            data-testid="submenu-editor-replace-checkbox" />
-                        <label for="replaceEnabled" class="text-sm select-none">Replace</label>
-                    </div>
+                    <BaseButton :isActive="replaceEnabled" @click="replaceEnabled = !replaceEnabled"
+                        data-testid="submenu-editor-replace-toggle" title="Toggle Replace" class="text-sm">
+                        <ToggleLeft v-if="!replaceEnabled" class="w-4 h-4" />
+                        <ToggleRight v-else class="w-4 h-4" />
+                        <span class="button-text">Replace</span>
+                    </BaseButton>
 
                     <template v-if="replaceEnabled">
                         <input type="text" placeholder="Replacement…" v-model="replaceTerm"
@@ -95,25 +103,43 @@
                             @keyup.enter="replaceNext(searchTerm, replaceTerm)" />
 
                         <button @click="replaceNext(searchTerm, replaceTerm)"
-                            class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            data-testid="submenu-editor-replace-next">
-                            <Replace class="w-4 h-4" /><span>Go</span>
+                            class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                            title="Replace Next" data-testid="submenu-editor-replace-next">
+                            <Replace class="w-4 h-4" />
+                            <span class="button-text">Go</span>
                         </button>
 
                         <button @click="replaceAll(searchTerm, replaceTerm)"
-                            class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1"
-                            data-testid="submenu-editor-replace-all">
-                            <Replace class="w-4 h-4" /><span>All</span>
+                            class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                            title="Replace All" data-testid="submenu-editor-replace-all">
+                            <Replace class="w-4 h-4" />
+                            <span class="button-text">All</span>
                         </button>
                     </template>
                 </div>
-                <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()" data-testid="submenu-editor-stats">
-                    <BarChart2 class="w-4 h-4" /><span>Stats</span>
+
+                <div class="separator"></div>
+
+                <BaseButton :isActive="ui.showStats" @click="ui.toggleStats()" data-testid="submenu-editor-stats"
+                    title="Toggle Stats" class="text-sm">
+                    <BarChart2 class="w-4 h-4" />
+                    <span class="button-text">Stats</span>
                 </BaseButton>
                 <BaseButton :isActive="ui.showMetadata" @click="ui.toggleMetadata()"
-                    data-testid="submenu-editor-info">
-                    <Info class="w-4 h-4" /><span>Info</span>
+                    data-testid="submenu-editor-info" title="Toggle Info" class="text-sm">
+                    <Info class="w-4 h-4" />
+                    <span class="button-text">Info</span>
                 </BaseButton>
+
+                <div class="separator"></div>
+
+                <BaseButton :isActive="ui.editorMenuCollapsed" @click="ui.toggleEditorMenuCollapsed()"
+                    title="Collapse/Expand Menu" data-testid="submenu-editor-collapse" class="text-sm">
+                    <PanelLeftClose v-if="!ui.editorMenuCollapsed" class="w-4 h-4" />
+                    <PanelLeftOpen v-else class="w-4 h-4" />
+                    <span class="button-text">Collapse</span>
+                </BaseButton>
+
             </div>
 
             <div v-else-if="ui.showFileMenu" class="flex flex-wrap gap-2" key="file">
@@ -163,6 +189,10 @@ import {
     Printer,
     Image as ImageIcon,
     Replace,
+    PanelLeftClose,
+    PanelLeftOpen,
+    ToggleLeft,
+    ToggleRight,
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
@@ -237,3 +267,33 @@ function goToPrintStyles() {
     router.push('/print-styles')
 }
 </script>
+
+<style scoped>
+.separator {
+    width: 1px;
+    height: 1.5rem;
+    /* 24px */
+    background-color: #d1d5db;
+    /* gray-300 */
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+}
+
+.editor-menu-collapsed .button-text,
+.editor-menu-collapsed label[for="replaceEnabled"] {
+    display: none;
+}
+
+.editor-menu-collapsed button,
+.editor-menu-collapsed .BaseButton {
+    padding-left: 0.5rem;
+    /* 8px */
+    padding-right: 0.5rem;
+    /* 8px */
+}
+
+/* Target the span inside the slotted BaseButton */
+.editor-menu-collapsed :deep(.BaseButton span) {
+    display: none;
+}
+</style>
