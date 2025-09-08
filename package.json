@@ -5,6 +5,9 @@
   "scripts": {
     "llm": "node combine-files.cjs",
     "llmfe": "node combine-files.cjs --path ./frontend/",
-    "llmbe": "node combine-files.cjs --path ./backend/"
+    "llmtest": "node combine-files.cjs --path ./tests/",
+    "llmbe": "node combine-files.cjs --path ./backend/",
+    "test": "npm test --prefix tests",
+    "coverage": "npm run coverage --prefix tests"
   }
 }
