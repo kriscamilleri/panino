@@ -75,7 +75,7 @@ function debounce(fn, wait) {
 
 const isProduction = import.meta.env.PROD;
 const devImageServiceUrl = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:3001';
-const imageServiceUrl = isProduction ? '/api/images' : devImageServiceUrl;
+const imageServiceUrl = isProduction ? '/api' : devImageServiceUrl;
 
 /* ───── stores & refs ───── */
 const docStore = useDocStore();
@@ -159,7 +159,7 @@ async function uploadImage(fileObj) {
       throw new Error(err.error || 'Upload failed');
     }
     const data = await response.json();
-    const finalUrl = `${imageServiceUrl}${data.url}`;
+    const finalUrl = isProduction ? `/api${data.url}` : `${imageServiceUrl}${data.url}`;
     insertAtCursor(`![${fileObj.name}](${finalUrl})\n`);
   } catch (err) {
     console.error('Image upload error:', err);
