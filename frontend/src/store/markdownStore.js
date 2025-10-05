@@ -370,7 +370,7 @@ table, figure, img, blockquote, pre {
     const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
 
     const isInternalImage = (apiUrl && src.startsWith(apiUrl) && src.includes('/images/')) ||
-     (!src.startsWith('http') && src.startsWith('/images/'));
+     (!src.startsWith('http') && (src.startsWith('/images/') || src.startsWith('/api/images/')));
 
     if (isInternalImage && authStore.token) {
      try {
