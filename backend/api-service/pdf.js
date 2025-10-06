@@ -9,21 +9,27 @@ const window = new JSDOM('').window;
 const purify = DOMPurify(window);
 
 // -------------------------------------------------------------
-// ✅ OPTIMIZATIONS FOR BROWSER REUSE + REQUEST QUEUE
+// ✅ BROWSER MANAGEMENT WITH BETTER ERROR RECOVERY
 // -------------------------------------------------------------
 
-let browserPromise;
-let isGenerating = false;
-const requestQueue = [];
+let browserPromise = null;
+let browserRestartPending = false;
+const MAX_RETRIES = 2;
 
-/**
- * Launches and/or returns the single Puppeteer browser instance.
- */
-const launchBrowser = () => {
-    if (browserPromise) {
-        return browserPromise;
+const launchBrowser = async () => {
+    if (browserPromise && !browserRestartPending) {
+        try {
+            const browser = await browserPromise;
+            if (browser.isConnected()) {
+                return browserPromise;
+            }
+        } catch (err) {
+            console.error('Browser check failed:', err);
+        }
     }
 
+    console.log('Launching new browser instance...');
+    browserRestartPending = false;
     browserPromise = puppeteer.launch({
         headless: true,
         args: [
@@ -36,80 +42,119 @@ const launchBrowser = () => {
             '--single-process',
             '--disable-gpu',
         ],
+    }).catch(err => {
+        console.error('Failed to launch browser:', err);
+        browserPromise = null;
+        throw err;
     });
+
     return browserPromise;
 };
 
-// Immediately launch the browser when the server starts.
-launchBrowser().then(() => console.log('Puppeteer browser launched successfully.'));
+// Initial launch
+launchBrowser()
+    .then(() => console.log('Puppeteer browser launched successfully.'))
+    .catch(err => console.error('Failed to launch browser on startup:', err));
 
-// Health check for browser
+// Health check
 setInterval(async () => {
-    if (browserPromise) {
-        try {
-            const browser = await browserPromise;
-            if (!browser.isConnected()) {
-                console.warn('Browser disconnected, will relaunch on next request');
-                browserPromise = null;
-            }
-        } catch (err) {
-            console.error('Browser health check failed:', err);
+    if (!browserPromise) return;
+    
+    try {
+        const browser = await browserPromise;
+        if (!browser.isConnected()) {
+            console.warn('Browser disconnected, marking for restart');
+            browserRestartPending = true;
             browserPromise = null;
         }
+    } catch (err) {
+        console.error('Browser health check failed:', err);
+        browserRestartPending = true;
+        browserPromise = null;
     }
-}, 60000); // Check every minute
+}, 60000);
 
-// Add a hook to gracefully close the browser when the Node.js process exits.
-process.on('exit', async () => {
+// Graceful shutdown
+const shutdown = async () => {
     if (browserPromise) {
         console.log('Closing Puppeteer browser...');
-        const browser = await browserPromise;
-        await browser.close();
+        try {
+            const browser = await browserPromise;
+            await browser.close();
+        } catch (err) {
+            console.error('Error during browser shutdown:', err);
+        }
+    }
+};
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+process.on('exit', () => {
+    // Note: Can't use async here, but attempt cleanup
+    if (browserPromise) {
+        browserPromise.then(b => b.close()).catch(() => {});
     }
 });
 
 // -------------------------------------------------------------
-// ✅ REQUEST QUEUE MANAGEMENT
+// ✅ ENHANCED REQUEST QUEUE WITH RETRY LOGIC
 // -------------------------------------------------------------
+
+let isGenerating = false;
+const requestQueue = [];
 
 async function processQueue() {
     if (isGenerating || requestQueue.length === 0) return;
     
     isGenerating = true;
-    const { req, res, resolve } = requestQueue.shift();
+    const item = requestQueue.shift();
     
     try {
-        await generatePdfForRequest(req, res);
-        resolve();
+        await generatePdfWithRetry(item.req, item.res, item.retryCount || 0);
+        item.resolve();
     } catch (error) {
-        console.error('PDF generation error:', error);
-        if (!res.headersSent) {
-            res.status(500).send(`Failed to generate PDF: ${error.message}`);
+        console.error('PDF generation failed after retries:', error);
+        if (!item.res.headersSent) {
+            item.res.status(500).send(`Failed to generate PDF: ${error.message}`);
         }
+        item.resolve(); // Still resolve to continue queue
     } finally {
         isGenerating = false;
-        processQueue(); // Process next request
+        // Small delay before next request to allow cleanup
+        setTimeout(() => processQueue(), 100);
     }
 }
 
-// -------------------------------------------------------------
-// ✅ MAIN ROUTE HANDLER
-// -------------------------------------------------------------
+async function generatePdfWithRetry(req, res, retryCount) {
+    try {
+        await generatePdfForRequest(req, res);
+    } catch (error) {
+        if (retryCount < MAX_RETRIES && (
+            error.message.includes('Execution context was destroyed') ||
+            error.message.includes('Target closed') ||
+            error.message.includes('Session closed')
+        )) {
+            console.log(`Retry attempt ${retryCount + 1}/${MAX_RETRIES} for PDF generation`);
+            browserRestartPending = true;
+            browserPromise = null;
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait before retry
+            return generatePdfWithRetry(req, res, retryCount + 1);
+        }
+        throw error;
+    }
+}
 
 pdfRoutes.post('/render-pdf', async (req, res) => {
     return new Promise((resolve) => {
-        requestQueue.push({ req, res, resolve });
+        requestQueue.push({ req, res, resolve, retryCount: 0 });
         processQueue();
     });
 });
 
 // -------------------------------------------------------------
-// ✅ PDF GENERATION LOGIC
+// ✅ PDF GENERATION WITH ENHANCED ERROR HANDLING
 // -------------------------------------------------------------
 
-/**
- * Map human-friendly alignment to flexbox values.
- */
 function mapAlign(align) {
     switch ((align || 'center').toLowerCase()) {
         case 'left':
@@ -121,33 +166,36 @@ function mapAlign(align) {
     }
 }
 
-/**
- * Wait until the number of .pagedjs_page elements is stable
- * for N consecutive checks at a given interval.
- */
 async function waitForStablePageCount(page, consecutive = 3, intervalMs = 200, timeoutMs = 5000) {
     const start = Date.now();
     let streak = 0;
     let lastCount = -1;
 
     while (Date.now() - start < timeoutMs) {
-        const count = await page.evaluate(() => document.querySelectorAll('.pagedjs_page').length);
-        if (count > 0 && count === lastCount) {
-            streak++;
-            if (streak >= consecutive) return count;
-        } else {
-            streak = 0;
+        try {
+            const count = await page.evaluate(() => document.querySelectorAll('.pagedjs_page').length);
+            if (count > 0 && count === lastCount) {
+                streak++;
+                if (streak >= consecutive) return count;
+            } else {
+                streak = 0;
+            }
+            lastCount = count;
+            await new Promise((r) => setTimeout(r, intervalMs));
+        } catch (err) {
+            if (err.message.includes('Execution context was destroyed')) {
+                throw err;
+            }
+            console.warn('Error in waitForStablePageCount:', err.message);
+            break;
         }
-        lastCount = count;
-        await new Promise((r) => setTimeout(r, intervalMs));
     }
-    return lastCount; // best-effort
+    return lastCount;
 }
 
 async function generatePdfForRequest(req, res) {
     const { htmlContent, cssStyles, printStyles = {} } = req.body;
 
-    // 🛡️ SECURITY: Sanitize all user-provided input before using it.
     const cleanHtml = purify.sanitize(htmlContent);
     const cleanCss = purify.sanitize(cssStyles, { ALLOWED_TAGS: ['style'], ALLOWED_ATTR: [] });
 
@@ -156,6 +204,8 @@ async function generatePdfForRequest(req, res) {
     }
 
     let page = null;
+    let browser = null;
+
     try {
         const {
             printHeaderHtml = '',
@@ -215,9 +265,7 @@ async function generatePdfForRequest(req, res) {
                   line-height: 1.6;
                   color: #333;
                 }
-                /* User-provided styles (sanitized) */
                 ${cleanCss}
-                /* Ensure overlays don't capture events or affect layout */
                 ._overlay-header, ._overlay-footer {
                   pointer-events: none;
                   -webkit-print-color-adjust: exact;
@@ -231,13 +279,12 @@ async function generatePdfForRequest(req, res) {
           </html>
         `;
 
-        const browser = await launchBrowser();
+        browser = await launchBrowser();
         page = await browser.newPage();
 
-        // Set a reasonable timeout
-        page.setDefaultTimeout(45000);
+        page.setDefaultTimeout(40000);
+        page.setDefaultNavigationTimeout(40000);
 
-        // 🛡️ SECURITY: Intercept requests to block filesystem access and navigations.
         await page.setRequestInterception(true);
         page.on('request', (request) => {
             const url = request.url();
@@ -251,15 +298,15 @@ async function generatePdfForRequest(req, res) {
         });
 
         page.on('console', (msg) => console.log('PAGE LOG:', msg.text()));
-        await page.emulateMediaType('print');
         
-        await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await page.emulateMediaType('print');
+        await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 40000 });
 
         try {
             if (/^https?:\/\//i.test(pagedJsUrl)) {
-                await page.addScriptTag({ url: pagedJsUrl });
+                await page.addScriptTag({ url: pagedJsUrl, timeout: 15000 });
             } else {
-                await page.addScriptTag({ path: pagedJsUrl });
+                await page.addScriptTag({ path: pagedJsUrl, timeout: 15000 });
             }
         } catch (e) {
             console.warn('Failed to load Paged.js:', e?.message || e);
@@ -279,7 +326,7 @@ async function generatePdfForRequest(req, res) {
                     }
                     window.Paged.registerHandlers(DoneHandler);
                     window.PagedPolyfill.preview().catch(() => resolve(-1));
-                    setTimeout(() => resolve(-1), 15000);
+                    setTimeout(() => resolve(-1), 12000);
                 } catch (err) {
                     resolve(-1);
                 }
@@ -287,7 +334,7 @@ async function generatePdfForRequest(req, res) {
         });
 
         console.log('Paged afterRendered totalPages =', totalPagesFromPaged);
-        await waitForStablePageCount(page, 3, 250, 6000);
+        await waitForStablePageCount(page, 3, 250, 5000);
 
         await page.evaluate((settings) => {
             const pages = document.querySelectorAll('.pagedjs_page:not(.pagedjs_blank)');
@@ -363,11 +410,17 @@ async function generatePdfForRequest(req, res) {
             footerOffset: String(footerOffset).replace(/^\+/, ''),
         });
 
-        const pdfBuffer = await page.pdf({
-            format: pageSize || 'A4',
-            printBackground: true,
-            preferCSSPageSize: true,
-        });
+        // Generate PDF with timeout protection
+        const pdfBuffer = await Promise.race([
+            page.pdf({
+                format: pageSize || 'A4',
+                printBackground: true,
+                preferCSSPageSize: true,
+            }),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('PDF generation timeout')), 35000)
+            )
+        ]);
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'inline; filename=preview.pdf');
@@ -375,15 +428,16 @@ async function generatePdfForRequest(req, res) {
 
     } catch (error) {
         console.error('PDF Generation Error:', error);
-        if (!res.headersSent) {
-            res.status(500).send(`Failed to generate PDF: ${error.message}`);
-        }
+        throw error;
     } finally {
-        // Only close the page if it exists and hasn't been closed
-        if (page && !page.isClosed()) {
-            await page.close().catch(err => {
-                console.error('Error closing page:', err);
-            });
+        if (page) {
+            try {
+                if (!page.isClosed()) {
+                    await page.close();
+                }
+            } catch (err) {
+                console.error('Error closing page:', err.message);
+            }
         }
     }
 }
