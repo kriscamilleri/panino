@@ -8,12 +8,6 @@ export const pdfRoutes = express.Router();
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
 
-// -------------------------------------------------------------
-// ✅ SIMPLER APPROACH: CREATE FRESH BROWSER PER REQUEST
-// -------------------------------------------------------------
-// This avoids all the complexity of managing shared browser state
-// and prevents "Execution context destroyed" errors entirely.
-
 const BROWSER_TIMEOUT = 45000;
 const PDF_TIMEOUT = 35000;
 
@@ -34,7 +28,6 @@ async function createBrowser() {
         ],
     });
     
-    // Set a hard timeout for this browser
     const timeoutId = setTimeout(async () => {
         console.log('Browser timeout reached, forcing close');
         try {
@@ -44,7 +37,6 @@ async function createBrowser() {
         }
     }, BROWSER_TIMEOUT);
     
-    // Clear timeout when browser closes normally
     browser.once('disconnected', () => clearTimeout(timeoutId));
     
     return { browser, timeoutId };
@@ -56,30 +48,6 @@ function mapAlign(align) {
         case 'right': return 'flex-end';
         default: return 'center';
     }
-}
-
-async function waitForStablePageCount(page, consecutive = 3, intervalMs = 200, timeoutMs = 5000) {
-    const start = Date.now();
-    let streak = 0;
-    let lastCount = -1;
-
-    while (Date.now() - start < timeoutMs) {
-        try {
-            const count = await page.evaluate(() => document.querySelectorAll('.pagedjs_page').length);
-            if (count > 0 && count === lastCount) {
-                streak++;
-                if (streak >= consecutive) return count;
-            } else {
-                streak = 0;
-            }
-            lastCount = count;
-            await new Promise(r => setTimeout(r, intervalMs));
-        } catch (err) {
-            console.warn('Error checking page count:', err.message);
-            return lastCount;
-        }
-    }
-    return lastCount;
 }
 
 pdfRoutes.post('/render-pdf', async (req, res) => {
@@ -163,53 +131,97 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
           </html>
         `;
 
-        // Create a fresh browser for this request
         browserContext = await createBrowser();
         const { browser, timeoutId } = browserContext;
         
         page = await browser.newPage();
         page.setDefaultTimeout(30000);
 
-        await page.setRequestInterception(true);
-        page.on('request', (request) => {
-            const url = request.url();
-            if (url.startsWith('file://') || 
-                (request.isNavigationRequest() && url !== 'about:blank' && !url.startsWith('data:'))) {
-                request.abort();
-            } else {
-                request.continue();
-            }
-        });
+        // ✅ FIX: Disable request interception - it can cause navigation issues
+        // await page.setRequestInterception(true);
+        // page.on('request', (request) => {
+        //     const url = request.url();
+        //     if (url.startsWith('file://') || 
+        //         (request.isNavigationRequest() && url !== 'about:blank' && !url.startsWith('data:'))) {
+        //         request.abort();
+        //     } else {
+        //         request.continue();
+        //     }
+        // });
 
         await page.emulateMediaType('print');
-        await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        
+        // ✅ FIX: Wait for networkidle0 to ensure navigation is fully complete
+        await page.setContent(fullHtml, { 
+            waitUntil: ['load', 'networkidle0'], 
+            timeout: 30000 
+        });
 
-        // Try to load Paged.js, but don't fail if it doesn't work
+        // ✅ FIX: Add a small delay after setContent to ensure context is stable
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Try to load and run Paged.js
         try {
             await page.addScriptTag({ url: pagedJsUrl, timeout: 10000 });
             
-            await page.evaluate(async () => {
-                if (!window.Paged || !window.PagedPolyfill) return;
-                return await new Promise((resolve) => {
+            // ✅ FIX: Wait a bit after loading the script
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Run Paged.js with proper error handling
+            const pagedResult = await page.evaluate(() => {
+                return new Promise((resolve) => {
+                    if (!window.Paged || !window.PagedPolyfill) {
+                        resolve({ success: false, reason: 'Paged not available' });
+                        return;
+                    }
+                    
                     try {
+                        let resolved = false;
+                        
                         class DoneHandler extends window.Paged.Handlers.Base {
-                            afterRendered() {
-                                setTimeout(() => resolve(), 100);
+                            afterRendered(flow) {
+                                if (!resolved) {
+                                    resolved = true;
+                                    const total = (flow && flow.total) || 0;
+                                    resolve({ success: true, pages: total });
+                                }
                             }
                         }
+                        
                         window.Paged.registerHandlers(DoneHandler);
-                        window.PagedPolyfill.preview().catch(() => resolve());
-                        setTimeout(() => resolve(), 10000);
-                    } catch {
-                        resolve();
+                        window.PagedPolyfill.preview().catch(err => {
+                            if (!resolved) {
+                                resolved = true;
+                                resolve({ success: false, reason: err.message });
+                            }
+                        });
+                        
+                        // Timeout fallback
+                        setTimeout(() => {
+                            if (!resolved) {
+                                resolved = true;
+                                resolve({ success: false, reason: 'timeout' });
+                            }
+                        }, 10000);
+                    } catch (err) {
+                        resolve({ success: false, reason: err.message });
                     }
                 });
             });
             
-            await waitForStablePageCount(page, 3, 200, 4000);
+            console.log('Paged.js result:', pagedResult);
+            
+            // Wait for page count to stabilize
+            if (pagedResult.success) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
         } catch (err) {
             console.warn('Paged.js processing skipped:', err.message);
         }
+
+        // ✅ FIX: Another delay before DOM manipulation
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         // Add headers/footers
         await page.evaluate((settings) => {
@@ -286,20 +298,14 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
             footerOffset: String(footerOffset).replace(/^\+/, ''),
         });
 
-        // Generate PDF with timeout
-        const pdfBuffer = await Promise.race([
-            page.pdf({
-                format: pageSize || 'A4',
-                printBackground: true,
-                preferCSSPageSize: true,
-                timeout: PDF_TIMEOUT,
-            }),
-            new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('PDF generation timeout')), PDF_TIMEOUT)
-            )
-        ]);
+        // Generate PDF
+        const pdfBuffer = await page.pdf({
+            format: pageSize || 'A4',
+            printBackground: true,
+            preferCSSPageSize: true,
+            timeout: PDF_TIMEOUT,
+        });
 
-        // Clear the browser timeout since we succeeded
         clearTimeout(timeoutId);
 
         res.setHeader('Content-Type', 'application/pdf');
@@ -312,7 +318,6 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
             res.status(500).send(`Failed to generate PDF: ${error.message}`);
         }
     } finally {
-        // Clean up: close page first, then browser
         if (page) {
             try { await page.close(); } catch (err) { console.error('Page close error:', err.message); }
         }
