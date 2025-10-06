@@ -9,26 +9,25 @@ const window = new JSDOM('').window;
 const purify = DOMPurify(window);
 
 // -------------------------------------------------------------
-// ✅ START: OPTIMIZATIONS FOR BROWSER REUSE
+// ✅ OPTIMIZATIONS FOR BROWSER REUSE + REQUEST QUEUE
 // -------------------------------------------------------------
 
-// This promise will hold the single, persistent browser instance.
 let browserPromise;
+let isGenerating = false;
+const requestQueue = [];
 
 /**
  * Launches and/or returns the single Puppeteer browser instance.
  */
 const launchBrowser = () => {
-    // If the promise already exists, return it to reuse the instance.
     if (browserPromise) {
         return browserPromise;
     }
 
-    // Otherwise, create the launch promise. This will only run once.
     browserPromise = puppeteer.launch({
         headless: true,
         args: [
-            '--no-sandbox', // Note: See security docs for running in containers safely
+            '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
@@ -44,6 +43,22 @@ const launchBrowser = () => {
 // Immediately launch the browser when the server starts.
 launchBrowser().then(() => console.log('Puppeteer browser launched successfully.'));
 
+// Health check for browser
+setInterval(async () => {
+    if (browserPromise) {
+        try {
+            const browser = await browserPromise;
+            if (!browser.isConnected()) {
+                console.warn('Browser disconnected, will relaunch on next request');
+                browserPromise = null;
+            }
+        } catch (err) {
+            console.error('Browser health check failed:', err);
+            browserPromise = null;
+        }
+    }
+}, 60000); // Check every minute
+
 // Add a hook to gracefully close the browser when the Node.js process exits.
 process.on('exit', async () => {
     if (browserPromise) {
@@ -52,8 +67,44 @@ process.on('exit', async () => {
         await browser.close();
     }
 });
+
 // -------------------------------------------------------------
-// ✅ END: OPTIMIZATIONS FOR BROWSER REUSE
+// ✅ REQUEST QUEUE MANAGEMENT
+// -------------------------------------------------------------
+
+async function processQueue() {
+    if (isGenerating || requestQueue.length === 0) return;
+    
+    isGenerating = true;
+    const { req, res, resolve } = requestQueue.shift();
+    
+    try {
+        await generatePdfForRequest(req, res);
+        resolve();
+    } catch (error) {
+        console.error('PDF generation error:', error);
+        if (!res.headersSent) {
+            res.status(500).send(`Failed to generate PDF: ${error.message}`);
+        }
+    } finally {
+        isGenerating = false;
+        processQueue(); // Process next request
+    }
+}
+
+// -------------------------------------------------------------
+// ✅ MAIN ROUTE HANDLER
+// -------------------------------------------------------------
+
+pdfRoutes.post('/render-pdf', async (req, res) => {
+    return new Promise((resolve) => {
+        requestQueue.push({ req, res, resolve });
+        processQueue();
+    });
+});
+
+// -------------------------------------------------------------
+// ✅ PDF GENERATION LOGIC
 // -------------------------------------------------------------
 
 /**
@@ -93,7 +144,7 @@ async function waitForStablePageCount(page, consecutive = 3, intervalMs = 200, t
     return lastCount; // best-effort
 }
 
-pdfRoutes.post('/render-pdf', async (req, res) => {
+async function generatePdfForRequest(req, res) {
     const { htmlContent, cssStyles, printStyles = {} } = req.body;
 
     // 🛡️ SECURITY: Sanitize all user-provided input before using it.
@@ -104,7 +155,7 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
         return res.status(400).send('Missing or invalid htmlContent or cssStyles');
     }
 
-    let page; // Define page here to access it in the finally block
+    let page = null;
     try {
         const {
             printHeaderHtml = '',
@@ -180,8 +231,11 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
           </html>
         `;
 
-        const browser = await launchBrowser(); // Reuse the single browser instance
-        page = await browser.newPage(); // Create a new, fast page for this request
+        const browser = await launchBrowser();
+        page = await browser.newPage();
+
+        // Set a reasonable timeout
+        page.setDefaultTimeout(45000);
 
         // 🛡️ SECURITY: Intercept requests to block filesystem access and navigations.
         await page.setRequestInterception(true);
@@ -199,7 +253,6 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
         page.on('console', (msg) => console.log('PAGE LOG:', msg.text()));
         await page.emulateMediaType('print');
         
-        // ✅ OPTIMIZATION: Use 'domcontentloaded' for a much faster initial load.
         await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 45000 });
 
         try {
@@ -322,11 +375,15 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
 
     } catch (error) {
         console.error('PDF Generation Error:', error);
-        res.status(500).send(`Failed to generate PDF: ${error.message}`);
+        if (!res.headersSent) {
+            res.status(500).send(`Failed to generate PDF: ${error.message}`);
+        }
     } finally {
-        // ✅ CRITICAL: Always close the page to prevent memory leaks.
-        if (page) {
-            await page.close();
+        // Only close the page if it exists and hasn't been closed
+        if (page && !page.isClosed()) {
+            await page.close().catch(err => {
+                console.error('Error closing page:', err);
+            });
         }
     }
-});
+}

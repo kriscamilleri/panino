@@ -59,7 +59,6 @@ const printStylesConfig = {
   updateStyleAction: docStore.updatePrintStyle,
   getDebugHtml: () => finalHtmlForPdf.value,
   
-  // Add the missing styleCategories
   styleCategories: {
     'Headings': ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
     'Text Elements': ['p', 'em', 'strong', 'code', 'blockquote'],
@@ -181,6 +180,9 @@ async function regeneratePdf() {
     return;
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 50000); // 50s timeout
+
   try {
     const md = await markdownStore.getPrintMarkdownIt();
     const rawHtmlContent = md.render(docStore.selectedFileContent);
@@ -206,8 +208,11 @@ async function regeneratePdf() {
         htmlContent, 
         cssStyles,
         printStyles: sanitizedPrintStyles
-      })
+      }),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -219,8 +224,14 @@ async function regeneratePdf() {
     pdfUrl.value = URL.createObjectURL(blob);
 
   } catch (error) {
-    console.error('Failed to regenerate PDF:', error);
-    alert('Failed to update PDF preview. See console for details.');
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      console.error('PDF generation timed out');
+      alert('PDF generation is taking too long. Please try again.');
+    } else {
+      console.error('Failed to regenerate PDF:', error);
+      alert('Failed to update PDF preview. See console for details.');
+    }
   }
 }
 
