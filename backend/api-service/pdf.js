@@ -8,39 +8,44 @@ export const pdfRoutes = express.Router();
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
 
-const BROWSER_TIMEOUT = 45000;
-const PDF_TIMEOUT = 35000;
+// -------------------------------------------------------------
+// ✅ SIMPLE, SYNCHRONOUS QUEUE - ONE AT A TIME
+// -------------------------------------------------------------
 
-async function createBrowser() {
-    const browser = await puppeteer.launch({
-        headless: true,
-        timeout: 30000,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-extensions',
-        ],
-    });
+let isProcessing = false;
+const queue = [];
+
+async function processNextInQueue() {
+    if (isProcessing || queue.length === 0) return;
     
-    const timeoutId = setTimeout(async () => {
-        console.log('Browser timeout reached, forcing close');
-        try {
-            await browser.close();
-        } catch (err) {
-            console.error('Error force-closing browser:', err.message);
+    isProcessing = true;
+    const { req, res, resolve } = queue.shift();
+    
+    try {
+        await handlePdfGeneration(req, res);
+    } catch (error) {
+        console.error('PDF generation failed:', error);
+        if (!res.headersSent) {
+            res.status(500).send(`Failed to generate PDF: ${error.message}`);
         }
-    }, BROWSER_TIMEOUT);
-    
-    browser.once('disconnected', () => clearTimeout(timeoutId));
-    
-    return { browser, timeoutId };
+    } finally {
+        isProcessing = false;
+        resolve();
+        // Wait a bit before processing next to allow full cleanup
+        setTimeout(() => processNextInQueue(), 500);
+    }
 }
+
+pdfRoutes.post('/render-pdf', async (req, res) => {
+    return new Promise((resolve) => {
+        queue.push({ req, res, resolve });
+        processNextInQueue();
+    });
+});
+
+// -------------------------------------------------------------
+// ✅ PDF GENERATION HANDLER
+// -------------------------------------------------------------
 
 function mapAlign(align) {
     switch ((align || 'center').toLowerCase()) {
@@ -50,7 +55,7 @@ function mapAlign(align) {
     }
 }
 
-pdfRoutes.post('/render-pdf', async (req, res) => {
+async function handlePdfGeneration(req, res) {
     const { htmlContent, cssStyles, printStyles = {} } = req.body;
 
     const cleanHtml = purify.sanitize(htmlContent);
@@ -60,7 +65,7 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
         return res.status(400).send('Missing or invalid htmlContent or cssStyles');
     }
 
-    let browserContext = null;
+    let browser = null;
     let page = null;
 
     try {
@@ -131,97 +136,88 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
           </html>
         `;
 
-        browserContext = await createBrowser();
-        const { browser, timeoutId } = browserContext;
-        
-        page = await browser.newPage();
-        page.setDefaultTimeout(30000);
+        console.log('[PDF] Starting browser launch...');
+        browser = await puppeteer.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--disable-software-rasterizer',
+            ],
+        });
+        console.log('[PDF] Browser launched, creating page...');
 
-        // ✅ FIX: Disable request interception - it can cause navigation issues
-        // await page.setRequestInterception(true);
-        // page.on('request', (request) => {
-        //     const url = request.url();
-        //     if (url.startsWith('file://') || 
-        //         (request.isNavigationRequest() && url !== 'about:blank' && !url.startsWith('data:'))) {
-        //         request.abort();
-        //     } else {
-        //         request.continue();
-        //     }
-        // });
+        page = await browser.newPage();
+        page.setDefaultTimeout(25000);
 
         await page.emulateMediaType('print');
         
-        // ✅ FIX: Wait for networkidle0 to ensure navigation is fully complete
+        console.log('[PDF] Setting content...');
         await page.setContent(fullHtml, { 
-            waitUntil: ['load', 'networkidle0'], 
-            timeout: 30000 
+            waitUntil: 'networkidle2',
+            timeout: 25000 
         });
+        
+        // Critical: Wait for navigation to fully complete
+        await page.waitForTimeout(1000);
+        
+        console.log('[PDF] Content set, loading Paged.js...');
 
-        // ✅ FIX: Add a small delay after setContent to ensure context is stable
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Try to load and run Paged.js
+        // Load and run Paged.js with full error handling
+        let pagedSuccess = false;
         try {
-            await page.addScriptTag({ url: pagedJsUrl, timeout: 10000 });
+            await page.addScriptTag({ url: pagedJsUrl, timeout: 8000 });
+            await page.waitForTimeout(500);
             
-            // ✅ FIX: Wait a bit after loading the script
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            // Run Paged.js with proper error handling
-            const pagedResult = await page.evaluate(() => {
+            pagedSuccess = await page.evaluate(() => {
                 return new Promise((resolve) => {
                     if (!window.Paged || !window.PagedPolyfill) {
-                        resolve({ success: false, reason: 'Paged not available' });
+                        resolve(false);
                         return;
                     }
                     
+                    let settled = false;
+                    const settle = (result) => {
+                        if (!settled) {
+                            settled = true;
+                            resolve(result);
+                        }
+                    };
+                    
                     try {
-                        let resolved = false;
-                        
                         class DoneHandler extends window.Paged.Handlers.Base {
-                            afterRendered(flow) {
-                                if (!resolved) {
-                                    resolved = true;
-                                    const total = (flow && flow.total) || 0;
-                                    resolve({ success: true, pages: total });
-                                }
+                            afterRendered() {
+                                settle(true);
                             }
                         }
                         
                         window.Paged.registerHandlers(DoneHandler);
-                        window.PagedPolyfill.preview().catch(err => {
-                            if (!resolved) {
-                                resolved = true;
-                                resolve({ success: false, reason: err.message });
-                            }
-                        });
+                        window.PagedPolyfill.preview()
+                            .then(() => settle(true))
+                            .catch(() => settle(false));
                         
-                        // Timeout fallback
-                        setTimeout(() => {
-                            if (!resolved) {
-                                resolved = true;
-                                resolve({ success: false, reason: 'timeout' });
-                            }
-                        }, 10000);
-                    } catch (err) {
-                        resolve({ success: false, reason: err.message });
+                        setTimeout(() => settle(false), 8000);
+                    } catch {
+                        settle(false);
                     }
                 });
             });
             
-            console.log('Paged.js result:', pagedResult);
+            console.log('[PDF] Paged.js completed:', pagedSuccess);
             
-            // Wait for page count to stabilize
-            if (pagedResult.success) {
-                await new Promise(resolve => setTimeout(resolve, 500));
+            if (pagedSuccess) {
+                await page.waitForTimeout(800);
             }
-            
         } catch (err) {
-            console.warn('Paged.js processing skipped:', err.message);
+            console.warn('[PDF] Paged.js error:', err.message);
         }
 
-        // ✅ FIX: Another delay before DOM manipulation
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Wait before DOM manipulation
+        await page.waitForTimeout(300);
+        
+        console.log('[PDF] Adding headers/footers...');
 
         // Add headers/footers
         await page.evaluate((settings) => {
@@ -298,36 +294,53 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
             footerOffset: String(footerOffset).replace(/^\+/, ''),
         });
 
-        // Generate PDF
+        console.log('[PDF] Generating PDF...');
         const pdfBuffer = await page.pdf({
             format: pageSize || 'A4',
             printBackground: true,
             preferCSSPageSize: true,
-            timeout: PDF_TIMEOUT,
         });
 
-        clearTimeout(timeoutId);
+        console.log('[PDF] PDF generated successfully');
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'inline; filename=preview.pdf');
         res.send(pdfBuffer);
 
     } catch (error) {
-        console.error('PDF Generation Error:', error.message);
-        if (!res.headersSent) {
-            res.status(500).send(`Failed to generate PDF: ${error.message}`);
-        }
+        console.error('[PDF] Generation error:', error);
+        throw error;
     } finally {
+        console.log('[PDF] Cleanup starting...');
+        
+        // Cleanup in strict order with error handling
         if (page) {
-            try { await page.close(); } catch (err) { console.error('Page close error:', err.message); }
-        }
-        if (browserContext) {
             try {
-                clearTimeout(browserContext.timeoutId);
-                await browserContext.browser.close();
+                if (!page.isClosed()) {
+                    console.log('[PDF] Closing page...');
+                    await page.close();
+                    console.log('[PDF] Page closed');
+                }
             } catch (err) {
-                console.error('Browser close error:', err.message);
+                console.error('[PDF] Error closing page:', err.message);
             }
         }
+        
+        // Wait a bit between page and browser close
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
+        if (browser) {
+            try {
+                if (browser.isConnected()) {
+                    console.log('[PDF] Closing browser...');
+                    await browser.close();
+                    console.log('[PDF] Browser closed');
+                }
+            } catch (err) {
+                console.error('[PDF] Error closing browser:', err.message);
+            }
+        }
+        
+        console.log('[PDF] Cleanup complete');
     }
-});
+}
