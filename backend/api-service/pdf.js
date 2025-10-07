@@ -11,8 +11,6 @@ const purify = DOMPurify(window);
 
 // -------------------------------------------------------------
 // SECTION 1: SINGLETON BROWSER MANAGER
-// Manages a single, persistent browser instance to avoid the high cost
-// of launching a new browser for every request.
 // -------------------------------------------------------------
 
 let browserInstance = null;
@@ -25,7 +23,7 @@ async function getBrowser() {
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // Recommended for Docker environments
+                '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--disable-software-rasterizer',
             ],
@@ -35,7 +33,6 @@ async function getBrowser() {
     return browserInstance;
 }
 
-// Gracefully close the browser when the Node process exits.
 process.on('exit', async () => {
     if (browserInstance) {
         console.log('[PDF] Closing browser instance on app exit...');
@@ -47,8 +44,6 @@ process.on('exit', async () => {
 
 // -------------------------------------------------------------
 // SECTION 2: REQUEST QUEUE
-// This remains important to process one PDF at a time, preventing
-// the server from being overwhelmed even with a single browser.
 // -------------------------------------------------------------
 
 let isProcessing = false;
@@ -63,15 +58,13 @@ async function processNextInQueue() {
     try {
         await handlePdfGeneration(req, res);
     } catch (error) {
-        // Log the detailed error and send a generic 500 response
         console.error('PDF generation failed:', error);
         if (!res.headersSent) {
             res.status(500).send(`Failed to generate PDF: ${error.message}`);
         }
     } finally {
         isProcessing = false;
-        resolve(); // Resolve the promise to unblock the client's async request
-        // Process the next item in the queue with a short delay
+        resolve();
         setTimeout(() => processNextInQueue(), 100);
     }
 }
@@ -86,7 +79,6 @@ pdfRoutes.post('/render-pdf', (req, res) => {
 
 // -------------------------------------------------------------
 // SECTION 3: PDF GENERATION LOGIC
-// Refactored to use the singleton browser and per-request contexts.
 // -------------------------------------------------------------
 
 function mapAlign(align) {
@@ -107,7 +99,6 @@ async function handlePdfGeneration(req, res) {
         return res.status(400).send('Missing or invalid htmlContent or cssStyles');
     }
 
-    // This will hold the isolated "incognito" session for this request.
     let context = null;
 
     try {
@@ -178,13 +169,8 @@ async function handlePdfGeneration(req, res) {
           </html>
         `;
 
-        // 1. Get the shared browser instance.
         const browser = await getBrowser();
-
-        // 2. Create a secure, isolated incognito context for this request.
         context = await browser.createIncognitoBrowserContext();
-
-        // 3. Create a new page within that context.
         const page = await context.newPage();
         page.setDefaultTimeout(25000);
 
@@ -199,15 +185,135 @@ async function handlePdfGeneration(req, res) {
         await page.waitForTimeout(1000);
         
         console.log('[PDF] Content set, loading Paged.js...');
-
-        // Your existing Paged.js and page.evaluate() logic follows...
-        // This code does not need to be changed.
-        // ...
         
-        // (Assuming your Paged.js and evaluate calls are here)
+        // --- PAGED.JS LOGIC (RESTORED) ---
+        let pagedSuccess = false;
+        try {
+            await page.addScriptTag({ url: pagedJsUrl, timeout: 8000 });
+            await page.waitForTimeout(500);
+            
+            pagedSuccess = await page.evaluate(() => {
+                return new Promise((resolve) => {
+                    if (!window.Paged || !window.PagedPolyfill) {
+                        resolve(false);
+                        return;
+                    }
+                    
+                    let settled = false;
+                    const settle = (result) => {
+                        if (!settled) {
+                            settled = true;
+                            resolve(result);
+                        }
+                    };
+                    
+                    try {
+                        class DoneHandler extends window.Paged.Handlers.Base {
+                            afterRendered() {
+                                settle(true);
+                            }
+                        }
+                        
+                        window.Paged.registerHandlers(DoneHandler);
+                        window.PagedPolyfill.preview()
+                            .then(() => settle(true))
+                            .catch(() => settle(false));
+                        
+                        setTimeout(() => settle(false), 8000);
+                    } catch {
+                        settle(false);
+                    }
+                });
+            });
+            
+            console.log('[PDF] Paged.js completed:', pagedSuccess);
+            
+            if (pagedSuccess) {
+                await page.waitForTimeout(800);
+            }
+        } catch (err) {
+            console.warn('[PDF] Paged.js error:', err.message);
+        }
 
-        // ...
+        await page.waitForTimeout(300);
         
+        console.log('[PDF] Adding headers/footers...');
+
+        // --- HEADER/FOOTER INJECTION LOGIC (RESTORED) ---
+        await page.evaluate((settings) => {
+            const pages = document.querySelectorAll('.pagedjs_page:not(.pagedjs_blank)');
+            const totalPages = Math.max(1, pages.length);
+
+            function shouldShow(which, pageNum, lastPage) {
+                if (which === 'header') {
+                    if (pageNum === 1 && settings.hideHeaderOnFirst) return false;
+                    if (pageNum === lastPage && settings.hideHeaderOnLast) return false;
+                    return !!settings.headerHtml;
+                } else {
+                    if (pageNum === 1 && settings.hideFooterOnFirst) return false;
+                    if (pageNum === lastPage && settings.hideFooterOnLast) return false;
+                    return !!settings.footerHtml;
+                }
+            }
+
+            const makeOverlay = (which, pageNum, lastPage) => {
+                const tpl = which === 'header' ? settings.headerHtml : settings.footerHtml;
+                if (!tpl) return null;
+                const el = document.createElement('div');
+                el.className = which === 'header' ? '_overlay-header' : '_overlay-footer';
+                el.innerHTML = tpl.replace(/%p/g, String(pageNum)).replace(/%P/g, String(lastPage));
+                Object.assign(el.style, {
+                    position: 'absolute', left: '0', right: '0', display: 'flex', alignItems: 'center',
+                    justifyContent: which === 'header' ? settings.headerJustify : settings.footerJustify,
+                    fontSize: which === 'header' ? settings.headerFontSize : settings.footerFontSize,
+                    color: which === 'header' ? settings.headerColor : settings.footerColor,
+                    height: which === 'header' ? settings.headerHeight : settings.footerHeight,
+                    overflow: 'visible', zIndex: '2147483647',
+                });
+                if (which === 'header') {
+                    el.style.top = '0';
+                    el.style.transform = `translateY(-${settings.headerOffset})`;
+                } else {
+                    el.style.bottom = '0';
+                    el.style.transform = `translateY(${settings.footerOffset})`;
+                }
+                return el;
+            };
+
+            if (pages.length === 0) {
+                const body = document.body;
+                Object.assign(body.style, { position: 'relative', overflow: 'visible' });
+                if (shouldShow('header', 1, 1)) body.appendChild(makeOverlay('header', 1, 1));
+                if (shouldShow('footer', 1, 1)) body.appendChild(makeOverlay('footer', 1, 1));
+                return;
+            }
+
+            const last = totalPages;
+            pages.forEach((pageEl, i) => {
+                const pageNum = i + 1;
+                Object.assign(pageEl.style, { position: 'relative', overflow: 'visible' });
+                if (shouldShow('header', pageNum, last)) pageEl.appendChild(makeOverlay('header', pageNum, last));
+                if (shouldShow('footer', pageNum, last)) pageEl.appendChild(makeOverlay('footer', pageNum, last));
+            });
+        }, {
+            headerHtml: String(printHeaderHtml || ''),
+            footerHtml: String(printFooterHtml || ''),
+            headerFontSize: `${parseInt(String(headerFontSize), 10)}px`,
+            headerColor: String(headerFontColor),
+            headerJustify,
+            footerFontSize: `${parseInt(String(footerFontSize), 10)}px`,
+            footerColor: String(footerFontColor),
+            footerJustify,
+            hideHeaderOnFirst: !!hideHeaderOnFirst,
+            hideFooterOnFirst: !!hideFooterOnFirst,
+            hideHeaderOnLast: !!hideHeaderOnLast,
+            hideFooterOnLast: !!hideFooterOnLast,
+            headerHeight: String(headerHeight),
+            footerHeight: String(footerHeight),
+            headerOffset: String(headerOffset).replace(/^\+/, ''),
+            footerOffset: String(footerOffset).replace(/^\+/, ''),
+        });
+
         console.log('[PDF] Generating PDF...');
         const pdfBuffer = await page.pdf({
             format: pageSize || 'A4',
@@ -222,15 +328,11 @@ async function handlePdfGeneration(req, res) {
         res.send(pdfBuffer);
 
     } catch (error) {
-        // The error will be re-thrown and handled by the queue processor.
         console.error('[PDF] An error occurred during PDF generation:', error);
         throw error;
     } finally {
         console.log('[PDF] Cleanup starting...');
         
-        // CRITICAL: Close the incognito context. This destroys the page
-        // and all associated session data (cookies, storage, etc.).
-        // The main browser instance remains running for the next request.
         if (context) {
             try {
                 await context.close();
