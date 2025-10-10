@@ -37,6 +37,7 @@ import { ref, watch, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDebounceFn } from '@vueuse/core';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';
+import { Palette, Edit3 } from 'lucide-vue-next';
 import Editor from '@/components/Editor.vue';
 import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
@@ -64,13 +65,12 @@ const printStylesConfig = {
   editorComponent: Editor,
 
   styleCategories: {
-    'Headings': ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
-    'Text Elements': ['p', 'em', 'strong', 'code', 'blockquote'],
-    'Lists': ['ul', 'ol', 'li'],
+    Headings: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+    Text: ['p', 'em', 'strong', 'code', 'blockquote'],
+    Lists: ['ul', 'ol', 'li'],
     'Links & Media': ['a', 'img'],
-    'Tables': ['table', 'tr', 'th', 'td'],
-    'Code & Preformatted': ['pre', 'code'],
-    'Layout': ['hr', 'div']
+    Tables: ['table', 'tr', 'th', 'td'],
+    Other: ['hr', 'pre']
   },
 
   extraFieldsTitle: 'Print Header & Footer Settings',
@@ -172,12 +172,14 @@ const printStylesConfig = {
     {
       id: 'show-styles',
       label: 'Styles',
+      icon: Palette,
       isActive: () => showMode.value === 'styles',
       onClick: () => { showMode.value = showMode.value === 'styles' ? 'off' : 'styles'; }
     },
     {
       id: 'show-editor',
       label: 'Editor',
+      icon: Edit3,
       isActive: () => showMode.value === 'editor',
       onClick: () => { showMode.value = showMode.value === 'editor' ? 'off' : 'editor'; }
     },

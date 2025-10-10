@@ -7,78 +7,78 @@ import { useSyncStore } from './syncStore'
 import { useAuthStore } from './authStore'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
- const syncStore = useSyncStore();
- const authStore = useAuthStore();
+  const syncStore = useSyncStore();
+  const authStore = useAuthStore();
 
- const printStylesCssString = computed(() => {
-  const s = printStyles.value;
-  let css = '';
+  const printStylesCssString = computed(() => {
+    const s = printStyles.value;
+    let css = '';
 
-  // Handle Google Font import
-  if (s.googleFontFamily) {
-   const families = s.googleFontFamily
-    .split(',')
-    .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
-    .join('&');
-   if (families) {
-    css += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n\n`;
-   }
-  }
+    // Handle Google Font import
+    if (s.googleFontFamily) {
+      const families = s.googleFontFamily
+        .split(',')
+        .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
+        .join('&');
+      if (families) {
+        css += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n\n`;
+      }
+    }
 
-  // Add a base body style using the primary font
-  const primaryFont = s.googleFontFamily?.split(',')[0]?.trim()?.replace(/['"]/g, '');
-  if (primaryFont) {
-   css += `body { font-family: "${primaryFont}", sans-serif; }\n\n`;
-  }
+    // Add a base body style using the primary font
+    const primaryFont = s.googleFontFamily?.split(',')[0]?.trim()?.replace(/['"]/g, '');
+    if (primaryFont) {
+      css += `body { font-family: "${primaryFont}", sans-serif; }\n\n`;
+    }
 
-  // Generate rules for each element by filtering out non-CSS keys
-  for (const key in s) {
-   if (
-    Object.prototype.hasOwnProperty.call(s, key) &&
-    s[key] &&
-    ![
-     'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
-     'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
-     'footerFontColor', 'footerAlign', 'enablePageNumbers'
-    ].includes(key)
-   ) {
-    css += `${key} { ${s[key]} }\n`;
-   }
-  }
+    // Generate rules for each element by filtering out non-CSS keys
+    for (const key in s) {
+      if (
+        Object.prototype.hasOwnProperty.call(s, key) &&
+        s[key] &&
+        ![
+          'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
+          'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
+          'footerFontColor', 'footerAlign', 'enablePageNumbers'
+        ].includes(key)
+      ) {
+        css += `${key} { ${s[key]} }\n`;
+      }
+    }
 
-  // Append custom CSS last to allow overrides
-  if (s.customCSS) {
-   css += `\n/* --- Custom CSS --- */\n${s.customCSS}\n`;
-  }
+    // Append custom CSS last to allow overrides
+    if (s.customCSS) {
+      css += `\n/* --- Custom CSS --- */\n${s.customCSS}\n`;
+    }
 
-  return css;
- });
+    return css;
+  });
 
- // Default styles
- const defaultStyles = {
-  h1: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 2.25rem; line-height: 1.15; color: #111827; margin-top: 2.5rem; margin-bottom: 1rem; font-weight: 600;',
-  h2: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 1.75rem; line-height: 1.2; color: #1f2937; margin-top: 2rem; margin-bottom: .75rem; font-weight: 600;',
-  h3: 'font-size: 1.5rem; line-height: 1.25; color: #1f2937; margin-top: 1.5rem; margin-bottom: .5rem; font-weight: 600;',
-  h4: 'font-size: 1.25rem; line-height: 1.3; color: #374151; margin-top: 1.25rem; margin-bottom: .5rem; font-weight: 600;',
-  h5: 'font-size: 1rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; color: #374151;',
-  h6: 'font-size: .875rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #4b5563;',
-  p: 'margin: 0 0 1rem 0; line-height: 1.55;',
-  ul: 'list-style-type: disc; margin: 0 0 1rem 1.5rem; padding: 0;',
-  ol: 'list-style-type: decimal; margin: 0 0 1rem 1.5rem; padding: 0;',
-  li: 'margin: .25rem 0;',
-  code: 'font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: .1rem .35rem; border-radius: 4px; font-size: .875em; font-variant-ligatures: none;',
-  pre: 'display: block; width: 100%; box-sizing: border-box; font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: 1rem 1.25rem; border-radius: 8px; overflow: auto; font-size: .875rem; line-height: 1.5; margin: 1.5rem 0; font-variant-ligatures: none;',
-  blockquote: 'margin: 1.5rem 0; padding: .5rem 1rem; border-left: 4px solid #d1d5db; background-color: rgba(209, 213, 219, 0.08);',
-  hr: 'border: 0; border-top: 1px solid #d1d5db; margin: 2rem 0;',
-  em: 'font-style: italic;',
-  strong: 'font-weight: 600;',
-  a: 'color: #2563eb; text-decoration: underline; text-underline-offset: 2px;',
-  img: 'max-width: 100%; height: auto; border-radius: 4px; margin: 1rem 0;',
-  table: 'width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: .875rem;',
-  tr: 'border-bottom: 1px solid #e5e7eb;',
-  th: 'border: 1px solid #d1d5db; background-color: #f3f4f6; padding: .5rem .75rem; text-align: left; font-weight: 600;',
-  td: 'border: 1px solid #d1d5db; padding: .5rem .75rem;',
-  customCSS: `
+  // Default styles
+  const defaultStyles = {
+    h1: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 2.25rem; line-height: 1.15; color: #111827; margin-top: 2.5rem; margin-bottom: 1rem; font-weight: 600;',
+    h2: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 1.75rem; line-height: 1.2; color: #1f2937; margin-top: 2rem; margin-bottom: .75rem; font-weight: 600;',
+    h3: 'font-size: 1.5rem; line-height: 1.25; color: #1f2937; margin-top: 1.5rem; margin-bottom: .5rem; font-weight: 600;',
+    h4: 'font-size: 1.25rem; line-height: 1.3; color: #374151; margin-top: 1.25rem; margin-bottom: .5rem; font-weight: 600;',
+    h5: 'font-size: 1rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; color: #374151;',
+    h6: 'font-size: .875rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #4b5563;',
+    p: 'margin: 0 0 1rem 0; line-height: 1.55;',
+    ul: 'list-style-type: disc; margin: 0 0 1rem 1.5rem; padding: 0;',
+    ol: 'list-style-type: decimal; margin: 0 0 1rem 1.5rem; padding: 0;',
+    li: 'margin: .25rem 0;',
+    code: 'font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: .1rem .35rem; border-radius: 4px; font-size: .875em; font-variant-ligatures: none;',
+    pre: 'display: block; width: 100%; box-sizing: border-box; font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: 1rem 1.25rem; border-radius: 8px; overflow: auto; font-size: .875rem; line-height: 1.5; margin: 1.5rem 0; font-variant-ligatures: none;',
+    blockquote: 'margin: 1.5rem 0; padding: .5rem 1rem; border-left: 4px solid #d1d5db; background-color: rgba(209, 213, 219, 0.08);',
+    hr: 'border: 0; border-top: 1px solid #d1d5db; margin: 2rem 0;',
+    em: 'font-style: italic;',
+    strong: 'font-weight: 600;',
+    a: 'color: #2563eb; text-decoration: underline; text-underline-offset: 2px;',
+    img: 'max-width: 100%; height: auto; border-radius: 4px; margin: 1rem 0;',
+    table: 'width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: .875rem;',
+    tr: 'border-bottom: 1px solid #e5e7eb;',
+    th: 'border: 1px solid #d1d5db; background-color: #f3f4f6; padding: .5rem .75rem; text-align: left; font-weight: 600;',
+    td: 'border: 1px solid #d1d5db; padding: .5rem .75rem;',
+    customCSS: `
 #preview-content, [data-testid="preview-content"] {
   max-width: 72ch;
   margin-left: auto;
@@ -93,326 +93,266 @@ pre > code {
   font-size: 1em;
 }
 `,
-  googleFontFamily: 'Source Sans 3, JetBrains Mono, Playfair Display',
- };
-
- const defaultPrintStyles = {
-  printHeaderHtml: 'Professional Document',
-  printFooterHtml: 'Page %p of %P',
-  headerFontSize: '10',
-  headerFontColor: '#666666',
-  headerAlign: 'center',
-  footerFontSize: '10',
-  footerFontColor: '#666666',
-  footerAlign: 'center',
-  enablePageNumbers: true,
-  googleFontFamily: 'Source Sans 3, JetBrains Mono, Playfair Display',
-  blockquote: 'margin: 1.5rem 0; padding: .5rem 1rem; border-left: 4px solid #d1d5db; background-color: rgba(209, 213, 219, 0.08);',
-  customCSS: `
-/* Print-specific styles */
-h1 {
- font-family: "Playfair Display";
- font-size: 2.5rem;
- line-height: 1.15;
- color: #111827;
- font-weight: 600;
-}
-h2 {
- font-family: "Playfair Display";
- font-size: 2rem;
- line-height: 1.15;
- color: #111827;
- font-weight: 600;
- letter-spacing: 0.025rem;
- margin-top: 1.5rem;
-}
-h3 {
- font-family: "Playfair Display";
- font-size: 1.5rem;
- line-height: 1.15;
- color: #1f2937;
- margin-top: 1rem;
- margin-bottom: .5rem;
- font-weight: 600;
-}
-h4 {
- font-size: 1.25rem;
- line-height: 1.3;
- color: #374151;
- margin-top: 1.25rem;
- margin-bottom: .5rem;
- font-weight: 600;
-}
-
-:root {
- --li-gap: .5rem;
- --marker-w: 2.2em;
- --line-h: 1.45;
- --ol-suffix: ".";
- --indent-step: 1.25rem;
-}
-
-body {
- font-size: 11pt;
- line-height: 1.6;
- font-variant-ligatures: no-common-ligatures;
-}
-
-h1, h2, h3, h4, h5, h6 {
- page-break-after: avoid;
- page-break-inside: avoid;
-}
-
-table, figure, img, blockquote, pre {
- page-break-inside: avoid;
-}
-
-.page-break {
- page-break-before: always;
-}
-`,
- };
-
- const styles = ref({ ...defaultStyles });
- const printStyles = ref({ ...defaultPrintStyles });
- let settingsLoaded = false;
-
- // Debounce DB writes
- const debounce = (fn, wait) => {
-  let t;
-  return (...args) => {
-   clearTimeout(t);
-   t = setTimeout(() => fn(...args), wait);
+    googleFontFamily: 'Source Sans 3, JetBrains Mono, Playfair Display',
   };
- };
 
- const saveStylesToDB = debounce(async () => {
-  if (!settingsLoaded || !syncStore.isInitialized) return;
-  try {
-   await syncStore.db.value.exec('BEGIN TRANSACTION;');
-   await syncStore.db.value.exec(
-    'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-    ['previewStyles', JSON.stringify(styles.value)]
-   );
-   await syncStore.db.value.exec(
-    'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-    ['printStyles', JSON.stringify(printStyles.value)]
-   );
-   await syncStore.db.value.exec('COMMIT;');
-  } catch (err) {
-   await syncStore.db.value.exec('ROLLBACK;');
-   console.error('[markdownStore] Failed to save styles', err);
-  }
- }, 500);
+  const defaultPrintStyles = {
+    // Start with the same defaults as the on-screen preview styles so the Print
+    // Styles page exposes the same inputs and initial values.
+    ...defaultStyles,
 
- async function loadStylesFromDB() {
-  if (!syncStore.isInitialized) return;
-  try {
-   const result = await syncStore.execute(`SELECT id, value FROM settings WHERE id IN ('previewStyles', 'printStyles')`);
-   const loadedSettings = result || [];
+    // Print-specific extras (kept separate so editing print styles doesn't affect preview styles)
+    printHeaderHtml: 'Professional Document',
+    printFooterHtml: 'Page %p of %P',
+    headerFontSize: '10',
+    headerFontColor: '#666666',
+    headerAlign: 'center',
+    footerFontSize: '10',
+    footerFontColor: '#666666',
+    footerAlign: 'center',
+    enablePageNumbers: true,
+  };
 
-   const preview = loadedSettings.find(s => s.id === 'previewStyles');
-   if (preview) Object.assign(styles.value, JSON.parse(preview.value));
+  const styles = ref({ ...defaultStyles });
+  const printStyles = ref({ ...defaultPrintStyles });
+  let settingsLoaded = false;
 
-   const print = loadedSettings.find(s => s.id === 'printStyles');
-   if (print) Object.assign(printStyles.value, JSON.parse(print.value));
+  // Debounce DB writes
+  const debounce = (fn, wait) => {
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), wait);
+    };
+  };
 
-   settingsLoaded = true;
-  } catch (err) {
-   console.error('[markdownStore] Failed to load styles', err);
-   settingsLoaded = true;
-  }
- }
+  const saveStylesToDB = debounce(async () => {
+    if (!settingsLoaded || !syncStore.isInitialized) return;
+    try {
+      await syncStore.db.value.exec('BEGIN TRANSACTION;');
+      await syncStore.db.value.exec(
+        'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+        ['previewStyles', JSON.stringify(styles.value)]
+      );
+      await syncStore.db.value.exec(
+        'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+        ['printStyles', JSON.stringify(printStyles.value)]
+      );
+      await syncStore.db.value.exec('COMMIT;');
+    } catch (err) {
+      await syncStore.db.value.exec('ROLLBACK;');
+      console.error('[markdownStore] Failed to save styles', err);
+    }
+  }, 500);
 
- // Watch for DB initialization to load settings
- watch(() => syncStore.isInitialized, (ready) => {
-  if (ready) loadStylesFromDB();
- }, { immediate: true });
+  async function loadStylesFromDB() {
+    if (!syncStore.isInitialized) return;
+    try {
+      const result = await syncStore.execute(`SELECT id, value FROM settings WHERE id IN ('previewStyles', 'printStyles')`);
+      const loadedSettings = result || [];
 
- // Actions
- function updateStyle(key, value) {
-  if (styles.value[key] !== undefined) {
-   styles.value[key] = value;
-   saveStylesToDB();
-  }
- }
+      const preview = loadedSettings.find(s => s.id === 'previewStyles');
+      if (preview) Object.assign(styles.value, JSON.parse(preview.value));
 
- function updatePrintStyle(key, value) {
-  if (printStyles.value[key] !== undefined) {
-   printStyles.value[key] = value;
-   saveStylesToDB();
-  }
- }
+      const print = loadedSettings.find(s => s.id === 'printStyles');
+      if (print) Object.assign(printStyles.value, JSON.parse(print.value));
 
- function resetStyles() {
-  styles.value = { ...defaultStyles };
-  saveStylesToDB();
- }
-
- function resetPrintStyles() {
-  printStyles.value = { ...defaultPrintStyles };
-  saveStylesToDB();
- }
-
- // Create a base instance of MarkdownIt with common plugins
- const baseMd = () => {
-  return new MarkdownIt({
-   html: true,
-   linkify: true,
-   typographer: true,
-  }).use(markdownItTaskLists);
- };
-
- // Inject CSS into document head
- function addCustomCSSToDocument(cssContent, targetDoc = document) {
-  const styleId = 'markdown-custom-styles';
-  let styleElement = targetDoc.getElementById(styleId);
-  if (!styleElement) {
-   styleElement = targetDoc.createElement('style');
-   styleElement.id = styleId;
-   targetDoc.head.appendChild(styleElement);
-  }
-  styleElement.textContent = cssContent;
- }
-
- // Configure renderer with styles
- function configureRenderer(md, styleMap, { injectGlobalStyles = true } = {}) {
-  let combinedCSS = '';
-  if (styleMap.customCSS) {
-   combinedCSS += styleMap.customCSS;
+      settingsLoaded = true;
+    } catch (err) {
+      console.error('[markdownStore] Failed to load styles', err);
+      settingsLoaded = true;
+    }
   }
 
-  if (styleMap.googleFontFamily) {
-   const families = styleMap.googleFontFamily.split(',')
-    .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
-    .join('&');
-   if (families) {
-    combinedCSS += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n`;
-    const primaryFont = styleMap.googleFontFamily.split(',')[0].trim().replace(/['"]/g, '');
-    combinedCSS += `
+  // Watch for DB initialization to load settings
+  watch(() => syncStore.isInitialized, (ready) => {
+    if (ready) loadStylesFromDB();
+  }, { immediate: true });
+
+  // Actions
+  function updateStyle(key, value) {
+    if (styles.value[key] !== undefined) {
+      styles.value[key] = value;
+      saveStylesToDB();
+    }
+  }
+
+  function updatePrintStyle(key, value) {
+    if (printStyles.value[key] !== undefined) {
+      printStyles.value[key] = value;
+      saveStylesToDB();
+    }
+  }
+
+  function resetStyles() {
+    styles.value = { ...defaultStyles };
+    saveStylesToDB();
+  }
+
+  function resetPrintStyles() {
+    printStyles.value = { ...defaultPrintStyles };
+    saveStylesToDB();
+  }
+
+  // Create a base instance of MarkdownIt with common plugins
+  const baseMd = () => {
+    return new MarkdownIt({
+      html: true,
+      linkify: true,
+      typographer: true,
+    }).use(markdownItTaskLists);
+  };
+
+  // Inject CSS into document head
+  function addCustomCSSToDocument(cssContent, targetDoc = document) {
+    const styleId = 'markdown-custom-styles';
+    let styleElement = targetDoc.getElementById(styleId);
+    if (!styleElement) {
+      styleElement = targetDoc.createElement('style');
+      styleElement.id = styleId;
+      targetDoc.head.appendChild(styleElement);
+    }
+    styleElement.textContent = cssContent;
+  }
+
+  // Configure renderer with styles
+  function configureRenderer(md, styleMap, { injectGlobalStyles = true } = {}) {
+    let combinedCSS = '';
+    if (styleMap.customCSS) {
+      combinedCSS += styleMap.customCSS;
+    }
+
+    if (styleMap.googleFontFamily) {
+      const families = styleMap.googleFontFamily.split(',')
+        .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
+        .join('&');
+      if (families) {
+        combinedCSS += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n`;
+        const primaryFont = styleMap.googleFontFamily.split(',')[0].trim().replace(/['"]/g, '');
+        combinedCSS += `
      #preview-content, [data-testid="preview-content"] {
       font-family: "${primaryFont}", system-ui, sans-serif;
      }
     `;
-   }
-  }
-
-  if (combinedCSS && injectGlobalStyles) {
-   addCustomCSSToDocument(combinedCSS);
-  }
-
-  // Helper to safely get and wrap the original renderer rule
-  const wrapRule = (ruleName, styleKey) => {
-   const originalRule = md.renderer.rules[ruleName] || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
-   md.renderer.rules[ruleName] = (tokens, idx, options, env, self) => {
-    const css = styleMap[styleKey];
-    if (css) tokens[idx].attrSet('style', css);
-    return originalRule(tokens, idx, options, env, self);
-   };
-  };
-
-  // Headings - special handling to get tag name (h1, h2, etc.)
-  const originalHeadingOpen = md.renderer.rules.heading_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
-  md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
-   const token = tokens[idx];
-   const css = styleMap[token.tag];
-   if (css) token.attrSet('style', css);
-   return originalHeadingOpen(tokens, idx, opts, env, self);
-  };
-
-  // Basic rules
-  wrapRule('paragraph_open', 'p');
-  wrapRule('bullet_list_open', 'ul');
-  wrapRule('ordered_list_open', 'ol');
-  wrapRule('list_item_open', 'li');
-  wrapRule('blockquote_open', 'blockquote');
-  wrapRule('em_open', 'em');
-  wrapRule('strong_open', 'strong');
-  wrapRule('code_inline', 'code');
-  wrapRule('hr', 'hr');
-
-  // Code blocks (fence for ```, code_block for indented)
-  const originalFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o));
-  md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-   const css = styleMap.pre;
-   if (css) tokens[idx].attrSet('style', css);
-   return originalFence(tokens, idx, options, env, self);
-  };
-  const originalCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o));
-  md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
-   const css = styleMap.pre;
-   if (css) tokens[idx].attrSet('style', css);
-   return originalCodeBlock(tokens, idx, options, env, self);
-  };
-
-
-  // Links
-  const originalLinkOpen = md.renderer.rules.link_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
-  md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-   const css = styleMap.a;
-   if (css) tokens[idx].attrSet('style', css);
-   const href = tokens[idx].attrGet('href');
-   if (href && (href.startsWith('http') || href.startsWith('//'))) {
-    tokens[idx].attrSet('target', '_blank');
-    tokens[idx].attrSet('rel', 'noopener noreferrer');
-   }
-   return originalLinkOpen(tokens, idx, options, env, self);
-  };
-
-  // Image
-  const originalImage = md.renderer.rules.image || ((t, i, o, e, s) => s.renderToken(t, i, o));
-  md.renderer.rules.image = (tokens, idx, options, env, self) => {
-   const token = tokens[idx];
-   const srcIndex = token.attrIndex('src');
-
-   if (srcIndex >= 0) {
-    let src = token.attrs[srcIndex][1];
-    const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
-
-    const isInternalImage = (apiUrl && src.startsWith(apiUrl) && src.includes('/images/')) ||
-     (!src.startsWith('http') && (src.startsWith('/images/') || src.startsWith('/api/images/')));
-
-    if (isInternalImage && authStore.token) {
-     try {
-      const url = new URL(src, window.location.origin);
-      url.searchParams.set('token', authStore.token);
-      token.attrs[srcIndex][1] = apiUrl ? url.href : url.pathname + url.search;
-     } catch (e) {
-      console.error("Failed to parse image URL for token injection:", src, e);
-     }
+      }
     }
-   }
 
-   const css = styleMap.img;
-   if (css) token.attrSet('style', css);
-   token.attrSet('loading', 'lazy');
+    if (combinedCSS && injectGlobalStyles) {
+      addCustomCSSToDocument(combinedCSS);
+    }
 
-   return originalImage(tokens, idx, options, env, self);
+    // Helper to safely get and wrap the original renderer rule
+    const wrapRule = (ruleName, styleKey) => {
+      const originalRule = md.renderer.rules[ruleName] || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
+      md.renderer.rules[ruleName] = (tokens, idx, options, env, self) => {
+        const css = styleMap[styleKey];
+        if (css) tokens[idx].attrSet('style', css);
+        return originalRule(tokens, idx, options, env, self);
+      };
+    };
+
+    // Headings - special handling to get tag name (h1, h2, etc.)
+    const originalHeadingOpen = md.renderer.rules.heading_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
+    md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
+      const token = tokens[idx];
+      const css = styleMap[token.tag];
+      if (css) token.attrSet('style', css);
+      return originalHeadingOpen(tokens, idx, opts, env, self);
+    };
+
+    // Basic rules
+    wrapRule('paragraph_open', 'p');
+    wrapRule('bullet_list_open', 'ul');
+    wrapRule('ordered_list_open', 'ol');
+    wrapRule('list_item_open', 'li');
+    wrapRule('blockquote_open', 'blockquote');
+    wrapRule('em_open', 'em');
+    wrapRule('strong_open', 'strong');
+    wrapRule('code_inline', 'code');
+    wrapRule('hr', 'hr');
+
+    // Code blocks (fence for ```, code_block for indented)
+    const originalFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o));
+    md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+      const css = styleMap.pre;
+      if (css) tokens[idx].attrSet('style', css);
+      return originalFence(tokens, idx, options, env, self);
+    };
+    const originalCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o));
+    md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
+      const css = styleMap.pre;
+      if (css) tokens[idx].attrSet('style', css);
+      return originalCodeBlock(tokens, idx, options, env, self);
+    };
+
+
+    // Links
+    const originalLinkOpen = md.renderer.rules.link_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
+    md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+      const css = styleMap.a;
+      if (css) tokens[idx].attrSet('style', css);
+      const href = tokens[idx].attrGet('href');
+      if (href && (href.startsWith('http') || href.startsWith('//'))) {
+        tokens[idx].attrSet('target', '_blank');
+        tokens[idx].attrSet('rel', 'noopener noreferrer');
+      }
+      return originalLinkOpen(tokens, idx, options, env, self);
+    };
+
+    // Image
+    const originalImage = md.renderer.rules.image || ((t, i, o, e, s) => s.renderToken(t, i, o));
+    md.renderer.rules.image = (tokens, idx, options, env, self) => {
+      const token = tokens[idx];
+      const srcIndex = token.attrIndex('src');
+
+      if (srcIndex >= 0) {
+        let src = token.attrs[srcIndex][1];
+        const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
+
+        const isInternalImage = (apiUrl && src.startsWith(apiUrl) && src.includes('/images/')) ||
+          (!src.startsWith('http') && (src.startsWith('/images/') || src.startsWith('/api/images/')));
+
+        if (isInternalImage && authStore.token) {
+          try {
+            const url = new URL(src, window.location.origin);
+            url.searchParams.set('token', authStore.token);
+            token.attrs[srcIndex][1] = apiUrl ? url.href : url.pathname + url.search;
+          } catch (e) {
+            console.error("Failed to parse image URL for token injection:", src, e);
+          }
+        }
+      }
+
+      const css = styleMap.img;
+      if (css) token.attrSet('style', css);
+      token.attrSet('loading', 'lazy');
+
+      return originalImage(tokens, idx, options, env, self);
+    };
+
+    // Table styles
+    wrapRule('table_open', 'table');
+    wrapRule('tr_open', 'tr');
+    wrapRule('th_open', 'th');
+    wrapRule('td_open', 'td');
+  }
+
+  function getMarkdownIt() {
+    const md = baseMd();
+    configureRenderer(md, styles.value, { injectGlobalStyles: true });
+    return md;
+  }
+
+  async function getPrintMarkdownIt() {
+    const md = baseMd();
+    configureRenderer(md, printStyles.value, { injectGlobalStyles: false });
+    return md;
+  }
+
+  return {
+    styles, printStyles,
+    updateStyle, updatePrintStyle,
+    resetStyles, resetPrintStyles,
+    getMarkdownIt, getPrintMarkdownIt, printStylesCssString
   };
-
-  // Table styles
-  wrapRule('table_open', 'table');
-  wrapRule('tr_open', 'tr');
-  wrapRule('th_open', 'th');
-  wrapRule('td_open', 'td');
- }
-
- function getMarkdownIt() {
-  const md = baseMd();
-  configureRenderer(md, styles.value, { injectGlobalStyles: true });
-  return md;
- }
-
- async function getPrintMarkdownIt() {
-  const md = baseMd();
-  configureRenderer(md, printStyles.value, { injectGlobalStyles: false });
-  return md;
- }
-
- return {
-  styles, printStyles,
-  updateStyle, updatePrintStyle,
-  resetStyles, resetPrintStyles,
-  getMarkdownIt, getPrintMarkdownIt, printStylesCssString
- };
 });

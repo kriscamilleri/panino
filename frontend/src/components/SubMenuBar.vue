@@ -1,7 +1,6 @@
 <template>
     <transition name="fade-fast" mode="out-in">
-        <div v-if="ui.isAnyMenuOpen"
-            class="border-t bg-gray-50 px-4 py-2 min-h-14 flex items-center overflow-x-auto"
+        <div v-if="ui.isAnyMenuOpen" class="border-t bg-gray-50 px-4 py-2 min-h-14 flex items-center overflow-x-auto"
             data-testid="submenu-bar">
             <div v-if="ui.showViewMenu" class="flex flex-wrap items-center gap-2" key="view">
                 <BaseButton :isActive="ui.showDocuments" @click="ui.toggleDocuments()"
@@ -125,8 +124,8 @@
                     <BarChart2 class="w-4 h-4" />
                     <span class="button-text">Stats</span>
                 </BaseButton>
-                <BaseButton :isActive="ui.showMetadata" @click="ui.toggleMetadata()"
-                    data-testid="submenu-editor-info" title="Toggle Info" class="text-sm">
+                <BaseButton :isActive="ui.showMetadata" @click="ui.toggleMetadata()" data-testid="submenu-editor-info"
+                    title="Toggle Info" class="text-sm">
                     <Info class="w-4 h-4" />
                     <span class="button-text">Info</span>
                 </BaseButton>
@@ -143,7 +142,9 @@
             </div>
 
             <div v-else-if="ui.showFileMenu" class="flex flex-wrap items-center gap-2" key="file">
-                <BaseButton :disabled="printDisabled" :title="printDisabled ? 'Select a document to enable printing' : 'Customize print styles'" @click="goToPrintStyles" data-testid="submenu-tools-print">
+                <BaseButton :disabled="printDisabled"
+                    :title="printDisabled ? 'Select a document to enable printing' : 'Customize print styles'"
+                    @click="goToPrintStyles" data-testid="submenu-tools-print">
                     <Printer class="w-4 h-4" /><span>Print</span>
                 </BaseButton>
 
