@@ -143,7 +143,7 @@
             </div>
 
             <div v-else-if="ui.showFileMenu" class="flex flex-wrap items-center gap-2" key="file">
-                <BaseButton @click="goToPrintStyles" data-testid="submenu-tools-print">
+                <BaseButton :disabled="printDisabled" :title="printDisabled ? 'Select a document to enable printing' : 'Customize print styles'" @click="goToPrintStyles" data-testid="submenu-tools-print">
                     <Printer class="w-4 h-4" /><span>Print</span>
                 </BaseButton>
 
@@ -160,10 +160,12 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
+import { storeToRefs } from 'pinia'
+import { useDocStore } from '@/store/docStore'
 import BaseButton from '@/components/BaseButton.vue'
 
 import {
@@ -198,6 +200,9 @@ import {
 const ui = useUiStore()
 const editorStore = useEditorStore()
 const router = useRouter()
+const docStore = useDocStore()
+const { selectedFileId } = storeToRefs(docStore)
+const printDisabled = computed(() => !selectedFileId.value)
 
 /* ───────── state ───────── */
 const searchTerm = ref('')
