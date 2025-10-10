@@ -8,6 +8,13 @@
         <div v-if="config.customActions" class="flex items-center gap-2" role="group">
           <BaseButton v-for="action in config.customActions" :key="action.id" @click="action.onClick"
             :isActive="action.isActive()" class="text-sm font-medium px-3 py-1.5">
+            <!-- show provided icon component or fallback based on action id -->
+            <template v-if="action.icon">
+              <component :is="action.icon" class="w-4 h-4 mr-2" />
+            </template>
+            <template v-else>
+              <component :is="iconForAction(action.id)" class="w-4 h-4 mr-2" />
+            </template>
             {{ action.label }}
           </BaseButton>
         </div>
@@ -124,10 +131,10 @@
       <!-- Editor Pane (left side when active) -->
       <div v-if="shouldShowEditorPane" class="w-1/2 p-8 overflow-y-auto bg-gray-50"
         :style="{ height: 'calc(100vh - 57px)' }">
-        <component v-if="config.editorComponent" :is="config.editorComponent" class="min-h-full" />
+        <component v-if="config.editorComponent" :is="config.editorComponent"
+          class="bg-white shadow-lg rounded-lg h-full overflow-y-auto w-full font-mono text-sm" />
         <textarea v-else-if="config.getEditorContent" :value="config.getEditorContent()"
-          class="w-full h-full p-4 border border-gray-300 rounded-lg font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-400"
-          readonly></textarea>
+          class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto w-full font-mono text-sm" readonly></textarea>
       </div>
 
       <!-- Preview/Content Pane (right side or full width) -->
@@ -142,7 +149,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { ArrowLeft, Settings, Bug } from 'lucide-vue-next';
+import { ArrowLeft, Settings, Bug, Palette, Edit3 } from 'lucide-vue-next';
 import { useDebounceFn } from '@vueuse/core';
 import AccountNav from './AccountNav.vue';
 import BaseButton from './BaseButton.vue';
@@ -343,6 +350,15 @@ function showDebugHtml() {
   } else {
     alert('Debug HTML is not available yet. Please wait a moment for it to generate.');
   }
+}
+
+// Provide a small mapping from action id -> lucide icon component
+function iconForAction(id) {
+  const map = {
+    'show-styles': Palette,
+    'show-editor': Edit3
+  };
+  return map[id] || Settings;
 }
 </script>
 

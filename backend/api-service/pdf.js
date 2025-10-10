@@ -9,6 +9,9 @@ export const pdfRoutes = express.Router();
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
 
+// Helper function to replace deprecated page.waitForTimeout
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // -------------------------------------------------------------
 // SECTION 1: SINGLETON BROWSER MANAGER
 // -------------------------------------------------------------
@@ -170,35 +173,35 @@ async function handlePdfGeneration(req, res) {
         `;
 
         const browser = await getBrowser();
-        context = await browser.createIncognitoBrowserContext();
+        context = await browser.createBrowserContext();
         const page = await context.newPage();
         page.setDefaultTimeout(25000);
 
         await page.emulateMediaType('print');
-        
+
         console.log('[PDF] Setting content...');
-        await page.setContent(fullHtml, { 
+        await page.setContent(fullHtml, {
             waitUntil: 'networkidle2',
-            timeout: 25000 
+            timeout: 25000
         });
 
-        await page.waitForTimeout(1000);
-        
+        await wait(1000);
+
         console.log('[PDF] Content set, loading Paged.js...');
-        
+
         // --- PAGED.JS LOGIC (RESTORED) ---
         let pagedSuccess = false;
         try {
             await page.addScriptTag({ url: pagedJsUrl, timeout: 8000 });
-            await page.waitForTimeout(500);
-            
+            await wait(500);
+
             pagedSuccess = await page.evaluate(() => {
                 return new Promise((resolve) => {
                     if (!window.Paged || !window.PagedPolyfill) {
                         resolve(false);
                         return;
                     }
-                    
+
                     let settled = false;
                     const settle = (result) => {
                         if (!settled) {
@@ -206,37 +209,37 @@ async function handlePdfGeneration(req, res) {
                             resolve(result);
                         }
                     };
-                    
+
                     try {
                         class DoneHandler extends window.Paged.Handlers.Base {
                             afterRendered() {
                                 settle(true);
                             }
                         }
-                        
+
                         window.Paged.registerHandlers(DoneHandler);
                         window.PagedPolyfill.preview()
                             .then(() => settle(true))
                             .catch(() => settle(false));
-                        
+
                         setTimeout(() => settle(false), 8000);
                     } catch {
                         settle(false);
                     }
                 });
             });
-            
+
             console.log('[PDF] Paged.js completed:', pagedSuccess);
-            
+
             if (pagedSuccess) {
-                await page.waitForTimeout(800);
+                await wait(800);
             }
         } catch (err) {
             console.warn('[PDF] Paged.js error:', err.message);
         }
 
-        await page.waitForTimeout(300);
-        
+        await wait(300);
+
         console.log('[PDF] Adding headers/footers...');
 
         // --- HEADER/FOOTER INJECTION LOGIC (RESTORED) ---
@@ -332,7 +335,7 @@ async function handlePdfGeneration(req, res) {
         throw error;
     } finally {
         console.log('[PDF] Cleanup starting...');
-        
+
         if (context) {
             try {
                 await context.close();
@@ -341,7 +344,7 @@ async function handlePdfGeneration(req, res) {
                 console.error('[PDF] Failed to close browser context:', err.message);
             }
         }
-        
+
         console.log('[PDF] Cleanup complete.');
     }
 }
