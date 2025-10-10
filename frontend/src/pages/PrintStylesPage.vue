@@ -1,6 +1,6 @@
 <template>
   <StyleCustomizer :config="printStylesConfig">
-    <div class="h-full overflow-y-auto ">
+    <div class="h-full overflow-y-auto">
       <template v-if="!docStore.selectedFileContent">
         <div class="flex flex-col items-center justify-center h-full text-gray-500">
           <h3 class="text-lg font-semibold mb-2">No Document Selected</h3>
@@ -14,8 +14,9 @@
           </button>
         </div>
       </template>
-      <iframe v-else-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none"
-        data-testid="pdf-preview-iframe"></iframe>
+
+      <!-- PDF Preview (always shown when content exists) -->
+      <iframe v-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none" data-testid="pdf-preview-iframe"></iframe>
 
       <div v-else class="flex items-center justify-center h-full text-gray-500">
         <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none"
@@ -32,10 +33,11 @@
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted } from 'vue';
+import { ref, watch, onUnmounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDebounceFn } from '@vueuse/core';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';
+import Editor from '@/components/Editor.vue';
 import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
 import { useAuthStore } from '@/store/authStore';
@@ -49,7 +51,8 @@ const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
 
 const pdfUrl = ref('');
-const finalHtmlForPdf = ref(''); // For the debug button
+const finalHtmlForPdf = ref('');
+const showMode = ref('off'); // 'styles', 'editor', or 'off'
 
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
 
@@ -58,7 +61,8 @@ const printStylesConfig = {
   getStyles: () => ({ ...docStore.printStyles }),
   updateStyleAction: docStore.updatePrintStyle,
   getDebugHtml: () => finalHtmlForPdf.value,
-  
+  editorComponent: Editor,
+
   styleCategories: {
     'Headings': ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
     'Text Elements': ['p', 'em', 'strong', 'code', 'blockquote'],
@@ -68,7 +72,7 @@ const printStylesConfig = {
     'Code & Preformatted': ['pre', 'code'],
     'Layout': ['hr', 'div']
   },
-  
+
   extraFieldsTitle: 'Print Header & Footer Settings',
   extraFields: [
     {
@@ -89,7 +93,7 @@ const printStylesConfig = {
     },
     {
       id: 'printFooterHtml',
-      label: 'Print Footer HTML', 
+      label: 'Print Footer HTML',
       type: 'textarea',
       modelKey: 'printFooterHtml',
       rows: 3,
@@ -124,7 +128,7 @@ const printStylesConfig = {
     {
       id: 'footerFontSize',
       label: 'Footer Font Size (px)',
-      type: 'input', 
+      type: 'input',
       inputType: 'number',
       modelKey: 'footerFontSize',
       placeholder: '10'
@@ -133,7 +137,7 @@ const printStylesConfig = {
       id: 'footerFontColor',
       label: 'Footer Font Color',
       type: 'input',
-      inputType: 'color', 
+      inputType: 'color',
       modelKey: 'footerFontColor'
     },
     {
@@ -162,7 +166,26 @@ const printStylesConfig = {
       placeholder: '/* Custom CSS for print layout */'
     }
   ],
-  
+
+  // NEW: Custom actions for the button group
+  customActions: [
+    {
+      id: 'show-styles',
+      label: 'Styles',
+      isActive: () => showMode.value === 'styles',
+      onClick: () => { showMode.value = showMode.value === 'styles' ? 'off' : 'styles'; }
+    },
+    {
+      id: 'show-editor',
+      label: 'Editor',
+      isActive: () => showMode.value === 'editor',
+      onClick: () => { showMode.value = showMode.value === 'editor' ? 'off' : 'editor'; }
+    },
+  ],
+
+  // NEW: Function to get editor content
+  getEditorContent: () => docStore.selectedFileContent,
+
   resetStyles: () => markdownStore.resetPrintStyles(),
   onBack: () => {
     if (docStore.selectedFileId) {
@@ -181,7 +204,7 @@ async function regeneratePdf() {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 50000); // 50s timeout
+  const timeoutId = setTimeout(() => controller.abort(), 50000);
 
   try {
     const md = await markdownStore.getPrintMarkdownIt();
@@ -204,8 +227,8 @@ async function regeneratePdf() {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${authStore.token}`
       },
-      body: JSON.stringify({ 
-        htmlContent, 
+      body: JSON.stringify({
+        htmlContent,
         cssStyles,
         printStyles: sanitizedPrintStyles
       }),
@@ -235,7 +258,6 @@ async function regeneratePdf() {
   }
 }
 
-// Watch for any changes in print styles or selected content
 watch(
   () => [docStore.printStyles, docStore.selectedFileContent],
   () => { debouncedRegeneratePdf() },

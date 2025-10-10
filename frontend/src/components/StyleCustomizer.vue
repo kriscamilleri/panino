@@ -2,17 +2,24 @@
   <div class="min-h-screen bg-gray-50 flex flex-col">
     <AccountNav :title="config.title">
       <template #actions>
-        <button @click="toggleStylesCustomization"
+
+
+        <!-- Button group for custom actions (Print page) -->
+        <div v-if="config.customActions" class="flex items-center gap-2" role="group">
+          <BaseButton v-for="action in config.customActions" :key="action.id" @click="action.onClick"
+            :isActive="action.isActive()" class="text-sm font-medium px-3 py-1.5">
+            {{ action.label }}
+          </BaseButton>
+        </div>
+
+        <!-- Original toggle button (for regular styles page) -->
+        <button v-else @click="toggleStylesCustomization"
           class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 flex items-center space-x-2"
           :class="{ 'bg-gray-200': showStylesCustomization }">
           <Settings class="w-4 h-4" />
           <span>{{ showStylesCustomization ? 'Hide' : 'Show' }} Styles</span>
         </button>
-        <button v-if="config.getDebugHtml" @click="showDebugHtml"
-          class="px-3 py-1.5 text-sm font-medium text-yellow-700 bg-yellow-50 border border-yellow-200 rounded-md hover:bg-yellow-100 flex items-center space-x-2">
-          <Bug class="w-4 h-4" />
-          <span>Debug HTML</span>
-        </button>
+
         <button @click="goBack"
           class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 flex items-center space-x-2">
           <ArrowLeft class="w-4 h-4" />
@@ -22,7 +29,8 @@
     </AccountNav>
 
     <div class="flex-1 flex overflow-hidden">
-      <div v-if="showStylesCustomization" class="w-1/2 p-8 overflow-y-auto" :style="{ height: 'calc(100vh - 57px)' }">
+      <!-- Styles Pane (left side when active) -->
+      <div v-if="shouldShowStylesPane" class="w-1/2 p-8 overflow-y-auto" :style="{ height: 'calc(100vh - 57px)' }">
         <div class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto">
           <div class="space-y-6">
             <div v-for="(styles, category) in categorizedStyles" :key="category" class="space-y-4">
@@ -102,14 +110,29 @@
 
           <hr class="my-6" />
           <button @click="resetStyles"
-            class="px-4 py-2 text-red-700 bg-red-50 hover:bg-red-100 rounded flex items-center space-x-2 border border-red-200">
+            class="px-4 py-2 text-red-700 bg-red-50 hover:bg-red-100 rounded flex items-center space-x-2 border border-red-200 my-2">
             <span>Reset to Defaults</span>
+          </button>
+          <button v-if="config.getDebugHtml" @click="showDebugHtml"
+            class="px-4 py-2 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded flex items-center space-x-2 border border-yellow-200 my-2">
+            <Bug class="w-4 h-4" />
+            <span>Debug HTML</span>
           </button>
         </div>
       </div>
 
-      <div :class="showStylesCustomization ? 'w-1/2' : 'w-full'" class="bg-white border-l overflow-hidden"
+      <!-- Editor Pane (left side when active) -->
+      <div v-if="shouldShowEditorPane" class="w-1/2 p-8 overflow-y-auto bg-gray-50"
         :style="{ height: 'calc(100vh - 57px)' }">
+        <component v-if="config.editorComponent" :is="config.editorComponent" class="min-h-full" />
+        <textarea v-else-if="config.getEditorContent" :value="config.getEditorContent()"
+          class="w-full h-full p-4 border border-gray-300 rounded-lg font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-400"
+          readonly></textarea>
+      </div>
+
+      <!-- Preview/Content Pane (right side or full width) -->
+      <div :class="shouldShowStylesPane || shouldShowEditorPane ? 'w-1/2' : 'w-full'"
+        class="bg-white border-l overflow-hidden" :style="{ height: 'calc(100vh - 57px)' }">
         <slot />
       </div>
     </div>
@@ -122,25 +145,35 @@ import { useRouter } from 'vue-router';
 import { ArrowLeft, Settings, Bug } from 'lucide-vue-next';
 import { useDebounceFn } from '@vueuse/core';
 import AccountNav from './AccountNav.vue';
+import BaseButton from './BaseButton.vue';
 
 const props = defineProps({
-  /** * config must provide:
-   * - title: string
-   * - getStyles(): object
-   * - updateStyleAction(key, value): void
-   * - styleCategories: Record<string, string[]>
-   * - extraFields?: Array<{ id, label, type, modelKey, … }>
-   * - extraFieldsTitle?: string
-   * - resetStyles(): void
-   * - onBack?(): void
-   * - getDebugHtml?(): string // Optional for debug button
-   */
   config: { type: Object, required: true }
 });
 
 const router = useRouter();
 const editableStyleMap = ref({});
 const showStylesCustomization = ref(false);
+
+// Computed property to determine if styles pane should show
+const shouldShowStylesPane = computed(() => {
+  // If customActions exist, check if 'styles' mode is active
+  if (props.config.customActions) {
+    const stylesAction = props.config.customActions.find(a => a.id === 'show-styles');
+    return stylesAction ? stylesAction.isActive() : false;
+  }
+  // Otherwise use the original toggle behavior
+  return showStylesCustomization.value;
+});
+
+// Computed property to determine if editor pane should show
+const shouldShowEditorPane = computed(() => {
+  if (props.config.customActions) {
+    const editorAction = props.config.customActions.find(a => a.id === 'show-editor');
+    return editorAction ? editorAction.isActive() : false;
+  }
+  return false;
+});
 
 // Google-font picker state
 const selectedFonts = ref([]);
@@ -159,7 +192,6 @@ const popularGoogleFonts = [
   'Titillium Web', 'Muli', 'Exo', 'Comfortaa', 'Archivo', 'Hind', 'Bitter', 'Josefin Sans'
 ];
 
-// debounce calls to store
 const debouncedUpdateStore = useDebounceFn((k, v) => props.config.updateStyleAction(k, v), 300);
 
 onMounted(() => {
@@ -169,7 +201,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
-  // clean up injected <style id="markdown-custom-styles">
   const s = document.getElementById('markdown-custom-styles');
   if (s) s.remove();
 });
@@ -239,12 +270,10 @@ function handleFontInputKeydown(e) {
   }
 }
 
-// Initialize local map whenever store styles change
 watch(
   () => props.config.getStyles(),
   newStyles => {
     const proc = { ...newStyles };
-    // coerce checkbox fields
     props.config.extraFields?.forEach(f => {
       if (f.type === 'checkbox' && typeof proc[f.modelKey] !== 'boolean') {
         proc[f.modelKey] = String(proc[f.modelKey]).toLowerCase() === 'true';
@@ -252,7 +281,6 @@ watch(
     });
     editableStyleMap.value = proc;
 
-    // extract googleFontFamily into chips
     const gf = proc.googleFontFamily || '';
     if (gf) {
       const fonts = gf
