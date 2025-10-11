@@ -2,10 +2,20 @@
     <!-- Only render if the documents sidebar is toggled on -->
     <template v-if="ui.showDocuments">
         <div :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
-            :style="!isMobileView ? { width: documentsWidth + 'px' } : {}" class="bg-gray-100 border-r overflow-hidden"
+            :style="!isMobileView ? { width: documentsWidth + 'px' } : {}" class="bg-gray-100 border-r overflow-hidden relative"
             data-testid="sidebar-container">
-            <div class="h-full overflow-y-auto p-4">
+            <div class="h-full overflow-y-auto p-4 pb-12">
                 <Documents />
+            </div>
+            <!-- Collapse button sticky to bottom -->
+            <div class="sticky bottom-0 left-0 right-0 bg-gray-100 p-2 flex justify-end">
+                <button 
+                    @click="ui.toggleDocuments()"
+                    class="px-3 py-2 hover:bg-gray-200 flex items-center gap-2 rounded"
+                    title="Collapse Documents"
+                    data-testid="collapse-documents-button">
+                    <PanelLeftClose class="w-4 h-4" />
+                </button>
             </div>
         </div>
 
@@ -20,6 +30,7 @@ import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useUiStore } from '@/store/uiStore'
 import { useDocStore } from '@/store/docStore'
 import Documents from '@/components/Documents.vue'
+import { PanelLeftClose } from 'lucide-vue-next'
 
 // We expect the parent to pass down whether we're in mobile view or not,
 // or you can use a local approach that watches window size directly.
