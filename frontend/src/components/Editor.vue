@@ -1,6 +1,6 @@
 <template>
-  <div v-if="file" class="h-full flex flex-col">
-    <div v-if="ui.showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded"
+  <div v-if="file" class="h-full flex flex-col gap-0">
+    <div v-if="ui.showMetadata" class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
       data-testid="editor-metadata-container">
       <div class="flex gap-4">
         <div class="flex items-center gap-2">
@@ -28,8 +28,24 @@
       {{ uploadError }}
     </div>
 
-    <div class="flex-1 flex flex-col min-h-0">
-      <div ref="editorContainerRef" class="flex-1 bg-white" data-testid="editor-container"></div>
+    <div v-if="ui.showStats" class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
+      data-testid="editor-stats-display">
+      <div class="flex items-center gap-1">
+        <span class="font-medium">Words:</span>
+        <span data-testid="editor-stats-words">{{ wordCount }}</span>
+      </div>
+      <div class="flex items-center gap-1">
+        <span class="font-medium">Characters:</span>
+        <span data-testid="editor-stats-chars">{{ characterCount }}</span>
+      </div>
+      <div class="flex items-center gap-1">
+        <span class="font-medium">Lines:</span>
+        <span data-testid="editor-stats-lines">{{ lineCount }}</span>
+      </div>
+    </div>
+
+    <div class="flex-1 flex flex-col min-h-0 mt-0">
+      <div ref="editorContainerRef" class="flex-1 bg-white mt-0 p-0" data-testid="editor-container"></div>
     </div>
   </div>
 
@@ -43,12 +59,33 @@
   background-color: white !important;
 }
 
+/* Remove all padding and margin from editor container */
+[data-testid="editor-container"] {
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
 :deep(.overtype-container),
 :deep(.overtype-wrapper),
 :deep(.overtype-editor),
 :deep(.overtype-preview),
 :deep(textarea) {
   background-color: white !important;
+}
+
+:deep(.overtype-container) {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+:deep(.overtype-wrapper) {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+:deep(.overtype-editor) {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
 }
 </style>
 
@@ -150,7 +187,7 @@ function initEditor() {
       }
     },
     toolbar: false,  // Disable Overtype's toolbar - we use our own SubMenuBar
-    showStats: ui.showStats,
+    showStats: false,  // Disable OverType's built-in stats - we use our own external display
     placeholder: 'Start writing...',
     value: contentDraft.value || '',
     onChange: (value) => {
@@ -189,13 +226,6 @@ function destroyEditor() {
     editorInstance.value = null;
   }
 }
-
-/* ───── watch for stats toggle ───── */
-watch(() => ui.showStats, (newValue) => {
-  if (editorInstance.value) {
-    editorInstance.value.showStats(newValue);
-  }
-});
 
 /* ───── watch for file presence (DOM mount/unmount) ───── */
 watch(() => file.value, (newFile) => {
@@ -361,6 +391,10 @@ function insertList(prefix) {
   insertAtCursor(prefix);
 }
 
+function insertLink() {
+  insertAtCursor('[Link text](url)');
+}
+
 function insertTable() {
   const tpl = `\n| Header 1 | Header 2 |\n|----------|----------|\n| Cell 1   | Cell 2   |\n`;
   insertAtCursor(tpl);
@@ -459,7 +493,7 @@ function replaceAll(term, repl) {
 
 /* ───── expose methods for parent components ───── */
 const exposedMethods = {
-  insertFormat, insertList, insertTable, insertCodeBlock, insertImagePlaceholder,
+  insertFormat, insertList, insertLink, insertTable, insertCodeBlock, insertImagePlaceholder,
   uploadImage, findNext, replaceNext, replaceAll
 };
 

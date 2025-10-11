@@ -1,6 +1,6 @@
 <template>
     <transition name="fade-fast" mode="out-in">
-        <div v-if="ui.isAnyMenuOpen" class="border-t bg-gray-50 px-4 py-2 min-h-14 flex items-center overflow-x-auto"
+        <div v-if="ui.isAnyMenuOpen" class="border-y bg-gray-50 px-4 py-2 min-h-14 flex items-center overflow-x-auto"
             data-testid="submenu-bar">
             <div v-if="ui.showViewMenu" class="flex flex-wrap items-center gap-2" key="view">
                 <BaseButton :isActive="ui.showDocuments" @click="ui.toggleDocuments()"
@@ -37,6 +37,13 @@
                     :title="list.label" :data-testid="`submenu-editor-${list.label.toLowerCase().replace(' ', '-')}`">
                     <component :is="list.icon" class="w-4 h-4" />
                     <span class="button-text">{{ list.label }}</span>
+                </button>
+
+                <button @click="insertLink"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    title="Insert Link" data-testid="submenu-editor-link">
+                    <Link class="w-4 h-4" />
+                    <span class="button-text">Link</span>
                 </button>
 
                 <div class="separator"></div>
@@ -181,6 +188,7 @@ import {
     List,
     ListOrdered,
     CheckSquare,
+    Link,
     Table,
     Code2,
     BarChart2,
@@ -230,6 +238,9 @@ function insertFormat(f) {
 }
 function insertList(l) {
     editorStore.insertList(l.prefix)
+}
+function insertLink() {
+    editorStore.insertLink()
 }
 function insertTable() {
     editorStore.insertTable()

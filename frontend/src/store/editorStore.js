@@ -32,6 +32,14 @@ export const useEditorStore = defineStore('editorStore', () => {
         }
     }
     
+    function insertLink() {
+        if (editorRef.value && typeof editorRef.value.insertLink === 'function') {
+            editorRef.value.insertLink()
+        } else {
+            console.warn('Editor not available for insertLink')
+        }
+    }
+    
     function insertTable() {
         if (editorRef.value && typeof editorRef.value.insertTable === 'function') {
             editorRef.value.insertTable()
@@ -98,6 +106,7 @@ export const useEditorStore = defineStore('editorStore', () => {
         clearEditorRef,
         insertFormat,
         insertList,
+        insertLink,
         insertTable,
         insertCodeBlock,
         insertImagePlaceholder,
