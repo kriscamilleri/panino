@@ -28,7 +28,11 @@
                 </BaseButton>
 
                 <BaseButton v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'"
-                    :isActive="syncStore.syncEnabled" @click="handleToggleSync" class="space-x-1" title="Toggle Sync"
+                    :isActive="syncStore.syncEnabled" 
+                    :disabled="!authStore.isAuthenticated"
+                    @click="handleToggleSync" 
+                    class="space-x-1" 
+                    title="Toggle Sync"
                     data-testid="navbar-sync-button">
 
                     <RefreshCw :class="syncStore.syncEnabled ? '' : 'text-red-500'" class="w-4 h-4 " />
