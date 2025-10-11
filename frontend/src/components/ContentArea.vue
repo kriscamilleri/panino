@@ -23,7 +23,7 @@
                             'flex-shrink-0': !isMobileView
                         }" :style="!isMobileView ? { width: editorWidth + 'px' } : {}"
                             class="w-full overflow-hidden order-2 md:order-1" data-testid="content-area-editor-pane">
-                            <div class="h-full overflow-y-auto">
+                            <div class="h-full overflow-y-auto p-0">
                                 <Editor ref="editorRef" />
                             </div>
                         </div>
@@ -104,7 +104,7 @@ function handleMouseMove(event) {
         stopResize()
     }
     // If user grows editor too large => hide preview
-    else if (newWidth >= availableWidth - 50) {
+    else if (newWidth >= availableWidth - 5) {
         editorWidth.value = availableWidth
         ui.showPreview = false
     } else {
