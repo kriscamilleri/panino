@@ -5,9 +5,9 @@
             That means if you do <BaseButton @click="foo">, the click is passed through.
             Also pass through data-testid if provided.
         -->
-    <button :class="computedClasses" v-bind="buttonAttrs">
+    <component :is="elementType" :class="computedClasses" v-bind="buttonAttrs">
         <slot />
-    </button>
+    </component>
 </template>
 
 <script setup>
@@ -18,6 +18,10 @@ const props = defineProps({
      * When true, visually indicates an active or "pressed" state.
      */
     isActive: { type: Boolean, default: false },
+    /**
+     * The HTML element type to render (button or a)
+     */
+    as: { type: String, default: 'button' },
 })
 
 /**
@@ -27,11 +31,13 @@ const props = defineProps({
  */
 const buttonAttrs = useAttrs()
 
+const elementType = computed(() => props.as)
+
 const computedClasses = computed(() => {
     // useAttrs() returns attributes; disabled may be present here.
     const isDisabled = Boolean(buttonAttrs.disabled)
     // Base classes for button
-    let base = 'px-2 py-1 text-gray-700 rounded flex items-center space-x-1 transition'
+    let base = 'px-3 py-1.5 text-sm font-medium text-gray-700 rounded flex items-center space-x-1 transition'
 
     // Apply hover only when not disabled
     if (!isDisabled) base += ' hover:bg-gray-200'

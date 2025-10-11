@@ -2,10 +2,11 @@
     <div class="min-h-screen bg-gray-100">
         <AccountNav :title="title">
             <template #actions>
-                <router-link to="/"
-                    class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100  border-gray-200 rounded-md hover:bg-gray-200 flex items-center space-x-2">
-                    <ArrowLeft class="w-4 h-4" />
-                    <span>Back</span>
+                <router-link to="/" custom v-slot="{ navigate }">
+                    <BaseButton @click="navigate">
+                        <ArrowLeft class="w-4 h-4" />
+                        <span>Back</span>
+                    </BaseButton>
                 </router-link>
             </template>
         </AccountNav>
@@ -20,6 +21,7 @@
 <script setup>
 import { ArrowLeft } from 'lucide-vue-next';
 import AccountNav from './AccountNav.vue';
+import BaseButton from './BaseButton.vue';
 
 defineProps({
     title: {
