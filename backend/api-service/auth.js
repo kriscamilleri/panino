@@ -7,29 +7,6 @@ import { getAuthDb } from './db.js';
 export const authRoutes = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
 
-// POST /login
-authRoutes.post('/login', (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required' });
-    }
-
-    try {
-        const db = getAuthDb();
-        const user = db.prepare('SELECT id, name, email, password_hash FROM users WHERE email = ?').get(email);
-
-        if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-            return res.status(401).json({ error: 'Invalid credentials' });
-        }
-
-        const token = jwt.sign({ user_id: user.id, sub: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token, user_id: user.id });
-    } catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
-
 // Middleware to authenticate JWT
 export const authenticateToken = (req, res, next) => {
     let token;
@@ -56,6 +33,53 @@ export const authenticateToken = (req, res, next) => {
         next();
     });
 };
+
+// POST /login
+authRoutes.post('/login', (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    try {
+        const db = getAuthDb();
+        const user = db.prepare('SELECT id, name, email, password_hash FROM users WHERE email = ?').get(email);
+
+        if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const token = jwt.sign({ user_id: user.id, sub: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token, user_id: user.id });
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// POST /refresh - Refresh JWT token
+authRoutes.post('/refresh', authenticateToken, (req, res) => {
+    try {
+        const db = getAuthDb();
+        const user = db.prepare('SELECT id, name, email FROM users WHERE id = ?').get(req.user.user_id);
+        
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Issue a new token
+        const token = jwt.sign(
+            { user_id: user.id, sub: user.id, name: user.name, email: user.email },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({ token, user_id: user.id });
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 
 // GET /me - Get current user's profile
 authRoutes.get('/me', authenticateToken, (req, res) => {
