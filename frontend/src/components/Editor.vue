@@ -1,20 +1,5 @@
 <template>
   <div v-if="file" class="h-full flex flex-col">
-    <div v-if="ui.showStats" class="flex gap-4 text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded"
-      data-testid="editor-stats-container">
-      <div class="flex items-center gap-2">
-        <span class="font-medium">Words:</span>
-        <span data-testid="editor-stats-words">{{ wordCount }}</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="font-medium">Characters:</span>
-        <span data-testid="editor-stats-characters">{{ characterCount }}</span>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="font-medium">Lines:</span>
-        <span data-testid="editor-stats-lines">{{ lineCount }}</span>
-      </div>
-    </div>
     <div v-if="ui.showMetadata" class="text-sm text-gray-600 mb-4 p-2 bg-gray-50 rounded"
       data-testid="editor-metadata-container">
       <div class="flex gap-4">
@@ -44,9 +29,7 @@
     </div>
 
     <div class="flex-1 flex flex-col min-h-0">
-      <textarea ref="textareaRef" v-model="contentDraft" @input="handleInput" @paste="handlePaste"
-        class="flex-1 border p-4 rounded w-full font-mono resize-none focus:outline-none focus:border-blue-500"
-        placeholder="Start writing..." data-testid="editor-textarea"></textarea>
+      <div ref="editorContainerRef" class="flex-1 bg-white" data-testid="editor-container"></div>
     </div>
   </div>
 
@@ -54,6 +37,20 @@
     <p class="text-gray-500 mt-3 ml-3">No file selected</p>
   </div>
 </template>
+
+<style scoped>
+.bg-white {
+  background-color: white !important;
+}
+
+:deep(.overtype-container),
+:deep(.overtype-wrapper),
+:deep(.overtype-editor),
+:deep(.overtype-preview),
+:deep(textarea) {
+  background-color: white !important;
+}
+</style>
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
@@ -63,6 +60,7 @@ import { useUiStore } from '@/store/uiStore';
 import { useDraftStore } from '@/store/draftStore';
 import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
+import OverType from 'overtype';
 
 /* ───── helpers ───── */
 function debounce(fn, wait) {
@@ -83,7 +81,8 @@ const ui = useUiStore();
 const draftStore = useDraftStore();
 const authStore = useAuthStore();
 const editorStore = useEditorStore();
-const textareaRef = ref(null);
+const editorContainerRef = ref(null);
+const editorInstance = ref(null);
 
 const { selectedFile: file } = storeToRefs(docStore);
 
@@ -94,13 +93,146 @@ const uploadError = ref('');
 /* ───── reactive draft ───── */
 const contentDraft = ref('');
 
-watch(() => file.value?.id, (newId) => {
+/* ───── debounced save ───── */
+const debouncedSyncToDB = debounce((id, text) => {
+  docStore.updateFileContent(id, text);
+}, 500);
+
+function handleInput(value) {
+  contentDraft.value = value;
+  if (file.value) {
+    draftStore.setDraft(file.value.id, value);
+    debouncedSyncToDB(file.value.id, value);
+  }
+}
+
+/* ───── Overtype initialization ───── */
+function initEditor() {
+  if (!editorContainerRef.value || editorInstance.value) return;
+
+  const [editor] = OverType.init(editorContainerRef.value, {
+    theme: {
+      name: 'panino-theme',
+      colors: {
+        // Base colors - white background
+        bgPrimary: '#ffffff',
+        bgSecondary: '#ffffff',
+        text: '#111827',
+        
+        // Headings - matching your preview defaults
+        h1: '#111827',
+        h2: '#1f2937',
+        h3: '#1f2937',
+        
+        // Text formatting
+        strong: '#111827',
+        em: '#111827',
+        
+        // Links - darker blue
+        link: '#1d4ed8',
+        
+        // Code - matching your preview gray background
+        code: '#111827',
+        codeBg: '#f3f4f6',
+        
+        // Blockquote - darker gray
+        blockquote: '#4b5563',
+        
+        // HR - matching your preview border
+        hr: '#d1d5db',
+        
+        // Syntax markers - darker for better visibility
+        syntaxMarker: 'rgba(75, 85, 99, 0.5)',
+        
+        // Cursor and selection
+        cursor: '#2563eb',
+        selection: 'rgba(37, 99, 235, 0.15)'
+      }
+    },
+    toolbar: false,  // Disable Overtype's toolbar - we use our own SubMenuBar
+    showStats: ui.showStats,
+    placeholder: 'Start writing...',
+    value: contentDraft.value || '',
+    onChange: (value) => {
+      handleInput(value);
+    },
+    onKeydown: (event, instance) => {
+      // Handle paste event for images
+      if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
+        // Paste will be handled by the native paste event
+      }
+    },
+    autoResize: true,
+    minHeight: '200px'
+  });
+
+  editorInstance.value = editor;
+
+  // Add paste event listener to the textarea
+  nextTick(() => {
+    const textarea = getTextareaElement();
+    if (textarea) {
+      textarea.addEventListener('paste', handlePaste);
+    }
+  });
+}
+
+function destroyEditor() {
+  // Remove paste event listener
+  const textarea = getTextareaElement();
+  if (textarea) {
+    textarea.removeEventListener('paste', handlePaste);
+  }
+  
+  if (editorInstance.value) {
+    editorInstance.value.destroy();
+    editorInstance.value = null;
+  }
+}
+
+/* ───── watch for stats toggle ───── */
+watch(() => ui.showStats, (newValue) => {
+  if (editorInstance.value) {
+    editorInstance.value.showStats(newValue);
+  }
+});
+
+/* ───── watch for file presence (DOM mount/unmount) ───── */
+watch(() => file.value, (newFile) => {
+  if (newFile && !editorInstance.value) {
+    // File selected but no editor - initialize on next tick
+    nextTick(() => {
+      if (!editorInstance.value && editorContainerRef.value) {
+        initEditor();
+      }
+    });
+  } else if (!newFile && editorInstance.value) {
+    // No file selected - destroy editor
+    destroyEditor();
+  }
+});
+
+/* ───── watch for file changes ───── */
+watch(() => file.value?.id, (newId, oldId) => {
   if (newId) {
     const newContent = file.value.content ?? '';
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
+    
+    // If editor exists, update its value
+    if (editorInstance.value) {
+      editorInstance.value.setValue(newContent);
+    } else {
+      // If no editor, initialize it (will happen on next tick after DOM updates)
+      nextTick(() => {
+        initEditor();
+      });
+    }
   } else {
     contentDraft.value = '';
+    if (editorInstance.value) {
+      editorInstance.value.setValue('');
+    }
   }
 }, { immediate: true });
 
@@ -108,18 +240,6 @@ watch(() => file.value?.id, (newId) => {
 const wordCount = computed(() => (contentDraft.value ? contentDraft.value.trim().split(/\s+/).filter(Boolean).length : 0));
 const characterCount = computed(() => contentDraft.value.length);
 const lineCount = computed(() => (contentDraft.value ? contentDraft.value.split('\n').length : 0));
-
-/* ───── debounced save ───── */
-const debouncedSyncToDB = debounce((id, text) => {
-  docStore.updateFileContent(id, text);
-}, 500);
-
-function handleInput() {
-  if (file.value) {
-    draftStore.setDraft(file.value.id, contentDraft.value);
-    debouncedSyncToDB(file.value.id, contentDraft.value);
-  }
-}
 
 /* ───── paste-images & upload helper ───── */
 async function handlePaste(event) {
@@ -170,49 +290,71 @@ async function uploadImage(fileObj) {
 }
 
 /* ───── insertion helpers ───── */
-function insertAtCursor(text) {
-  const textarea = textareaRef.value;
-  if (!textarea) return;
+function getTextareaElement() {
+  // Access the underlying textarea from Overtype instance
+  if (!editorInstance.value || !editorContainerRef.value) return null;
+  return editorContainerRef.value.querySelector('textarea');
+}
 
-  const scrollPos = textarea.scrollTop;
+function insertAtCursor(text) {
+  const textarea = getTextareaElement();
+  if (!textarea || !editorInstance.value) return;
+
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
-  const currentText = contentDraft.value;
-
-  contentDraft.value = currentText.slice(0, start) + text + currentText.slice(end);
-  handleInput();
-
-  nextTick(() => {
-    textarea.focus();
-    textarea.setSelectionRange(start + text.length, start + text.length);
-    textarea.scrollTop = scrollPos;
-  });
+  const currentText = textarea.value;
+  
+  // Create new text with insertion
+  const beforeCursor = currentText.slice(0, start);
+  const afterCursor = currentText.slice(end);
+  const newText = beforeCursor + text + afterCursor;
+  
+  // Update textarea directly
+  textarea.value = newText;
+  
+  // Calculate new cursor position
+  const newCursorPos = start + text.length;
+  
+  // Set cursor position BEFORE triggering input event
+  textarea.setSelectionRange(newCursorPos, newCursorPos);
+  
+  // Trigger input event to sync with Overtype
+  const inputEvent = new Event('input', { bubbles: true });
+  textarea.dispatchEvent(inputEvent);
+  
+  // Ensure focus
+  textarea.focus();
 }
 
 function insertFormat(prefix, suffix) {
-  const textarea = textareaRef.value;
-  if (!textarea) return;
+  const textarea = getTextareaElement();
+  if (!textarea || !editorInstance.value) return;
 
-  const scrollPos = textarea.scrollTop;
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
-  const selectedText = contentDraft.value.slice(start, end);
-  const newText = prefix + selectedText + suffix;
-
-  contentDraft.value =
-    contentDraft.value.slice(0, start) +
-    newText +
-    contentDraft.value.slice(end);
-
-  handleInput();
-
-  nextTick(() => {
-    textarea.focus();
-    const finalStartPos = start + prefix.length;
-    const finalEndPos = end + prefix.length;
-    textarea.setSelectionRange(finalStartPos, finalEndPos);
-    textarea.scrollTop = scrollPos;
-  });
+  const currentText = textarea.value;
+  const selectedText = currentText.slice(start, end);
+  
+  // Create formatted text
+  const beforeSelection = currentText.slice(0, start);
+  const afterSelection = currentText.slice(end);
+  const formattedText = prefix + selectedText + suffix;
+  const newText = beforeSelection + formattedText + afterSelection;
+  
+  // Update textarea directly
+  textarea.value = newText;
+  
+  // Set selection to the original selected text (now formatted)
+  const newStart = start + prefix.length;
+  const newEnd = newStart + selectedText.length;
+  textarea.setSelectionRange(newStart, newEnd);
+  
+  // Trigger input event to sync with Overtype
+  const inputEvent = new Event('input', { bubbles: true });
+  textarea.dispatchEvent(inputEvent);
+  
+  // Ensure focus
+  textarea.focus();
 }
 
 function insertList(prefix) {
@@ -225,7 +367,7 @@ function insertTable() {
 }
 
 function insertCodeBlock() {
-  insertFormat('\n```\n', '\n```');
+  insertAtCursor('\n```\n\n```\n');
 }
 
 function insertImagePlaceholder() {
@@ -234,35 +376,85 @@ function insertImagePlaceholder() {
 
 /* ───── find / replace ───── */
 function findNext(term) {
-  if (!term?.trim() || !textareaRef.value) return;
-  const textarea = textareaRef.value;
+  if (!term?.trim()) return;
+  const textarea = getTextareaElement();
+  if (!textarea) return;
+  
+  const text = textarea.value;
   let fromIdx = textarea.selectionEnd;
-  const text = contentDraft.value;
+  
+  // Search from current position
   let idx = text.indexOf(term, fromIdx);
-  if (idx === -1) idx = text.indexOf(term, 0);
+  
+  // If not found, wrap around to beginning
+  if (idx === -1) {
+    idx = text.indexOf(term, 0);
+  }
+  
   if (idx > -1) {
     textarea.focus();
     textarea.setSelectionRange(idx, idx + term.length);
+    
+    // Scroll into view
+    const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 20;
+    const textBeforeCursor = text.substring(0, idx);
+    const lineNumber = textBeforeCursor.split('\n').length;
+    textarea.scrollTop = Math.max(0, (lineNumber - 5) * lineHeight);
   }
 }
 
 function replaceNext(term, repl) {
-  if (!term?.trim() || !textareaRef.value) return;
-  const textarea = textareaRef.value;
+  if (!term?.trim()) return;
+  const textarea = getTextareaElement();
+  if (!textarea) return;
+  
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
-  if (contentDraft.value.substring(start, end) === term) {
-    // Re-use insertAtCursor to handle text replacement and state restoration
-    insertAtCursor(repl);
+  const selectedText = textarea.value.substring(start, end);
+  
+  // If current selection matches the search term, replace it
+  if (selectedText === term) {
+    const currentText = textarea.value;
+    const beforeSelection = currentText.slice(0, start);
+    const afterSelection = currentText.slice(end);
+    const newText = beforeSelection + repl + afterSelection;
+    
+    // Update textarea
+    textarea.value = newText;
+    
+    // Set cursor after replacement
+    const newCursorPos = start + repl.length;
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
+    
+    // Trigger input event to sync with Overtype
+    const inputEvent = new Event('input', { bubbles: true });
+    textarea.dispatchEvent(inputEvent);
+    
+    textarea.focus();
   } else {
+    // If selection doesn't match, find next occurrence
     findNext(term);
   }
 }
 
 function replaceAll(term, repl) {
   if (!term?.trim()) return;
-  contentDraft.value = contentDraft.value.replaceAll(term, repl);
-  handleInput();
+  const textarea = getTextareaElement();
+  if (!textarea || !editorInstance.value) return;
+  
+  const currentText = textarea.value;
+  const newText = currentText.replaceAll(term, repl);
+  
+  if (currentText !== newText) {
+    // Update textarea
+    textarea.value = newText;
+    
+    // Trigger input event to sync with Overtype
+    const inputEvent = new Event('input', { bubbles: true });
+    textarea.dispatchEvent(inputEvent);
+    
+    textarea.focus();
+  }
 }
 
 /* ───── expose methods for parent components ───── */
@@ -275,10 +467,14 @@ defineExpose(exposedMethods);
 
 /* ───── register/unregister with global store ───── */
 onMounted(() => {
+  nextTick(() => {
+    initEditor();
+  });
   editorStore.setEditorRef(exposedMethods);
 });
 
 onUnmounted(() => {
+  destroyEditor();
   editorStore.clearEditorRef();
 });
 </script>
