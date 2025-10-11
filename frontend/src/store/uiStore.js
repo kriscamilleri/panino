@@ -126,9 +126,9 @@ export const useUiStore = defineStore('uiStore', () => {
     };
 
     // Toasts
-    function addToast(message, duration = 5000) {
+    function addToast(message, type = 'error', duration = 5000) {
         const id = Date.now() + Math.random();
-        toasts.value.push({ id, message });
+        toasts.value.push({ id, message, type });
         setTimeout(() => removeToast(id), duration);
     }
 

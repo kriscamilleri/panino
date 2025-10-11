@@ -13,7 +13,11 @@
 
             <!-- Sync Button (only if authenticated and not a guest) -->
             <div v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'" class="px-2">
-                <BaseButton :isActive="syncStore.syncEnabled" @click="handleToggleSync" class="w-full space-x-1"
+                <BaseButton 
+                    :isActive="syncStore.syncEnabled" 
+                    :disabled="!authStore.isAuthenticated"
+                    @click="handleToggleSync" 
+                    class="w-full space-x-1"
                     data-testid="mobile-menu-sync-button">
                     <RefreshCw class="w-4 h-4" />
                     <span>Sync {{ syncStore.syncEnabled ? 'On' : 'Off' }}</span> <!-- Clarify state -->

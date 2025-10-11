@@ -1,3 +1,2 @@
-Today we're working on our markdown note taking app. We need to Add a collapse button which is sticky to the bottom of the documents pane. It should have the same icon as in the submenu bar. 
 
 Today we're working on our markdown note taking app. We need the sync button to be disabled if the user is no longer authenticated (ie the auth token expires). We should also show a toast (as per error messages, except yellow) upon first realizing we're not authenticated.  

@@ -39,6 +39,7 @@ export const useSyncStore = defineStore('syncStore', () => {
   const syncEnabled = ref(true);
   const isSyncing = ref(false);
   const ws = ref(null);
+  const hasShownAuthWarning = ref(false);
 
   const debouncedSync = debounce(() => sync(), 500);
 
@@ -89,6 +90,7 @@ export const useSyncStore = defineStore('syncStore', () => {
 
   async function resetDatabase() {
     disconnectWebSocket();
+    hasShownAuthWarning.value = false; // Reset warning flag on database reset
     if (db.value) {
       try { await db.value.close(); } catch (_) { }
     }
@@ -128,7 +130,23 @@ export const useSyncStore = defineStore('syncStore', () => {
         body: JSON.stringify({ since: myClock, siteId: mySite, changes: localChanges })
       });
 
-      if (!resp.ok) throw new Error(`Sync failed: ${resp.status}`);
+      if (!resp.ok) {
+        // Check if it's an authentication error (401 or 403)
+        if (resp.status === 401 || resp.status === 403) {
+          // Show warning toast only once
+          if (!hasShownAuthWarning.value) {
+            const { useUiStore } = await import('./uiStore');
+            const uiStore = useUiStore();
+            uiStore.addToast('Your session has expired. Please log in again to sync.', 'warning');
+            hasShownAuthWarning.value = true;
+          }
+          // Disable sync to prevent further attempts
+          syncEnabled.value = false;
+          disconnectWebSocket();
+          throw new Error('Authentication failed');
+        }
+        throw new Error(`Sync failed: ${resp.status}`);
+      }
 
       const { changes: remoteChanges, clock: newClock } = await resp.json();
 
@@ -193,6 +211,7 @@ export const useSyncStore = defineStore('syncStore', () => {
   function setSyncEnabled(v) {
     syncEnabled.value = v;
     if (v) {
+      hasShownAuthWarning.value = false; // Reset warning flag when re-enabling sync
       connectWebSocket();
       sync();
     } else {
