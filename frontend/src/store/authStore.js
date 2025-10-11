@@ -14,6 +14,39 @@ export const useAuthStore = defineStore('authStore', () => {
 
     const isAuthenticated = computed(() => !!token.value);
 
+    let refreshTimer = null;
+
+    // Schedule token refresh before it expires
+    function scheduleTokenRefresh() {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        
+        if (!token.value) return;
+        
+        try {
+            const payload = JSON.parse(atob(token.value.split('.')[1]));
+            const expiresAt = payload.exp * 1000; // Convert to milliseconds
+            const now = Date.now();
+            const timeUntilExpiry = expiresAt - now;
+            
+            // Refresh 5 minutes before expiry
+            const refreshTime = Math.max(0, timeUntilExpiry - 5 * 60 * 1000);
+            
+            console.log(`[Auth] Token expires in ${Math.round(timeUntilExpiry / 1000 / 60)} minutes, will refresh in ${Math.round(refreshTime / 1000 / 60)} minutes`);
+            
+            refreshTimer = setTimeout(async () => {
+                console.log('[Auth] Proactively refreshing token...');
+                const success = await refreshToken();
+                if (success) {
+                    console.log('[Auth] Token refreshed successfully');
+                } else {
+                    console.warn('[Auth] Token refresh failed');
+                }
+            }, refreshTime);
+        } catch (e) {
+            console.error('[Auth] Failed to schedule token refresh:', e);
+        }
+    }
+
     watch(token, (newToken) => {
         const syncStore = useSyncStore();
         if (newToken) {
@@ -22,6 +55,7 @@ export const useAuthStore = defineStore('authStore', () => {
                 const payload = JSON.parse(atob(newToken.split('.')[1]));
                 // Store basic info from token, full profile fetched separately
                 user.value = { id: payload.user_id, name: payload.name, email: payload.email };
+                scheduleTokenRefresh(); // Schedule refresh after setting token
             } catch (e) {
                 console.error("Failed to decode JWT:", e);
                 user.value = null;
@@ -30,6 +64,10 @@ export const useAuthStore = defineStore('authStore', () => {
         } else {
             localStorage.removeItem('jwt_token');
             user.value = null;
+            if (refreshTimer) {
+                clearTimeout(refreshTimer);
+                refreshTimer = null;
+            }
             if (syncStore.isInitialized) {
                 syncStore.resetDatabase();
             }
@@ -81,6 +119,31 @@ export const useAuthStore = defineStore('authStore', () => {
         }
     }
 
+    async function refreshToken() {
+        if (!token.value) return false;
+        
+        try {
+            const response = await fetch(`${API_SERVICE_URL}/refresh`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token.value}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                return false;
+            }
+
+            const data = await response.json();
+            token.value = data.token;
+            return true;
+        } catch (error) {
+            console.error('Token refresh failed:', error);
+            return false;
+        }
+    }
+
     async function fetchMe() {
         if (!isAuthenticated.value) return;
         const response = await fetch(`${API_SERVICE_URL}/me`, {
@@ -128,7 +191,7 @@ export const useAuthStore = defineStore('authStore', () => {
     return {
         token, user, isAuthenticated,
         signup, login, logout, checkAuth,
-        fetchMe, // ✅ FIX: Expose the fetchMe function
+        fetchMe, refreshToken,
         updatePassword, forgotPassword, resetPassword
     };
 });

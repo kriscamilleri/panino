@@ -133,7 +133,19 @@ export const useSyncStore = defineStore('syncStore', () => {
       if (!resp.ok) {
         // Check if it's an authentication error (401 or 403)
         if (resp.status === 401 || resp.status === 403) {
-          // Show warning toast only once
+          console.log('[Sync] Authentication failed, attempting token refresh...');
+          
+          // Try to refresh the token
+          const refreshed = await auth.refreshToken();
+          
+          if (refreshed) {
+            console.log('[Sync] Token refreshed successfully, retrying sync...');
+            hasShownAuthWarning.value = false;
+            isSyncing.value = false; // Reset syncing flag
+            return sync(); // Retry with new token
+          }
+          
+          // If refresh failed, show warning only once
           if (!hasShownAuthWarning.value) {
             const { useUiStore } = await import('./uiStore');
             const uiStore = useUiStore();

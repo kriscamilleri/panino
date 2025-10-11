@@ -128,8 +128,26 @@ function toggleMobileMenu() {
     isMobileMenuOpen.value = !isMobileMenuOpen.value
 }
 
-function handleToggleSync() {
-    syncStore.setSyncEnabled(!syncStore.syncEnabled)
+async function handleToggleSync() {
+    if (!syncStore.syncEnabled) {
+        // If sync is disabled due to auth failure, try to refresh token first
+        if (!authStore.isAuthenticated) {
+            const uiStore = useUiStore();
+            uiStore.addToast('Please log in again to enable sync.', 'warning');
+            return;
+        }
+        
+        // Try refreshing the token if sync was disabled
+        console.log('[Navbar] Attempting to refresh token before enabling sync...');
+        const refreshed = await authStore.refreshToken();
+        if (!refreshed) {
+            const uiStore = useUiStore();
+            uiStore.addToast('Session expired. Please log in again to enable sync.', 'warning');
+            return;
+        }
+    }
+    
+    syncStore.setSyncEnabled(!syncStore.syncEnabled);
 }
 
 async function handleLogout() {

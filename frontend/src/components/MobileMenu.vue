@@ -50,6 +50,7 @@
 <script setup>
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
+import { useUiStore } from '@/store/uiStore'
 import { useRouter } from 'vue-router'
 import BaseButton from '@/components/BaseButton.vue'
 import { RefreshCw, Info, LogIn, LogOut } from 'lucide-vue-next'
@@ -57,12 +58,27 @@ import { RefreshCw, Info, LogIn, LogOut } from 'lucide-vue-next'
 const emit = defineEmits(['close'])
 const authStore = useAuthStore()
 const syncStore = useSyncStore()
+const uiStore = useUiStore()
 const router = useRouter()
 
-function handleToggleSync() {
-    syncStore.setSyncEnabled(!syncStore.syncEnabled)
-    // If you also want to close the menu after toggling, do:
-    // emit('close')
+async function handleToggleSync() {
+    if (!syncStore.syncEnabled) {
+        // If sync is disabled due to auth failure, try to refresh token first
+        if (!authStore.isAuthenticated) {
+            uiStore.addToast('Please log in again to enable sync.', 'warning');
+            return;
+        }
+        
+        // Try refreshing the token if sync was disabled
+        console.log('[MobileMenu] Attempting to refresh token before enabling sync...');
+        const refreshed = await authStore.refreshToken();
+        if (!refreshed) {
+            uiStore.addToast('Session expired. Please log in again to enable sync.', 'warning');
+            return;
+        }
+    }
+    
+    syncStore.setSyncEnabled(!syncStore.syncEnabled);
 }
 
 async function handleLogout() {
