@@ -8,10 +8,9 @@
             Please select a document from the Documents panel to generate a print
             preview.
           </p>
-          <button @click="printStylesConfig.onBack()"
-            class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900">
+          <BaseButton @click="printStylesConfig.onBack()">
             Back to Editor
-          </button>
+          </BaseButton>
         </div>
       </template>
 
@@ -39,6 +38,7 @@ import { useDebounceFn } from '@vueuse/core';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';
 import { Palette, Edit3 } from 'lucide-vue-next';
 import Editor from '@/components/Editor.vue';
+import BaseButton from '@/components/BaseButton.vue';
 import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
 import { useAuthStore } from '@/store/authStore';

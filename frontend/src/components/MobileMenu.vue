@@ -25,11 +25,11 @@
             </div>
 
             <!-- About link -->
-            <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
-                class="flex items-center space-x-2 mx-2" data-testid="mobile-menu-about-link">
+            <BaseButton as="a" href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
+                class="w-full" data-testid="mobile-menu-about-link">
                 <Info class="w-4 h-4" title="About" />
                 <span>About</span>
-            </a>
+            </BaseButton>
 
             <!-- Login/Logout -->
             <div class="py-2">

@@ -44,23 +44,19 @@
 
             <div class="flex items-center space-x-4">
                 <div class="hidden md:flex items-center space-x-4">
-                    <router-link v-if="authStore.isAuthenticated" to="/settings"
-                        class="px-2 py-1 text-gray-700 hover:bg-gray-200 rounded flex items-center space-x-1 transition"
-                        data-testid="navbar-username-display">
-
-                        <User class="w-4 h-4" />
-                        <span>{{ authStore.user?.name || authStore.user?.email ||
-                            authStore.user?.id }}</span>
-
+                    <router-link v-if="authStore.isAuthenticated" to="/settings" custom v-slot="{ navigate }">
+                        <BaseButton @click="navigate" data-testid="navbar-username-display">
+                            <User class="w-4 h-4" />
+                            <span>{{ authStore.user?.name || authStore.user?.email ||
+                                authStore.user?.id }}</span>
+                        </BaseButton>
                     </router-link>
 
-                    <a href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
-                        class="flex items-center space-x-1 transition text-gray-700 hover:bg-gray-200 rounded px-2 py-1"
+                    <BaseButton as="a" href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
                         data-testid="navbar-about-link">
                         <Info class="w-4 h-4" title="About" />
                         <span>About</span>
-
-                    </a>
+                    </BaseButton>
 
                     <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin" class="space-x-1"
                         data-testid="navbar-login-button">

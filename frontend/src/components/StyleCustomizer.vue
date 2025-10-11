@@ -7,7 +7,7 @@
         <!-- Button group for custom actions (Print page) -->
         <div v-if="config.customActions" class="flex items-center gap-2" role="group">
           <BaseButton v-for="action in config.customActions" :key="action.id" @click="action.onClick"
-            :isActive="action.isActive()" class="text-sm font-medium px-3 py-1.5">
+            :isActive="action.isActive()">
             <!-- show provided icon component or fallback based on action id -->
             <template v-if="action.icon">
               <component :is="action.icon" class="w-4 h-4 mr-2" />
@@ -20,18 +20,15 @@
         </div>
 
         <!-- Original toggle button (for regular styles page) -->
-        <button v-else @click="toggleStylesCustomization"
-          class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 flex items-center space-x-2"
-          :class="{ 'bg-gray-200': showStylesCustomization }">
+        <BaseButton v-else @click="toggleStylesCustomization" :isActive="showStylesCustomization">
           <Settings class="w-4 h-4" />
           <span>{{ showStylesCustomization ? 'Hide' : 'Show' }} Styles</span>
-        </button>
+        </BaseButton>
 
-        <button @click="goBack"
-          class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-200 rounded-md hover:bg-gray-200 flex items-center space-x-2">
+        <BaseButton @click="goBack">
           <ArrowLeft class="w-4 h-4" />
           <span>Back</span>
-        </button>
+        </BaseButton>
       </template>
     </AccountNav>
 
@@ -116,15 +113,13 @@
           </div>
 
           <hr class="my-6" />
-          <button @click="resetStyles"
-            class="px-4 py-2 text-red-700 bg-red-50 hover:bg-red-100 rounded flex items-center space-x-2 border border-red-200 my-2">
+          <BaseButton @click="resetStyles" class="my-2">
             <span>Reset to Defaults</span>
-          </button>
-          <button v-if="config.getDebugHtml" @click="showDebugHtml"
-            class="px-4 py-2 text-yellow-700 bg-yellow-50 hover:bg-yellow-100 rounded flex items-center space-x-2 border border-yellow-200 my-2">
+          </BaseButton>
+          <BaseButton v-if="config.getDebugHtml" @click="showDebugHtml" class="my-2">
             <Bug class="w-4 h-4" />
             <span>Debug HTML</span>
-          </button>
+          </BaseButton>
         </div>
       </div>
 
