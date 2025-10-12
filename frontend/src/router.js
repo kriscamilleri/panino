@@ -10,9 +10,6 @@ import SettingsPage from '@/pages/SettingsPage.vue'
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage.vue'
 import ResetPasswordPage from '@/pages/ResetPasswordPage.vue'
 
-import { useAuthStore } from '@/store/authStore'
-import { useSyncStore } from '@/store/syncStore'
-
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -89,6 +86,10 @@ export const router = createRouter({
 
 // Global guard
 router.beforeEach(async (to, from, next) => {
+  // Use dynamic imports to avoid pinia activation issues
+  const { useAuthStore } = await import('@/store/authStore')
+  const { useSyncStore } = await import('@/store/syncStore')
+  
   const authStore = useAuthStore()
   const syncStore = useSyncStore()
 

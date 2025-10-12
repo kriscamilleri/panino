@@ -15,12 +15,20 @@
             <div v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'" class="px-2">
                 <BaseButton 
                     :isActive="syncStore.syncEnabled" 
-                    :disabled="!authStore.isAuthenticated"
+                    :disabled="!authStore.isAuthenticated || !syncStore.isOnline"
                     @click="handleToggleSync" 
                     class="w-full space-x-1"
                     data-testid="mobile-menu-sync-button">
-                    <RefreshCw class="w-4 h-4" />
-                    <span>Sync {{ syncStore.syncEnabled ? 'On' : 'Off' }}</span> <!-- Clarify state -->
+                    <RefreshCw 
+                        :class="[
+                            !syncStore.isOnline ? 'text-gray-400' : '',
+                            syncStore.isSyncing ? 'animate-spin' : ''
+                        ]" 
+                        class="w-4 h-4" 
+                    />
+                    <span v-if="!syncStore.isOnline">Offline</span>
+                    <span v-else-if="syncStore.isSyncing">Syncing...</span>
+                    <span v-else>Sync {{ syncStore.syncEnabled ? 'On' : 'Off' }}</span>
                 </BaseButton>
             </div>
 
@@ -62,23 +70,36 @@ const uiStore = useUiStore()
 const router = useRouter()
 
 async function handleToggleSync() {
+    // Check if offline first
+    if (!syncStore.isOnline) {
+        uiStore.addToast('Cannot sync while offline. Changes will sync when you reconnect.', 'warning');
+        return;
+    }
+    
+    // Check authentication
+    if (!authStore.isAuthenticated) {
+        uiStore.addToast('Please log in again to enable sync.', 'warning');
+        return;
+    }
+    
+    // If trying to enable sync (currently disabled)
     if (!syncStore.syncEnabled) {
-        // If sync is disabled due to auth failure, try to refresh token first
-        if (!authStore.isAuthenticated) {
-            uiStore.addToast('Please log in again to enable sync.', 'warning');
-            return;
-        }
-        
-        // Try refreshing the token if sync was disabled
+        // Try refreshing the token if sync was disabled due to auth failure
         console.log('[MobileMenu] Attempting to refresh token before enabling sync...');
         const refreshed = await authStore.refreshToken();
         if (!refreshed) {
             uiStore.addToast('Session expired. Please log in again to enable sync.', 'warning');
             return;
         }
+        
+        // Enable sync and show success message
+        syncStore.setSyncEnabled(true);
+        uiStore.addToast('Sync enabled. Your notes will sync automatically.', 'success', 3000);
+    } else {
+        // Disable sync
+        syncStore.setSyncEnabled(false);
+        uiStore.addToast('Sync disabled. Changes will be stored locally only.', 'info', 3000);
     }
-    
-    syncStore.setSyncEnabled(!syncStore.syncEnabled);
 }
 
 async function handleLogout() {

@@ -40,6 +40,7 @@ export const useSyncStore = defineStore('syncStore', () => {
   const isSyncing = ref(false);
   const ws = ref(null);
   const hasShownAuthWarning = ref(false);
+  const isOnline = ref(navigator.onLine);
 
   const debouncedSync = debounce(() => sync(), 500);
 
@@ -86,6 +87,57 @@ export const useSyncStore = defineStore('syncStore', () => {
     });
 
     isInitialized.value = true;
+    
+    // Set up online/offline listeners
+    setupOnlineOfflineListeners();
+  }
+
+  function setupOnlineOfflineListeners() {
+    const handleOnline = async () => {
+      console.log('[Sync] Network connection restored');
+      isOnline.value = true;
+      
+      const auth = useAuthStore();
+      if (auth.isAuthenticated && syncEnabled.value) {
+        // Reset auth warning flag when coming online
+        hasShownAuthWarning.value = false;
+        
+        // Show toast
+        const { useUiStore } = await import('./uiStore');
+        const uiStore = useUiStore();
+        uiStore.addToast('Back online! Syncing your notes...', 'success', 3000);
+        
+        // Reconnect websocket and sync
+        connectWebSocket();
+        sync();
+      } else if (auth.isAuthenticated && !syncEnabled.value) {
+        // User is authenticated but sync was disabled while offline
+        const { useUiStore } = await import('./uiStore');
+        const uiStore = useUiStore();
+        uiStore.addToast('Back online! Enable sync to sync your notes.', 'info', 5000);
+      }
+    };
+    
+    const handleOffline = async () => {
+      console.log('[Sync] Network connection lost');
+      isOnline.value = false;
+      
+      const { useUiStore } = await import('./uiStore');
+      const uiStore = useUiStore();
+      uiStore.addToast('You\'re offline. Changes will sync when you reconnect.', 'warning', 5000);
+      
+      // Disconnect websocket when offline (but don't disable sync)
+      // This way sync state is preserved for when we come back online
+      disconnectWebSocket();
+    };
+    
+    // Remove existing listeners if any
+    window.removeEventListener('online', handleOnline);
+    window.removeEventListener('offline', handleOffline);
+    
+    // Add new listeners
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
   }
 
   async function resetDatabase() {
@@ -111,6 +163,13 @@ export const useSyncStore = defineStore('syncStore', () => {
   async function sync() {
     const auth = useAuthStore();
     if (!syncEnabled.value || !isInitialized.value || isSyncing.value || !auth.isAuthenticated) return;
+    
+    // Skip sync if offline
+    if (!isOnline.value) {
+      console.log('[Sync] Skipping sync - offline');
+      return;
+    }
+    
     isSyncing.value = true;
     try {
       const myClock = getClock();
@@ -221,18 +280,36 @@ export const useSyncStore = defineStore('syncStore', () => {
   }
 
   function setSyncEnabled(v) {
+    const auth = useAuthStore();
+    
+    // Prevent enabling sync if offline or not authenticated
+    if (v && !isOnline.value) {
+      console.warn('[Sync] Cannot enable sync while offline');
+      return false;
+    }
+    
+    if (v && !auth.isAuthenticated) {
+      console.warn('[Sync] Cannot enable sync without authentication');
+      return false;
+    }
+    
     syncEnabled.value = v;
+    
     if (v) {
       hasShownAuthWarning.value = false; // Reset warning flag when re-enabling sync
+      console.log('[Sync] Sync enabled, connecting...');
       connectWebSocket();
       sync();
     } else {
+      console.log('[Sync] Sync disabled, disconnecting...');
       disconnectWebSocket();
     }
+    
+    return true;
   }
 
   return {
-    isInitialized, syncEnabled, isSyncing,
+    isInitialized, syncEnabled, isSyncing, isOnline,
     db: { get value() { return db.value; } },
     execute, initializeDB, resetDatabase,
     sync, setSyncEnabled,

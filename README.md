@@ -1,17 +1,19 @@
 # Panino ~ Pretty Neat Notes
 
-A browser based, local-first markdown note-taking application with optional cloud sync.
+A browser based, local-first markdown note-taking Progressive Web App (PWA) with optional cloud sync.
 
 ## Features
-- Local SQLite storage via WebAssembly
-- Optional multi-device sync using CR-SQLite
-- Markdown editing with live preview
-- Custom styling for preview and print
-- Image uploads and management
-- Import/export in multiple formats
-- Full-text search
-- Files and folders 
-- Responsive web interface
+- 🌐 **Progressive Web App** - Install on any device, works offline
+- 💾 Local SQLite storage via WebAssembly
+- 🔄 Optional multi-device sync using CR-SQLite
+- ✍️ Markdown editing with live preview
+- 🎨 Custom styling for preview and print
+- 🖼️ Image uploads and management
+- 📦 Import/export in multiple formats
+- 🔍 Full-text search
+- 📁 Files and folders 
+- 📱 Responsive web interface
+- ⚡ Lightning-fast offline access
 
 ## Technology Stack
 
