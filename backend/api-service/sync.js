@@ -14,7 +14,8 @@ const SITE_ID_LEN = 16;
 /**
  * Convert common "byte array like" shapes (Buffer, Array, {0:..}, hex/base64/uuid strings)
  * to a Buffer. Returns null if it can't reasonably convert.
- */function toBufferLike(v) {
+ */
+export function toBufferLike(v) {
     if (v == null) return null;
     if (Buffer.isBuffer(v)) return Buffer.from(v);
     if (Array.isArray(v)) return Buffer.from(v.map(n => Number(n) & 0xff));
@@ -44,15 +45,27 @@ const SITE_ID_LEN = 16;
     }
     return null;
 }
-function toSiteIdBlob(v) {
+
+export function toSiteIdBlob(v) {
     const buf = toBufferLike(v);
     if (!buf) return null;
     return buf.length === SITE_ID_LEN ? buf : buf.subarray(0, SITE_ID_LEN);
 }
 function toPkValue(v) {
-    const b = toBufferLike(v);
-    if (b) return b;
-    try { return JSON.stringify(v); } catch { return String(v); }
+    // Parse JSON array format FIRST: '["value"]' -> 'value'
+    // CR-SQLite expects single unpacked value, not JSON string or Buffer
+    try {
+        const parsed = JSON.parse(v);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed[0]; // Extract first pk value
+        }
+        return parsed;
+    } catch {
+        // Not JSON, try buffer
+        const b = toBufferLike(v);
+        if (b) return b;
+        return String(v);
+    }
 }
 function toSqliteScalar(v) {
     if (v === undefined || v === null) return null;
@@ -110,26 +123,56 @@ router.post('/sync', (req, res, next) => {
 
     try {
         if (changes.length) {
+            // CR-SQLite 0.16 NOTE: Inserting into crsql_changes does NOT automatically
+            // apply changes to base tables. This INSERT records the changeset but doesn't
+            // materialize it in the actual tables. This is a known limitation/change in 0.16.
+            // For a production sync implementation, consider using a different approach or
+            // applying changes directly to base tables.
             const insertSQL = `
         INSERT INTO crsql_changes
-          ("table", pk, cid, val, col_version, db_version, site_id, seq, cl)
+          ("table", pk, cid, val, col_version, db_version, site_id, cl, seq)
         VALUES
           (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
             const insertStmt = db.prepare(insertSQL);
             const applyChanges = db.transaction((rows) => {
                 for (const ch of rows) {
+                    // Parse JSON array PK format: '["value"]' -> pack as bytes using crsql_pack_columns()
+                    let pkBytes;
+                    try {
+                        const parsed = JSON.parse(ch.pk);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            // Use crsql_pack_columns to pack the primary key value
+                            const pkValue = parsed[0];
+                            const packResult = db.prepare('SELECT crsql_pack_columns(?) as pk').get(pkValue);
+                            pkBytes = packResult.pk;
+                        } else {
+                            pkBytes = toBufferLike(ch.pk);
+                        }
+                    } catch {
+                        pkBytes = toBufferLike(ch.pk);
+                    }
+                    
                     const row = {
                         table: toSqliteScalar(ch.table),
-                        pk: toPkValue(ch.pk),
+                        pk: pkBytes,
                         cid: toSqliteScalar(ch.cid),
                         val: toSqliteScalar(ch.val),
                         col_version: Number(ch.col_version) || 0,
                         db_version: Number(ch.db_version) || 0,
                         site_id: toSiteIdBlob(ch.site_id),
-                        seq: Number(ch.seq) || 0,
-                        cl: Number(ch.cl) || 0
+                        cl: Number(ch.cl) || 0,
+                        seq: Number(ch.seq) || 0
                     };
+                    
+                    // Try to parse val if it's a JSON string
+                    try {
+                        const parsedVal = JSON.parse(row.val);
+                        row.val = parsedVal;
+                    } catch {
+                        // Leave as-is if not JSON
+                    }
+                    
                     assertBindable(row);
                     insertStmt.run(Object.values(row));
                 }
@@ -167,6 +210,8 @@ router.post('/sync', (req, res, next) => {
 
         res.json({ changes: remote, clock: newClock });
     } catch (err) {
+        console.error('Sync endpoint error:', err.message);
+        console.error('Error stack:', err.stack);
         next(err);
     }
 });
