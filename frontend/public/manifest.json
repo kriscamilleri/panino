@@ -1,0 +1,20 @@
+{
+  "name": "Panino - Pretty Neat Notes",
+  "short_name": "Panino",
+  "description": "A beautiful markdown note-taking app that works offline",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1f2937",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["productivity", "utilities"]
+}

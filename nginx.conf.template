@@ -34,6 +34,11 @@ server {
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-Content-Type-Options "nosniff";
+    
+    # --- PWA Support Headers ---
+    # Required for SharedArrayBuffer (used by crsqlite)
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
 
     # == API Traffic ==
     # All requests starting with /api/ will be proxied to your backend.
@@ -66,6 +71,37 @@ server {
     
     # == Frontend Application (Vue.js SPA) ==
     # All other requests are served as static files from your 'dist' folder.
+    
+    # Service Worker - ensure it's never cached
+    location = /service-worker.js {
+        root /var/www/${DOMAIN}/dist;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+        add_header Service-Worker-Allowed "/";
+        types {
+            application/javascript js;
+        }
+    }
+    
+    # Manifest file
+    location = /manifest.json {
+        root /var/www/${DOMAIN}/dist;
+        add_header Cache-Control "public, max-age=604800";
+        types {
+            application/manifest+json json;
+        }
+    }
+    
+    # WASM files need special Content-Type
+    location ~* \.wasm$ {
+        root /var/www/${DOMAIN}/dist;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        types {
+            application/wasm wasm;
+        }
+    }
+    
     location / {
         root /var/www/${DOMAIN}/dist;
         # This is the magic for Single Page Applications (SPAs).
