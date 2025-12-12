@@ -121,6 +121,7 @@ import { useDraftStore } from '@/store/draftStore';
 import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
 import OverType from 'overtype';
+import { useHistory } from '@/composables/useHistory'
 
 /* ───── helpers ───── */
 function debounce(fn, wait) {
@@ -158,8 +159,133 @@ const debouncedSyncToDB = debounce((id, text) => {
   docStore.updateFileContent(id, text);
 }, 500);
 
+/* ───── History Setup ───── */
+const { record, undo, redo, clear: clearHistory, canUndo, canRedo } = useHistory('')
+const isHistoryAction = ref(false)
+// Create a debounced record function for typing
+const debouncedRecord = debounce((text, cursor) => {
+  record(text, cursor);
+}, 500);
+
+/* ───── Keydown Handler (Trap Undo/Redo) ───── */
+function handleKeydown(e) {
+  // Trap Ctrl+Z (Undo)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    performUndo();
+    return;
+  }
+
+  // Trap Ctrl+Y or Ctrl+Shift+Z (Redo)
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    (e.key === 'y' || (e.shiftKey && e.key === 'z'))
+  ) {
+    e.preventDefault();
+    performRedo();
+    return;
+  }
+}
+
+/* ───── Handle Native Input ───── */
+// This runs on every keystroke via the native event listener
+function handleNativeInput(e) {
+  if (isHistoryAction.value) return;
+
+  const textarea = e.target;
+  const val = textarea.value;
+  const cursor = textarea.selectionEnd;
+
+  // Handle input types that should trigger immediate saves
+  // "insertParagraph" = Enter key
+  // "insertText" with space or punctuation
+  const inputType = e.inputType;
+  const char = e.data;
+
+  const isDelimiter =
+    inputType === 'insertParagraph' ||
+    inputType === 'insertLineBreak' ||
+    (char && /[\s\.,;!?:(){}\[\]"']/.test(char));
+
+  if (isDelimiter) {
+    // Record immediately on word break/sentence end
+    record(val, cursor);
+  } else {
+    // Debounce for character streams
+    debouncedRecord(val, cursor);
+  }
+}
+
+/* ───── History Methods ───── */
+function performUndo() {
+  const previousState = undo();
+  if (previousState) applyHistoryState(previousState);
+}
+
+function performRedo() {
+  const nextState = redo();
+  if (nextState) applyHistoryState(nextState);
+}
+
+function applyHistoryState(state) {
+  // Lock: prevent handleInput from recording this change as a new user action
+  isHistoryAction.value = true;
+
+  if (editorInstance.value && state) {
+    const textarea = getTextareaElement();
+
+    // 1. Update OverType (Visuals)
+    // using setValue is safer than setting textarea.value manually for OverType sync
+    editorInstance.value.setValue(state.text);
+
+    // 2. Update Internal Draft State
+    contentDraft.value = state.text;
+    if (file.value) {
+      draftStore.setDraft(file.value.id, state.text);
+      debouncedSyncToDB(file.value.id, state.text);
+    }
+
+    // 3. Restore Cursor
+    nextTick(() => {
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(state.cursor, state.cursor);
+      }
+      // Unlock after DOM updates
+      setTimeout(() => { isHistoryAction.value = false; }, 50);
+    });
+  } else {
+    isHistoryAction.value = false;
+  }
+}
+
+/* ───── Format Wrapping ───── */
+// Pass the current cursor position
+function wrapWithRecord(fn) {
+  return (...args) => {
+    console.log('wrapWithRecord called for fn.name', fn.name);
+    const textarea = getTextareaElement();
+    console.log('wrapWithRecord called for textarea', textarea);
+    const cursor = textarea ? textarea.selectionEnd : 0;
+    console.log('wrapWithRecord called for cursor', cursor);
+
+    // 1. Snapshot BEFORE formatting
+    record(contentDraft.value, cursor);
+
+    // 2. Perform formatting
+    fn(...args);
+
+    // Snapshot AFTER formatting
+    nextTick(() => {
+      const newCursor = textarea ? textarea.selectionEnd : 0;
+      record(contentDraft.value, newCursor);
+    });
+  }
+}
+
 function handleInput(value) {
   contentDraft.value = value;
+
   if (file.value) {
     draftStore.setDraft(file.value.id, value);
     debouncedSyncToDB(file.value.id, value);
@@ -217,6 +343,9 @@ function initEditor() {
       handleInput(value);
     },
     onKeydown: (event, instance) => {
+      // Forward keydown to our handler
+      handleKeydown(event);
+
       // Handle paste event for images
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
         // Paste will be handled by the native paste event
@@ -233,6 +362,9 @@ function initEditor() {
     const textarea = getTextareaElement();
     if (textarea) {
       textarea.addEventListener('paste', handlePaste);
+      textarea.addEventListener('input', handleNativeInput);
+      // Keydown is handled by OverType config, or add manually if OverType consumes it:
+      // textarea.addEventListener('keydown', handleKeydown);
     }
   });
 }
@@ -242,6 +374,7 @@ function destroyEditor() {
   const textarea = getTextareaElement();
   if (textarea) {
     textarea.removeEventListener('paste', handlePaste);
+    textarea.removeEventListener('input', handleNativeInput);
   }
 
   if (editorInstance.value) {
@@ -269,6 +402,12 @@ watch(() => file.value, (newFile) => {
 watch(() => file.value?.id, (newId, oldId) => {
   if (newId) {
     const newContent = file.value.content ?? '';
+
+    // Reset history when switching files
+    if (newId !== oldId) {
+      clearHistory(newContent);
+    }
+
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
 
@@ -514,10 +653,32 @@ function replaceAll(term, repl) {
   }
 }
 
+// Wrap your existing exposed methods
+const insertFormatWrapped = wrapWithRecord(insertFormat);
+const insertListWrapped = wrapWithRecord(insertList);
+const insertLinkWrapped = wrapWithRecord(insertLink);
+const insertTableWrapped = wrapWithRecord(insertTable);
+const insertCodeBlockWrapped = wrapWithRecord(insertCodeBlock);
+const insertImagePlaceholderWrapped = wrapWithRecord(insertImagePlaceholder);
+
 /* ───── expose methods for parent components ───── */
 const exposedMethods = {
-  insertFormat, insertList, insertLink, insertTable, insertCodeBlock, insertImagePlaceholder,
-  uploadImage, findNext, replaceNext, replaceAll
+  insertFormat: insertFormatWrapped,
+  insertList: insertListWrapped,
+  insertLink: insertLinkWrapped,
+  insertTable: insertTableWrapped,
+  insertCodeBlock: insertCodeBlockWrapped,
+  insertImagePlaceholder: insertImagePlaceholderWrapped,
+
+  uploadImage,
+  findNext,
+  replaceNext,
+  replaceAll,
+
+  undo: performUndo,
+  redo: performRedo,
+  canUndo,
+  canRedo,
 };
 
 defineExpose(exposedMethods);

@@ -52,6 +52,27 @@
                 key="editor"
             >
                 <button
+                    @click="triggerUndo"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    title="Undo (Ctrl+Z)"
+                    data-testid="submenu-editor-undo"
+                >
+                    <Undo class="w-4 h-4" />
+                    <span class="button-text">Undo</span>
+                </button>
+
+                <button
+                    @click="triggerRedo"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    title="Redo (Ctrl+Y)"
+                    data-testid="submenu-editor-redo"
+                >
+                    <Redo class="w-4 h-4" />
+                    <span class="button-text">Redo</span>
+                </button>
+
+                <div class="separator"></div>
+                <button
                     v-for="format in textFormats"
                     :key="format.label"
                     @click="insertFormat(format)"
@@ -303,7 +324,6 @@ import { useEditorStore } from '@/store/editorStore'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import BaseButton from '@/components/BaseButton.vue'
-
 import {
     Folder,
     Edit3,
@@ -332,6 +352,8 @@ import {
     PanelLeftOpen,
     ToggleLeft,
     ToggleRight,
+    Undo,
+    Redo,
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
@@ -410,6 +432,14 @@ function goToStyles() {
 }
 function goToPrintStyles() {
     router.push('/print-styles')
+}
+
+// History actions: undo, redo
+function triggerUndo() {
+    editorStore.undo()
+}
+function triggerRedo() {
+    editorStore.redo()
 }
 </script>
 
