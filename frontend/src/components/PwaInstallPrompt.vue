@@ -47,7 +47,7 @@ function handleBeforeInstallPrompt(e) {
   e.preventDefault();
   // Stash the event so it can be triggered later
   deferredPrompt.value = e;
-  
+
   // Check if user has previously dismissed the prompt
   const dismissed = localStorage.getItem('pwa-install-dismissed');
   if (!dismissed) {
@@ -66,9 +66,9 @@ async function handleInstall() {
 
   // Wait for the user to respond to the prompt
   const { outcome } = await deferredPrompt.value.userChoice;
-  
+
   console.log(`User response to the install prompt: ${outcome}`);
-  
+
   // Clear the deferredPrompt
   deferredPrompt.value = null;
   showInstallPrompt.value = false;

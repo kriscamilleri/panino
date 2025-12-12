@@ -3,8 +3,11 @@
     <div class="md:hidden border-t bg-gray-50">
         <div class="px-4 py-2 space-y-2">
             <!-- Show user name if authenticated -->
-            <div v-if="authStore.isAuthenticated" class="text-gray-500 py-2 px-2"
-                data-testid="mobile-menu-username-display">
+            <div
+                v-if="authStore.isAuthenticated"
+                class="text-gray-500 py-2 px-2"
+                data-testid="mobile-menu-username-display"
+            >
                 {{
                     authStore.user?.name.replace(/\b\w/g, char => char.toUpperCase())
                     || 'Guest'
@@ -12,19 +15,23 @@
             </div>
 
             <!-- Sync Button (only if authenticated and not a guest) -->
-            <div v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'" class="px-2">
-                <BaseButton 
-                    :isActive="syncStore.syncEnabled" 
+            <div
+                v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'"
+                class="px-2"
+            >
+                <BaseButton
+                    :isActive="syncStore.syncEnabled"
                     :disabled="!authStore.isAuthenticated || !syncStore.isOnline"
-                    @click="handleToggleSync" 
+                    @click="handleToggleSync"
                     class="w-full space-x-1"
-                    data-testid="mobile-menu-sync-button">
-                    <RefreshCw 
+                    data-testid="mobile-menu-sync-button"
+                >
+                    <RefreshCw
                         :class="[
                             !syncStore.isOnline ? 'text-gray-400' : '',
                             syncStore.isSyncing ? 'animate-spin' : ''
-                        ]" 
-                        class="w-4 h-4" 
+                        ]"
+                        class="w-4 h-4"
                     />
                     <span v-if="!syncStore.isOnline">Offline</span>
                     <span v-else-if="syncStore.isSyncing">Syncing...</span>
@@ -33,21 +40,44 @@
             </div>
 
             <!-- About link -->
-            <BaseButton as="a" href="https://github.com/kriscamilleri/pn-markdown-notes" target="_blank"
-                class="w-full" data-testid="mobile-menu-about-link">
-                <Info class="w-4 h-4" title="About" />
+            <BaseButton
+                as="a"
+                href="https://github.com/kriscamilleri/pn-markdown-notes"
+                target="_blank"
+                class="w-full"
+                data-testid="mobile-menu-about-link"
+            >
+                <Info
+                    class="w-4 h-4"
+                    title="About"
+                />
                 <span>About</span>
             </BaseButton>
 
             <!-- Login/Logout -->
             <div class="py-2">
-                <BaseButton v-if="!authStore.isAuthenticated" @click="goToLogin" class="w-full"
-                    data-testid="mobile-menu-login-button">
-                    <LogIn class="w-4 h-4" title="Login" />
+                <BaseButton
+                    v-if="!authStore.isAuthenticated"
+                    @click="goToLogin"
+                    class="w-full"
+                    data-testid="mobile-menu-login-button"
+                >
+                    <LogIn
+                        class="w-4 h-4"
+                        title="Login"
+                    />
                     <span>Login</span>
                 </BaseButton>
-                <BaseButton v-else @click="handleLogout" class="w-full" data-testid="mobile-menu-logout-button">
-                    <LogOut class="w-4 h-4" title="Logout" />
+                <BaseButton
+                    v-else
+                    @click="handleLogout"
+                    class="w-full"
+                    data-testid="mobile-menu-logout-button"
+                >
+                    <LogOut
+                        class="w-4 h-4"
+                        title="Logout"
+                    />
                     <span>Logout</span>
                 </BaseButton>
             </div>
@@ -75,13 +105,13 @@ async function handleToggleSync() {
         uiStore.addToast('Cannot sync while offline. Changes will sync when you reconnect.', 'warning');
         return;
     }
-    
+
     // Check authentication
     if (!authStore.isAuthenticated) {
         uiStore.addToast('Please log in again to enable sync.', 'warning');
         return;
     }
-    
+
     // If trying to enable sync (currently disabled)
     if (!syncStore.syncEnabled) {
         // Try refreshing the token if sync was disabled due to auth failure
@@ -91,7 +121,7 @@ async function handleToggleSync() {
             uiStore.addToast('Session expired. Please log in again to enable sync.', 'warning');
             return;
         }
-        
+
         // Enable sync and show success message
         syncStore.setSyncEnabled(true);
         uiStore.addToast('Sync enabled. Your notes will sync automatically.', 'success', 3000);

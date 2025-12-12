@@ -2,7 +2,11 @@
     <div class="min-h-screen bg-gray-100">
         <AccountNav :title="title">
             <template #actions>
-                <router-link to="/" custom v-slot="{ navigate }">
+                <router-link
+                    to="/"
+                    custom
+                    v-slot="{ navigate }"
+                >
                     <BaseButton @click="navigate">
                         <ArrowLeft class="w-4 h-4" />
                         <span>Back</span>

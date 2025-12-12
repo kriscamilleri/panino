@@ -5,7 +5,11 @@
             That means if you do <BaseButton @click="foo">, the click is passed through.
             Also pass through data-testid if provided.
         -->
-    <component :is="elementType" :class="computedClasses" v-bind="buttonAttrs">
+    <component
+        :is="elementType"
+        :class="computedClasses"
+        v-bind="buttonAttrs"
+    >
         <slot />
     </component>
 </template>

@@ -1,7 +1,13 @@
 <template>
-  <div v-if="file" class="h-full flex flex-col gap-0">
-    <div v-if="ui.showMetadata" class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
-      data-testid="editor-metadata-container">
+  <div
+    v-if="file"
+    class="h-full flex flex-col gap-0"
+  >
+    <div
+      v-if="ui.showMetadata"
+      class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
+      data-testid="editor-metadata-container"
+    >
       <div class="flex gap-4">
         <div class="flex items-center gap-2">
           <span class="font-medium">Name:</span>
@@ -18,18 +24,28 @@
       </div>
     </div>
 
-    <div v-if="isUploading" class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center"
-      data-testid="editor-upload-progress">
+    <div
+      v-if="isUploading"
+      class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center"
+      data-testid="editor-upload-progress"
+    >
       <span class="mr-2">Uploading image...</span>
       <div class="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
     </div>
 
-    <div v-if="uploadError" class="mb-4 p-2 bg-red-50 text-red-700 rounded" data-testid="editor-upload-error">
+    <div
+      v-if="uploadError"
+      class="mb-4 p-2 bg-red-50 text-red-700 rounded"
+      data-testid="editor-upload-error"
+    >
       {{ uploadError }}
     </div>
 
-    <div v-if="ui.showStats" class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
-      data-testid="editor-stats-display">
+    <div
+      v-if="ui.showStats"
+      class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
+      data-testid="editor-stats-display"
+    >
       <div class="flex items-center gap-1">
         <span class="font-medium">Words:</span>
         <span data-testid="editor-stats-words">{{ wordCount }}</span>
@@ -45,11 +61,18 @@
     </div>
 
     <div class="flex-1 flex flex-col min-h-0 mt-0">
-      <div ref="editorContainerRef" class="flex-1 bg-white mt-0 p-0" data-testid="editor-container"></div>
+      <div
+        ref="editorContainerRef"
+        class="flex-1 bg-white mt-0 p-0"
+        data-testid="editor-container"
+      ></div>
     </div>
   </div>
 
-  <div v-else data-testid="editor-no-file">
+  <div
+    v-else
+    data-testid="editor-no-file"
+  >
     <p class="text-gray-500 mt-3 ml-3">No file selected</p>
   </div>
 </template>
@@ -155,32 +178,32 @@ function initEditor() {
         bgPrimary: '#ffffff',
         bgSecondary: '#ffffff',
         text: '#111827',
-        
+
         // Headings - matching your preview defaults
         h1: '#111827',
         h2: '#1f2937',
         h3: '#1f2937',
-        
+
         // Text formatting
         strong: '#111827',
         em: '#111827',
-        
+
         // Links - darker blue
         link: '#1d4ed8',
-        
+
         // Code - matching your preview gray background
         code: '#111827',
         codeBg: '#f3f4f6',
-        
+
         // Blockquote - darker gray
         blockquote: '#4b5563',
-        
+
         // HR - matching your preview border
         hr: '#d1d5db',
-        
+
         // Syntax markers - darker for better visibility
         syntaxMarker: 'rgba(75, 85, 99, 0.5)',
-        
+
         // Cursor and selection
         cursor: '#2563eb',
         selection: 'rgba(37, 99, 235, 0.15)'
@@ -220,7 +243,7 @@ function destroyEditor() {
   if (textarea) {
     textarea.removeEventListener('paste', handlePaste);
   }
-  
+
   if (editorInstance.value) {
     editorInstance.value.destroy();
     editorInstance.value = null;
@@ -248,7 +271,7 @@ watch(() => file.value?.id, (newId, oldId) => {
     const newContent = file.value.content ?? '';
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
-    
+
     // If editor exists, update its value
     if (editorInstance.value) {
       editorInstance.value.setValue(newContent);
@@ -333,25 +356,25 @@ function insertAtCursor(text) {
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const currentText = textarea.value;
-  
+
   // Create new text with insertion
   const beforeCursor = currentText.slice(0, start);
   const afterCursor = currentText.slice(end);
   const newText = beforeCursor + text + afterCursor;
-  
+
   // Update textarea directly
   textarea.value = newText;
-  
+
   // Calculate new cursor position
   const newCursorPos = start + text.length;
-  
+
   // Set cursor position BEFORE triggering input event
   textarea.setSelectionRange(newCursorPos, newCursorPos);
-  
+
   // Trigger input event to sync with Overtype
   const inputEvent = new Event('input', { bubbles: true });
   textarea.dispatchEvent(inputEvent);
-  
+
   // Ensure focus
   textarea.focus();
 }
@@ -364,25 +387,25 @@ function insertFormat(prefix, suffix) {
   const end = textarea.selectionEnd;
   const currentText = textarea.value;
   const selectedText = currentText.slice(start, end);
-  
+
   // Create formatted text
   const beforeSelection = currentText.slice(0, start);
   const afterSelection = currentText.slice(end);
   const formattedText = prefix + selectedText + suffix;
   const newText = beforeSelection + formattedText + afterSelection;
-  
+
   // Update textarea directly
   textarea.value = newText;
-  
+
   // Set selection to the original selected text (now formatted)
   const newStart = start + prefix.length;
   const newEnd = newStart + selectedText.length;
   textarea.setSelectionRange(newStart, newEnd);
-  
+
   // Trigger input event to sync with Overtype
   const inputEvent = new Event('input', { bubbles: true });
   textarea.dispatchEvent(inputEvent);
-  
+
   // Ensure focus
   textarea.focus();
 }
@@ -413,22 +436,22 @@ function findNext(term) {
   if (!term?.trim()) return;
   const textarea = getTextareaElement();
   if (!textarea) return;
-  
+
   const text = textarea.value;
   let fromIdx = textarea.selectionEnd;
-  
+
   // Search from current position
   let idx = text.indexOf(term, fromIdx);
-  
+
   // If not found, wrap around to beginning
   if (idx === -1) {
     idx = text.indexOf(term, 0);
   }
-  
+
   if (idx > -1) {
     textarea.focus();
     textarea.setSelectionRange(idx, idx + term.length);
-    
+
     // Scroll into view
     const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 20;
     const textBeforeCursor = text.substring(0, idx);
@@ -441,29 +464,29 @@ function replaceNext(term, repl) {
   if (!term?.trim()) return;
   const textarea = getTextareaElement();
   if (!textarea) return;
-  
+
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const selectedText = textarea.value.substring(start, end);
-  
+
   // If current selection matches the search term, replace it
   if (selectedText === term) {
     const currentText = textarea.value;
     const beforeSelection = currentText.slice(0, start);
     const afterSelection = currentText.slice(end);
     const newText = beforeSelection + repl + afterSelection;
-    
+
     // Update textarea
     textarea.value = newText;
-    
+
     // Set cursor after replacement
     const newCursorPos = start + repl.length;
     textarea.setSelectionRange(newCursorPos, newCursorPos);
-    
+
     // Trigger input event to sync with Overtype
     const inputEvent = new Event('input', { bubbles: true });
     textarea.dispatchEvent(inputEvent);
-    
+
     textarea.focus();
   } else {
     // If selection doesn't match, find next occurrence
@@ -475,18 +498,18 @@ function replaceAll(term, repl) {
   if (!term?.trim()) return;
   const textarea = getTextareaElement();
   if (!textarea || !editorInstance.value) return;
-  
+
   const currentText = textarea.value;
   const newText = currentText.replaceAll(term, repl);
-  
+
   if (currentText !== newText) {
     // Update textarea
     textarea.value = newText;
-    
+
     // Trigger input event to sync with Overtype
     const inputEvent = new Event('input', { bubbles: true });
     textarea.dispatchEvent(inputEvent);
-    
+
     textarea.focus();
   }
 }

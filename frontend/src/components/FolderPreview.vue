@@ -1,18 +1,34 @@
 <template>
     <div class="flex-1 overflow-hidden p-4">
-        <h2 v-if="isRecentView" class="text-xl font-bold mb-2" data-testid="folder-preview-recent-heading">
+        <h2
+            v-if="isRecentView"
+            class="text-xl font-bold mb-2"
+            data-testid="folder-preview-recent-heading"
+        >
             Recent&nbsp;Documents
         </h2>
 
-        <h2 v-else class="text-xl font-bold mb-2" :data-testid="`folder-preview-name-${folderId}`">
+        <h2
+            v-else
+            class="text-xl font-bold mb-2"
+            :data-testid="`folder-preview-name-${folderId}`"
+        >
             {{ folderName }}
         </h2>
 
         <template v-if="isRecentView">
             <ul>
-                <li v-for="file in recentFiles" :key="file.id" class="mb-2">
-                    <a href="#" class="text-blue-600 underline" @click.prevent="openFile(file.id)"
-                       :data-testid="`folder-preview-file-link-${file.id}`">
+                <li
+                    v-for="file in recentFiles"
+                    :key="file.id"
+                    class="mb-2"
+                >
+                    <a
+                        href="#"
+                        class="text-blue-600 underline"
+                        @click.prevent="openFile(file.id)"
+                        :data-testid="`folder-preview-file-link-${file.id}`"
+                    >
                         {{ file.name }}
                     </a>
                     <span class="ml-2 text-sm text-gray-500">
@@ -24,11 +40,15 @@
         </template>
 
         <template v-else-if="isLoading">
-             <div class="text-gray-500">Loading folder contents...</div>
+            <div class="text-gray-500">Loading folder contents...</div>
         </template>
         <template v-else>
             <ul>
-                <FolderPreviewItem v-for="node in treeData" :key="node.id" :item="node"/>
+                <FolderPreviewItem
+                    v-for="node in treeData"
+                    :key="node.id"
+                    :item="node"
+                />
             </ul>
         </template>
     </div>
@@ -89,11 +109,11 @@ watchEffect(async () => {
     }
 
     isLoading.value = true;
-    
+
     // recursive asynchronous builder
     async function build(id) {
         const children = await docStore.getChildren(id);
-        
+
         children.sort((a, b) => {
             if (a.type === b.type) return a.name.localeCompare(b.name)
             return a.type === 'folder' ? -1 : 1
@@ -101,7 +121,7 @@ watchEffect(async () => {
 
         const processedChildren = [];
         for (const c of children) {
-             if (c.type === 'folder') {
+            if (c.type === 'folder') {
                 processedChildren.push({
                     id: c.id,
                     type: 'folder',

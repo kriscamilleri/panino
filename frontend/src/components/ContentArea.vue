@@ -1,43 +1,72 @@
 <template>
-    <div class="flex flex-1 overflow-hidden flex-col md:flex-row" data-testid="content-area-container">
+    <div
+        class="flex flex-1 overflow-hidden flex-col md:flex-row"
+        data-testid="content-area-container"
+    >
         <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">
-            <div class="flex-1 overflow-hidden" data-testid="content-area-folder-preview">
-                <FolderPreview :folderId="docStore.selectedFolderId" class="h-full overflow-y-auto" />
+            <div
+                class="flex-1 overflow-hidden"
+                data-testid="content-area-folder-preview"
+            >
+                <FolderPreview
+                    :folderId="docStore.selectedFolderId"
+                    class="h-full overflow-y-auto"
+                />
             </div>
         </template>
 
         <template v-else-if="!docStore.selectedFolderId && !docStore.selectedFileId">
-            <div class="flex-1 overflow-hidden" data-testid="content-area-recent-docs">
-                <FolderPreview folderId="__recent__" class="h-full overflow-y-auto" />
+            <div
+                class="flex-1 overflow-hidden"
+                data-testid="content-area-recent-docs"
+            >
+                <FolderPreview
+                    folderId="__recent__"
+                    class="h-full overflow-y-auto"
+                />
             </div>
         </template>
 
         <template v-else>
-            <div class="flex flex-1 h-full overflow-hidden"
-                :class="{ 'flex-col': isMobileView, 'flex-row': !isMobileView }">
+            <div
+                class="flex flex-1 h-full overflow-hidden"
+                :class="{ 'flex-col': isMobileView, 'flex-row': !isMobileView }"
+            >
                 <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
                     <template v-if="ui.showEditor">
-                        <div :class="{
-                            'h-1/2': isMobileView && ui.showPreview,
-                            'h-full': isMobileView && !ui.showPreview,
-                            'flex-shrink-0': !isMobileView
-                        }" :style="!isMobileView ? { width: editorWidth + 'px' } : {}"
-                            class="w-full overflow-hidden order-2 md:order-1" data-testid="content-area-editor-pane">
+                        <div
+                            :class="{
+                                'h-1/2': isMobileView && ui.showPreview,
+                                'h-full': isMobileView && !ui.showPreview,
+                                'flex-shrink-0': !isMobileView
+                            }"
+                            :style="!isMobileView ? { width: editorWidth + 'px' } : {}"
+                            class="w-full overflow-hidden order-2 md:order-1"
+                            data-testid="content-area-editor-pane"
+                        >
                             <div class="h-full overflow-y-auto p-0">
                                 <Editor ref="editorRef" />
                             </div>
                         </div>
 
-                        <div v-if="!isMobileView && ui.showPreview"
+                        <div
+                            v-if="!isMobileView && ui.showPreview"
                             class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 order-1"
-                            @mousedown="startEditorResize($event)" data-testid="content-area-editor-resizer"></div>
+                            @mousedown="startEditorResize($event)"
+                            data-testid="content-area-editor-resizer"
+                        ></div>
                     </template>
 
-                    <div v-if="ui.showPreview" :class="{
-                        'h-1/2': isMobileView && ui.showEditor,
-                        'h-full': isMobileView && !ui.showEditor,
-                        'flex-1': !isMobileView
-                    }" class="w-full overflow-hidden order-1 md:order-2" data-testid="content-area-preview-pane">
+                    <div
+                        v-if="ui.showPreview"
+                        :class="{
+                            'h-1/2': isMobileView && ui.showEditor,
+                            'h-full': isMobileView && !ui.showEditor,
+                            'flex-1': !isMobileView
+                        }"
+                        class="w-full overflow-hidden order-1 md:order-2"
+                        data-testid="content-area-preview-pane"
+                    >
                         <div class="h-full overflow-y-auto p-4">
                             <Preview ref="previewRef" />
                         </div>
