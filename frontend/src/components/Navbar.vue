@@ -39,26 +39,6 @@
 
                 </BaseButton>
 
-                <div
-                    class="flex items-center px-3"
-                    style="min-width: 80px;"
-                >
-                    <div
-                        v-if="docStore.isSaving"
-                        class="flex items-center text-blue-600 text-xs font-medium"
-                    >
-                        <Cloud class="w-3 h-3 mr-1 animate-pulse" />
-                        Saving
-                    </div>
-                    <div
-                        v-else
-                        class="flex items-center text-green-600 text-xs font-medium transition-opacity duration-500"
-                    >
-                        <CheckCircle class="w-3 h-3 mr-1" />
-                        Saved
-                    </div>
-                </div>
-
                 <BaseButton
                     v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'"
                     :isActive="syncStore.syncEnabled"
@@ -186,8 +166,6 @@ import BaseButton from '@/components/BaseButton.vue'
 import MobileMenu from './MobileMenu.vue'
 
 import {
-    Cloud,
-    CheckCircle,
     Paintbrush,
     Layout,
     FileIcon,
