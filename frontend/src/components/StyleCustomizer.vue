@@ -2,25 +2,41 @@
   <div class="min-h-screen bg-gray-50 flex flex-col">
     <AccountNav :title="config.title">
       <template #actions>
-
-
         <!-- Button group for custom actions (Print page) -->
-        <div v-if="config.customActions" class="flex items-center gap-2" role="group">
-          <BaseButton v-for="action in config.customActions" :key="action.id" @click="action.onClick"
-            :isActive="action.isActive()">
+        <div
+          v-if="config.customActions"
+          class="flex items-center gap-2"
+          role="group"
+        >
+          <BaseButton
+            v-for="action in config.customActions"
+            :key="action.id"
+            @click="action.onClick"
+            :isActive="action.isActive()"
+          >
             <!-- show provided icon component or fallback based on action id -->
             <template v-if="action.icon">
-              <component :is="action.icon" class="w-4 h-4 mr-2" />
+              <component
+                :is="action.icon"
+                class="w-4 h-4 mr-2"
+              />
             </template>
             <template v-else>
-              <component :is="iconForAction(action.id)" class="w-4 h-4 mr-2" />
+              <component
+                :is="iconForAction(action.id)"
+                class="w-4 h-4 mr-2"
+              />
             </template>
             {{ action.label }}
           </BaseButton>
         </div>
 
         <!-- Original toggle button (for regular styles page) -->
-        <BaseButton v-else @click="toggleStylesCustomization" :isActive="showStylesCustomization">
+        <BaseButton
+          v-else
+          @click="toggleStylesCustomization"
+          :isActive="showStylesCustomization"
+        >
           <Settings class="w-4 h-4" />
           <span>{{ showStylesCustomization ? 'Hide' : 'Show' }} Styles</span>
         </BaseButton>
@@ -34,89 +50,171 @@
 
     <div class="flex-1 flex overflow-hidden">
       <!-- Styles Pane (left side when active) -->
-      <div v-if="shouldShowStylesPane" class="w-1/2 p-8 overflow-y-auto" :style="{ height: 'calc(100vh - 57px)' }">
+      <div
+        v-if="shouldShowStylesPane"
+        class="w-1/2 p-8 overflow-y-auto"
+        :style="{ height: 'calc(100vh - 57px)' }"
+      >
         <div class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto">
           <div class="space-y-6">
-            <div v-for="(styles, category) in categorizedStyles" :key="category" class="space-y-4">
+            <div
+              v-for="(styles, category) in categorizedStyles"
+              :key="category"
+              class="space-y-4"
+            >
               <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">
                 {{ category }}
               </h2>
-              <div v-for="(value, key) in styles" :key="key" class="space-y-2">
-                <label :for="key" class="block text-sm font-medium text-gray-700">
+              <div
+                v-for="(value, key) in styles"
+                :key="key"
+                class="space-y-2"
+              >
+                <label
+                  :for="key"
+                  class="block text-sm font-medium text-gray-700"
+                >
                   {{ key }}
                 </label>
-                <textarea :id="key" v-model="editableStyleMap[key]" @input="handleStyleChange(key, $event.target.value)"
+                <textarea
+                  :id="key"
+                  v-model="editableStyleMap[key]"
+                  @input="handleStyleChange(key, $event.target.value)"
                   class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
-                  rows="3" :placeholder="`CSS styles for ${key} element`" />
+                  rows="3"
+                  :placeholder="`CSS styles for ${key} element`"
+                />
               </div>
             </div>
 
-            <div v-if="config.extraFields?.length" class="space-y-4 pt-8 border-t">
+            <div
+              v-if="config.extraFields?.length"
+              class="space-y-4 pt-8 border-t"
+            >
               <h2 class="text-lg font-semibold text-gray-700">
                 {{ config.extraFieldsTitle || 'Additional Settings' }}
               </h2>
-              <div v-for="field in config.extraFields" :key="field.id" class="space-y-2">
-                <label :for="field.id" class="block text-sm font-medium text-gray-700">
+              <div
+                v-for="field in config.extraFields"
+                :key="field.id"
+                class="space-y-2"
+              >
+                <label
+                  :for="field.id"
+                  class="block text-sm font-medium text-gray-700"
+                >
                   {{ field.label }}
                 </label>
 
-                <div v-if="field.id === 'googleFontFamily'" class="font-selector-container space-y-2">
+                <div
+                  v-if="field.id === 'googleFontFamily'"
+                  class="font-selector-container space-y-2"
+                >
                   <div class="flex flex-wrap gap-2 p-3 border border-gray-300 rounded-md bg-gray-50 min-h-[2.5rem]">
-                    <span v-for="font in selectedFonts" :key="font"
-                      class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    <span
+                      v-for="font in selectedFonts"
+                      :key="font"
+                      class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                    >
                       {{ font }}
-                      <button @click="removeFont(font)" class="ml-1 text-blue-600 hover:text-blue-800 font-bold">
+                      <button
+                        @click="removeFont(font)"
+                        class="ml-1 text-blue-600 hover:text-blue-800 font-bold"
+                      >
                         ×
                       </button>
                     </span>
-                    <input v-model="fontSearchQuery" @input="searchFonts" @keydown="handleFontInputKeydown"
-                      @focus="showFontDropdown = true" placeholder="Search Google Fonts..."
-                      class="flex-1 min-w-[120px] border-none outline-none bg-transparent text-sm" />
+                    <input
+                      v-model="fontSearchQuery"
+                      @input="searchFonts"
+                      @keydown="handleFontInputKeydown"
+                      @focus="showFontDropdown = true"
+                      placeholder="Search Google Fonts..."
+                      class="flex-1 min-w-[120px] border-none outline-none bg-transparent text-sm"
+                    />
                   </div>
-                  <div v-if="showFontDropdown && filteredFonts.length"
-                    class="absolute z-50 w-full max-w-md bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
-                    <div v-for="font in filteredFonts.slice(0, 50)" :key="font" @click="addFont(font)"
-                      class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b border-gray-100 last:border-b-0">
+                  <div
+                    v-if="showFontDropdown && filteredFonts.length"
+                    class="absolute z-50 w-full max-w-md bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
+                  >
+                    <div
+                      v-for="font in filteredFonts.slice(0, 50)"
+                      :key="font"
+                      @click="addFont(font)"
+                      class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b border-gray-100 last:border-b-0"
+                    >
                       {{ font }}
                     </div>
                   </div>
                 </div>
 
-                <textarea v-else-if="field.type === 'textarea'" :id="field.id" :rows="field.rows || 4"
+                <textarea
+                  v-else-if="field.type === 'textarea'"
+                  :id="field.id"
+                  :rows="field.rows || 4"
                   v-model="editableStyleMap[field.modelKey]"
                   @input="handleStyleChange(field.modelKey, $event.target.value)"
                   class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
-                  :placeholder="field.placeholder" />
+                  :placeholder="field.placeholder"
+                />
 
-                <input v-else-if="field.type === 'input'" :id="field.id" :type="field.inputType || 'text'"
+                <input
+                  v-else-if="field.type === 'input'"
+                  :id="field.id"
+                  :type="field.inputType || 'text'"
                   v-model="editableStyleMap[field.modelKey]"
                   @input="handleStyleChange(field.modelKey, $event.target.value)"
                   class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                  :class="field.inputType === 'color' ? 'h-10' : ''" :placeholder="field.placeholder" />
+                  :class="field.inputType === 'color' ? 'h-10' : ''"
+                  :placeholder="field.placeholder"
+                />
 
-                <select v-else-if="field.type === 'select'" :id="field.id" v-model="editableStyleMap[field.modelKey]"
+                <select
+                  v-else-if="field.type === 'select'"
+                  :id="field.id"
+                  v-model="editableStyleMap[field.modelKey]"
                   @change="handleStyleChange(field.modelKey, $event.target.value)"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm">
-                  <option v-for="opt in field.options" :key="opt.value" :value="opt.value">
+                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                >
+                  <option
+                    v-for="opt in field.options"
+                    :key="opt.value"
+                    :value="opt.value"
+                  >
                     {{ opt.text }}
                   </option>
                 </select>
 
-                <div v-else-if="field.type === 'checkbox'" class="flex items-center">
-                  <input :id="field.id" type="checkbox" :checked="editableStyleMap[field.modelKey] === true ||
-                    editableStyleMap[field.modelKey] === 'true'
-                    " @change="handleStyleChange(field.modelKey, $event.target.checked)"
-                    class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500" />
+                <div
+                  v-else-if="field.type === 'checkbox'"
+                  class="flex items-center"
+                >
+                  <input
+                    :id="field.id"
+                    type="checkbox"
+                    :checked="editableStyleMap[field.modelKey] === true ||
+                      editableStyleMap[field.modelKey] === 'true'
+                      "
+                    @change="handleStyleChange(field.modelKey, $event.target.checked)"
+                    class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500"
+                  />
                 </div>
               </div>
             </div>
           </div>
 
           <hr class="my-6" />
-          <BaseButton @click="resetStyles" class="my-2">
+          <BaseButton
+            @click="resetStyles"
+            class="my-2"
+          >
             <span>Reset to Defaults</span>
           </BaseButton>
-          <BaseButton v-if="config.getDebugHtml" @click="showDebugHtml" class="my-2">
+          <BaseButton
+            v-if="config.getDebugHtml"
+            @click="showDebugHtml"
+            class="my-2"
+          >
             <Bug class="w-4 h-4" />
             <span>Debug HTML</span>
           </BaseButton>
@@ -124,17 +222,30 @@
       </div>
 
       <!-- Editor Pane (left side when active) -->
-      <div v-if="shouldShowEditorPane" class="w-1/2 p-8 overflow-y-auto bg-gray-50"
-        :style="{ height: 'calc(100vh - 57px)' }">
-        <component v-if="config.editorComponent" :is="config.editorComponent"
-          class="bg-white shadow-lg rounded-lg h-full overflow-y-auto w-full font-mono text-sm" />
-        <textarea v-else-if="config.getEditorContent" :value="config.getEditorContent()"
-          class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto w-full font-mono text-sm" readonly></textarea>
+      <div
+        v-if="shouldShowEditorPane"
+        class="w-1/2 p-8 overflow-y-auto bg-gray-50"
+        :style="{ height: 'calc(100vh - 57px)' }"
+      >
+        <component
+          v-if="config.editorComponent"
+          :is="config.editorComponent"
+          class="bg-white shadow-lg rounded-lg h-full overflow-y-auto w-full font-mono text-sm"
+        />
+        <textarea
+          v-else-if="config.getEditorContent"
+          :value="config.getEditorContent()"
+          class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto w-full font-mono text-sm"
+          readonly
+        ></textarea>
       </div>
 
       <!-- Preview/Content Pane (right side or full width) -->
-      <div :class="shouldShowStylesPane || shouldShowEditorPane ? 'w-1/2' : 'w-full'"
-        class="bg-white border-l overflow-hidden" :style="{ height: 'calc(100vh - 57px)' }">
+      <div
+        :class="shouldShowStylesPane || shouldShowEditorPane ? 'w-1/2' : 'w-full'"
+        class="bg-white border-l overflow-hidden"
+        :style="{ height: 'calc(100vh - 57px)' }"
+      >
         <slot />
       </div>
     </div>

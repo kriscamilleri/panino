@@ -1,66 +1,93 @@
 <template>
-    <div v-if="show" class="fixed inset-0 flex items-center justify-center z-50" data-testid="export-modal-container">
-        <div class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm" @click="$emit('close')"></div>
+    <div
+        v-if="show"
+        class="fixed inset-0 flex items-center justify-center z-50"
+        data-testid="export-modal-container"
+    >
+        <div
+            class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"
+            @click="$emit('close')"
+        ></div>
 
         <div class="relative bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
             <div class="px-6 py-4 border-b">
                 <div class="flex justify-between items-center">
                     <h3 class="text-xl font-semibold text-gray-800">Export Data</h3>
-                    <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 transition-colors"
-                        data-testid="export-modal-close-button">
+                    <button
+                        @click="$emit('close')"
+                        class="text-gray-400 hover:text-gray-600 transition-colors"
+                        data-testid="export-modal-close-button"
+                    >
                         <X class="w-5 h-5" />
                     </button>
                 </div>
             </div>
 
             <div class="px-6 py-4 flex-1 overflow-y-auto">
-                <p class="text-sm text-gray-600 mb-6">Choose an export format. All your notes and folders will be included in the export.</p>
+                <p class="text-sm text-gray-600 mb-6">Choose an export format. All your notes and folders will be
+                    included in the export.</p>
 
                 <div class="space-y-4">
-                    <button @click="handleExport('json')"
+                    <button
+                        @click="handleExport('json')"
                         class="w-full text-left flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-panino-json">
+                        data-testid="export-modal-panino-json"
+                    >
                         <FileJson class="w-8 h-8 text-gray-500" />
                         <div>
                             <p class="font-semibold text-gray-800">Panino JSON</p>
-                            <p class="text-sm text-gray-500">A single JSON file containing all your notes and folders. Ideal for backups or migrating to another Panino instance.</p>
+                            <p class="text-sm text-gray-500">A single JSON file containing all your notes and folders.
+                                Ideal for backups or migrating to another Panino instance.</p>
                         </div>
                     </button>
 
-                    <button @click="handleExport('stackedit')"
+                    <button
+                        @click="handleExport('stackedit')"
                         class="w-full text-left flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-stackedit-json">
+                        data-testid="export-modal-stackedit-json"
+                    >
                         <FileJson class="w-8 h-8 text-gray-500" />
                         <div>
                             <p class="font-semibold text-gray-800">StackEdit JSON</p>
-                            <p class="text-sm text-gray-500">A single JSON file compatible with the StackEdit format, allowing you to import your data there.</p>
+                            <p class="text-sm text-gray-500">A single JSON file compatible with the StackEdit format,
+                                allowing you to import your data there.</p>
                         </div>
                     </button>
 
-                    <button @click="handleExport('zip')"
+                    <button
+                        @click="handleExport('zip')"
                         class="w-full text-left flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-markdown-zip">
+                        data-testid="export-modal-markdown-zip"
+                    >
                         <FolderArchive class="w-8 h-8 text-gray-500" />
                         <div>
                             <p class="font-semibold text-gray-800">Markdown Files (.zip)</p>
-                            <p class="text-sm text-gray-500">A ZIP archive containing all your notes as individual `.md` files, organized in their respective folders.</p>
+                            <p class="text-sm text-gray-500">A ZIP archive containing all your notes as individual `.md`
+                                files, organized in their respective folders.</p>
                         </div>
                     </button>
                 </div>
-                 <div v-if="error" class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md"
-                      data-testid="export-modal-error">
-                      <div class="flex">
-                           <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
-                           <p class="text-sm text-red-600">{{ error }}</p>
-                      </div>
-                 </div>
+                <div
+                    v-if="error"
+                    class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md"
+                    data-testid="export-modal-error"
+                >
+                    <div class="flex">
+                        <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
+                        <p class="text-sm text-red-600">{{ error }}</p>
+                    </div>
+                </div>
             </div>
 
             <div class="px-6 py-4 bg-gray-50 rounded-b-lg border-t">
                 <div class="flex justify-end">
-                    <button @click="$emit('close')" class="px-4 py-2 text-sm font-medium text-gray-700
+                    <button
+                        @click="$emit('close')"
+                        class="px-4 py-2 text-sm font-medium text-gray-700
                                        bg-white border border-gray-300 rounded-md
-                                       hover:bg-gray-50 transition-colors" data-testid="export-modal-done-button">
+                                       hover:bg-gray-50 transition-colors"
+                        data-testid="export-modal-done-button"
+                    >
                         Done
                     </button>
                 </div>
