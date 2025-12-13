@@ -39,6 +39,26 @@
 
                 </BaseButton>
 
+                <div
+                    class="flex items-center px-3"
+                    style="min-width: 80px;"
+                >
+                    <div
+                        v-if="docStore.isSaving"
+                        class="flex items-center text-blue-600 text-xs font-medium"
+                    >
+                        <Cloud class="w-3 h-3 mr-1 animate-pulse" />
+                        Saving
+                    </div>
+                    <div
+                        v-else
+                        class="flex items-center text-green-600 text-xs font-medium transition-opacity duration-500"
+                    >
+                        <CheckCircle class="w-3 h-3 mr-1" />
+                        Saved
+                    </div>
+                </div>
+
                 <BaseButton
                     v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'"
                     :isActive="syncStore.syncEnabled"
@@ -156,6 +176,7 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -165,6 +186,8 @@ import BaseButton from '@/components/BaseButton.vue'
 import MobileMenu from './MobileMenu.vue'
 
 import {
+    Cloud,
+    CheckCircle,
     Paintbrush,
     Layout,
     FileIcon,
@@ -176,6 +199,7 @@ import {
     User
 } from 'lucide-vue-next'
 
+const docStore = useDocStore()
 const ui = useUiStore()
 const authStore = useAuthStore()
 const syncStore = useSyncStore()
