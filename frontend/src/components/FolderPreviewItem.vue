@@ -3,27 +3,51 @@
     <li class="mb-1">
         <!-- row -->
         <div class="flex items-center">
-            <FolderIcon v-if="item.type === 'folder'" class="w-4 h-4 mr-1 text-gray-700" />
-            <FileIcon v-else class="w-4 h-4 mr-1 text-gray-700" />
+            <FolderIcon
+                v-if="item.type === 'folder'"
+                class="w-4 h-4 mr-1 text-gray-700"
+            />
+            <FileIcon
+                v-else
+                class="w-4 h-4 mr-1 text-gray-700"
+            />
 
-            <span v-if="item.type === 'folder'" class="font-semibold cursor-pointer hover:underline"
-                @click="openFolder(item.id)">
+            <span
+                v-if="item.type === 'folder'"
+                class="font-semibold cursor-pointer hover:underline"
+                @click="openFolder(item.id)"
+            >
                 {{ item.name }}
             </span>
 
-            <a v-else href="#" class="text-blue-600 underline" @click.prevent="openFile(item.id)">
+            <a
+                v-else
+                href="#"
+                class="text-blue-600 underline"
+                @click.prevent="openFile(item.id)"
+            >
                 {{ item.name }}
             </a>
 
-            <span v-if="item.type === 'file'" class="ml-2 text-sm text-gray-500">
+            <span
+                v-if="item.type === 'file'"
+                class="ml-2 text-sm text-gray-500"
+            >
                 Last&nbsp;Modified:
                 {{ item.displayedDate ? fmt(item.displayedDate) : '' }}
             </span>
         </div>
 
         <!-- children -->
-        <ul v-if="item.type === 'folder' && item.children?.length" class="ml-6">
-            <FolderPreviewItem v-for="child in item.children" :key="child.id" :item="child" />
+        <ul
+            v-if="item.type === 'folder' && item.children?.length"
+            class="ml-6"
+        >
+            <FolderPreviewItem
+                v-for="child in item.children"
+                :key="child.id"
+                :item="child"
+            />
         </ul>
     </li>
 </template>

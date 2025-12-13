@@ -1,13 +1,25 @@
 <template>
     <!-- Root container (bottom-right) -->
     <div class="fixed bottom-4 right-4 flex flex-col space-y-2 z-50"> <!-- Animated list of toasts -->
-        <TransitionGroup name="toast" tag="div">
-            <div v-for="toast in ui.toasts" :key="toast.id"
+        <TransitionGroup
+            name="toast"
+            tag="div"
+        >
+            <div
+                v-for="toast in ui.toasts"
+                :key="toast.id"
                 :class="getToastClass(toast.type)"
                 class="min-w-[200px] max-w-sm px-4 py-3 rounded-lg shadow-lg flex items-start justify-between"
-                role="alert"> <!-- HTML is already sanitized before it reaches here -->
-                <div class="flex-1 pr-2" v-html="toast.message" /> <button @click="ui.removeToast(toast.id)"
-                    class="text-lg leading-none focus:outline-none" :class="getButtonClass(toast.type)"> &times; </button>
+                role="alert"
+            > <!-- HTML is already sanitized before it reaches here -->
+                <div
+                    class="flex-1 pr-2"
+                    v-html="toast.message"
+                /> <button
+                    @click="ui.removeToast(toast.id)"
+                    class="text-lg leading-none focus:outline-none"
+                    :class="getButtonClass(toast.type)"
+                > &times; </button>
             </div>
         </TransitionGroup>
     </div>
@@ -16,7 +28,7 @@
 const ui = useUiStore()
 
 function getToastClass(type) {
-    switch(type) {
+    switch (type) {
         case 'success':
             return 'bg-green-600 text-white';
         case 'warning':

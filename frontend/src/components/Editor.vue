@@ -1,7 +1,13 @@
 <template>
-  <div v-if="file" class="h-full flex flex-col gap-0">
-    <div v-if="ui.showMetadata" class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
-      data-testid="editor-metadata-container">
+  <div
+    v-if="file"
+    class="h-full flex flex-col gap-0"
+  >
+    <div
+      v-if="ui.showMetadata"
+      class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
+      data-testid="editor-metadata-container"
+    >
       <div class="flex gap-4">
         <div class="flex items-center gap-2">
           <span class="font-medium">Name:</span>
@@ -18,18 +24,28 @@
       </div>
     </div>
 
-    <div v-if="isUploading" class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center"
-      data-testid="editor-upload-progress">
+    <div
+      v-if="isUploading"
+      class="mb-4 p-2 bg-blue-50 text-blue-700 rounded flex items-center"
+      data-testid="editor-upload-progress"
+    >
       <span class="mr-2">Uploading image...</span>
       <div class="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
     </div>
 
-    <div v-if="uploadError" class="mb-4 p-2 bg-red-50 text-red-700 rounded" data-testid="editor-upload-error">
+    <div
+      v-if="uploadError"
+      class="mb-4 p-2 bg-red-50 text-red-700 rounded"
+      data-testid="editor-upload-error"
+    >
       {{ uploadError }}
     </div>
 
-    <div v-if="ui.showStats" class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
-      data-testid="editor-stats-display">
+    <div
+      v-if="ui.showStats"
+      class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
+      data-testid="editor-stats-display"
+    >
       <div class="flex items-center gap-1">
         <span class="font-medium">Words:</span>
         <span data-testid="editor-stats-words">{{ wordCount }}</span>
@@ -45,11 +61,18 @@
     </div>
 
     <div class="flex-1 flex flex-col min-h-0 mt-0">
-      <div ref="editorContainerRef" class="flex-1 bg-white mt-0 p-0" data-testid="editor-container"></div>
+      <div
+        ref="editorContainerRef"
+        class="flex-1 bg-white mt-0 p-0"
+        data-testid="editor-container"
+      ></div>
     </div>
   </div>
 
-  <div v-else data-testid="editor-no-file">
+  <div
+    v-else
+    data-testid="editor-no-file"
+  >
     <p class="text-gray-500 mt-3 ml-3">No file selected</p>
   </div>
 </template>
@@ -97,6 +120,7 @@ import { useUiStore } from '@/store/uiStore';
 import { useDraftStore } from '@/store/draftStore';
 import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
+import { useHistoryStore } from '@/store/historyStore';
 import OverType from 'overtype';
 
 /* ───── helpers ───── */
@@ -118,6 +142,7 @@ const ui = useUiStore();
 const draftStore = useDraftStore();
 const authStore = useAuthStore();
 const editorStore = useEditorStore();
+const historyStore = useHistoryStore(); // <--- INIT STORE
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
 
@@ -135,8 +160,135 @@ const debouncedSyncToDB = debounce((id, text) => {
   docStore.updateFileContent(id, text);
 }, 500);
 
+/* ───── History Setup ───── */
+const isHistoryAction = ref(false)
+// Create a debounced record function for typing
+const debouncedRecord = debounce((text, cursor) => {
+  if (file.value) {
+    historyStore.record(file.value.id, text, cursor);
+  }
+}, 500);
+
+/* ───── Keydown Handler (Trap Undo/Redo) ───── */
+function handleKeydown(e) {
+  // Trap Ctrl+Z (Undo)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    performUndo();
+    return;
+  }
+
+  // Trap Ctrl+Y or Ctrl+Shift+Z (Redo)
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    (e.key === 'y' || (e.shiftKey && e.key === 'z'))
+  ) {
+    e.preventDefault();
+    performRedo();
+    return;
+  }
+}
+
+/* ───── Handle Native Input ───── */
+// This runs on every keystroke via the native event listener
+// This runs on every keystroke via the native event listener
+function handleNativeInput(e) {
+  if (isHistoryAction.value || !file.value) return;
+
+  const textarea = e.target;
+  const val = textarea.value;
+  const cursor = textarea.selectionEnd;
+
+  // Handle input types that should trigger immediate saves
+  const inputType = e.inputType;
+  const char = e.data;
+
+  // Added insertLineBreak here 👇
+  const isDelimiter =
+    inputType === 'insertParagraph' ||
+    inputType === 'insertLineBreak' ||
+    (char && /[\s\.,;!?:(){}\[\]"']/.test(char));
+
+  if (isDelimiter) {
+    // Record immediately on word break/sentence end
+    historyStore.record(file.value.id, val, cursor);
+  } else {
+    // Debounce for character streams
+    debouncedRecord(val, cursor);
+  }
+}
+
+/* ───── History Methods ───── */
+function performUndo() {
+  if (!file.value) return;
+  const previousState = historyStore.undo(file.value.id);
+  if (previousState) applyHistoryState(previousState);
+}
+
+function performRedo() {
+  if (!file.value) return;
+  const nextState = historyStore.redo(file.value.id);
+  if (nextState) applyHistoryState(nextState);
+}
+
+function applyHistoryState(state) {
+  // Lock: prevent handleInput from recording this change as a new user action
+  isHistoryAction.value = true;
+
+  if (editorInstance.value && state) {
+    const textarea = getTextareaElement();
+
+    // 1. Update OverType (Visuals)
+    // using setValue is safer than setting textarea.value manually for OverType sync
+    editorInstance.value.setValue(state.text);
+
+    // 2. Update Internal Draft State
+    contentDraft.value = state.text;
+    if (file.value) {
+      draftStore.setDraft(file.value.id, state.text);
+      debouncedSyncToDB(file.value.id, state.text);
+    }
+
+    // 3. Restore Cursor
+    nextTick(() => {
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(state.cursor, state.cursor);
+      }
+      // Unlock after DOM updates
+      setTimeout(() => { isHistoryAction.value = false; }, 50);
+    });
+  } else {
+    isHistoryAction.value = false;
+  }
+}
+
+/* ───── Format Wrapping ───── */
+// Pass the current cursor position
+function wrapWithRecord(fn) {
+  return (...args) => {
+    if (!file.value) return;
+
+    const textarea = getTextareaElement();
+    const cursor = textarea ? textarea.selectionEnd : 0;
+
+    // 1. Snapshot BEFORE formatting
+    historyStore.record(file.value.id, contentDraft.value, cursor);
+
+    // 2. Perform formatting
+    fn(...args);
+
+    // Snapshot AFTER formatting
+    nextTick(() => {
+      const newCursor = textarea ? textarea.selectionEnd : 0;
+      historyStore.record(file.value.id, contentDraft.value, newCursor);
+    });
+  }
+}
+
 function handleInput(value) {
   contentDraft.value = value;
+
   if (file.value) {
     draftStore.setDraft(file.value.id, value);
     debouncedSyncToDB(file.value.id, value);
@@ -155,32 +307,32 @@ function initEditor() {
         bgPrimary: '#ffffff',
         bgSecondary: '#ffffff',
         text: '#111827',
-        
+
         // Headings - matching your preview defaults
         h1: '#111827',
         h2: '#1f2937',
         h3: '#1f2937',
-        
+
         // Text formatting
         strong: '#111827',
         em: '#111827',
-        
+
         // Links - darker blue
         link: '#1d4ed8',
-        
+
         // Code - matching your preview gray background
         code: '#111827',
         codeBg: '#f3f4f6',
-        
+
         // Blockquote - darker gray
         blockquote: '#4b5563',
-        
+
         // HR - matching your preview border
         hr: '#d1d5db',
-        
+
         // Syntax markers - darker for better visibility
         syntaxMarker: 'rgba(75, 85, 99, 0.5)',
-        
+
         // Cursor and selection
         cursor: '#2563eb',
         selection: 'rgba(37, 99, 235, 0.15)'
@@ -194,6 +346,9 @@ function initEditor() {
       handleInput(value);
     },
     onKeydown: (event, instance) => {
+      // Forward keydown to our handler
+      handleKeydown(event);
+
       // Handle paste event for images
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
         // Paste will be handled by the native paste event
@@ -210,6 +365,9 @@ function initEditor() {
     const textarea = getTextareaElement();
     if (textarea) {
       textarea.addEventListener('paste', handlePaste);
+      textarea.addEventListener('input', handleNativeInput);
+      // Keydown is handled by OverType config, or add manually if OverType consumes it:
+      // textarea.addEventListener('keydown', handleKeydown);
     }
   });
 }
@@ -219,8 +377,9 @@ function destroyEditor() {
   const textarea = getTextareaElement();
   if (textarea) {
     textarea.removeEventListener('paste', handlePaste);
+    textarea.removeEventListener('input', handleNativeInput);
   }
-  
+
   if (editorInstance.value) {
     editorInstance.value.destroy();
     editorInstance.value = null;
@@ -246,9 +405,13 @@ watch(() => file.value, (newFile) => {
 watch(() => file.value?.id, (newId, oldId) => {
   if (newId) {
     const newContent = file.value.content ?? '';
+
+    // Initialize history for this file (keeps existing stack if revisited)
+    historyStore.initialize(newId, newContent);
+
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
-    
+
     // If editor exists, update its value
     if (editorInstance.value) {
       editorInstance.value.setValue(newContent);
@@ -333,25 +496,25 @@ function insertAtCursor(text) {
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const currentText = textarea.value;
-  
+
   // Create new text with insertion
   const beforeCursor = currentText.slice(0, start);
   const afterCursor = currentText.slice(end);
   const newText = beforeCursor + text + afterCursor;
-  
+
   // Update textarea directly
   textarea.value = newText;
-  
+
   // Calculate new cursor position
   const newCursorPos = start + text.length;
-  
+
   // Set cursor position BEFORE triggering input event
   textarea.setSelectionRange(newCursorPos, newCursorPos);
-  
+
   // Trigger input event to sync with Overtype
   const inputEvent = new Event('input', { bubbles: true });
   textarea.dispatchEvent(inputEvent);
-  
+
   // Ensure focus
   textarea.focus();
 }
@@ -364,25 +527,25 @@ function insertFormat(prefix, suffix) {
   const end = textarea.selectionEnd;
   const currentText = textarea.value;
   const selectedText = currentText.slice(start, end);
-  
+
   // Create formatted text
   const beforeSelection = currentText.slice(0, start);
   const afterSelection = currentText.slice(end);
   const formattedText = prefix + selectedText + suffix;
   const newText = beforeSelection + formattedText + afterSelection;
-  
+
   // Update textarea directly
   textarea.value = newText;
-  
+
   // Set selection to the original selected text (now formatted)
   const newStart = start + prefix.length;
   const newEnd = newStart + selectedText.length;
   textarea.setSelectionRange(newStart, newEnd);
-  
+
   // Trigger input event to sync with Overtype
   const inputEvent = new Event('input', { bubbles: true });
   textarea.dispatchEvent(inputEvent);
-  
+
   // Ensure focus
   textarea.focus();
 }
@@ -413,22 +576,22 @@ function findNext(term) {
   if (!term?.trim()) return;
   const textarea = getTextareaElement();
   if (!textarea) return;
-  
+
   const text = textarea.value;
   let fromIdx = textarea.selectionEnd;
-  
+
   // Search from current position
   let idx = text.indexOf(term, fromIdx);
-  
+
   // If not found, wrap around to beginning
   if (idx === -1) {
     idx = text.indexOf(term, 0);
   }
-  
+
   if (idx > -1) {
     textarea.focus();
     textarea.setSelectionRange(idx, idx + term.length);
-    
+
     // Scroll into view
     const lineHeight = parseInt(getComputedStyle(textarea).lineHeight) || 20;
     const textBeforeCursor = text.substring(0, idx);
@@ -441,29 +604,29 @@ function replaceNext(term, repl) {
   if (!term?.trim()) return;
   const textarea = getTextareaElement();
   if (!textarea) return;
-  
+
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const selectedText = textarea.value.substring(start, end);
-  
+
   // If current selection matches the search term, replace it
   if (selectedText === term) {
     const currentText = textarea.value;
     const beforeSelection = currentText.slice(0, start);
     const afterSelection = currentText.slice(end);
     const newText = beforeSelection + repl + afterSelection;
-    
+
     // Update textarea
     textarea.value = newText;
-    
+
     // Set cursor after replacement
     const newCursorPos = start + repl.length;
     textarea.setSelectionRange(newCursorPos, newCursorPos);
-    
+
     // Trigger input event to sync with Overtype
     const inputEvent = new Event('input', { bubbles: true });
     textarea.dispatchEvent(inputEvent);
-    
+
     textarea.focus();
   } else {
     // If selection doesn't match, find next occurrence
@@ -475,26 +638,52 @@ function replaceAll(term, repl) {
   if (!term?.trim()) return;
   const textarea = getTextareaElement();
   if (!textarea || !editorInstance.value) return;
-  
+
   const currentText = textarea.value;
   const newText = currentText.replaceAll(term, repl);
-  
+
   if (currentText !== newText) {
     // Update textarea
     textarea.value = newText;
-    
+
     // Trigger input event to sync with Overtype
     const inputEvent = new Event('input', { bubbles: true });
     textarea.dispatchEvent(inputEvent);
-    
+
     textarea.focus();
   }
 }
 
+// Wrap your existing exposed methods
+const insertFormatWrapped = wrapWithRecord(insertFormat);
+const insertListWrapped = wrapWithRecord(insertList);
+const insertLinkWrapped = wrapWithRecord(insertLink);
+const insertTableWrapped = wrapWithRecord(insertTable);
+const insertCodeBlockWrapped = wrapWithRecord(insertCodeBlock);
+const insertImagePlaceholderWrapped = wrapWithRecord(insertImagePlaceholder);
+
+// Helper wrappers for button enabling state
+const canUndo = computed(() => file.value ? historyStore.canUndo(file.value.id) : false);
+const canRedo = computed(() => file.value ? historyStore.canRedo(file.value.id) : false);
+
 /* ───── expose methods for parent components ───── */
 const exposedMethods = {
-  insertFormat, insertList, insertLink, insertTable, insertCodeBlock, insertImagePlaceholder,
-  uploadImage, findNext, replaceNext, replaceAll
+  insertFormat: insertFormatWrapped,
+  insertList: insertListWrapped,
+  insertLink: insertLinkWrapped,
+  insertTable: insertTableWrapped,
+  insertCodeBlock: insertCodeBlockWrapped,
+  insertImagePlaceholder: insertImagePlaceholderWrapped,
+
+  uploadImage,
+  findNext,
+  replaceNext,
+  replaceAll,
+
+  undo: performUndo,
+  redo: performRedo,
+  canUndo,
+  canRedo,
 };
 
 defineExpose(exposedMethods);

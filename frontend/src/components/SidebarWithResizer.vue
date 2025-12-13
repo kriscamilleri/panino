@@ -1,27 +1,35 @@
 <template>
     <!-- Only render if the documents sidebar is toggled on -->
     <template v-if="ui.showDocuments">
-        <div :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
-            :style="!isMobileView ? { width: documentsWidth + 'px' } : {}" class="bg-gray-100 border-r overflow-hidden relative"
-            data-testid="sidebar-container">
+        <div
+            :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
+            :style="!isMobileView ? { width: documentsWidth + 'px' } : {}"
+            class="bg-gray-100 border-r overflow-hidden relative"
+            data-testid="sidebar-container"
+        >
             <div class="h-full overflow-y-auto p-4 pb-12">
                 <Documents />
             </div>
             <!-- Collapse button sticky to bottom -->
             <div class="sticky bottom-0 left-0 right-0 bg-gray-100 p-2 flex justify-end">
-                <button 
+                <button
                     @click="ui.toggleDocuments()"
                     class="px-3 py-2 hover:bg-gray-200 flex items-center gap-2 rounded"
                     title="Collapse Documents"
-                    data-testid="collapse-documents-button">
+                    data-testid="collapse-documents-button"
+                >
                     <PanelLeftClose class="w-4 h-4" />
                 </button>
             </div>
         </div>
 
         <!-- Resizer handle (desktop only) -->
-        <div v-if="!isMobileView" class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
-            @mousedown="startResize($event)" data-testid="sidebar-resizer"></div>
+        <div
+            v-if="!isMobileView"
+            class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
+            @mousedown="startResize($event)"
+            data-testid="sidebar-resizer"
+        ></div>
     </template>
 </template>
 
