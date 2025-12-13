@@ -1,4 +1,5 @@
 // /frontend/src/store/docStore.js
+import { ref } from 'vue'
 import { defineStore } from 'pinia';
 import { storeToRefs } from 'pinia';
 import { useStructureStore } from './structureStore';
@@ -11,6 +12,8 @@ export const useDocStore = defineStore('docStore', () => {
     const markdownStore = useMarkdownStore();
     const syncStore = useSyncStore();
     const importExportStore = useImportExportStore();
+    const isSaving = ref(false)
+
     // Pull refs out of the other stores WITHOUT wrapping them in computed again
     const {
         selectedFileId,
@@ -62,6 +65,19 @@ export const useDocStore = defineStore('docStore', () => {
         }
     }
 
+    async function updateFileContent(fileId, newContent) {
+        isSaving.value = true; // <--- Set to true
+        try {
+            await syncStore.db.value.exec('UPDATE notes SET content = ?, updated_at = ? WHERE id = ?', [newContent, new Date().toISOString(), fileId]);
+            if (selectedFile.value?.id === fileId) {
+                selectedFile.value.content = newContent; // Optimistic update
+            }
+        } finally {
+             // Add a small delay so the user can actually see the "Saving" state flicker
+            setTimeout(() => { isSaving.value = false; }, 300);
+        }
+    }
+
     return {
         // State & Getters (forwarded refs)
         selectedFileId,
@@ -91,7 +107,7 @@ export const useDocStore = defineStore('docStore', () => {
         selectFile: structureStore.selectFile,
         selectFolder: structureStore.selectFolder,
         toggleFolder: structureStore.toggleFolder,
-        updateFileContent: structureStore.updateFileContent,
+        updateFileContent: updateFileContent, // structureStore.updateFileContent,
 
         // Actions from other stores
         exportJson: importExportStore.exportDataAsJsonString,
@@ -106,6 +122,6 @@ export const useDocStore = defineStore('docStore', () => {
         getPrintMarkdownIt: markdownStore.getPrintMarkdownIt,
         getRecentDocuments,
         refreshData, // Expose the new function
-
+        isSaving,
     };
 });

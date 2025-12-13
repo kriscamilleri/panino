@@ -120,8 +120,8 @@ import { useUiStore } from '@/store/uiStore';
 import { useDraftStore } from '@/store/draftStore';
 import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
+import { useHistoryStore } from '@/store/historyStore';
 import OverType from 'overtype';
-import { useHistory } from '@/composables/useHistory'
 
 /* ───── helpers ───── */
 function debounce(fn, wait) {
@@ -142,6 +142,7 @@ const ui = useUiStore();
 const draftStore = useDraftStore();
 const authStore = useAuthStore();
 const editorStore = useEditorStore();
+const historyStore = useHistoryStore(); // <--- INIT STORE
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
 
@@ -160,11 +161,12 @@ const debouncedSyncToDB = debounce((id, text) => {
 }, 500);
 
 /* ───── History Setup ───── */
-const { record, undo, redo, clear: clearHistory, canUndo, canRedo } = useHistory('')
 const isHistoryAction = ref(false)
 // Create a debounced record function for typing
 const debouncedRecord = debounce((text, cursor) => {
-  record(text, cursor);
+  if (file.value) {
+    historyStore.record(file.value.id, text, cursor);
+  }
 }, 500);
 
 /* ───── Keydown Handler (Trap Undo/Redo) ───── */
@@ -189,19 +191,19 @@ function handleKeydown(e) {
 
 /* ───── Handle Native Input ───── */
 // This runs on every keystroke via the native event listener
+// This runs on every keystroke via the native event listener
 function handleNativeInput(e) {
-  if (isHistoryAction.value) return;
+  if (isHistoryAction.value || !file.value) return;
 
   const textarea = e.target;
   const val = textarea.value;
   const cursor = textarea.selectionEnd;
 
   // Handle input types that should trigger immediate saves
-  // "insertParagraph" = Enter key
-  // "insertText" with space or punctuation
   const inputType = e.inputType;
   const char = e.data;
 
+  // Added insertLineBreak here 👇
   const isDelimiter =
     inputType === 'insertParagraph' ||
     inputType === 'insertLineBreak' ||
@@ -209,7 +211,7 @@ function handleNativeInput(e) {
 
   if (isDelimiter) {
     // Record immediately on word break/sentence end
-    record(val, cursor);
+    historyStore.record(file.value.id, val, cursor);
   } else {
     // Debounce for character streams
     debouncedRecord(val, cursor);
@@ -218,12 +220,14 @@ function handleNativeInput(e) {
 
 /* ───── History Methods ───── */
 function performUndo() {
-  const previousState = undo();
+  if (!file.value) return;
+  const previousState = historyStore.undo(file.value.id);
   if (previousState) applyHistoryState(previousState);
 }
 
 function performRedo() {
-  const nextState = redo();
+  if (!file.value) return;
+  const nextState = historyStore.redo(file.value.id);
   if (nextState) applyHistoryState(nextState);
 }
 
@@ -263,14 +267,13 @@ function applyHistoryState(state) {
 // Pass the current cursor position
 function wrapWithRecord(fn) {
   return (...args) => {
-    console.log('wrapWithRecord called for fn.name', fn.name);
+    if (!file.value) return;
+
     const textarea = getTextareaElement();
-    console.log('wrapWithRecord called for textarea', textarea);
     const cursor = textarea ? textarea.selectionEnd : 0;
-    console.log('wrapWithRecord called for cursor', cursor);
 
     // 1. Snapshot BEFORE formatting
-    record(contentDraft.value, cursor);
+    historyStore.record(file.value.id, contentDraft.value, cursor);
 
     // 2. Perform formatting
     fn(...args);
@@ -278,7 +281,7 @@ function wrapWithRecord(fn) {
     // Snapshot AFTER formatting
     nextTick(() => {
       const newCursor = textarea ? textarea.selectionEnd : 0;
-      record(contentDraft.value, newCursor);
+      historyStore.record(file.value.id, contentDraft.value, newCursor);
     });
   }
 }
@@ -403,10 +406,8 @@ watch(() => file.value?.id, (newId, oldId) => {
   if (newId) {
     const newContent = file.value.content ?? '';
 
-    // Reset history when switching files
-    if (newId !== oldId) {
-      clearHistory(newContent);
-    }
+    // Initialize history for this file (keeps existing stack if revisited)
+    historyStore.initialize(newId, newContent);
 
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
@@ -660,6 +661,10 @@ const insertLinkWrapped = wrapWithRecord(insertLink);
 const insertTableWrapped = wrapWithRecord(insertTable);
 const insertCodeBlockWrapped = wrapWithRecord(insertCodeBlock);
 const insertImagePlaceholderWrapped = wrapWithRecord(insertImagePlaceholder);
+
+// Helper wrappers for button enabling state
+const canUndo = computed(() => file.value ? historyStore.canUndo(file.value.id) : false);
+const canRedo = computed(() => file.value ? historyStore.canRedo(file.value.id) : false);
 
 /* ───── expose methods for parent components ───── */
 const exposedMethods = {
