@@ -11,6 +11,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
       NODE_ENV: development
+      # Internal URL for PDF image resolution (Puppeteer runs in same container)
+      INTERNAL_API_URL: http://localhost:8000
       # Email settings (e.g., for MailHog or other test SMTP)
       SMTP_HOST: ${SMTP_HOST:-mailhog}
       SMTP_PORT: ${SMTP_PORT:-1025}

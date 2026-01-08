@@ -152,6 +152,30 @@ const printStylesConfig = {
       ]
     },
     {
+      id: 'headerHeight',
+      label: 'Header Margin / Height',
+      type: 'input',
+      inputType: 'text',
+      modelKey: 'headerHeight',
+      placeholder: '1.5cm'
+    },
+    {
+      id: 'footerHeight',
+      label: 'Footer Margin / Height',
+      type: 'input',
+      inputType: 'text',
+      modelKey: 'footerHeight',
+      placeholder: '1.5cm'
+    },
+    {
+      id: 'pageMargin',
+      label: 'Side Margins',
+      type: 'input',
+      inputType: 'text',
+      modelKey: 'pageMargin',
+      placeholder: '2cm'
+    },
+    {
       id: 'enablePageNumbers',
       label: 'Enable Page Numbers',
       type: 'checkbox',
