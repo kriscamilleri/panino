@@ -311,7 +311,7 @@ async function handlePdfGeneration(req, res) {
 
         console.log('[PDF] Setting content...');
         await page.setContent(fullHtml, {
-            waitUntil: 'networkidle0',  // Wait for all network requests to complete
+            waitUntil: 'load',  // Wait for load event (ignores networkIdle for failing fonts)
             timeout: 45000
         });
 
