@@ -110,6 +110,9 @@ pre > code {
     footerFontSize: '10',
     footerFontColor: '#666666',
     footerAlign: 'center',
+    headerHeight: '2cm',
+    footerHeight: '2.5cm',
+    pageMargin: '2cm',
     enablePageNumbers: true,
   };
 

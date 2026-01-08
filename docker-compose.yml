@@ -10,6 +10,8 @@ services:
       PORT: 8000
       NODE_ENV: production
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
+      # Internal URL for PDF image resolution (Puppeteer runs in same container)
+      INTERNAL_API_URL: http://localhost:8000
       # SMTP Production Settings
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}

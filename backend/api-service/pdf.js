@@ -4,10 +4,94 @@ import express from 'express';
 import puppeteer from 'puppeteer';
 import { JSDOM } from 'jsdom';
 import DOMPurify from 'dompurify';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { getUserDb } from './db.js';
 
 export const pdfRoutes = express.Router();
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+
+/**
+ * Fetches an image from disk and converts it to a base64 data URI.
+ * This is used during PDF generation to embed images directly in the HTML
+ * since the server can't make HTTP requests to itself.
+ * 
+ * For large images, we log a warning as they may cause Paged.js issues.
+ * 
+ * @param {string} imageId - The UUID of the image
+ * @param {string} userId - The user ID for authorization
+ * @returns {string|null} Base64 data URI or null if not found
+ */
+function getImageAsDataUri(imageId, userId) {
+    try {
+        const db = getUserDb(userId);
+        const image = db.prepare('SELECT mime_type, path FROM images WHERE id = ? AND user_id = ?').get(imageId, userId);
+
+        if (!image || !image.path) {
+            console.log(`[PDF] Image not found in DB: ${imageId}`);
+            return null;
+        }
+
+        const absolutePath = path.join(UPLOADS_DIR, image.path);
+
+        // Security check
+        if (!absolutePath.startsWith(UPLOADS_DIR)) {
+            console.log(`[PDF] Security check failed for image: ${imageId}`);
+            return null;
+        }
+
+        if (!fs.existsSync(absolutePath)) {
+            console.log(`[PDF] Image file not on disk: ${absolutePath}`);
+            return null;
+        }
+
+        const fileBuffer = fs.readFileSync(absolutePath);
+        const fileSizeKB = Math.round(fileBuffer.length / 1024);
+        const base64 = fileBuffer.toString('base64');
+        const dataUri = `data:${image.mime_type};base64,${base64}`;
+
+        if (fileSizeKB > 500) {
+            console.log(`[PDF] WARNING: Large image ${imageId} (${fileSizeKB}KB) may slow down Paged.js`);
+        }
+
+        console.log(`[PDF] Converted image ${imageId} to data URI (${fileSizeKB}KB)`);
+        return dataUri;
+    } catch (error) {
+        console.error(`[PDF] Error converting image to data URI:`, error);
+        return null;
+    }
+}
+
+/**
+ * Replaces internal image URLs with base64 data URIs.
+ * This allows Puppeteer to render images without making HTTP requests.
+ * If an image cannot be loaded, it is removed from the HTML to prevent Paged.js errors.
+ * 
+ * @param {string} html - The HTML content with image URLs
+ * @param {string} userId - The user ID for authorization
+ * @returns {string} HTML with images embedded as data URIs (or removed if failed)
+ */
+function embedImagesAsDataUri(html, userId) {
+    // Match image tags with our internal image URLs
+    // Handles: /images/UUID, /api/images/UUID, http://localhost:PORT/images/UUID, etc.
+    return html.replace(
+        /<img([^>]*)\ssrc=["'](?:https?:\/\/[^\/]+)?\/(?:api\/)?images\/([a-f0-9-]+)(?:\?[^"']*)?["']([^>]*)>/gi,
+        (match, beforeSrc, imageId, afterSrc) => {
+            const dataUri = getImageAsDataUri(imageId, userId);
+            if (dataUri) {
+                return `<img${beforeSrc} src="${dataUri}"${afterSrc}>`;
+            }
+            // If we couldn't get the image, remove it entirely to prevent Paged.js errors
+            console.log(`[PDF] Removing image ${imageId} from output (could not load)`);
+            return `<!-- Image ${imageId} removed: could not load -->`;
+        }
+    );
+}
 
 // Helper function to replace deprecated page.waitForTimeout
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -95,11 +179,28 @@ function mapAlign(align) {
 async function handlePdfGeneration(req, res) {
     const { htmlContent, cssStyles, printStyles = {} } = req.body;
 
+    // Get the user ID from the authenticated request
+    const userId = req.user?.user_id;
+    if (!userId) {
+        return res.status(401).send('Authentication required for PDF generation');
+    }
+
     const cleanHtml = purify.sanitize(htmlContent);
     const cleanCss = purify.sanitize(cssStyles, { ALLOWED_TAGS: ['style'], ALLOWED_ATTR: [] });
 
     if (!cleanHtml || !cleanCss) {
         return res.status(400).send('Missing or invalid htmlContent or cssStyles');
+    }
+
+    // Embed internal images as base64 data URIs
+    // This is necessary because Puppeteer can't make HTTP requests back to this server
+    console.log('[PDF] Embedding images as data URIs for user:', userId);
+    const htmlWithEmbeddedImages = embedImagesAsDataUri(cleanHtml, userId);
+
+    // Count images for logging
+    const imgMatches = cleanHtml.match(/<img[^>]*>/gi);
+    if (imgMatches) {
+        console.log('[PDF] Found', imgMatches.length, 'images in HTML');
     }
 
     let context = null;
@@ -142,7 +243,7 @@ async function handlePdfGeneration(req, res) {
             }
         }
 
-        const csp = `default-src 'none'; script-src https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://fonts.googleapis.com; img-src * data:;`;
+        const csp = `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https://unpkg.com; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://fonts.googleapis.com; img-src * data: blob:;`;
 
         const fullHtml = `
           <!DOCTYPE html>
@@ -153,7 +254,13 @@ async function handlePdfGeneration(req, res) {
               <title>PDF Preview</title>
               ${googleFontsLink}
               <style>
-                @page { size: ${pageSize}; margin: ${pageMargin}; }
+                @page { 
+                  size: ${pageSize}; 
+                  margin-top: ${headerHeight}; 
+                  margin-bottom: ${footerHeight};
+                  margin-left: ${pageMargin};
+                  margin-right: ${pageMargin};
+                }
                 html, body { padding: 0; margin: 0; }
                 body {
                   font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif;
@@ -168,7 +275,7 @@ async function handlePdfGeneration(req, res) {
                 }
               </style>
             </head>
-            <body>${cleanHtml}</body>
+            <body>${htmlWithEmbeddedImages}</body>
           </html>
         `;
 
@@ -177,27 +284,52 @@ async function handlePdfGeneration(req, res) {
         const page = await context.newPage();
         page.setDefaultTimeout(25000);
 
+        // Log failed requests to debug image loading issues
+        page.on('requestfailed', request => {
+            console.log('[PDF] Request failed:', request.url(), request.failure()?.errorText);
+        });
+
+        page.on('response', response => {
+            if (response.url().includes('/images/')) {
+                console.log('[PDF] Image response:', response.url().substring(0, 80), 'Status:', response.status());
+            }
+        });
+
+        // Capture console logs from the page for Paged.js debugging
+        page.on('console', msg => {
+            const text = msg.text();
+            if (text.includes('Paged') || text.includes('paged')) {
+                console.log('[PDF][Page]', text);
+            }
+        });
+
+        page.on('pageerror', err => {
+            console.log('[PDF][PageError]', err.message);
+        });
+
         await page.emulateMediaType('print');
 
         console.log('[PDF] Setting content...');
         await page.setContent(fullHtml, {
-            waitUntil: 'networkidle2',
-            timeout: 25000
+            waitUntil: 'networkidle0',  // Wait for all network requests to complete
+            timeout: 45000
         });
 
-        await wait(1000);
+        // Give more time for large images to be processed
+        await wait(2000);
 
         console.log('[PDF] Content set, loading Paged.js...');
 
         // --- PAGED.JS LOGIC (RESTORED) ---
         let pagedSuccess = false;
         try {
-            await page.addScriptTag({ url: pagedJsUrl, timeout: 8000 });
+            await page.addScriptTag({ url: pagedJsUrl, timeout: 15000 });
             await wait(500);
 
             pagedSuccess = await page.evaluate(() => {
                 return new Promise((resolve) => {
                     if (!window.Paged || !window.PagedPolyfill) {
+                        console.log('[Paged.js] Library not loaded');
                         resolve(false);
                         return;
                     }
@@ -211,19 +343,35 @@ async function handlePdfGeneration(req, res) {
                     };
 
                     try {
-                        class DoneHandler extends window.Paged.Handlers.Base {
-                            afterRendered() {
-                                settle(true);
-                            }
-                        }
-
-                        window.Paged.registerHandlers(DoneHandler);
+                        // Use the simpler approach - just call preview and wait
+                        console.log('[Paged.js] Starting preview...');
                         window.PagedPolyfill.preview()
-                            .then(() => settle(true))
-                            .catch(() => settle(false));
+                            .then(() => {
+                                // Count pages after rendering
+                                const pages = document.querySelectorAll('.pagedjs_page');
+                                console.log('[Paged.js] Preview completed with', pages.length, 'pages');
+                                settle(true);
+                            })
+                            .catch((err) => {
+                                console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
+                                settle(false);
+                            });
 
-                        setTimeout(() => settle(false), 8000);
-                    } catch {
+                        // Timeout of 60 seconds for large documents with images
+                        setTimeout(() => {
+                            console.log('[Paged.js] Timeout reached after 60s');
+                            // Even on timeout, check if pages were rendered
+                            const pages = document.querySelectorAll('.pagedjs_page');
+                            if (pages.length > 0) {
+                                console.log('[Paged.js] Timeout but found', pages.length, 'pages');
+                                settle(true);
+                            } else {
+                                settle(false);
+                            }
+                        }, 60000);
+                    } catch (e) {
+                        console.error('[Paged.js] Exception:', e?.message || e?.toString() || 'Unknown');
+                        console.error('[Paged.js] Stack:', e?.stack || 'No stack');
                         settle(false);
                     }
                 });
