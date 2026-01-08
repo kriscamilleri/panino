@@ -230,7 +230,7 @@ async function regeneratePdf() {
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 50000);
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
 
   try {
     const md = await markdownStore.getPrintMarkdownIt();
