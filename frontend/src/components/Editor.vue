@@ -110,6 +110,10 @@
   padding-top: 0 !important;
   margin-top: 0 !important;
 }
+
+:deep(.code-block-line) {
+  background-color: #f3f4f6 !important;
+}
 </style>
 
 <script setup>
@@ -121,7 +125,10 @@ import { useDraftStore } from '@/store/draftStore';
 import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
 import { useHistoryStore } from '@/store/historyStore';
+import { useOverTypePatches } from '@/composables/useOverTypePatches';
 import OverType from 'overtype';
+
+useOverTypePatches();
 
 /* ───── helpers ───── */
 function debounce(fn, wait) {
