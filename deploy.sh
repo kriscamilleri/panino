@@ -289,3 +289,13 @@ echo "Skip SSL: $SKIP_SSL"
 if [ "$SKIP_SSL" = false ]; then
   echo "Email: $EMAIL"
 fi
+
+################################################################################
+# 7. Rebuild and restart Docker containers (async to save CI minutes)
+################################################################################
+
+echo
+echo "==> Rebuilding and restarting Docker containers in background..."
+nohup bash -c "cd '$PROJECT_ROOT' && docker compose up --build -d api-service && echo 'Docker rebuild complete' >> /tmp/panino-deploy.log 2>&1" &
+echo "Docker rebuild started in background (PID: $!)"
+echo "Check /tmp/panino-deploy.log for status"
