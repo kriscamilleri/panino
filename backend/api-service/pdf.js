@@ -16,6 +16,9 @@ const purify = DOMPurify(window);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
+// Timeout for external image fetches (in milliseconds)
+const EXTERNAL_IMAGE_TIMEOUT = 5000;
+
 /**
  * Fetches an image from disk and converts it to a base64 data URI.
  * This is used during PDF generation to embed images directly in the HTML
@@ -68,6 +71,63 @@ function getImageAsDataUri(imageId, userId) {
 }
 
 /**
+ * Fetches an external image URL and converts it to a base64 data URI.
+ * Includes timeout handling to prevent hanging on slow/unreachable URLs.
+ * 
+ * @param {string} url - The external image URL
+ * @returns {Promise<string|null>} Base64 data URI or null if fetch failed
+ */
+async function fetchExternalImageAsDataUri(url) {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), EXTERNAL_IMAGE_TIMEOUT);
+
+        const response = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (compatible; PaninoPDF/1.0)',
+            },
+        });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            console.log(`[PDF] External image fetch failed: ${url} (status ${response.status})`);
+            return null;
+        }
+
+        const contentType = response.headers.get('content-type') || 'image/png';
+        
+        // Validate it's actually an image
+        if (!contentType.startsWith('image/')) {
+            console.log(`[PDF] External URL is not an image: ${url} (${contentType})`);
+            return null;
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const fileSizeKB = Math.round(buffer.length / 1024);
+
+        if (fileSizeKB > 2000) {
+            console.log(`[PDF] WARNING: External image too large, skipping: ${url} (${fileSizeKB}KB)`);
+            return null;
+        }
+
+        const base64 = buffer.toString('base64');
+        const dataUri = `data:${contentType};base64,${base64}`;
+
+        console.log(`[PDF] Fetched external image: ${url.substring(0, 60)}... (${fileSizeKB}KB)`);
+        return dataUri;
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log(`[PDF] External image fetch timeout: ${url}`);
+        } else {
+            console.log(`[PDF] External image fetch error: ${url} - ${error.message}`);
+        }
+        return null;
+    }
+}
+
+/**
  * Replaces internal image URLs with base64 data URIs.
  * This allows Puppeteer to render images without making HTTP requests.
  * If an image cannot be loaded, it is removed from the HTML to prevent Paged.js errors.
@@ -76,7 +136,7 @@ function getImageAsDataUri(imageId, userId) {
  * @param {string} userId - The user ID for authorization
  * @returns {string} HTML with images embedded as data URIs (or removed if failed)
  */
-function embedImagesAsDataUri(html, userId) {
+function embedInternalImagesAsDataUri(html, userId) {
     // Match image tags with our internal image URLs
     // Handles: /images/UUID, /api/images/UUID, http://localhost:PORT/images/UUID, etc.
     return html.replace(
@@ -87,10 +147,82 @@ function embedImagesAsDataUri(html, userId) {
                 return `<img${beforeSrc} src="${dataUri}"${afterSrc}>`;
             }
             // If we couldn't get the image, remove it entirely to prevent Paged.js errors
-            console.log(`[PDF] Removing image ${imageId} from output (could not load)`);
+            console.log(`[PDF] Removing internal image ${imageId} from output (could not load)`);
             return `<!-- Image ${imageId} removed: could not load -->`;
         }
     );
+}
+
+/**
+ * Extracts all external image URLs from HTML.
+ * External images are any http/https URLs that are NOT our internal /images/ endpoints.
+ * 
+ * @param {string} html - The HTML content
+ * @returns {string[]} Array of external image URLs
+ */
+function extractExternalImageUrls(html) {
+    const urls = [];
+    const regex = /<img[^>]*\ssrc=["'](https?:\/\/[^"']+)["'][^>]*>/gi;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+        const url = match[1];
+        // Skip internal URLs that may have full domain (like localhost)
+        if (!url.includes('/images/') && !url.includes('/api/images/')) {
+            urls.push(url);
+        }
+    }
+    return [...new Set(urls)]; // Remove duplicates
+}
+
+/**
+ * Replaces all images (internal and external) with base64 data URIs.
+ * Images that fail to load are removed from the HTML to prevent Paged.js errors.
+ * 
+ * @param {string} html - The HTML content with image URLs
+ * @param {string} userId - The user ID for authorization
+ * @returns {Promise<string>} HTML with images embedded as data URIs (or removed if failed)
+ */
+async function embedAllImagesAsDataUri(html, userId) {
+    // First, handle internal images (synchronous)
+    let processedHtml = embedInternalImagesAsDataUri(html, userId);
+    
+    // Extract external image URLs
+    const externalUrls = extractExternalImageUrls(processedHtml);
+    
+    if (externalUrls.length > 0) {
+        console.log(`[PDF] Found ${externalUrls.length} external images to fetch`);
+        
+        // Fetch all external images in parallel with a map of url -> dataUri
+        const urlToDataUri = new Map();
+        const fetchPromises = externalUrls.map(async (url) => {
+            const dataUri = await fetchExternalImageAsDataUri(url);
+            urlToDataUri.set(url, dataUri);
+        });
+        
+        await Promise.all(fetchPromises);
+        
+        // Replace external image URLs with data URIs or remove if failed
+        processedHtml = processedHtml.replace(
+            /<img([^>]*)\ssrc=["'](https?:\/\/[^"']+)["']([^>]*)>/gi,
+            (match, beforeSrc, url, afterSrc) => {
+                // Skip internal URLs
+                if (url.includes('/images/') || url.includes('/api/images/')) {
+                    return match;
+                }
+                
+                const dataUri = urlToDataUri.get(url);
+                if (dataUri) {
+                    return `<img${beforeSrc} src="${dataUri}"${afterSrc}>`;
+                }
+                
+                // If we couldn't fetch the image, remove it to prevent Paged.js errors
+                console.log(`[PDF] Removing external image from output: ${url.substring(0, 60)}...`);
+                return `<!-- External image removed: could not load ${url.substring(0, 60)}... -->`;
+            }
+        );
+    }
+    
+    return processedHtml;
 }
 
 // Helper function to replace deprecated page.waitForTimeout
@@ -194,8 +326,9 @@ async function handlePdfGeneration(req, res) {
 
     // Embed internal images as base64 data URIs
     // This is necessary because Puppeteer can't make HTTP requests back to this server
+    // Also fetches and embeds external images to prevent Paged.js loading issues
     console.log('[PDF] Embedding images as data URIs for user:', userId);
-    const htmlWithEmbeddedImages = embedImagesAsDataUri(cleanHtml, userId);
+    const htmlWithEmbeddedImages = await embedAllImagesAsDataUri(cleanHtml, userId);
 
     // Count images for logging
     const imgMatches = cleanHtml.match(/<img[^>]*>/gi);
@@ -282,7 +415,7 @@ async function handlePdfGeneration(req, res) {
         const browser = await getBrowser();
         context = await browser.createBrowserContext();
         const page = await context.newPage();
-        page.setDefaultTimeout(25000);
+        page.setDefaultTimeout(15000); // 15s Puppeteer timeout
 
         // Log failed requests to debug image loading issues
         page.on('requestfailed', request => {
@@ -312,18 +445,18 @@ async function handlePdfGeneration(req, res) {
         console.log('[PDF] Setting content...');
         await page.setContent(fullHtml, {
             waitUntil: 'load',  // Wait for load event (ignores networkIdle for failing fonts)
-            timeout: 45000
+            timeout: 15000 // 15s timeout
         });
 
         // Give more time for large images to be processed
-        await wait(2000);
+        await wait(500);
 
         console.log('[PDF] Content set, loading Paged.js...');
 
         // --- PAGED.JS LOGIC (RESTORED) ---
         let pagedSuccess = false;
         try {
-            await page.addScriptTag({ url: pagedJsUrl, timeout: 15000 });
+            await page.addScriptTag({ url: pagedJsUrl, timeout: 5000 }); // 5s network timeout
             await wait(500);
 
             pagedSuccess = await page.evaluate(() => {
@@ -359,7 +492,7 @@ async function handlePdfGeneration(req, res) {
 
                         // Timeout of 60 seconds for large documents with images
                         setTimeout(() => {
-                            console.log('[Paged.js] Timeout reached after 60s');
+                            console.log('[Paged.js] Timeout reached after 15s');
                             // Even on timeout, check if pages were rendered
                             const pages = document.querySelectorAll('.pagedjs_page');
                             if (pages.length > 0) {
@@ -368,7 +501,7 @@ async function handlePdfGeneration(req, res) {
                             } else {
                                 settle(false);
                             }
-                        }, 60000);
+                        }, 15000); // 15s timeout
                     } catch (e) {
                         console.error('[Paged.js] Exception:', e?.message || e?.toString() || 'Unknown');
                         console.error('[Paged.js] Stack:', e?.stack || 'No stack');
