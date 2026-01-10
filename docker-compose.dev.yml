@@ -7,6 +7,9 @@ services:
     build: ./backend/api-service
     ports:
       - "127.0.0.1:8000:8000"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     environment:
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
