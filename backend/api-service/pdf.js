@@ -19,6 +19,9 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 // Timeout for external image fetches (in milliseconds)
 const EXTERNAL_IMAGE_TIMEOUT = 5000;
 
+// Timeout for Paged.js rendering (in milliseconds) - increased for complex documents
+const PAGEDJS_TIMEOUT = 60000;
+
 /**
  * Fetches an image from disk and converts it to a base64 data URI.
  * This is used during PDF generation to embed images directly in the HTML
@@ -415,7 +418,7 @@ async function handlePdfGeneration(req, res) {
         const browser = await getBrowser();
         context = await browser.createBrowserContext();
         const page = await context.newPage();
-        page.setDefaultTimeout(15000); // 15s Puppeteer timeout
+        page.setDefaultTimeout(90000); // 90s Puppeteer timeout for complex documents
 
         // Log failed requests to debug image loading issues
         page.on('requestfailed', request => {
@@ -445,7 +448,7 @@ async function handlePdfGeneration(req, res) {
         console.log('[PDF] Setting content...');
         await page.setContent(fullHtml, {
             waitUntil: 'load',  // Wait for load event (ignores networkIdle for failing fonts)
-            timeout: 15000 // 15s timeout
+            timeout: 30000 // 30s timeout for content loading
         });
 
         // Give more time for large images to be processed
@@ -490,9 +493,9 @@ async function handlePdfGeneration(req, res) {
                                 settle(false);
                             });
 
-                        // Timeout of 60 seconds for large documents with images
+                        // Timeout for large documents with images
                         setTimeout(() => {
-                            console.log('[Paged.js] Timeout reached after 15s');
+                            console.log('[Paged.js] Timeout reached after 60s');
                             // Even on timeout, check if pages were rendered
                             const pages = document.querySelectorAll('.pagedjs_page');
                             if (pages.length > 0) {
@@ -501,7 +504,7 @@ async function handlePdfGeneration(req, res) {
                             } else {
                                 settle(false);
                             }
-                        }, 15000); // 15s timeout
+                        }, 60000); // 60s timeout for complex documents
                     } catch (e) {
                         console.error('[Paged.js] Exception:', e?.message || e?.toString() || 'Unknown');
                         console.error('[Paged.js] Stack:', e?.stack || 'No stack');
