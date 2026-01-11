@@ -42,10 +42,10 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 // Configuration
 const CONFIG = {
-    EXTERNAL_IMAGE_TIMEOUT: 15000,   // Timeout for fetching external images (increased)
-    PAGED_JS_TIMEOUT: 120000,       // Timeout for Paged.js rendering (120s for complex docs)
-    PAGE_LOAD_TIMEOUT: 60000,       // Timeout for initial page load
-    MAX_EXTERNAL_IMAGE_SIZE: 10000, // Max size in KB for external images
+    EXTERNAL_IMAGE_TIMEOUT: 5000,   // Timeout for fetching external images
+    PAGED_JS_TIMEOUT: 60000,        // Timeout for Paged.js rendering (60s for slower servers)
+    PAGE_LOAD_TIMEOUT: 30000,       // Timeout for initial page load
+    MAX_EXTERNAL_IMAGE_SIZE: 2000,  // Max size in KB for external images
 };
 
 // Simple logging helper
