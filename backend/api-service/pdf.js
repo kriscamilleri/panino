@@ -504,12 +504,38 @@ async function handlePdfGeneration(req, res) {
                     // Wait for all images to be fully loaded before starting Paged.js
                     const waitForImages = () => {
                         const images = document.querySelectorAll('img');
-                        const loadPromises = Array.from(images).map(img => {
-                            if (img.complete) return Promise.resolve();
+                        console.log('[Paged.js] Found', images.length, 'img elements in DOM');
+                        
+                        const loadPromises = Array.from(images).map((img, idx) => {
+                            // Data URI images are typically already complete
+                            const isDataUri = img.src && img.src.startsWith('data:');
+                            
+                            if (img.complete && img.naturalWidth > 0) {
+                                console.log('[Paged.js] Image', idx + 1, 'already complete');
+                                return Promise.resolve();
+                            }
+                            
+                            if (isDataUri) {
+                                // Data URIs should load synchronously, if not complete yet wait briefly
+                                console.log('[Paged.js] Image', idx + 1, 'is data URI, waiting briefly...');
+                                return new Promise((res) => setTimeout(res, 100));
+                            }
+                            
+                            console.log('[Paged.js] Image', idx + 1, 'waiting for load:', img.src?.substring(0, 50));
                             return new Promise((res) => {
-                                img.onload = res;
+                                const timeout = setTimeout(() => {
+                                    console.log('[Paged.js] Image', idx + 1, 'load timeout after 5s');
+                                    res();
+                                }, 5000); // 5s timeout per image
+                                
+                                img.onload = () => {
+                                    clearTimeout(timeout);
+                                    console.log('[Paged.js] Image', idx + 1, 'loaded');
+                                    res();
+                                };
                                 img.onerror = () => {
-                                    console.log('[Paged.js] Image failed to load:', img.src?.substring(0, 50));
+                                    clearTimeout(timeout);
+                                    console.log('[Paged.js] Image', idx + 1, 'failed to load');
                                     res(); // Resolve anyway to not block
                                 };
                             });
