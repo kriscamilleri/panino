@@ -572,10 +572,13 @@ async function handlePdfGeneration(req, res) {
                                 }
                             }, 2000);
                             
-                            // Use PagedPolyfill.preview() which works directly on the existing DOM
-                            // This is the polyfill approach - it doesn't require passing content/styles
-                            // and doesn't clear/re-render the body (which causes duplicate headers)
-                            window.PagedPolyfill.preview()
+                            // Use the Previewer class directly with the existing body content
+                            // We don't clear the body - instead we let Paged.js process it in place
+                            const Previewer = window.Paged.Previewer;
+                            const paged = new Previewer();
+                            
+                            // preview() with no arguments uses the existing DOM content
+                            paged.preview()
                                 .then(() => {
                                     clearInterval(progressCheck);
                                     const pages = document.querySelectorAll('.pagedjs_page');
