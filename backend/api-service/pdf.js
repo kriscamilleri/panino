@@ -43,10 +43,9 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 // Configuration
 const CONFIG = {
     EXTERNAL_IMAGE_TIMEOUT: 5000,   // Timeout for fetching external images
-    PAGED_JS_TIMEOUT: 30000,        // Timeout for Paged.js rendering
+    PAGED_JS_TIMEOUT: 60000,        // Timeout for Paged.js rendering (60s for slower servers)
     PAGE_LOAD_TIMEOUT: 30000,       // Timeout for initial page load
     MAX_EXTERNAL_IMAGE_SIZE: 2000,  // Max size in KB for external images
-    PAGED_JS_URL: process.env.PAGEDJS_URL || 'https://unpkg.com/pagedjs/dist/paged.polyfill.js',
 };
 
 // Simple logging helper
@@ -130,13 +129,20 @@ async function embedImagesAsDataUri(html, userId) {
     if (images.length === 0) return html;
 
     log(`Processing ${images.length} images`);
+    images.forEach((img, i) => {
+        const displaySrc = img.src.startsWith('data:') 
+            ? `${img.src.substring(0, 40)}... (data URI)` 
+            : img.src.substring(0, 100);
+        log(`  Image ${i + 1}: ${displaySrc}`);
+    });
 
     // Process each image
-    const replacements = await Promise.all(images.map(async (img) => {
+    const replacements = await Promise.all(images.map(async (img, idx) => {
         const { fullMatch, beforeSrc, src, afterSrc } = img;
 
         // Skip already-embedded images
         if (src.startsWith('data:')) {
+            log(`  Image ${idx + 1}: Already embedded, skipping`);
             return { original: fullMatch, replacement: fullMatch };
         }
 
@@ -145,8 +151,11 @@ async function embedImagesAsDataUri(html, userId) {
         if (internalMatch) {
             const dataUri = getInternalImageAsDataUri(internalMatch[1], userId);
             if (dataUri) {
+                const sizeKB = Math.round(dataUri.length / 1024);
+                log(`  Image ${idx + 1}: Internal ${internalMatch[1]} converted (${sizeKB}KB)`);
                 return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
             }
+            log(`  Image ${idx + 1}: Internal ${internalMatch[1]} FAILED - removing`);
             return { original: fullMatch, replacement: `<!-- Image removed: ${internalMatch[1]} -->` };
         }
 
@@ -154,12 +163,16 @@ async function embedImagesAsDataUri(html, userId) {
         if (src.startsWith('http://') || src.startsWith('https://')) {
             const dataUri = await fetchExternalImageAsDataUri(src);
             if (dataUri) {
+                const sizeKB = Math.round(dataUri.length / 1024);
+                log(`  Image ${idx + 1}: External fetched (${sizeKB}KB)`);
                 return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
             }
+            log(`  Image ${idx + 1}: External ${src.substring(0, 50)} FAILED - removing`);
             return { original: fullMatch, replacement: `<!-- External image removed -->` };
         }
 
         // Unknown source type, keep as-is
+        log(`  Image ${idx + 1}: Unknown source type, keeping: ${src.substring(0, 50)}`);
         return { original: fullMatch, replacement: fullMatch };
     }));
 
@@ -167,6 +180,12 @@ async function embedImagesAsDataUri(html, userId) {
     let result = html;
     for (const { original, replacement } of replacements) {
         result = result.replace(original, replacement);
+    }
+
+    // Check for any remaining non-data-URI images
+    const remainingImages = result.match(/<img[^>]*src=["'](?!data:)[^"']+["'][^>]*>/gi) || [];
+    if (remainingImages.length > 0) {
+        logWarn(`${remainingImages.length} images still have external URLs after processing`);
     }
 
     return result;
@@ -341,8 +360,8 @@ async function runPagedJs(page) {
                 }
 
                 const timer = setTimeout(() => {
-                    console.log('[Paged.js] Timeout reached');
                     const pages = document.querySelectorAll('.pagedjs_page');
+                    console.log('[Paged.js] Timeout reached with', pages.length, 'pages created so far');
                     resolve(pages.length > 0);
                 }, timeout);
 
