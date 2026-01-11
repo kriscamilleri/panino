@@ -19,8 +19,8 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 // Timeout for external image fetches (in milliseconds)
 const EXTERNAL_IMAGE_TIMEOUT = 5000;
 
-// Timeout for Paged.js rendering (in milliseconds) - reduced to stay within Nginx timeout
-const PAGEDJS_TIMEOUT = 15000;
+// Timeout for Paged.js rendering (in milliseconds) - increased for complex documents with images
+const PAGEDJS_TIMEOUT = 60000;
 
 /**
  * Fetches an image from disk and converts it to a base64 data URI.
@@ -572,44 +572,25 @@ async function handlePdfGeneration(req, res) {
                                 }
                             }, 2000);
                             
-                            // Use Paged.Previewer to paginate the content
-                            // Content is already in DOM with data URIs and styles in <style> tag
-                            const paged = new window.Paged.Previewer();
-                            const content = document.body.innerHTML;
-                            
-                            // Clear body and let Paged.js render into it
-                            document.body.innerHTML = '';
-                            
-                            // Don't pass styles separately - they're already in <head><style>
-                            // This avoids XMLHttpRequest errors from Paged.js trying to fetch stylesheets
-                            paged.preview(content, [], document.body).then((flow) => {
-                                clearInterval(progressCheck);
-                                const pages = document.querySelectorAll('.pagedjs_page');
-                                console.log('[Paged.js] Preview completed with', pages.length, 'pages');
-                                settle(true);
-                            }).catch((err) => {
-                                clearInterval(progressCheck);
-                                const pages = document.querySelectorAll('.pagedjs_page');
-                                const errMsg = err?.message || err?.toString() || 'Unknown error';
-                                console.error('[Paged.js] Preview error:', errMsg);
-                                
-                                // XMLHttpRequest errors with data URIs can be ignored if we got pages
-                                if (pages.length > 0) {
-                                    console.log('[Paged.js] Despite error, found', pages.length, 'pages - continuing');
+                            // Use PagedPolyfill.preview() which works directly on the existing DOM
+                            // This is the polyfill approach - it doesn't require passing content/styles
+                            window.PagedPolyfill.preview()
+                                .then(() => {
+                                    clearInterval(progressCheck);
+                                    const pages = document.querySelectorAll('.pagedjs_page');
+                                    console.log('[Paged.js] Preview completed with', pages.length, 'pages');
                                     settle(true);
-                                } else {
-                                    // No pages rendered - check if content is still in DOM
-                                    if (document.body.textContent.trim().length > 0) {
-                                        console.log('[Paged.js] No .pagedjs_page elements but body has content');
-                                    }
+                                })
+                                .catch((err) => {
+                                    clearInterval(progressCheck);
+                                    console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
                                     settle(false);
-                                }
-                            });
+                                });
                         });
 
-                        // Timeout for Paged.js - reduced to stay within Nginx timeout
+                        // Timeout for Paged.js
                         setTimeout(() => {
-                            console.log('[Paged.js] Timeout reached after 15s');
+                            console.log('[Paged.js] Timeout reached after 60s');
                             // Even on timeout, check if pages were rendered
                             const pages = document.querySelectorAll('.pagedjs_page');
                             if (pages.length > 0) {
@@ -618,7 +599,7 @@ async function handlePdfGeneration(req, res) {
                             } else {
                                 settle(false);
                             }
-                        }, 15000); // 15s timeout to stay within Nginx proxy timeout
+                        }, 60000); // 60s timeout for complex documents
                     } catch (e) {
                         console.error('[Paged.js] Exception:', e?.message || e?.toString() || 'Unknown');
                         console.error('[Paged.js] Stack:', e?.stack || 'No stack');
