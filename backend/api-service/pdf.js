@@ -572,9 +572,17 @@ async function handlePdfGeneration(req, res) {
                                 }
                             }, 2000);
                             
-                            // Use PagedPolyfill.preview() which works on the DOM directly
-                            // This avoids the XMLHttpRequest issue that occurs with Previewer class
-                            window.PagedPolyfill.preview().then(() => {
+                            // Use Paged.Previewer to paginate the content
+                            // Content is already in DOM with data URIs and styles in <style> tag
+                            const paged = new window.Paged.Previewer();
+                            const content = document.body.innerHTML;
+                            
+                            // Clear body and let Paged.js render into it
+                            document.body.innerHTML = '';
+                            
+                            // Don't pass styles separately - they're already in <head><style>
+                            // This avoids XMLHttpRequest errors from Paged.js trying to fetch stylesheets
+                            paged.preview(content, [], document.body).then((flow) => {
                                 clearInterval(progressCheck);
                                 const pages = document.querySelectorAll('.pagedjs_page');
                                 console.log('[Paged.js] Preview completed with', pages.length, 'pages');
@@ -582,12 +590,18 @@ async function handlePdfGeneration(req, res) {
                             }).catch((err) => {
                                 clearInterval(progressCheck);
                                 const pages = document.querySelectorAll('.pagedjs_page');
-                                console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
-                                // If we got some pages despite the error, still count as success
+                                const errMsg = err?.message || err?.toString() || 'Unknown error';
+                                console.error('[Paged.js] Preview error:', errMsg);
+                                
+                                // XMLHttpRequest errors with data URIs can be ignored if we got pages
                                 if (pages.length > 0) {
                                     console.log('[Paged.js] Despite error, found', pages.length, 'pages - continuing');
                                     settle(true);
                                 } else {
+                                    // No pages rendered - check if content is still in DOM
+                                    if (document.body.textContent.trim().length > 0) {
+                                        console.log('[Paged.js] No .pagedjs_page elements but body has content');
+                                    }
                                     settle(false);
                                 }
                             });
