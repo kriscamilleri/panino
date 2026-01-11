@@ -572,13 +572,23 @@ async function handlePdfGeneration(req, res) {
                                 }
                             }, 2000);
                             
-                            // Use PagedPolyfill.preview() which works directly on the existing DOM
-                            // This is the polyfill approach - it doesn't require passing content/styles
-                            window.PagedPolyfill.preview()
-                                .then(() => {
+                            // Use the Previewer class directly with proper content handling
+                            // The polyfill auto-executes but we need manual control here
+                            const Previewer = window.Paged.Previewer;
+                            const paged = new Previewer();
+                            
+                            // Get the content from body but DON'T clear it
+                            // Paged.js expects to receive content and render it into a target
+                            const content = document.body.innerHTML;
+                            
+                            // Clear body and let Paged.js render into it
+                            document.body.innerHTML = '';
+                            
+                            paged.preview(content, [], document.body)
+                                .then((flow) => {
                                     clearInterval(progressCheck);
                                     const pages = document.querySelectorAll('.pagedjs_page');
-                                    console.log('[Paged.js] Preview completed with', pages.length, 'pages');
+                                    console.log('[Paged.js] Preview completed with', pages.length, 'pages, flow:', flow?.total || 'unknown');
                                     settle(true);
                                 })
                                 .catch((err) => {
