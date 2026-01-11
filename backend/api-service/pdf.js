@@ -19,8 +19,8 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 // Timeout for external image fetches (in milliseconds)
 const EXTERNAL_IMAGE_TIMEOUT = 5000;
 
-// Timeout for Paged.js rendering (in milliseconds) - increased for complex documents
-const PAGEDJS_TIMEOUT = 60000;
+// Timeout for Paged.js rendering (in milliseconds) - reduced to stay within Nginx timeout
+const PAGEDJS_TIMEOUT = 15000;
 
 /**
  * Fetches an image from disk and converts it to a base64 data URI.
@@ -549,22 +549,49 @@ async function handlePdfGeneration(req, res) {
                             const imgCount = document.querySelectorAll('img').length;
                             console.log('[Paged.js] Images loaded, starting preview with', imgCount, 'images...');
                             
-                            window.PagedPolyfill.preview()
-                                .then(() => {
-                                    // Count pages after rendering
-                                    const pages = document.querySelectorAll('.pagedjs_page');
-                                    console.log('[Paged.js] Preview completed with', pages.length, 'pages');
-                                    settle(true);
-                                })
-                                .catch((err) => {
-                                    console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
-                                    settle(false);
-                                });
+                            // Use Previewer class with progress tracking
+                            const paged = new window.Paged.Previewer();
+                            let lastPageCount = 0;
+                            let stuckCounter = 0;
+                            
+                            // Check for progress every 2 seconds
+                            const progressCheck = setInterval(() => {
+                                const pages = document.querySelectorAll('.pagedjs_page');
+                                console.log('[Paged.js] Progress check: found', pages.length, 'pages');
+                                
+                                if (pages.length === lastPageCount) {
+                                    stuckCounter++;
+                                    if (stuckCounter >= 3) {
+                                        // Stuck for 6+ seconds, force complete
+                                        console.log('[Paged.js] Appears stuck, forcing completion with', pages.length, 'pages');
+                                        clearInterval(progressCheck);
+                                        settle(pages.length > 0);
+                                    }
+                                } else {
+                                    stuckCounter = 0;
+                                    lastPageCount = pages.length;
+                                }
+                            }, 2000);
+                            
+                            paged.preview(
+                                document.body.innerHTML,
+                                [document.querySelector('style')?.textContent || ''],
+                                document.body
+                            ).then(() => {
+                                clearInterval(progressCheck);
+                                const pages = document.querySelectorAll('.pagedjs_page');
+                                console.log('[Paged.js] Preview completed with', pages.length, 'pages');
+                                settle(true);
+                            }).catch((err) => {
+                                clearInterval(progressCheck);
+                                console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
+                                settle(false);
+                            });
                         });
 
-                        // Timeout for large documents with images
+                        // Timeout for Paged.js - reduced to stay within Nginx timeout
                         setTimeout(() => {
-                            console.log('[Paged.js] Timeout reached after 60s');
+                            console.log('[Paged.js] Timeout reached after 15s');
                             // Even on timeout, check if pages were rendered
                             const pages = document.querySelectorAll('.pagedjs_page');
                             if (pages.length > 0) {
@@ -573,7 +600,7 @@ async function handlePdfGeneration(req, res) {
                             } else {
                                 settle(false);
                             }
-                        }, 60000); // 60s timeout for complex documents
+                        }, 15000); // 15s timeout to stay within Nginx proxy timeout
                     } catch (e) {
                         console.error('[Paged.js] Exception:', e?.message || e?.toString() || 'Unknown');
                         console.error('[Paged.js] Stack:', e?.stack || 'No stack');
