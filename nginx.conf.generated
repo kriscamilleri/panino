@@ -1,0 +1,117 @@
+# --- HTTP Server: Redirects all traffic to HTTPS ---
+# This ensures that users always connect over a secure connection.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name panino.sh;
+
+    # This location block is important for Let's Encrypt's Certbot to renew certificates.
+    location /.well-known/acme-challenge/ {
+        root /var/www/html; # A standard, publicly accessible directory
+    }
+
+    # For all other requests, issue a permanent redirect to the HTTPS version.
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# --- HTTPS Server: Main application server ---
+# This block handles all secure traffic for your application.
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name panino.sh;
+
+    # --- SSL Configuration ---
+    # The setup-nginx.cjs script runs Certbot, which will create these files.
+    ssl_certificate /etc/letsencrypt/live/panino.sh/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/panino.sh/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # --- Security Headers ---
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    
+    # --- PWA Support Headers ---
+    # Required for SharedArrayBuffer (used by crsqlite)
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cross-Origin-Embedder-Policy "require-corp" always;
+
+    # == API Traffic ==
+    # All requests starting with /api/ will be proxied to your backend.
+    location /api/ {
+        # The trailing slash on the proxy_pass URL is important.
+        # It tells Nginx to replace the "/api" part of the request
+        # with "/" before sending it to the backend.
+        # e.g., a request to /api/login becomes /login for your Node.js app.
+        proxy_pass http://127.0.0.1:8000/;
+        
+        # Standard headers to pass information to the backend service
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 50M; # For image uploads
+        
+        # INCREASE TIMEOUT FOR PDF GENERATION
+        proxy_read_timeout 30s;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s; 
+    }
+
+    # == WebSocket Traffic ==
+    # A dedicated location for WebSocket connections.
+    location /ws/ {
+        # The WebSocket server on your backend is listening at its root path.
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400s; # Keep connection alive for 24 hours
+    }
+    
+    # == Frontend Application (Vue.js SPA) ==
+    # All other requests are served as static files from your 'dist' folder.
+    
+    # Service Worker - ensure it's never cached
+    location = /service-worker.js {
+        root /var/www/panino.sh/dist;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+        add_header Expires "0";
+        add_header Service-Worker-Allowed "/";
+        types {
+            application/javascript js;
+        }
+    }
+    
+    # Manifest file
+    location = /manifest.json {
+        root /var/www/panino.sh/dist;
+        add_header Cache-Control "public, max-age=604800";
+        types {
+            application/manifest+json json;
+        }
+    }
+    
+    # WASM files need special Content-Type
+    location ~* \.wasm$ {
+        root /var/www/panino.sh/dist;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        types {
+            application/wasm wasm;
+        }
+    }
+    
+    location / {
+        root /var/www/panino.sh/dist;
+        # This is the magic for Single Page Applications (SPAs).
+        # It tries to find a matching file, then a directory, and if neither
+        # exists, it serves /index.html to let Vue Router handle the route.
+        try_files $uri $uri/ /index.html;
+    }
+}
