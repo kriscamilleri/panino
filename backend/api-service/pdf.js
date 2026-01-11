@@ -327,11 +327,6 @@ function buildHtmlDocument(content, css, printStyles) {
 /**
  * Runs Paged.js inside the page to handle pagination.
  * Uses the non-polyfill version so we can control when it runs.
- * 
- * Key features (inspired by official pagedjs-cli):
- * - Exposes page event callback for real-time tracking
- * - Stuck detection: if page count doesn't change for 6 seconds, force complete
- * - Waits for network idle after rendering
  */
 async function runPagedJs(page) {
     try {
@@ -349,56 +344,40 @@ async function runPagedJs(page) {
 
         // Use the non-polyfill version so it doesn't auto-run
         // The polyfill auto-executes on load which causes double-rendering
-        const pagedJsUrl = 'https://unpkg.com/pagedjs/dist/paged.js';
+        // Pinning to version 0.4.3 to avoid breaking changes in latest
+        const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.js';
         await page.addScriptTag({ url: pagedJsUrl, timeout: 10000 });
         
-        // Wait for script to initialize
+        // Wait a bit for script to initialize
         await new Promise(r => setTimeout(r, 500));
-
-        // Expose function to track pages being created (like official pagedjs-cli)
-        await page.exposeFunction('onPageCreated', (pageNum) => {
-            log(`[Paged.js] Page ${pageNum} created`);
-        });
 
         const success = await page.evaluate((timeout) => {
             return new Promise((resolve) => {
-                let resolved = false;
-                const settle = (result) => {
-                    if (!resolved) {
-                        resolved = true;
-                        resolve(result);
-                    }
-                };
-
                 // The non-polyfill version exposes Paged.Previewer
                 if (!window.Paged?.Previewer) {
                     console.log('[Paged.js] Library not loaded');
-                    settle(false);
+                    console.log('[Paged.js] window.Paged keys:', window.Paged ? Object.keys(window.Paged) : 'undefined');
+                    resolve(false);
                     return;
                 }
 
-                // Main timeout
-                const mainTimer = setTimeout(() => {
+                const timer = setTimeout(() => {
                     const pages = document.querySelectorAll('.pagedjs_page');
-                    console.log('[Paged.js] Main timeout reached with', pages.length, 'pages');
-                    settle(pages.length > 0);
+                    console.log('[Paged.js] Timeout reached with', pages.length, 'pages created so far');
+                    resolve(pages.length > 0);
                 }, timeout);
 
-                // Wait for all images to have dimensions (data URIs should be instant)
+                // Wait for images to load first
                 const waitForImages = () => {
                     const images = document.querySelectorAll('img');
-                    console.log('[Paged.js] Checking', images.length, 'images...');
+                    console.log('[Paged.js] Waiting for', images.length, 'images...');
                     
                     return Promise.all(Array.from(images).map((img, idx) => {
-                        // Data URIs should already be loaded
                         if (img.complete && img.naturalWidth > 0) {
                             return Promise.resolve();
                         }
                         return new Promise(res => {
-                            const imgTimeout = setTimeout(() => {
-                                console.log('[Paged.js] Image', idx + 1, 'timeout');
-                                res();
-                            }, 3000);
+                            const imgTimeout = setTimeout(res, 3000);
                             img.onload = () => { clearTimeout(imgTimeout); res(); };
                             img.onerror = () => { clearTimeout(imgTimeout); res(); };
                         });
@@ -407,73 +386,32 @@ async function runPagedJs(page) {
 
                 try {
                     waitForImages().then(() => {
-                        console.log('[Paged.js] All images ready, starting pagination...');
-                        
-                        // Stuck detection: check progress every 2 seconds
-                        let lastPageCount = 0;
-                        let stuckCount = 0;
-                        
-                        const progressCheck = setInterval(() => {
-                            const pages = document.querySelectorAll('.pagedjs_page');
-                            console.log('[Paged.js] Progress: ' + pages.length + ' pages');
-                            
-                            if (pages.length === lastPageCount && pages.length > 0) {
-                                stuckCount++;
-                                if (stuckCount >= 3) {
-                                    // Stuck for 6+ seconds, force complete
-                                    console.log('[Paged.js] Appears stuck, forcing completion with', pages.length, 'pages');
-                                    clearInterval(progressCheck);
-                                    clearTimeout(mainTimer);
-                                    settle(true);
-                                }
-                            } else {
-                                stuckCount = 0;
-                                lastPageCount = pages.length;
-                            }
-                        }, 2000);
+                        console.log('[Paged.js] Images ready, starting pagination...');
                         
                         const paged = new window.Paged.Previewer();
                         const content = document.body.innerHTML;
                         document.body.innerHTML = '';
 
-                        // Hook into page creation events
-                        paged.registerHandlers({
-                            afterPageLayout: (pageEl, page) => {
-                                if (window.onPageCreated) {
-                                    window.onPageCreated(page.position + 1);
-                                }
-                            }
-                        });
-
                         paged.preview(content, [], document.body)
                             .then(() => {
-                                clearInterval(progressCheck);
-                                clearTimeout(mainTimer);
+                                clearTimeout(timer);
                                 const pages = document.querySelectorAll('.pagedjs_page');
-                                console.log('[Paged.js] Completed normally with', pages.length, 'pages');
-                                settle(true);
+                                console.log('[Paged.js] Completed with', pages.length, 'pages');
+                                resolve(true);
                             })
                             .catch((err) => {
-                                clearInterval(progressCheck);
-                                clearTimeout(mainTimer);
+                                clearTimeout(timer);
                                 console.error('[Paged.js] Error:', err?.message || err);
-                                // Still resolve true if we have pages
-                                const pages = document.querySelectorAll('.pagedjs_page');
-                                settle(pages.length > 0);
+                                resolve(false);
                             });
                     });
                 } catch (e) {
-                    clearTimeout(mainTimer);
+                    clearTimeout(timer);
                     console.error('[Paged.js] Exception:', e?.message || e);
-                    settle(false);
+                    resolve(false);
                 }
             });
         }, CONFIG.PAGED_JS_TIMEOUT);
-
-        // Wait for any remaining network activity to settle
-        try {
-            await page.waitForNetworkIdle({ timeout: 5000 });
-        } catch { /* ignore timeout */ }
 
         return success;
     } catch (err) {
