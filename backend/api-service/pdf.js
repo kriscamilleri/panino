@@ -549,8 +549,7 @@ async function handlePdfGeneration(req, res) {
                             const imgCount = document.querySelectorAll('img').length;
                             console.log('[Paged.js] Images loaded, starting preview with', imgCount, 'images...');
                             
-                            // Use Previewer class with progress tracking
-                            const paged = new window.Paged.Previewer();
+                            // Track progress while Paged.js runs
                             let lastPageCount = 0;
                             let stuckCounter = 0;
                             
@@ -559,13 +558,13 @@ async function handlePdfGeneration(req, res) {
                                 const pages = document.querySelectorAll('.pagedjs_page');
                                 console.log('[Paged.js] Progress check: found', pages.length, 'pages');
                                 
-                                if (pages.length === lastPageCount) {
+                                if (pages.length === lastPageCount && pages.length > 0) {
                                     stuckCounter++;
                                     if (stuckCounter >= 3) {
-                                        // Stuck for 6+ seconds, force complete
+                                        // Stuck for 6+ seconds after rendering some pages, force complete
                                         console.log('[Paged.js] Appears stuck, forcing completion with', pages.length, 'pages');
                                         clearInterval(progressCheck);
-                                        settle(pages.length > 0);
+                                        settle(true);
                                     }
                                 } else {
                                     stuckCounter = 0;
@@ -573,19 +572,24 @@ async function handlePdfGeneration(req, res) {
                                 }
                             }, 2000);
                             
-                            paged.preview(
-                                document.body.innerHTML,
-                                [document.querySelector('style')?.textContent || ''],
-                                document.body
-                            ).then(() => {
+                            // Use PagedPolyfill.preview() which works on the DOM directly
+                            // This avoids the XMLHttpRequest issue that occurs with Previewer class
+                            window.PagedPolyfill.preview().then(() => {
                                 clearInterval(progressCheck);
                                 const pages = document.querySelectorAll('.pagedjs_page');
                                 console.log('[Paged.js] Preview completed with', pages.length, 'pages');
                                 settle(true);
                             }).catch((err) => {
                                 clearInterval(progressCheck);
+                                const pages = document.querySelectorAll('.pagedjs_page');
                                 console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
-                                settle(false);
+                                // If we got some pages despite the error, still count as success
+                                if (pages.length > 0) {
+                                    console.log('[Paged.js] Despite error, found', pages.length, 'pages - continuing');
+                                    settle(true);
+                                } else {
+                                    settle(false);
+                                }
                             });
                         });
 
