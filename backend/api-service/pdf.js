@@ -370,44 +370,24 @@ async function runPagedJs(page) {
                     resolve(pages.length > 0);
                 }, timeout);
 
-                // Wait for images to load first
-                const waitForImages = () => {
-                    const images = document.querySelectorAll('img');
-                    console.log('[Paged.js] Waiting for', images.length, 'images...');
-                    
-                    return Promise.all(Array.from(images).map((img, idx) => {
-                        if (img.complete && img.naturalWidth > 0) {
-                            return Promise.resolve();
-                        }
-                        return new Promise(res => {
-                            const imgTimeout = setTimeout(res, 3000);
-                            img.onload = () => { clearTimeout(imgTimeout); res(); };
-                            img.onerror = () => { clearTimeout(imgTimeout); res(); };
-                        });
-                    }));
-                };
-
                 try {
-                    waitForImages().then(() => {
-                        console.log('[Paged.js] Images ready, starting pagination...');
-                        
-                        const paged = new window.Paged.Previewer();
-                        const content = document.body.innerHTML;
-                        document.body.innerHTML = '';
+                    console.log('[Paged.js] Starting pagination...');
+                    const paged = new window.Paged.Previewer();
+                    const content = document.body.innerHTML;
+                    document.body.innerHTML = '';
 
-                        paged.preview(content, [], document.body)
-                            .then(() => {
-                                clearTimeout(timer);
-                                const pages = document.querySelectorAll('.pagedjs_page');
-                                console.log('[Paged.js] Completed with', pages.length, 'pages');
-                                resolve(true);
-                            })
-                            .catch((err) => {
-                                clearTimeout(timer);
-                                console.error('[Paged.js] Error:', err?.message || err);
-                                resolve(false);
-                            });
-                    });
+                    paged.preview(content, [], document.body)
+                        .then(() => {
+                            clearTimeout(timer);
+                            const pages = document.querySelectorAll('.pagedjs_page');
+                            console.log('[Paged.js] Completed with', pages.length, 'pages');
+                            resolve(true);
+                        })
+                        .catch((err) => {
+                            clearTimeout(timer);
+                            console.error('[Paged.js] Error:', err?.message || err);
+                            resolve(false);
+                        });
                 } catch (e) {
                     clearTimeout(timer);
                     console.error('[Paged.js] Exception:', e?.message || e);
