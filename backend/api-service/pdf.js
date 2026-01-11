@@ -186,6 +186,17 @@ function extractExternalImageUrls(html) {
  * @returns {Promise<string>} HTML with images embedded as data URIs (or removed if failed)
  */
 async function embedAllImagesAsDataUri(html, userId) {
+    // Log all image tags found in HTML for debugging
+    const allImgTags = html.match(/<img[^>]*>/gi) || [];
+    console.log(`[PDF] Processing ${allImgTags.length} image tags`);
+    allImgTags.forEach((tag, i) => {
+        const srcMatch = tag.match(/src=["']([^"']+)["']/i);
+        const src = srcMatch ? srcMatch[1] : 'no-src';
+        // Truncate data URIs for logging
+        const displaySrc = src.startsWith('data:') ? `${src.substring(0, 40)}... (data URI)` : src;
+        console.log(`[PDF] Image ${i + 1}: ${displaySrc.substring(0, 100)}`);
+    });
+
     // First, handle internal images (synchronous)
     let processedHtml = embedInternalImagesAsDataUri(html, userId);
     
@@ -223,6 +234,18 @@ async function embedAllImagesAsDataUri(html, userId) {
                 return `<!-- External image removed: could not load ${url.substring(0, 60)}... -->`;
             }
         );
+    }
+    
+    // Final check: look for any remaining non-data-URI images
+    const remainingImages = processedHtml.match(/<img[^>]*src=["'](?!data:)[^"']+["'][^>]*>/gi) || [];
+    if (remainingImages.length > 0) {
+        console.log(`[PDF] WARNING: ${remainingImages.length} images still have external URLs after processing:`);
+        remainingImages.forEach((tag, i) => {
+            const srcMatch = tag.match(/src=["']([^"']+)["']/i);
+            console.log(`[PDF] Remaining image ${i + 1}: ${srcMatch ? srcMatch[1].substring(0, 80) : 'unknown'}`);
+        });
+    } else {
+        console.log(`[PDF] All images converted to data URIs successfully`);
     }
     
     return processedHtml;
@@ -478,20 +501,40 @@ async function handlePdfGeneration(req, res) {
                         }
                     };
 
-                    try {
-                        // Use the simpler approach - just call preview and wait
-                        console.log('[Paged.js] Starting preview...');
-                        window.PagedPolyfill.preview()
-                            .then(() => {
-                                // Count pages after rendering
-                                const pages = document.querySelectorAll('.pagedjs_page');
-                                console.log('[Paged.js] Preview completed with', pages.length, 'pages');
-                                settle(true);
-                            })
-                            .catch((err) => {
-                                console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
-                                settle(false);
+                    // Wait for all images to be fully loaded before starting Paged.js
+                    const waitForImages = () => {
+                        const images = document.querySelectorAll('img');
+                        const loadPromises = Array.from(images).map(img => {
+                            if (img.complete) return Promise.resolve();
+                            return new Promise((res) => {
+                                img.onload = res;
+                                img.onerror = () => {
+                                    console.log('[Paged.js] Image failed to load:', img.src?.substring(0, 50));
+                                    res(); // Resolve anyway to not block
+                                };
                             });
+                        });
+                        return Promise.all(loadPromises);
+                    };
+
+                    try {
+                        console.log('[Paged.js] Waiting for images to load...');
+                        waitForImages().then(() => {
+                            const imgCount = document.querySelectorAll('img').length;
+                            console.log('[Paged.js] Images loaded, starting preview with', imgCount, 'images...');
+                            
+                            window.PagedPolyfill.preview()
+                                .then(() => {
+                                    // Count pages after rendering
+                                    const pages = document.querySelectorAll('.pagedjs_page');
+                                    console.log('[Paged.js] Preview completed with', pages.length, 'pages');
+                                    settle(true);
+                                })
+                                .catch((err) => {
+                                    console.error('[Paged.js] Preview error:', err?.message || err?.toString() || 'Unknown error');
+                                    settle(false);
+                                });
+                        });
 
                         // Timeout for large documents with images
                         setTimeout(() => {
