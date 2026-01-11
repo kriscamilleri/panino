@@ -342,10 +342,13 @@ async function runPagedJs(page) {
             logError('[PageError]', err.message);
         });
 
-        // Use the non-polyfill version so it doesn't auto-run
-        // The polyfill auto-executes on load which causes double-rendering
-        // Pinning to version 0.4.3 to avoid breaking changes in latest
-        const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.js';
+        // Use the polyfill version but disable auto-run via config
+        // This ensures we have all handlers and polyfills loaded
+        await page.evaluate(() => {
+            window.PagedConfig = { auto: false };
+        });
+
+        const pagedJsUrl = 'https://unpkg.com/pagedjs/dist/paged.polyfill.js';
         await page.addScriptTag({ url: pagedJsUrl, timeout: 10000 });
         
         // Wait a bit for script to initialize
@@ -353,7 +356,7 @@ async function runPagedJs(page) {
 
         const success = await page.evaluate((timeout) => {
             return new Promise((resolve) => {
-                // The non-polyfill version exposes Paged.Previewer
+                // Check if Paged is loaded
                 if (!window.Paged?.Previewer) {
                     console.log('[Paged.js] Library not loaded');
                     console.log('[Paged.js] window.Paged keys:', window.Paged ? Object.keys(window.Paged) : 'undefined');
