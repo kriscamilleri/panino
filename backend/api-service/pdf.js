@@ -348,7 +348,9 @@ async function runPagedJs(page) {
             window.PagedConfig = { auto: false };
         });
 
-        const pagedJsUrl = 'https://unpkg.com/pagedjs/dist/paged.polyfill.js';
+        // Use a specific older version of the polyfill if latest is problematic
+        // Trying 0.4.3 polyfill or falling back to 0.4.3 core if needed
+        const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.polyfill.js';
         await page.addScriptTag({ url: pagedJsUrl, timeout: 10000 });
         
         // Wait a bit for script to initialize
