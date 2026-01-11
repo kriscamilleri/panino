@@ -547,6 +547,10 @@ async function generatePdf(req, res) {
         return res.status(400).send('Invalid htmlContent or cssStyles');
     }
 
+    // Debug: Check for images in raw HTML before embedding
+    const rawImgCount = (cleanHtml.match(/<img/gi) || []).length;
+    log(`Raw HTML: ${cleanHtml.length} chars, ${rawImgCount} img tags`);
+
     // Embed images
     log('Embedding images...');
     const htmlWithImages = await embedImagesAsDataUri(cleanHtml, userId);
