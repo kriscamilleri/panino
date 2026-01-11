@@ -572,13 +572,17 @@ async function handlePdfGeneration(req, res) {
                                 }
                             }, 2000);
                             
-                            // Use the Previewer class directly with the existing body content
-                            // We don't clear the body - instead we let Paged.js process it in place
+                            // Use the Previewer class to paginate the body content
+                            // We need to extract the content first, then let Paged.js render it
                             const Previewer = window.Paged.Previewer;
                             const paged = new Previewer();
                             
-                            // preview() with no arguments uses the existing DOM content
-                            paged.preview()
+                            // Get the body content and clear the body for Paged.js to use
+                            const content = document.body.innerHTML;
+                            document.body.innerHTML = '';
+                            
+                            // preview() with content argument renders into a clean body
+                            paged.preview(content, [], document.body)
                                 .then(() => {
                                     clearInterval(progressCheck);
                                     const pages = document.querySelectorAll('.pagedjs_page');
