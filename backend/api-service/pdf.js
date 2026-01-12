@@ -365,38 +365,50 @@ async function runPagedJs(page) {
                 // Check if Paged is loaded
                 if (!window.Paged?.Previewer) {
                     console.log('[Paged.js] Library not loaded');
-                    console.log('[Paged.js] window.Paged keys:', window.Paged ? Object.keys(window.Paged) : 'undefined');
                     resolve(false);
                     return;
                 }
 
+                console.log('[Paged.js] Initializing Previewer...');
+                const paged = new window.Paged.Previewer();
+                
+                // Track progress
+                let pageCount = 0;
+                paged.on('page', (page) => {
+                    pageCount++;
+                    console.log(`[Paged.js] Created page ${pageCount}`);
+                });
+
+                paged.on('rendered', (pages) => {
+                    console.log(`[Paged.js] Rendered ${pages.length} pages total`);
+                });
+
                 const timer = setTimeout(() => {
-                    const pages = document.querySelectorAll('.pagedjs_page');
-                    console.log('[Paged.js] Timeout reached with', pages.length, 'pages created so far');
-                    resolve(pages.length > 0);
+                    console.log(`[Paged.js] Timeout reached! Current page count: ${pageCount}`);
+                    // If we have some pages, maybe we can still return something? 
+                    // But for now, let's just resolve false to see it in logs
+                    resolve(pageCount > 0);
                 }, timeout);
 
                 try {
-                    console.log('[Paged.js] Starting pagination...');
-                    const paged = new window.Paged.Previewer();
+                    console.log('[Paged.js] Starting preview...');
                     const content = document.body.innerHTML;
                     document.body.innerHTML = '';
 
                     paged.preview(content, [], document.body)
                         .then(() => {
                             clearTimeout(timer);
-                            const pages = document.querySelectorAll('.pagedjs_page');
-                            console.log('[Paged.js] Completed with', pages.length, 'pages');
+                            console.log('[Paged.js] Preview finished successfully');
                             resolve(true);
                         })
                         .catch((err) => {
                             clearTimeout(timer);
-                            console.error('[Paged.js] Error:', err?.message || err);
+                            console.error('[Paged.js] Preview failed:', err?.message || err);
                             resolve(false);
                         });
                 } catch (e) {
                     clearTimeout(timer);
-                    console.error('[Paged.js] Exception:', e?.message || e);
+                    console.error('[Paged.js] Exception during preview:', e?.message || e);
                     resolve(false);
                 }
             });
