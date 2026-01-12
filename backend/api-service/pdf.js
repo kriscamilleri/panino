@@ -360,6 +360,7 @@ async function runPagedJs(page) {
         await new Promise(r => setTimeout(r, 1000));
 
         log('Starting Paged.js pagination with timeout', CONFIG.PAGED_JS_TIMEOUT);
+        const success = await page.evaluate((timeout) => {
             return new Promise((resolve) => {
                 // Check if Paged is loaded
                 if (!window.Paged?.Previewer) {
