@@ -30,6 +30,7 @@ import { JSDOM } from 'jsdom';
 import DOMPurify from 'dompurify';
 import path from 'path';
 import fs from 'fs';
+import { promises as dns } from 'dns';
 import { fileURLToPath } from 'url';
 import { getUserDb } from './db.js';
 
@@ -57,6 +58,42 @@ const logError = (message, ...args) => console.error(`[PDF] ${message}`, ...args
 // IMAGE EMBEDDING
 // ============================================================================
 
+function isPrivateIp(ip) {
+    // Check if IPv6
+    if (ip.includes(':')) {
+        const normalized = ip.toLowerCase();
+        // Loopback
+        if (normalized === '::1') return true;
+        // Unique Local (fc00::/7)
+        if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+        // Link-local (fe80::/10)
+        if (normalized.startsWith('fe80')) return true;
+        return false;
+    }
+
+    // IPv4
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    
+    const first = parseInt(parts[0], 10);
+    const second = parseInt(parts[1], 10);
+
+    // 0.0.0.0/8
+    if (first === 0) return true;
+    // 127.0.0.0/8 (Loopback)
+    if (first === 127) return true;
+    // 10.0.0.0/8 (Private)
+    if (first === 10) return true;
+    // 172.16.0.0/12 (Private)
+    if (first === 172 && second >= 16 && second <= 31) return true;
+    // 192.168.0.0/16 (Private)
+    if (first === 192 && second === 168) return true;
+    // 169.254.0.0/16 (Link-local)
+    if (first === 169 && second === 254) return true;
+
+    return false;
+}
+
 /**
  * Converts an internal image (stored on disk) to a base64 data URI.
  */
@@ -80,27 +117,63 @@ function getInternalImageAsDataUri(imageId, userId) {
 /**
  * Fetches an external image URL and converts to base64 data URI.
  */
-async function fetchExternalImageAsDataUri(url) {
+async function fetchExternalImageAsDataUri(urlStr) {
     try {
+        const urlObj = new URL(urlStr);
+
+        // SSRF Protection: Resolve hostname and check for private IP
+        try {
+            const { address } = await dns.lookup(urlObj.hostname);
+            
+            if (isPrivateIp(address)) {
+                logWarn(`Blocked SSRF attempt to ${urlObj.hostname} (${address})`);
+                throw new Error('SSRF_BLOCKED');
+            }
+        } catch (e) {
+            if (e.message === 'SSRF_BLOCKED') throw e;
+            logWarn(`DNS lookup failed for ${urlObj.hostname}: ${e.message}`);
+            return null;
+        }
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), CONFIG.EXTERNAL_IMAGE_TIMEOUT);
 
-        const response = await fetch(url, {
-            signal: controller.signal,
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PaninoPDF/1.0)' },
-        });
-        clearTimeout(timeoutId);
+        let response;
+        try {
+            response = await fetch(urlStr, {
+                signal: controller.signal,
+                headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PaninoPDF/1.0)' },
+            });
+        } catch (err) {
+            logWarn(`Fetch failed for ${urlStr}: ${err.message}`);
+            return null;
+        } finally {
+            clearTimeout(timeoutId);
+        }
 
-        if (!response.ok) return null;
+        if (!response.ok) {
+            logWarn(`Failed to fetch ${urlStr}: ${response.status} ${response.statusText}`);
+            return null;
+        }
 
         const contentType = response.headers.get('content-type') || 'image/png';
-        if (!contentType.startsWith('image/')) return null;
+        if (!contentType.startsWith('image/')) {
+            logWarn(`Invalid content type for ${urlStr}: ${contentType}`);
+            return null;
+        }
 
-        const buffer = Buffer.from(await response.arrayBuffer());
-        if (buffer.length / 1024 > CONFIG.MAX_EXTERNAL_IMAGE_SIZE) return null;
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        if (buffer.length / 1024 > CONFIG.MAX_EXTERNAL_IMAGE_SIZE) {
+            logWarn(`Image too large: ${urlStr} (${Math.round(buffer.length/1024)}KB)`);
+            return null;
+        }
 
         return `data:${contentType};base64,${buffer.toString('base64')}`;
-    } catch {
+    } catch (error) {
+        if (error.message === 'SSRF_BLOCKED') throw error;
+        // console.error(`Unexpected error in fetchExternal: ${error.message}`);
         return null;
     }
 }
@@ -130,8 +203,8 @@ async function embedImagesAsDataUri(html, userId) {
 
     log(`Processing ${images.length} images`);
     images.forEach((img, i) => {
-        const displaySrc = img.src.startsWith('data:') 
-            ? `${img.src.substring(0, 40)}... (data URI)` 
+        const displaySrc = img.src.startsWith('data:')
+            ? `${img.src.substring(0, 40)}... (data URI)`
             : img.src.substring(0, 100);
         log(`  Image ${i + 1}: ${displaySrc}`);
     });
@@ -148,8 +221,8 @@ async function embedImagesAsDataUri(html, userId) {
 
         // Check if it's an internal image
         // Match /images/UUID or /api/images/UUID (case insensitive)
-        const internalMatch = src.match(/\/(?:api\/)?images\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i) || 
-                              src.match(/\/(?:api\/)?images\/([a-f0-9-]{32,})/i); 
+        const internalMatch = src.match(/\/(?:api\/)?images\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i) ||
+            src.match(/\/(?:api\/)?images\/([a-f0-9-]{32,})/i);
         if (internalMatch) {
             const dataUri = getInternalImageAsDataUri(internalMatch[1], userId);
             if (dataUri) {
@@ -157,21 +230,35 @@ async function embedImagesAsDataUri(html, userId) {
                 log(`  Image ${idx + 1}: Internal ${internalMatch[1]} converted (${sizeKB}KB)`);
                 return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
             }
-            log(`  Image ${idx + 1}: Internal ${internalMatch[1]} FAILED - keeping original`);
-            // Avoid comments as they can break Paged.js layout if it expects an element
-            return { original: fullMatch, replacement: fullMatch };
+            log(`  Image ${idx + 1}: Internal lookup ${internalMatch[1]} failed - falling back to external/cleanup`);
+            // Do NOT return here. Fall through to allow external URL verification (SSRF check)
+            // or default handling (removing if unknown).
         }
 
         // External image
         if (src.startsWith('http://') || src.startsWith('https://')) {
-            const dataUri = await fetchExternalImageAsDataUri(src);
-            if (dataUri) {
-                const sizeKB = Math.round(dataUri.length / 1024);
-                log(`  Image ${idx + 1}: External fetched (${sizeKB}KB)`);
-                return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
+            try {
+                const dataUri = await fetchExternalImageAsDataUri(src);
+                if (dataUri) {
+                    const sizeKB = Math.round(dataUri.length / 1024);
+                    log(`  Image ${idx + 1}: External fetched (${sizeKB}KB)`);
+                    return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
+                }
+                // If fetch failed (but not blocked), we currently keep original.
+                // However, for PDF generation, keeping a failing URL is often worse (timeouts).
+                // But to minimize changes, let's just log.
+                log(`  Image ${idx + 1}: External ${src.substring(0, 50)} FAILED - keeping original`);
+                return { original: fullMatch, replacement: fullMatch };
+            } catch (err) {
+                if (err.message === 'SSRF_BLOCKED') {
+                    logWarn(`  Image ${idx + 1}: Blocked SSRF - removing image`);
+                    // Replace with a placeholder or empty string to prevent Puppeteer from fetching it
+                    return { original: fullMatch, replacement: '<!-- Blocked Image -->' };
+                }
+                // Other errors
+                 log(`  Image ${idx + 1}: External error - keeping original. ${err.message}`);
+                 return { original: fullMatch, replacement: fullMatch };
             }
-            log(`  Image ${idx + 1}: External ${src.substring(0, 50)} FAILED - keeping original`);
-            return { original: fullMatch, replacement: fullMatch };
         }
 
         // Unknown source type, keep as-is
@@ -351,11 +438,19 @@ async function runPagedJs(page) {
         });
 
         // Use a specific older version of the polyfill if latest is problematic
-        // Trying 0.4.3 polyfill or falling back to 0.4.3 core if needed
-        const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.polyfill.js';
-        log(`Using Paged.js from: ${pagedJsUrl}`);
-        await page.addScriptTag({ url: pagedJsUrl, timeout: 20000 });
+        // We now bundle it locally to avoid external dependency and reliability issues
+        const pagedJsPath = path.join(__dirname, 'lib', 'paged.polyfill.js');
         
+        if (fs.existsSync(pagedJsPath)) {
+            log(`Using local Paged.js from: ${pagedJsPath}`);
+            await page.addScriptTag({ path: pagedJsPath });
+        } else {
+            // Fallback to CDN if local file is missing (e.g. inside a minimalistic container build?)
+            const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.polyfill.js';
+            logWarn(`Local Paged.js not found at ${pagedJsPath}, falling back to CDN: ${pagedJsUrl}`);
+            await page.addScriptTag({ url: pagedJsUrl, timeout: 20000 });
+        }
+
         // Wait a bit for script to initialize
         await new Promise(r => setTimeout(r, 1000));
 
@@ -371,7 +466,7 @@ async function runPagedJs(page) {
 
                 console.log('[Paged.js] Initializing Previewer...');
                 const paged = new window.Paged.Previewer();
-                
+
                 // Track progress
                 let pageCount = 0;
                 paged.on('page', (page) => {
@@ -465,7 +560,7 @@ async function injectHeadersFooters(page, printStyles) {
             const el = document.createElement('div');
             el.className = isHeader ? '_pdf-header' : '_pdf-footer';
             el.innerHTML = html.replace(/%p/g, pageNum).replace(/%P/g, total);
-            
+
             el.style.cssText = `
                 position: absolute;
                 left: 0;
@@ -501,11 +596,11 @@ async function injectHeadersFooters(page, printStyles) {
             if (pageEl.querySelector('._pdf-header') || pageEl.querySelector('._pdf-footer')) {
                 return;
             }
-            
+
             // Find the pagebox within the page for better positioning
             const pagebox = pageEl.querySelector('.pagedjs_pagebox') || pageEl;
             pagebox.style.position = 'relative';
-            
+
             const header = createOverlay('header', i + 1);
             const footer = createOverlay('footer', i + 1);
             if (header) pagebox.appendChild(header);
@@ -544,6 +639,15 @@ async function generatePdf(req, res) {
 
     // Sanitize inputs
     const cleanHtml = purify.sanitize(htmlContent);
+
+    // Sanitize header/footer HTML to prevent XSS/injection
+    if (printStyles.printHeaderHtml) {
+        printStyles.printHeaderHtml = purify.sanitize(printStyles.printHeaderHtml);
+    }
+    if (printStyles.printFooterHtml) {
+        printStyles.printFooterHtml = purify.sanitize(printStyles.printFooterHtml);
+    }
+
     // CSS sanitation: don't use DOMPurify for raw CSS strings as it's meant for HTML.
     // Instead, just ensure we don't break out of the <style> tag.
     const cleanCss = cssStyles.replace(/<\/style>/gi, '');
@@ -583,7 +687,7 @@ async function generatePdf(req, res) {
         const page = await context.newPage();
 
         await page.emulateMediaType('print');
-        
+
         await page.setContent(fullHtml, {
             waitUntil: 'load',
             timeout: CONFIG.PAGE_LOAD_TIMEOUT,

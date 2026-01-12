@@ -13,7 +13,7 @@ async function main() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password, name, 'cf-turnstile-response': 'dummy' })
         });
-    } catch (e) {}
+    } catch (e) { }
 
     // 2. Login
     const res = await fetch(`${API_URL}/login`, {
@@ -36,26 +36,26 @@ async function main() {
     <img src="https://www.prettyneat.io/assets/prettyneat-logo-lg.png" />
     ${'<p>More text...</p>'.repeat(50)}
     `;
-    
+
     const cssStyles = `
     @page { size: A4; margin: 20mm; }
     h1 { color: blue; } 
     img { max-width: 100%; border: 1px solid red; }
     p { font-size: 14px; }
     `;
-    
+
     console.log('Requesting PDF...');
     const start = Date.now();
     const pdfRes = await fetch(`${API_URL}/render-pdf`, {
         method: 'POST',
-        headers: { 
+        headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ htmlContent, cssStyles })
     });
 
-    const duration = (Date.now() - start)/1000;
+    const duration = (Date.now() - start) / 1000;
     if (!pdfRes.ok) {
         console.error(`PDF generation failed after ${duration}s: ${pdfRes.status} ${await pdfRes.text()}`);
     } else {
