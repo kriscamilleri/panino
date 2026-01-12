@@ -24,22 +24,24 @@ describe('POST /login', () => {
         }
     });
 
-    afterAll((done) => {
-        if (server) {
-            server.close(done);
-        } else {
-            done();
-        }
+    afterAll(() => {
+        return new Promise((resolve) => {
+            if (server) {
+                server.close(() => resolve());
+            } else {
+                resolve();
+            }
+        });
     });
 
     it('should login with valid credentials', async () => {
         const response = await request(app)
             .post('/login')
-            .send({ 
-                email: testUser.email, 
-                password: testUser.password 
+            .send({
+                email: testUser.email,
+                password: testUser.password
             });
-        
+
         expect(response.status).toBe(200);
         expect(response.body).toHaveProperty('token');
         expect(response.body).toHaveProperty('user');
@@ -50,11 +52,11 @@ describe('POST /login', () => {
     it('should reject invalid password', async () => {
         const response = await request(app)
             .post('/login')
-            .send({ 
-                email: testUser.email, 
-                password: 'wrongpassword' 
+            .send({
+                email: testUser.email,
+                password: 'wrongpassword'
             });
-        
+
         expect(response.status).toBe(401);
         expect(response.body).toHaveProperty('error');
     });
@@ -62,11 +64,11 @@ describe('POST /login', () => {
     it('should reject non-existent user', async () => {
         const response = await request(app)
             .post('/login')
-            .send({ 
-                email: 'nonexistent@example.com', 
-                password: 'password123' 
+            .send({
+                email: 'nonexistent@example.com',
+                password: 'password123'
             });
-        
+
         expect(response.status).toBe(401);
         expect(response.body).toHaveProperty('error');
     });
@@ -74,10 +76,10 @@ describe('POST /login', () => {
     it('should require email', async () => {
         const response = await request(app)
             .post('/login')
-            .send({ 
-                password: 'password123' 
+            .send({
+                password: 'password123'
             });
-        
+
         expect(response.status).toBe(400);
         expect(response.body).toHaveProperty('error');
     });
@@ -85,10 +87,10 @@ describe('POST /login', () => {
     it('should require password', async () => {
         const response = await request(app)
             .post('/login')
-            .send({ 
-                email: testUser.email 
+            .send({
+                email: testUser.email
             });
-        
+
         expect(response.status).toBe(400);
         expect(response.body).toHaveProperty('error');
     });
@@ -97,18 +99,18 @@ describe('POST /login', () => {
         const response = await request(app)
             .post('/login')
             .send({});
-        
+
         expect(response.status).toBe(400);
     });
 
     it('should return user information without password hash', async () => {
         const response = await request(app)
             .post('/login')
-            .send({ 
-                email: testUser.email, 
-                password: testUser.password 
+            .send({
+                email: testUser.email,
+                password: testUser.password
             });
-        
+
         expect(response.status).toBe(200);
         expect(response.body.user).not.toHaveProperty('password_hash');
         expect(response.body.user).not.toHaveProperty('password');
@@ -135,12 +137,14 @@ describe('POST /signup', () => {
         }
     });
 
-    afterAll((done) => {
-        if (server) {
-            server.close(done);
-        } else {
-            done();
-        }
+    afterAll(() => {
+        return new Promise((resolve) => {
+            if (server) {
+                server.close(() => resolve());
+            } else {
+                resolve();
+            }
+        });
     });
 
     it('should create new user with valid data', async () => {
@@ -151,7 +155,7 @@ describe('POST /signup', () => {
                 email: testEmail,
                 password: 'password123'
             });
-        
+
         expect(response.status).toBe(201);
         expect(response.body).toHaveProperty('token');
         expect(response.body).toHaveProperty('user');
@@ -168,7 +172,7 @@ describe('POST /signup', () => {
                 email: testEmail,
                 password: 'password123'
             });
-        
+
         // Try to signup again with same email
         const response = await request(app)
             .post('/signup')
@@ -177,7 +181,7 @@ describe('POST /signup', () => {
                 email: testEmail,
                 password: 'password456'
             });
-        
+
         expect(response.status).toBe(409); // 409 Conflict is correct for duplicate resource
         expect(response.body).toHaveProperty('error');
     });
@@ -189,7 +193,7 @@ describe('POST /signup', () => {
                 email: testEmail,
                 password: 'password123'
             });
-        
+
         expect(response.status).toBe(400);
     });
 
@@ -200,7 +204,7 @@ describe('POST /signup', () => {
                 name: 'Test User',
                 password: 'password123'
             });
-        
+
         expect(response.status).toBe(400);
     });
 
@@ -211,7 +215,7 @@ describe('POST /signup', () => {
                 name: 'Test User',
                 email: testEmail
             });
-        
+
         expect(response.status).toBe(400);
     });
 
@@ -226,10 +230,10 @@ describe('POST /signup', () => {
                 email: uniqueEmail,
                 password: 'password123'
             });
-        
+
         expect(response.status).toBe(201); // It succeeds
         expect(response.body).toHaveProperty('token');
-        
+
         // Cleanup
         if (response.body.user) {
             cleanupTestUser(response.body.user.id);
@@ -238,7 +242,7 @@ describe('POST /signup', () => {
 
     it('should hash password before storing', async () => {
         const password = 'mySecretPassword123';
-        
+
         const response = await request(app)
             .post('/signup')
             .send({
@@ -246,13 +250,13 @@ describe('POST /signup', () => {
                 email: testEmail,
                 password: password
             });
-        
+
         expect(response.status).toBe(201);
-        
+
         // Check that password is hashed in database
         const db = getAuthDb();
         const user = db.prepare('SELECT password_hash FROM users WHERE email = ?').get(testEmail);
-        
+
         expect(user.password_hash).toBeDefined();
         expect(user.password_hash).not.toBe(password);
         expect(user.password_hash.startsWith('$2a$')).toBe(true); // bcrypt hash prefix

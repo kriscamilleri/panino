@@ -175,3 +175,93 @@ export function initDb() {
   getAuthDb();
   console.log('Authentication database initialized.');
 }
+
+/**
+ * Close all database connections
+ */
+export function closeAllConnections() {
+  for (const [key, db] of dbConnections.entries()) {
+    try {
+      db.close();
+    } catch (e) {
+      console.error(`Error closing connection for ${key}:`, e);
+    }
+  }
+  dbConnections.clear();
+}
+
+/**
+ * Clear connection cache without closing (for testing)
+ */
+export function clearConnectionCache() {
+  dbConnections.clear();
+}
+
+/**
+ * Create a test database (for testing purposes)
+ * @param {string} userId - User ID for the test database
+ * @param {Object} options - Options
+ * @param {boolean} options.inMemory - Use in-memory database
+ * @returns {Database} Database instance
+ */
+export function getTestDb(userId, options = {}) {
+  const { inMemory = false } = options;
+
+  if (dbConnections.has(userId)) return dbConnections.get(userId);
+
+  if (!inMemory && !fs.existsSync(DB_DIR)) {
+    fs.mkdirSync(DB_DIR, { recursive: true });
+  }
+
+  const dbPath = inMemory ? ':memory:' : path.join(DB_DIR, `${userId}.db`);
+  const db = new Database(dbPath);
+
+  // Load CR-SQLite
+  try {
+    const extPath = resolveCrsqlitePath();
+    db.loadExtension(extPath);
+  } catch (e) {
+    console.error('Failed to load crsqlite extension:', e);
+    throw e;
+  }
+
+  db.exec(BASE_SCHEMA);
+  ensureCrr(db);
+
+  db.pragma('journal_mode = wal');
+  db.pragma('synchronous = normal');
+
+  dbConnections.set(userId, db);
+  return db;
+}
+
+/**
+ * Delete a test database (for testing purposes)
+ * @param {string} userId - User ID for the test database
+ */
+export function deleteTestDb(userId) {
+  // Close connection if exists
+  if (dbConnections.has(userId)) {
+    try {
+      dbConnections.get(userId).close();
+    } catch (e) {
+      console.error(`Error closing database for ${userId}:`, e);
+    }
+    dbConnections.delete(userId);
+  }
+
+  // Delete database files
+  const dbPath = path.join(DB_DIR, `${userId}.db`);
+  const walPath = `${dbPath}-wal`;
+  const shmPath = `${dbPath}-shm`;
+
+  [dbPath, walPath, shmPath].forEach(filePath => {
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error(`Error deleting ${filePath}:`, e);
+      }
+    }
+  });
+}
