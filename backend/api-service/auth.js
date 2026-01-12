@@ -50,7 +50,14 @@ authRoutes.post('/login', (req, res) => {
         }
 
         const token = jwt.sign({ user_id: user.id, sub: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token, user_id: user.id });
+        res.json({ 
+            token, 
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email
+            }
+        });
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ error: 'Internal server error' });

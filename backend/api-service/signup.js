@@ -1,6 +1,7 @@
 // /backend/api-service/signup.js
 import express from 'express';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { URLSearchParams } from 'url';
@@ -8,6 +9,7 @@ import { getAuthDb, getUserDb } from './db.js';
 
 export const signupRoutes = express.Router();
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
 
 async function verifyTurnstile(token) {
     if (!TURNSTILE_SECRET_KEY) return true; // Skip if no key
@@ -49,8 +51,19 @@ signupRoutes.post('/signup', async (req, res) => {
             console.error(`Could not pre-populate user data for ${userId}:`, e);
         }
 
-
-        res.status(201).json({ ok: true, message: 'User created successfully', userId });
+        const token = jwt.sign(
+            { user_id: userId, sub: userId, name, email },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+        res.status(201).json({ 
+            token,
+            user: {
+                id: userId,
+                name,
+                email
+            }
+        });
     } catch (error) {
         if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
             return res.status(409).json({ error: 'User with this email already exists' });

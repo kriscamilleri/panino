@@ -33,32 +33,43 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // POST /images
-imageRoutes.post('/images', upload.single('image'), (req, res) => {
-    const userId = req.user.user_id;
-    if (!req.file) {
-        return res.status(400).json({ error: 'No image file provided' });
-    }
+imageRoutes.post('/images', (req, res) => {
+    upload.single('image')(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(413).json({ error: 'File size exceeds 10MB limit' });
+            }
+            return res.status(400).json({ error: err.message });
+        } else if (err) {
+            return res.status(500).json({ error: 'Upload failed' });
+        }
 
-    const { originalname, mimetype, filename } = req.file;
-    const imageId = uuidv4();
-    const relativePath = filename; // We only store the filename
+        const userId = req.user.user_id;
+        if (!req.file) {
+            return res.status(400).json({ error: 'No image file provided' });
+        }
 
-    try {
-        const db = getUserDb(userId);
-        db.prepare(`
-            INSERT INTO images (id, user_id, filename, mime_type, path, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        `).run(imageId, userId, originalname, mimetype, relativePath, new Date().toISOString());
+        const { originalname, mimetype, filename } = req.file;
+        const imageId = uuidv4();
+        const relativePath = filename; // We only store the filename
 
-        res.status(201).json({ id: imageId, url: `/images/${imageId}` });
-    } catch (error) {
-        console.error('Image upload error:', error);
-        // Clean up the orphaned file if the DB insert fails
-        fs.unlink(req.file.path, (unlinkErr) => {
-            if (unlinkErr) console.error('Error cleaning up orphaned file:', unlinkErr);
-        });
-        res.status(500).json({ error: 'Upload failed' });
-    }
+        try {
+            const db = getUserDb(userId);
+            db.prepare(`
+                INSERT INTO images (id, user_id, filename, mime_type, path, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            `).run(imageId, userId, originalname, mimetype, relativePath, new Date().toISOString());
+
+            res.status(201).json({ id: imageId, url: `/images/${imageId}` });
+        } catch (error) {
+            console.error('Image upload error:', error);
+            // Clean up the orphaned file if the DB insert fails
+            fs.unlink(req.file.path, (unlinkErr) => {
+                if (unlinkErr) console.error('Error cleaning up orphaned file:', unlinkErr);
+            });
+            res.status(500).json({ error: 'Upload failed' });
+        }
+    });
 });
 
 // GET /images/:id

@@ -52,6 +52,7 @@ ENV PYTHON=/usr/bin/python3
 ENV CRSQLITE_EXT_PATH=/app/node_modules/@vlcn.io/crsqlite/build/Release/crsqlite.node
 
 COPY package*.json ./
+COPY patch-crsqlite.sh ./
 
 # Prefer npm ci when lockfile exists
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \

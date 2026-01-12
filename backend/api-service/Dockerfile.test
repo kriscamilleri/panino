@@ -1,0 +1,22 @@
+FROM node:20-alpine
+
+# Install build tools required for native modules
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies (this will compile native modules)
+RUN npm ci
+
+# Copy application code
+COPY . .
+
+# Set test environment
+ENV NODE_ENV=test
+ENV JWT_SECRET=test-secret-do-not-use-in-production
+
+# Run tests
+CMD ["npm", "test"]
