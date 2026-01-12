@@ -328,7 +328,6 @@ pre > code {
 
       const css = styleMap.img;
       if (css) token.attrSet('style', css);
-      token.attrSet('loading', 'lazy');
 
       return originalImage(tokens, idx, options, env, self);
     };

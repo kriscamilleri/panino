@@ -42,10 +42,10 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 // Configuration
 const CONFIG = {
-    EXTERNAL_IMAGE_TIMEOUT: 5000,   // Timeout for fetching external images
-    PAGED_JS_TIMEOUT: 60000,        // Timeout for Paged.js rendering (60s for slower servers)
-    PAGE_LOAD_TIMEOUT: 30000,       // Timeout for initial page load
-    MAX_EXTERNAL_IMAGE_SIZE: 2000,  // Max size in KB for external images
+    EXTERNAL_IMAGE_TIMEOUT: 10000,  // Increased timeout for external images
+    PAGED_JS_TIMEOUT: 120000,       // Increased to 120s for larger/slower documents
+    PAGE_LOAD_TIMEOUT: 60000,       // Increased initial page load timeout
+    MAX_EXTERNAL_IMAGE_SIZE: 5000,  // Increased max size
 };
 
 // Simple logging helper
@@ -336,9 +336,8 @@ async function runPagedJs(page) {
         // Add console listener for debugging
         page.on('console', msg => {
             const text = msg.text();
-            if (text.includes('[Paged') || text.includes('paged')) {
-                log('[Page]', text);
-            }
+            // Log ALL messages from the page for better debugging if we hit timeouts
+            log('[PageConsole]', text);
         });
 
         page.on('pageerror', err => {
@@ -354,12 +353,13 @@ async function runPagedJs(page) {
         // Use a specific older version of the polyfill if latest is problematic
         // Trying 0.4.3 polyfill or falling back to 0.4.3 core if needed
         const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.polyfill.js';
-        await page.addScriptTag({ url: pagedJsUrl, timeout: 10000 });
+        log(`Using Paged.js from: ${pagedJsUrl}`);
+        await page.addScriptTag({ url: pagedJsUrl, timeout: 20000 });
         
         // Wait a bit for script to initialize
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 1000));
 
-        const success = await page.evaluate((timeout) => {
+        log('Starting Paged.js pagination with timeout', CONFIG.PAGED_JS_TIMEOUT);
             return new Promise((resolve) => {
                 // Check if Paged is loaded
                 if (!window.Paged?.Previewer) {
