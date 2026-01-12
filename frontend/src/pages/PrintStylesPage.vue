@@ -198,14 +198,20 @@ const printStylesConfig = {
       label: 'Styles',
       icon: Palette,
       isActive: () => showMode.value === 'styles',
-      onClick: () => { showMode.value = showMode.value === 'styles' ? 'off' : 'styles'; }
+      onClick: () => { showMode.value = 'styles'; }
     },
     {
       id: 'show-editor',
       label: 'Editor',
       icon: Edit3,
       isActive: () => showMode.value === 'editor',
-      onClick: () => { showMode.value = showMode.value === 'editor' ? 'off' : 'editor'; }
+      onClick: () => { showMode.value = 'editor'; }
+    },
+    {
+      id: 'show-off',
+      label: 'Off',
+      isActive: () => showMode.value === 'off',
+      onClick: () => { showMode.value = 'off'; }
     },
   ],
 

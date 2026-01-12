@@ -147,7 +147,9 @@ async function embedImagesAsDataUri(html, userId) {
         }
 
         // Check if it's an internal image
-        const internalMatch = src.match(/\/(?:api\/)?images\/([a-f0-9-]+)/i);
+        // Match /images/UUID or /api/images/UUID (case insensitive)
+        const internalMatch = src.match(/\/(?:api\/)?images\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i) || 
+                              src.match(/\/(?:api\/)?images\/([a-f0-9-]{32,})/i); 
         if (internalMatch) {
             const dataUri = getInternalImageAsDataUri(internalMatch[1], userId);
             if (dataUri) {
@@ -155,8 +157,9 @@ async function embedImagesAsDataUri(html, userId) {
                 log(`  Image ${idx + 1}: Internal ${internalMatch[1]} converted (${sizeKB}KB)`);
                 return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
             }
-            log(`  Image ${idx + 1}: Internal ${internalMatch[1]} FAILED - removing`);
-            return { original: fullMatch, replacement: `<!-- Image removed: ${internalMatch[1]} -->` };
+            log(`  Image ${idx + 1}: Internal ${internalMatch[1]} FAILED - keeping original`);
+            // Avoid comments as they can break Paged.js layout if it expects an element
+            return { original: fullMatch, replacement: fullMatch };
         }
 
         // External image
@@ -167,8 +170,8 @@ async function embedImagesAsDataUri(html, userId) {
                 log(`  Image ${idx + 1}: External fetched (${sizeKB}KB)`);
                 return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
             }
-            log(`  Image ${idx + 1}: External ${src.substring(0, 50)} FAILED - removing`);
-            return { original: fullMatch, replacement: `<!-- External image removed -->` };
+            log(`  Image ${idx + 1}: External ${src.substring(0, 50)} FAILED - keeping original`);
+            return { original: fullMatch, replacement: fullMatch };
         }
 
         // Unknown source type, keep as-is
@@ -528,22 +531,36 @@ async function generatePdf(req, res) {
 
     // Sanitize inputs
     const cleanHtml = purify.sanitize(htmlContent);
-    const cleanCss = purify.sanitize(cssStyles, { ALLOWED_TAGS: ['style'], ALLOWED_ATTR: [] });
+    // CSS sanitation: don't use DOMPurify for raw CSS strings as it's meant for HTML.
+    // Instead, just ensure we don't break out of the <style> tag.
+    const cleanCss = cssStyles.replace(/<\/style>/gi, '');
 
-    if (!cleanHtml || !cleanCss) {
-        return res.status(400).send('Invalid htmlContent or cssStyles');
+    if (!cleanHtml) {
+        return res.status(400).send('Invalid htmlContent');
     }
 
-    // Debug: Check for images in raw HTML before embedding
-    const rawImgCount = (cleanHtml.match(/<img/gi) || []).length;
-    log(`Raw HTML: ${cleanHtml.length} chars, ${rawImgCount} img tags`);
-
-    // Embed images
-    log('Embedding images...');
+    // Embed images in main content
+    log('Embedding images in content...');
     const htmlWithImages = await embedImagesAsDataUri(cleanHtml, userId);
 
+    // Support for common page break markers
+    const htmlWithPageBreaks = htmlWithImages
+        .replace(/\\pagebreak/g, '<div style="break-after: page; clear: both;"></div>')
+        .replace(/<!--\s*pagebreak\s*-->/g, '<div style="break-after: page; clear: both;"></div>');
+
+    // Embed images in headers/footers if present
+    const processedPrintStyles = { ...printStyles };
+    if (processedPrintStyles.printHeaderHtml) {
+        log('Embedding images in header...');
+        processedPrintStyles.printHeaderHtml = await embedImagesAsDataUri(processedPrintStyles.printHeaderHtml, userId);
+    }
+    if (processedPrintStyles.printFooterHtml) {
+        log('Embedding images in footer...');
+        processedPrintStyles.printFooterHtml = await embedImagesAsDataUri(processedPrintStyles.printFooterHtml, userId);
+    }
+
     // Build document
-    const fullHtml = buildHtmlDocument(htmlWithImages, cleanCss, printStyles);
+    const fullHtml = buildHtmlDocument(htmlWithPageBreaks, cleanCss, processedPrintStyles);
 
     let context = null;
 
@@ -563,8 +580,8 @@ async function generatePdf(req, res) {
         const pagedSuccess = await runPagedJs(page);
 
         // Inject headers/footers
-        if (printStyles.printHeaderHtml || printStyles.printFooterHtml) {
-            await injectHeadersFooters(page, printStyles);
+        if (processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml) {
+            await injectHeadersFooters(page, processedPrintStyles);
         }
 
         // Generate PDF
