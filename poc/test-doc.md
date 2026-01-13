@@ -5,6 +5,8 @@ The Glucose Pumps addon for Odoo 18 enables tracking of glucose pump devices acr
 
 A central dashboard shows device counts by status with quick actions for unassignment and scrapping. Automated alerts flag devices approaching replacement. Chatter integration logs all state changes on both device and patient records.
 
+\pagebreak
+
 ## A. New Pages
 > New icon on dashboard for accessing new module. 
 
@@ -128,11 +130,13 @@ A central dashboard shows device counts by status with quick actions for unassig
 6. Do NOT auto-create Sales Orders for excess consumables
 ![image.png](/api/images/620d08ed-ddb4-468b-b78b-c80c2f27e26c)
 
+\pagebreak
+
 # Phase 2 Appendices
 ## Appendix 1 - Sequence Diagrams
 ### Repair (Offsite)
 ![PrettyNeat Software](https://www.prettyneat.io/assets/prettyneat-logo-lg.png)
-
+\pagebreak
 
 ### Repair (Onsite)
 ![PrettyNeat Software](https://www.prettyneat.io/assets/prettyneat-logo-lg.png)
