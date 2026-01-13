@@ -7,6 +7,7 @@ import fs from 'fs';
 import { promises as dns } from 'dns';
 import { fileURLToPath } from 'url';
 import mime from 'mime-types';
+import { PDFDocument } from 'pdf-lib';
 import { loadDefaultPrintStyles, printStylesToCss } from './style-utils.js';
 
 export const pdfRoutes = express.Router();
@@ -15,14 +16,8 @@ const window = new JSDOM('').window;
 const purify = DOMPurify(window);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const PAGED_JS_PATHS = [
-    path.join(__dirname, 'lib', 'paged.polyfill.js'),
-    path.join(__dirname, '..', 'backend', 'api-service', 'lib', 'paged.polyfill.js'),
-];
-
 const CONFIG = {
     EXTERNAL_IMAGE_TIMEOUT: 10000,
-    PAGED_JS_TIMEOUT: 120000,
     PAGE_LOAD_TIMEOUT: 60000,
     MAX_EXTERNAL_IMAGE_SIZE: 5000,
 };
@@ -291,6 +286,29 @@ function toFlexAlign(align) {
     return map[(align || 'center').toLowerCase()] || 'center';
 }
 
+function buildHeaderFooterTemplate(html, align, fontSize, color, pageMargin, totalPagesText) {
+    if (!html) return '';
+    const replaced = html
+        .replace(/%P/g, totalPagesText || '<span class="totalPages"></span>')
+        .replace(/%p/g, '<span class="pageNumber"></span>');
+
+    const safeAlign = ['left', 'right', 'center'].includes((align || '').toLowerCase())
+        ? align.toLowerCase()
+        : 'center';
+
+    return `
+        <div style="
+            font-size: ${parseInt(fontSize, 10) || 10}px;
+            color: ${color || '#666'};
+            width: 100%;
+            padding: 0 ${pageMargin || '2cm'};
+            text-align: ${safeAlign};
+        ">
+            ${replaced}
+        </div>
+    `;
+}
+
 function buildHtmlDocument(content, css, printStyles) {
     const {
         pageSize = 'A4',
@@ -352,180 +370,9 @@ function buildHtmlDocument(content, css, printStyles) {
 </html>`;
 }
 
-async function runPagedJs(page) {
-    try {
-        page.on('console', msg => {
-            const text = msg.text();
-            log('[PageConsole]', text);
-        });
-
-        page.on('pageerror', err => {
-            logError('[PageError]', err.message);
-        });
-
-        await page.evaluate(() => {
-            window.PagedConfig = { auto: false };
-        });
-
-        const localPagedPath = PAGED_JS_PATHS.find(candidate => fs.existsSync(candidate));
-
-        if (localPagedPath) {
-            log(`Using local Paged.js from: ${localPagedPath}`);
-            await page.addScriptTag({ path: localPagedPath });
-        } else {
-            const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.polyfill.js';
-            logWarn(`Local Paged.js not found, falling back to CDN: ${pagedJsUrl}`);
-            await page.addScriptTag({ url: pagedJsUrl, timeout: 20000 });
-        }
-
-        await new Promise(r => setTimeout(r, 500));
-
-        log('Starting Paged.js polyfill preview...');
-
-        const success = await page.evaluate((timeout) => {
-            return new Promise(async (resolve) => {
-                try {
-                    if (!window.PagedPolyfill || !window.PagedPolyfill.preview) {
-                        console.log('[Paged.js] PagedPolyfill not found, falling back to Paged.Previewer');
-
-                        if (!window.Paged?.Previewer) {
-                            console.log('[Paged.js] Library not loaded');
-                            resolve(false);
-                            return;
-                        }
-
-                        const paged = new window.Paged.Previewer();
-                        const content = document.body.innerHTML;
-                        document.body.innerHTML = '';
-
-                        await paged.preview(content, [], document.body);
-                        const pages = document.querySelectorAll('.pagedjs_page');
-                        console.log(`[Paged.js] Previewer created ${pages.length} pages`);
-                        resolve(pages.length > 0);
-                        return;
-                    }
-
-                    console.log('[Paged.js] Using PagedPolyfill.preview()');
-                    await window.PagedPolyfill.preview();
-
-                    const pages = document.querySelectorAll('.pagedjs_page');
-                    console.log(`[Paged.js] Completed with ${pages.length} pages`);
-                    resolve(pages.length > 0);
-
-                } catch (err) {
-                    console.error('[Paged.js] Error:', err.message || err);
-                    resolve(false);
-                }
-            });
-        }, CONFIG.PAGED_JS_TIMEOUT);
-
-        return success;
-    } catch (err) {
-        logWarn('Paged.js error:', err.message);
-        return false;
-    }
-}
-
-async function injectHeadersFooters(page, printStyles) {
-    const {
-        printHeaderHtml = '',
-        printFooterHtml = '',
-        headerFontSize = '10',
-        headerFontColor = '#666666',
-        headerAlign = 'center',
-        footerFontSize = '10',
-        footerFontColor = '#666666',
-        footerAlign = 'center',
-        hideHeaderOnFirst = false,
-        hideFooterOnFirst = false,
-        hideHeaderOnLast = false,
-        hideFooterOnLast = false,
-        headerHeight = '1.5cm',
-        footerHeight = '1.5cm',
-        headerOffset = '0cm',
-        footerOffset = '0cm',
-    } = printStyles;
-
-    await page.evaluate((config) => {
-        const pages = document.querySelectorAll('.pagedjs_page:not(.pagedjs_blank)');
-        const total = Math.max(1, pages.length);
-
-        function createOverlay(type, pageNum) {
-            const isHeader = type === 'header';
-            const html = isHeader ? config.headerHtml : config.footerHtml;
-            if (!html) return null;
-
-            if (isHeader) {
-                if (pageNum === 1 && config.hideHeaderOnFirst) return null;
-                if (pageNum === total && config.hideHeaderOnLast) return null;
-            } else {
-                if (pageNum === 1 && config.hideFooterOnFirst) return null;
-                if (pageNum === total && config.hideFooterOnLast) return null;
-            }
-
-            const el = document.createElement('div');
-            el.className = isHeader ? '_pdf-header' : '_pdf-footer';
-            el.innerHTML = html.replace(/%p/g, pageNum).replace(/%P/g, total);
-
-            el.style.cssText = `
-                position: absolute;
-                left: 0;
-                right: 0;
-                display: flex;
-                align-items: center;
-                justify-content: ${isHeader ? config.headerJustify : config.footerJustify};
-                font-size: ${isHeader ? config.headerFontSize : config.footerFontSize}px;
-                color: ${isHeader ? config.headerColor : config.footerColor};
-                height: ${isHeader ? config.headerHeight : config.footerHeight};
-                ${isHeader ? 'top' : 'bottom'}: 0;
-                transform: translateY(${isHeader ? '-' + config.headerOffset : config.footerOffset});
-                z-index: 999999;
-                pointer-events: none;
-            `;
-
-            return el;
-        }
-
-        if (pages.length === 0) {
-            document.body.style.position = 'relative';
-            const header = createOverlay('header', 1);
-            const footer = createOverlay('footer', 1);
-            if (header) document.body.appendChild(header);
-            if (footer) document.body.appendChild(footer);
-            return;
-        }
-
-        pages.forEach((pageEl, i) => {
-            if (pageEl.querySelector('._pdf-header') || pageEl.querySelector('._pdf-footer')) {
-                return;
-            }
-
-            const pagebox = pageEl.querySelector('.pagedjs_pagebox') || pageEl;
-            pagebox.style.position = 'relative';
-
-            const header = createOverlay('header', i + 1);
-            const footer = createOverlay('footer', i + 1);
-            if (header) pagebox.appendChild(header);
-            if (footer) pagebox.appendChild(footer);
-        });
-    }, {
-        headerHtml: printHeaderHtml,
-        footerHtml: printFooterHtml,
-        headerFontSize: parseInt(headerFontSize, 10),
-        headerColor: headerFontColor,
-        headerJustify: toFlexAlign(headerAlign),
-        footerFontSize: parseInt(footerFontSize, 10),
-        footerColor: footerFontColor,
-        footerJustify: toFlexAlign(footerAlign),
-        hideHeaderOnFirst,
-        hideFooterOnFirst,
-        hideHeaderOnLast,
-        hideFooterOnLast,
-        headerHeight,
-        footerHeight,
-        headerOffset: headerOffset.replace(/^\+/, ''),
-        footerOffset: footerOffset.replace(/^\+/, ''),
-    });
+async function countPdfPages(buffer) {
+    const doc = await PDFDocument.load(buffer);
+    return doc.getPageCount();
 }
 
 async function generatePdf(req, res) {
@@ -595,16 +442,55 @@ async function generatePdf(req, res) {
             timeout: CONFIG.PAGE_LOAD_TIMEOUT,
         });
 
-        await runPagedJs(page);
+        const needsHeaderFooter = Boolean(processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml);
 
-        if (processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml) {
-            await injectHeadersFooters(page, processedPrintStyles);
-        }
-
-        const pdfBuffer = await page.pdf({
+        const basePdfOptions = {
             format: processedPrintStyles.pageSize || 'A4',
             printBackground: true,
             preferCSSPageSize: true,
+            margin: needsHeaderFooter ? {
+                top: processedPrintStyles.headerHeight || '1.5cm',
+                bottom: processedPrintStyles.footerHeight || '1.5cm',
+                left: processedPrintStyles.pageMargin || '2cm',
+                right: processedPrintStyles.pageMargin || '2cm',
+            } : undefined,
+        };
+
+        let totalPagesText = null;
+        if (needsHeaderFooter) {
+            const draftBuffer = await page.pdf({
+                ...basePdfOptions,
+                displayHeaderFooter: true,
+                headerTemplate: '<span></span>',
+                footerTemplate: '<span></span>',
+            });
+            const totalPages = await countPdfPages(draftBuffer);
+            totalPagesText = String(totalPages);
+        }
+
+        const headerTemplate = needsHeaderFooter ? buildHeaderFooterTemplate(
+            processedPrintStyles.printHeaderHtml,
+            processedPrintStyles.headerAlign,
+            processedPrintStyles.headerFontSize,
+            processedPrintStyles.headerFontColor,
+            processedPrintStyles.pageMargin,
+            totalPagesText,
+        ) : '<span></span>';
+
+        const footerTemplate = needsHeaderFooter ? buildHeaderFooterTemplate(
+            processedPrintStyles.printFooterHtml,
+            processedPrintStyles.footerAlign,
+            processedPrintStyles.footerFontSize,
+            processedPrintStyles.footerFontColor,
+            processedPrintStyles.pageMargin,
+            totalPagesText,
+        ) : '<span></span>';
+
+        const pdfBuffer = await page.pdf({
+            ...basePdfOptions,
+            displayHeaderFooter: needsHeaderFooter,
+            headerTemplate,
+            footerTemplate,
         });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'inline; filename=document.pdf');

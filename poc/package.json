@@ -1,7 +1,7 @@
 {
   "name": "pdf-poc",
   "version": "0.1.0",
-  "description": "POC service to stress test Paged.js PDF generation.",
+  "description": "POC service to stress test PDF generation without Paged.js.",
   "type": "module",
   "main": "index.js",
   "engines": {
@@ -17,6 +17,7 @@
     "jsdom": "^24.1.0",
     "marked": "^12.0.2",
     "mime-types": "^2.1.35",
+    "pdf-lib": "^1.17.1",
     "puppeteer": "^22.12.1"
   }
 }
