@@ -1,0 +1,97 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULTS_PATH = path.join(__dirname, 'print-defaults.json');
+
+const FALLBACK_PRINT_STYLES = {
+  h1: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 2.25rem; line-height: 1.15; color: #111827; margin-top: 2.5rem; margin-bottom: 1rem; font-weight: 600;',
+  h2: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 1.75rem; line-height: 1.2; color: #1f2937; margin-top: 2rem; margin-bottom: .75rem; font-weight: 600;',
+  h3: 'font-size: 1.5rem; line-height: 1.25; color: #1f2937; margin-top: 1.5rem; margin-bottom: .5rem; font-weight: 600;',
+  h4: 'font-size: 1.25rem; line-height: 1.3; color: #374151; margin-top: 1.25rem; margin-bottom: .5rem; font-weight: 600;',
+  h5: 'font-size: 1rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; color: #374151;',
+  h6: 'font-size: .875rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #4b5563;',
+  p: 'margin: 0 0 1rem 0; line-height: 1.55;',
+  ul: 'list-style-type: disc; margin: 0 0 1rem 1.5rem; padding: 0;',
+  ol: 'list-style-type: decimal; margin: 0 0 1rem 1.5rem; padding: 0;',
+  li: 'margin: .25rem 0;',
+  code: 'font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: .1rem .35rem; border-radius: 4px; font-size: .875em; font-variant-ligatures: none;',
+  pre: 'display: block; width: 100%; box-sizing: border-box; font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: 1rem 1.25rem; border-radius: 8px; overflow: auto; font-size: .875rem; line-height: 1.5; margin: 1.5rem 0; font-variant-ligatures: none;',
+  blockquote: 'margin: 1.5rem 0; padding: .5rem 1rem; border-left: 4px solid #d1d5db; background-color: rgba(209, 213, 219, 0.08);',
+  hr: 'border: 0; border-top: 1px solid #d1d5db; margin: 2rem 0;',
+  em: 'font-style: italic;',
+  strong: 'font-weight: 600;',
+  a: 'color: #2563eb; text-decoration: underline; text-underline-offset: 2px;',
+  img: 'max-width: 100%; height: auto; border-radius: 4px; margin: 1rem 0;',
+  table: 'width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: .875rem;',
+  tr: 'border-bottom: 1px solid #e5e7eb;',
+  th: 'border: 1px solid #d1d5db; background-color: #f3f4f6; padding: .5rem .75rem; text-align: left; font-weight: 600;',
+  td: 'border: 1px solid #d1d5db; padding: .5rem .75rem;',
+  customCSS: `#preview-content, [data-testid="preview-content"] {\n  max-width: 72ch;\n  margin-left: auto;\n  margin-right: auto;\n  font-variant-numeric: proportional-nums;\n}\n/* Un-style code blocks inside <pre> so they inherit the parent's style */\npre > code {\n  background: transparent;\n  padding: 0;\n  border-radius: 0;\n  font-size: 1em;\n}\n`,
+  googleFontFamily: 'Source Sans 3, JetBrains Mono, Playfair Display',
+  printHeaderHtml: 'Professional Document',
+  printFooterHtml: 'Page %p of %P',
+  headerFontSize: '10',
+  headerFontColor: '#666666',
+  headerAlign: 'center',
+  footerFontSize: '10',
+  footerFontColor: '#666666',
+  footerAlign: 'center',
+  headerHeight: '2cm',
+  footerHeight: '2.5cm',
+  pageMargin: '2cm',
+  enablePageNumbers: true,
+};
+
+const EXCLUDE_KEYS = new Set([
+  'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
+  'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
+  'footerFontColor', 'footerAlign', 'enablePageNumbers', 'headerHeight',
+  'footerHeight', 'pageMargin', 'pageSize'
+]);
+
+export function loadDefaultPrintStyles() {
+  try {
+    const raw = fs.readFileSync(DEFAULTS_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return { ...FALLBACK_PRINT_STYLES, ...parsed };
+  } catch (err) {
+    console.warn('[POC] Falling back to bundled print defaults:', err.message);
+    return { ...FALLBACK_PRINT_STYLES };
+  }
+}
+
+export function printStylesToCss(styleMap = {}) {
+  const s = styleMap;
+  let css = '';
+
+  if (s.googleFontFamily) {
+    const families = s.googleFontFamily
+      .split(',')
+      .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
+      .join('&');
+    if (families) {
+      css += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n\n`;
+    }
+  }
+
+  const primaryFont = s.googleFontFamily?.split(',')[0]?.trim()?.replace(/['"]/g, '');
+  if (primaryFont) {
+    css += `body { font-family: "${primaryFont}", sans-serif; }\n\n`;
+  }
+
+  for (const key of Object.keys(s)) {
+    if (!s[key]) continue;
+    if (EXCLUDE_KEYS.has(key)) continue;
+    css += `${key} { ${s[key]} }\n`;
+  }
+
+  if (s.customCSS) {
+    css += `\n/* --- Custom CSS --- */\n${s.customCSS}\n`;
+  }
+
+  return css;
+}
+
+export { DEFAULTS_PATH };
