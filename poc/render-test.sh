@@ -8,6 +8,14 @@ OUT_PDF="${ROOT_DIR}/poc-test.pdf"
 MARKDOWN_FILE="${ROOT_DIR}/test-doc.md"
 cd "${ROOT_DIR}"
 
+# Ensure no lingering server is holding the port
+EXISTING_PIDS="$(lsof -ti tcp:"${PORT}" || true)"
+if [[ -n "${EXISTING_PIDS}" ]]; then
+  echo "[POC] Killing existing server on port ${PORT} (PIDs: ${EXISTING_PIDS})"
+  kill ${EXISTING_PIDS} >/dev/null 2>&1 || true
+  sleep 0.5
+fi
+
 if [[ ! -d node_modules ]]; then
   echo "[POC] Installing dependencies..."
   npm install --no-progress --prefer-offline

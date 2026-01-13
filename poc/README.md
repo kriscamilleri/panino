@@ -1,6 +1,6 @@
 # PDF POC
 
-A minimal service to stress-test the PDF renderer with Paged.js without auth.
+A minimal service to stress-test the PDF renderer (no Paged.js) without auth.
 
 ## Run
 1. `cd poc && npm install`
@@ -18,6 +18,5 @@ A minimal service to stress-test the PDF renderer with Paged.js without auth.
 - CSS generation uses `style-utils.js` to build the stylesheet from the current print styles.
 
 ## Notes
-- Uses local Paged.js if found at `poc/lib/paged.polyfill.js`, otherwise `backend/api-service/lib/paged.polyfill.js`, then CDN fallback.
 - Image IDs matching `/images/<id>` load from `poc/uploads` (prefix match); external URLs are fetched and inlined with SSRF guards.
 - CORS enabled; `/uploads` served statically for quick testing.
