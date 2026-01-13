@@ -1,26 +1,3 @@
-// /backend/api-service/pdf.js
-/**
- * ============================================================================
- * PDF GENERATION SERVICE
- * ============================================================================
- *
- * Converts sanitized HTML/CSS into PDF via Puppeteer.
- *
- * FLOW:
- * 1. POST /render-pdf with { htmlContent, cssStyles, printStyles }
- * 2. Sanitize HTML/CSS, embed images as data URIs
- * 3. Build HTML with @page rules and pagebreak helpers
- * 4. Run a draft pdf pass to resolve total pages for header/footer placeholders
- * 5. Render final PDF using Puppeteer's displayHeaderFooter templates
- *
- * DESIGN NOTES:
- * - Images are pre-embedded to avoid localhost fetch issues and enforce SSRF checks
- * - Single browser instance is reused; requests run sequentially to limit memory
- * - Page numbers use a draft render + pdf-lib count to populate %p/%P tokens
- *
- * ============================================================================
- */
-
 import express from 'express';
 import puppeteer from 'puppeteer';
 import { JSDOM } from 'jsdom';
@@ -29,8 +6,9 @@ import path from 'path';
 import fs from 'fs';
 import { promises as dns } from 'dns';
 import { fileURLToPath } from 'url';
-import { getUserDb } from './db.js';
+import mime from 'mime-types';
 import { PDFDocument } from 'pdf-lib';
+import { loadDefaultPrintStyles, printStylesToCss } from './style-utils.js';
 
 export const pdfRoutes = express.Router();
 
@@ -38,117 +16,17 @@ const window = new JSDOM('').window;
 const purify = DOMPurify(window);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
-
 const CONFIG = {
     EXTERNAL_IMAGE_TIMEOUT: 10000,
     PAGE_LOAD_TIMEOUT: 60000,
     MAX_EXTERNAL_IMAGE_SIZE: 5000,
 };
 
+const DEFAULT_PRINT_STYLES = loadDefaultPrintStyles();
+
 const log = (message, ...args) => console.log(`[PDF] ${message}`, ...args);
 const logWarn = (message, ...args) => console.warn(`[PDF] ${message}`, ...args);
 const logError = (message, ...args) => console.error(`[PDF] ${message}`, ...args);
-
-// ============================================================================
-// PRINT STYLE DEFAULTS + HELPERS
-// ============================================================================
-
-const DEFAULTS_PATH = path.join(__dirname, '..', '..', 'poc', 'print-defaults.json');
-
-const FALLBACK_PRINT_STYLES = {
-    h1: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 2.25rem; line-height: 1.15; color: #111827; margin-top: 2.5rem; margin-bottom: 1rem; font-weight: 600;',
-    h2: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 1.75rem; line-height: 1.2; color: #1f2937; margin-top: 2rem; margin-bottom: .75rem; font-weight: 600;',
-    h3: 'font-size: 1.5rem; line-height: 1.25; color: #1f2937; margin-top: 1.5rem; margin-bottom: .5rem; font-weight: 600;',
-    h4: 'font-size: 1.25rem; line-height: 1.3; color: #374151; margin-top: 1.25rem; margin-bottom: .5rem; font-weight: 600;',
-    h5: 'font-size: 1rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; color: #374151;',
-    h6: 'font-size: .875rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #4b5563;',
-    p: 'margin: 0 0 1rem 0; line-height: 1.55;',
-    ul: 'list-style-type: disc; margin: 0 0 1rem 1.5rem; padding: 0;',
-    ol: 'list-style-type: decimal; margin: 0 0 1rem 1.5rem; padding: 0;',
-    li: 'margin: .25rem 0;',
-    code: 'font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: .1rem .35rem; border-radius: 4px; font-size: .875em; font-variant-ligatures: none;',
-    pre: 'display: block; width: 100%; box-sizing: border-box; font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: 1rem 1.25rem; border-radius: 8px; overflow: auto; font-size: .875rem; line-height: 1.5; margin: 1.5rem 0; font-variant-ligatures: none;',
-    blockquote: 'margin: 1.5rem 0; padding: .5rem 1rem; border-left: 4px solid #d1d5db; background-color: rgba(209, 213, 219, 0.08);',
-    hr: 'border: 0; border-top: 1px solid #d1d5db; margin: 2rem 0;',
-    em: 'font-style: italic;',
-    strong: 'font-weight: 600;',
-    a: 'color: #2563eb; text-decoration: underline; text-underline-offset: 2px;',
-    img: 'max-width: 100%; height: auto; border-radius: 4px; margin: 1rem 0;',
-    table: 'width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: .875rem;',
-    tr: 'border-bottom: 1px solid #e5e7eb;',
-    th: 'border: 1px solid #d1d5db; background-color: #f3f4f6; padding: .5rem .75rem; text-align: left; font-weight: 600;',
-    td: 'border: 1px solid #d1d5db; padding: .5rem .75rem;',
-    customCSS: `#preview-content, [data-testid="preview-content"] {\n  max-width: 72ch;\n  margin-left: auto;\n  margin-right: auto;\n  font-variant-numeric: proportional-nums;\n}\n/* Un-style code blocks inside <pre> so they inherit the parent's style */\npre > code {\n  background: transparent;\n  padding: 0;\n  border-radius: 0;\n  font-size: 1em;\n}\n`,
-    googleFontFamily: 'Source Sans 3, JetBrains Mono, Playfair Display',
-    printHeaderHtml: 'Professional Document',
-    printFooterHtml: 'Page %p of %P',
-    headerFontSize: '10',
-    headerFontColor: '#666666',
-    headerAlign: 'center',
-    footerFontSize: '10',
-    footerFontColor: '#666666',
-    footerAlign: 'center',
-    headerHeight: '2cm',
-    footerHeight: '2.5cm',
-    pageMargin: '2cm',
-    enablePageNumbers: true,
-};
-
-const EXCLUDE_STYLE_KEYS = new Set([
-    'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
-    'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
-    'footerFontColor', 'footerAlign', 'enablePageNumbers', 'headerHeight',
-    'footerHeight', 'pageMargin', 'pageSize',
-]);
-
-function loadDefaultPrintStyles() {
-    try {
-        const raw = fs.readFileSync(DEFAULTS_PATH, 'utf-8');
-        const parsed = JSON.parse(raw);
-        return { ...FALLBACK_PRINT_STYLES, ...parsed };
-    } catch (err) {
-        logWarn('Falling back to bundled print defaults:', err.message);
-        return { ...FALLBACK_PRINT_STYLES };
-    }
-}
-
-function printStylesToCss(styleMap = {}) {
-    const s = styleMap;
-    let css = '';
-
-    if (s.googleFontFamily) {
-        const families = s.googleFontFamily
-            .split(',')
-            .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
-            .join('&');
-        if (families) {
-            css += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n\n`;
-        }
-    }
-
-    const primaryFont = s.googleFontFamily?.split(',')[0]?.trim()?.replace(/['"]/g, '');
-    if (primaryFont) {
-        css += `body { font-family: "${primaryFont}", sans-serif; }\n\n`;
-    }
-
-    for (const key of Object.keys(s)) {
-        if (!s[key]) continue;
-        if (EXCLUDE_STYLE_KEYS.has(key)) continue;
-        css += `${key} { ${s[key]} }\n`;
-    }
-
-    if (s.customCSS) {
-        css += `\n/* --- Custom CSS --- */\n${s.customCSS}\n`;
-    }
-
-    return css;
-}
-
-const DEFAULT_PRINT_STYLES = loadDefaultPrintStyles();
-
-// ============================================================================
-// IMAGE EMBEDDING
-// ============================================================================
 
 function isPrivateIp(ip) {
     if (ip.includes(':')) {
@@ -175,19 +53,35 @@ function isPrivateIp(ip) {
     return false;
 }
 
-function getInternalImageAsDataUri(imageId, userId) {
+function findUploadCandidate(imageId) {
     try {
-        const db = getUserDb(userId);
-        const image = db.prepare('SELECT mime_type, path FROM images WHERE id = ? AND user_id = ?').get(imageId, userId);
-
-        if (!image?.path) return null;
-
-        const absolutePath = path.join(UPLOADS_DIR, image.path);
-        if (!absolutePath.startsWith(UPLOADS_DIR) || !fs.existsSync(absolutePath)) return null;
-
-        const buffer = fs.readFileSync(absolutePath);
-        return `data:${image.mime_type};base64,${buffer.toString('base64')}`;
+        if (!fs.existsSync(UPLOADS_DIR)) return null;
+        const entries = fs.readdirSync(UPLOADS_DIR);
+        const hit = entries.find(name => name.startsWith(imageId));
+        if (!hit) return null;
+        const candidate = path.join(UPLOADS_DIR, hit);
+        if (!candidate.startsWith(UPLOADS_DIR)) return null;
+        const stat = fs.statSync(candidate);
+        if (!stat.isFile()) return null;
+        return candidate;
     } catch {
+        return null;
+    }
+}
+
+function getInternalImageAsDataUri(imageId) {
+    try {
+        if (!imageId) return null;
+        const directPath = path.join(UPLOADS_DIR, imageId);
+        const directExists = directPath.startsWith(UPLOADS_DIR) && fs.existsSync(directPath) && fs.statSync(directPath).isFile();
+        const filePath = directExists ? directPath : findUploadCandidate(imageId);
+        if (!filePath) return null;
+
+        const buffer = fs.readFileSync(filePath);
+        const mimeType = mime.lookup(filePath) || 'application/octet-stream';
+        return `data:${mimeType};base64,${buffer.toString('base64')}`;
+    } catch (err) {
+        logWarn(`Internal image lookup failed for ${imageId}: ${err.message}`);
         return null;
     }
 }
@@ -251,7 +145,7 @@ async function fetchExternalImageAsDataUri(urlStr) {
     }
 }
 
-async function embedImagesAsDataUri(html, userId) {
+async function embedImagesAsDataUri(html) {
     const imgRegex = /<img([^>]*)\ssrc=["']([^"']+)["']([^>]*)>/gi;
     const images = [];
     let match;
@@ -286,7 +180,7 @@ async function embedImagesAsDataUri(html, userId) {
         const internalMatch = src.match(/\/(?:api\/)?images\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i) ||
             src.match(/\/(?:api\/)?images\/([a-f0-9-]{32,})/i);
         if (internalMatch) {
-            const dataUri = getInternalImageAsDataUri(internalMatch[1], userId);
+            const dataUri = getInternalImageAsDataUri(internalMatch[1]);
             if (dataUri) {
                 const sizeKB = Math.round(dataUri.length / 1024);
                 log(`  Image ${idx + 1}: Internal ${internalMatch[1]} converted (${sizeKB}KB)`);
@@ -332,10 +226,6 @@ async function embedImagesAsDataUri(html, userId) {
     return result;
 }
 
-// ============================================================================
-// BROWSER MANAGEMENT
-// ============================================================================
-
 let browserInstance = null;
 
 async function getBrowser() {
@@ -360,10 +250,6 @@ process.on('exit', async () => {
         browserInstance = null;
     }
 });
-
-// ============================================================================
-// REQUEST QUEUE (sequential processing)
-// ============================================================================
 
 let isProcessing = false;
 const queue = [];
@@ -395,9 +281,10 @@ pdfRoutes.post('/render-pdf', (req, res) => {
     });
 });
 
-// ============================================================================
-// PDF GENERATION
-// ============================================================================
+function toFlexAlign(align) {
+    const map = { left: 'flex-start', right: 'flex-end', center: 'center' };
+    return map[(align || 'center').toLowerCase()] || 'center';
+}
 
 function buildHeaderFooterTemplate(html, align, fontSize, color, pageMargin, totalPagesText) {
     if (!html) return '';
@@ -468,6 +355,15 @@ function buildHtmlDocument(content, css, printStyles) {
             page-break-before: always !important;
         }
         ${css}
+        ._pdf-header, ._pdf-footer {
+            position: absolute;
+            left: 0;
+            right: 0;
+            display: flex;
+            align-items: center;
+            pointer-events: none;
+            z-index: 999999;
+        }
     </style>
 </head>
 <body>${content}</body>
@@ -481,11 +377,6 @@ async function countPdfPages(buffer) {
 
 async function generatePdf(req, res) {
     const { htmlContent = '', cssStyles = '', printStyles: incomingPrintStyles = {} } = req.body || {};
-    const userId = req.user?.user_id;
-
-    if (!userId) {
-        return res.status(401).send('Authentication required');
-    }
 
     const mergedPrintStyles = { ...DEFAULT_PRINT_STYLES, ...incomingPrintStyles };
 
@@ -503,56 +394,40 @@ async function generatePdf(req, res) {
         logWarn('Pagebreak markers were STRIPPED by DOMPurify!');
     }
 
-    const processedPrintStyles = { ...mergedPrintStyles };
-
-    if (processedPrintStyles.printHeaderHtml) {
-        processedPrintStyles.printHeaderHtml = purify.sanitize(processedPrintStyles.printHeaderHtml);
+    if (mergedPrintStyles.printHeaderHtml) {
+        mergedPrintStyles.printHeaderHtml = purify.sanitize(mergedPrintStyles.printHeaderHtml);
     }
-    if (processedPrintStyles.printFooterHtml) {
-        processedPrintStyles.printFooterHtml = purify.sanitize(processedPrintStyles.printFooterHtml);
+    if (mergedPrintStyles.printFooterHtml) {
+        mergedPrintStyles.printFooterHtml = purify.sanitize(mergedPrintStyles.printFooterHtml);
     }
 
     const cleanCssInput = (cssStyles || '').replace(/<\/style>/gi, '');
-    const cleanCss = cleanCssInput.trim() ? cleanCssInput : printStylesToCss(processedPrintStyles);
+    const cleanCss = cleanCssInput.trim() ? cleanCssInput : printStylesToCss(mergedPrintStyles);
 
     if (!cleanHtml) {
         return res.status(400).send('Invalid htmlContent');
     }
 
     log('Embedding images in content...');
-    const htmlWithImages = await embedImagesAsDataUri(cleanHtml, userId);
+    const htmlWithImages = await embedImagesAsDataUri(cleanHtml);
 
     const htmlWithPageBreaks = htmlWithImages
         .replace(/\\pagebreak/g, '<div class="pagebreak" style="break-after: page; page-break-after: always; clear: both;"></div>')
         .replace(/<!--\s*pagebreak\s*-->/g, '<div class="pagebreak" style="break-after: page; page-break-after: always; clear: both;"></div>')
         .replace(/---\s*pagebreak\s*---/gi, '<div class="pagebreak" style="break-after: page; page-break-after: always; clear: both;"></div>');
 
+    const processedPrintStyles = { ...mergedPrintStyles };
     if (processedPrintStyles.printHeaderHtml) {
         log('Embedding images in header...');
-        processedPrintStyles.printHeaderHtml = await embedImagesAsDataUri(processedPrintStyles.printHeaderHtml, userId);
+        processedPrintStyles.printHeaderHtml = await embedImagesAsDataUri(processedPrintStyles.printHeaderHtml);
     }
     if (processedPrintStyles.printFooterHtml) {
         log('Embedding images in footer...');
-        processedPrintStyles.printFooterHtml = await embedImagesAsDataUri(processedPrintStyles.printFooterHtml, userId);
+        processedPrintStyles.printFooterHtml = await embedImagesAsDataUri(processedPrintStyles.printFooterHtml);
     }
 
     const fullHtml = buildHtmlDocument(htmlWithPageBreaks, cleanCss, processedPrintStyles);
 
-    const needsHeaderFooter = Boolean(processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml);
-
-    const basePdfOptions = {
-        format: processedPrintStyles.pageSize || 'A4',
-        printBackground: true,
-        preferCSSPageSize: true,
-        margin: needsHeaderFooter ? {
-            top: processedPrintStyles.headerHeight || '1.5cm',
-            bottom: processedPrintStyles.footerHeight || '1.5cm',
-            left: processedPrintStyles.pageMargin || '2cm',
-            right: processedPrintStyles.pageMargin || '2cm',
-        } : undefined,
-    };
-
-    let totalPagesText = null;
     let context = null;
 
     try {
@@ -567,6 +442,21 @@ async function generatePdf(req, res) {
             timeout: CONFIG.PAGE_LOAD_TIMEOUT,
         });
 
+        const needsHeaderFooter = Boolean(processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml);
+
+        const basePdfOptions = {
+            format: processedPrintStyles.pageSize || 'A4',
+            printBackground: true,
+            preferCSSPageSize: true,
+            margin: needsHeaderFooter ? {
+                top: processedPrintStyles.headerHeight || '1.5cm',
+                bottom: processedPrintStyles.footerHeight || '1.5cm',
+                left: processedPrintStyles.pageMargin || '2cm',
+                right: processedPrintStyles.pageMargin || '2cm',
+            } : undefined,
+        };
+
+        let totalPagesText = null;
         if (needsHeaderFooter) {
             const draftBuffer = await page.pdf({
                 ...basePdfOptions,
@@ -610,7 +500,9 @@ async function generatePdf(req, res) {
         if (context) {
             try {
                 await context.close();
-            } catch { /* ignore */ }
+            } catch {
+                // ignore
+            }
         }
     }
 }
