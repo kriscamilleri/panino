@@ -3,24 +3,21 @@
  * ============================================================================
  * PDF GENERATION SERVICE
  * ============================================================================
- * 
- * Converts HTML/CSS content to PDF using Puppeteer + Paged.js for pagination.
- * 
+ *
+ * Converts sanitized HTML/CSS into PDF via Puppeteer.
+ *
  * FLOW:
  * 1. POST /render-pdf with { htmlContent, cssStyles, printStyles }
- * 2. Sanitize HTML/CSS, embed all images as base64 data URIs
- * 3. Build full HTML document with @page CSS rules
- * 4. Load in Puppeteer, run Paged.js for pagination
- * 5. Inject header/footer overlays on each page
- * 6. Generate PDF via page.pdf()
- * 
- * KEY DESIGN DECISIONS:
- * - Images are pre-embedded as base64 because Puppeteer can't fetch from localhost
- * - Single browser instance reused across requests (launching Chrome is slow)
- * - Sequential request processing to avoid memory issues
- * - Paged.js handles complex pagination (@page rules, page breaks, etc.)
- * - Headers/footers injected as DOM overlays after Paged.js runs
- * 
+ * 2. Sanitize HTML/CSS, embed images as data URIs
+ * 3. Build HTML with @page rules and pagebreak helpers
+ * 4. Run a draft pdf pass to resolve total pages for header/footer placeholders
+ * 5. Render final PDF using Puppeteer's displayHeaderFooter templates
+ *
+ * DESIGN NOTES:
+ * - Images are pre-embedded to avoid localhost fetch issues and enforce SSRF checks
+ * - Single browser instance is reused; requests run sequentially to limit memory
+ * - Page numbers use a draft render + pdf-lib count to populate %p/%P tokens
+ *
  * ============================================================================
  */
 
@@ -33,6 +30,7 @@ import fs from 'fs';
 import { promises as dns } from 'dns';
 import { fileURLToPath } from 'url';
 import { getUserDb } from './db.js';
+import { PDFDocument } from 'pdf-lib';
 
 export const pdfRoutes = express.Router();
 
@@ -41,62 +39,142 @@ const purify = DOMPurify(window);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
-// Configuration
 const CONFIG = {
-    EXTERNAL_IMAGE_TIMEOUT: 10000,  // Increased timeout for external images
-    PAGED_JS_TIMEOUT: 120000,       // Increased to 120s for larger/slower documents
-    PAGE_LOAD_TIMEOUT: 60000,       // Increased initial page load timeout
-    MAX_EXTERNAL_IMAGE_SIZE: 5000,  // Increased max size
+    EXTERNAL_IMAGE_TIMEOUT: 10000,
+    PAGE_LOAD_TIMEOUT: 60000,
+    MAX_EXTERNAL_IMAGE_SIZE: 5000,
 };
 
-// Simple logging helper
 const log = (message, ...args) => console.log(`[PDF] ${message}`, ...args);
 const logWarn = (message, ...args) => console.warn(`[PDF] ${message}`, ...args);
 const logError = (message, ...args) => console.error(`[PDF] ${message}`, ...args);
+
+// ============================================================================
+// PRINT STYLE DEFAULTS + HELPERS
+// ============================================================================
+
+const DEFAULTS_PATH = path.join(__dirname, '..', '..', 'poc', 'print-defaults.json');
+
+const FALLBACK_PRINT_STYLES = {
+    h1: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 2.25rem; line-height: 1.15; color: #111827; margin-top: 2.5rem; margin-bottom: 1rem; font-weight: 600;',
+    h2: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 1.75rem; line-height: 1.2; color: #1f2937; margin-top: 2rem; margin-bottom: .75rem; font-weight: 600;',
+    h3: 'font-size: 1.5rem; line-height: 1.25; color: #1f2937; margin-top: 1.5rem; margin-bottom: .5rem; font-weight: 600;',
+    h4: 'font-size: 1.25rem; line-height: 1.3; color: #374151; margin-top: 1.25rem; margin-bottom: .5rem; font-weight: 600;',
+    h5: 'font-size: 1rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; color: #374151;',
+    h6: 'font-size: .875rem; line-height: 1.4; margin-top: 1rem; margin-bottom: .25rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #4b5563;',
+    p: 'margin: 0 0 1rem 0; line-height: 1.55;',
+    ul: 'list-style-type: disc; margin: 0 0 1rem 1.5rem; padding: 0;',
+    ol: 'list-style-type: decimal; margin: 0 0 1rem 1.5rem; padding: 0;',
+    li: 'margin: .25rem 0;',
+    code: 'font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: .1rem .35rem; border-radius: 4px; font-size: .875em; font-variant-ligatures: none;',
+    pre: 'display: block; width: 100%; box-sizing: border-box; font-family: "JetBrains Mono", ui-monospace, monospace; background-color: #f3f4f6; color: #111827; padding: 1rem 1.25rem; border-radius: 8px; overflow: auto; font-size: .875rem; line-height: 1.5; margin: 1.5rem 0; font-variant-ligatures: none;',
+    blockquote: 'margin: 1.5rem 0; padding: .5rem 1rem; border-left: 4px solid #d1d5db; background-color: rgba(209, 213, 219, 0.08);',
+    hr: 'border: 0; border-top: 1px solid #d1d5db; margin: 2rem 0;',
+    em: 'font-style: italic;',
+    strong: 'font-weight: 600;',
+    a: 'color: #2563eb; text-decoration: underline; text-underline-offset: 2px;',
+    img: 'max-width: 100%; height: auto; border-radius: 4px; margin: 1rem 0;',
+    table: 'width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: .875rem;',
+    tr: 'border-bottom: 1px solid #e5e7eb;',
+    th: 'border: 1px solid #d1d5db; background-color: #f3f4f6; padding: .5rem .75rem; text-align: left; font-weight: 600;',
+    td: 'border: 1px solid #d1d5db; padding: .5rem .75rem;',
+    customCSS: `#preview-content, [data-testid="preview-content"] {\n  max-width: 72ch;\n  margin-left: auto;\n  margin-right: auto;\n  font-variant-numeric: proportional-nums;\n}\n/* Un-style code blocks inside <pre> so they inherit the parent's style */\npre > code {\n  background: transparent;\n  padding: 0;\n  border-radius: 0;\n  font-size: 1em;\n}\n`,
+    googleFontFamily: 'Source Sans 3, JetBrains Mono, Playfair Display',
+    printHeaderHtml: 'Professional Document',
+    printFooterHtml: 'Page %p of %P',
+    headerFontSize: '10',
+    headerFontColor: '#666666',
+    headerAlign: 'center',
+    footerFontSize: '10',
+    footerFontColor: '#666666',
+    footerAlign: 'center',
+    headerHeight: '2cm',
+    footerHeight: '2.5cm',
+    pageMargin: '2cm',
+    enablePageNumbers: true,
+};
+
+const EXCLUDE_STYLE_KEYS = new Set([
+    'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
+    'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
+    'footerFontColor', 'footerAlign', 'enablePageNumbers', 'headerHeight',
+    'footerHeight', 'pageMargin', 'pageSize',
+]);
+
+function loadDefaultPrintStyles() {
+    try {
+        const raw = fs.readFileSync(DEFAULTS_PATH, 'utf-8');
+        const parsed = JSON.parse(raw);
+        return { ...FALLBACK_PRINT_STYLES, ...parsed };
+    } catch (err) {
+        logWarn('Falling back to bundled print defaults:', err.message);
+        return { ...FALLBACK_PRINT_STYLES };
+    }
+}
+
+function printStylesToCss(styleMap = {}) {
+    const s = styleMap;
+    let css = '';
+
+    if (s.googleFontFamily) {
+        const families = s.googleFontFamily
+            .split(',')
+            .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
+            .join('&');
+        if (families) {
+            css += `@import url('https://fonts.googleapis.com/css2?${families}&display=swap');\n\n`;
+        }
+    }
+
+    const primaryFont = s.googleFontFamily?.split(',')[0]?.trim()?.replace(/['"]/g, '');
+    if (primaryFont) {
+        css += `body { font-family: "${primaryFont}", sans-serif; }\n\n`;
+    }
+
+    for (const key of Object.keys(s)) {
+        if (!s[key]) continue;
+        if (EXCLUDE_STYLE_KEYS.has(key)) continue;
+        css += `${key} { ${s[key]} }\n`;
+    }
+
+    if (s.customCSS) {
+        css += `\n/* --- Custom CSS --- */\n${s.customCSS}\n`;
+    }
+
+    return css;
+}
+
+const DEFAULT_PRINT_STYLES = loadDefaultPrintStyles();
 
 // ============================================================================
 // IMAGE EMBEDDING
 // ============================================================================
 
 function isPrivateIp(ip) {
-    // Check if IPv6
     if (ip.includes(':')) {
         const normalized = ip.toLowerCase();
-        // Loopback
         if (normalized === '::1') return true;
-        // Unique Local (fc00::/7)
         if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
-        // Link-local (fe80::/10)
         if (normalized.startsWith('fe80')) return true;
         return false;
     }
 
-    // IPv4
     const parts = ip.split('.');
     if (parts.length !== 4) return false;
-    
+
     const first = parseInt(parts[0], 10);
     const second = parseInt(parts[1], 10);
 
-    // 0.0.0.0/8
     if (first === 0) return true;
-    // 127.0.0.0/8 (Loopback)
     if (first === 127) return true;
-    // 10.0.0.0/8 (Private)
     if (first === 10) return true;
-    // 172.16.0.0/12 (Private)
     if (first === 172 && second >= 16 && second <= 31) return true;
-    // 192.168.0.0/16 (Private)
     if (first === 192 && second === 168) return true;
-    // 169.254.0.0/16 (Link-local)
     if (first === 169 && second === 254) return true;
 
     return false;
 }
 
-/**
- * Converts an internal image (stored on disk) to a base64 data URI.
- */
 function getInternalImageAsDataUri(imageId, userId) {
     try {
         const db = getUserDb(userId);
@@ -114,17 +192,13 @@ function getInternalImageAsDataUri(imageId, userId) {
     }
 }
 
-/**
- * Fetches an external image URL and converts to base64 data URI.
- */
 async function fetchExternalImageAsDataUri(urlStr) {
     try {
         const urlObj = new URL(urlStr);
 
-        // SSRF Protection: Resolve hostname and check for private IP
         try {
             const { address } = await dns.lookup(urlObj.hostname);
-            
+
             if (isPrivateIp(address)) {
                 logWarn(`Blocked SSRF attempt to ${urlObj.hostname} (${address})`);
                 throw new Error('SSRF_BLOCKED');
@@ -164,28 +238,20 @@ async function fetchExternalImageAsDataUri(urlStr) {
 
         const arrayBuffer = await response.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        
+
         if (buffer.length / 1024 > CONFIG.MAX_EXTERNAL_IMAGE_SIZE) {
-            logWarn(`Image too large: ${urlStr} (${Math.round(buffer.length/1024)}KB)`);
+            logWarn(`Image too large: ${urlStr} (${Math.round(buffer.length / 1024)}KB)`);
             return null;
         }
 
         return `data:${contentType};base64,${buffer.toString('base64')}`;
     } catch (error) {
         if (error.message === 'SSRF_BLOCKED') throw error;
-        // console.error(`Unexpected error in fetchExternal: ${error.message}`);
         return null;
     }
 }
 
-/**
- * Embeds all images in HTML as base64 data URIs.
- * - Internal images (/images/UUID or /api/images/UUID) are read from disk
- * - External images (https://...) are fetched
- * - Failed images are removed to prevent rendering errors
- */
 async function embedImagesAsDataUri(html, userId) {
-    // Collect all image sources
     const imgRegex = /<img([^>]*)\ssrc=["']([^"']+)["']([^>]*)>/gi;
     const images = [];
     let match;
@@ -209,18 +275,14 @@ async function embedImagesAsDataUri(html, userId) {
         log(`  Image ${i + 1}: ${displaySrc}`);
     });
 
-    // Process each image
     const replacements = await Promise.all(images.map(async (img, idx) => {
         const { fullMatch, beforeSrc, src, afterSrc } = img;
 
-        // Skip already-embedded images
         if (src.startsWith('data:')) {
             log(`  Image ${idx + 1}: Already embedded, skipping`);
             return { original: fullMatch, replacement: fullMatch };
         }
 
-        // Check if it's an internal image
-        // Match /images/UUID or /api/images/UUID (case insensitive)
         const internalMatch = src.match(/\/(?:api\/)?images\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i) ||
             src.match(/\/(?:api\/)?images\/([a-f0-9-]{32,})/i);
         if (internalMatch) {
@@ -231,11 +293,8 @@ async function embedImagesAsDataUri(html, userId) {
                 return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
             }
             log(`  Image ${idx + 1}: Internal lookup ${internalMatch[1]} failed - falling back to external/cleanup`);
-            // Do NOT return here. Fall through to allow external URL verification (SSRF check)
-            // or default handling (removing if unknown).
         }
 
-        // External image
         if (src.startsWith('http://') || src.startsWith('https://')) {
             try {
                 const dataUri = await fetchExternalImageAsDataUri(src);
@@ -244,35 +303,27 @@ async function embedImagesAsDataUri(html, userId) {
                     log(`  Image ${idx + 1}: External fetched (${sizeKB}KB)`);
                     return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
                 }
-                // If fetch failed (but not blocked), we currently keep original.
-                // However, for PDF generation, keeping a failing URL is often worse (timeouts).
-                // But to minimize changes, let's just log.
                 log(`  Image ${idx + 1}: External ${src.substring(0, 50)} FAILED - keeping original`);
                 return { original: fullMatch, replacement: fullMatch };
             } catch (err) {
                 if (err.message === 'SSRF_BLOCKED') {
                     logWarn(`  Image ${idx + 1}: Blocked SSRF - removing image`);
-                    // Replace with a placeholder or empty string to prevent Puppeteer from fetching it
                     return { original: fullMatch, replacement: '<!-- Blocked Image -->' };
                 }
-                // Other errors
-                 log(`  Image ${idx + 1}: External error - keeping original. ${err.message}`);
-                 return { original: fullMatch, replacement: fullMatch };
+                log(`  Image ${idx + 1}: External error - keeping original. ${err.message}`);
+                return { original: fullMatch, replacement: fullMatch };
             }
         }
 
-        // Unknown source type, keep as-is
         log(`  Image ${idx + 1}: Unknown source type, keeping: ${src.substring(0, 50)}`);
         return { original: fullMatch, replacement: fullMatch };
     }));
 
-    // Apply replacements
     let result = html;
     for (const { original, replacement } of replacements) {
         result = result.replace(original, replacement);
     }
 
-    // Check for any remaining non-data-URI images
     const remainingImages = result.match(/<img[^>]*src=["'](?!data:)[^"']+["'][^>]*>/gi) || [];
     if (remainingImages.length > 0) {
         logWarn(`${remainingImages.length} images still have external URLs after processing`);
@@ -348,17 +399,29 @@ pdfRoutes.post('/render-pdf', (req, res) => {
 // PDF GENERATION
 // ============================================================================
 
-/**
- * Maps alignment value to CSS flexbox justify-content.
- */
-function toFlexAlign(align) {
-    const map = { left: 'flex-start', right: 'flex-end', center: 'center' };
-    return map[(align || 'center').toLowerCase()] || 'center';
+function buildHeaderFooterTemplate(html, align, fontSize, color, pageMargin, totalPagesText) {
+    if (!html) return '';
+    const replaced = html
+        .replace(/%P/g, totalPagesText || '<span class="totalPages"></span>')
+        .replace(/%p/g, '<span class="pageNumber"></span>');
+
+    const safeAlign = ['left', 'right', 'center'].includes((align || '').toLowerCase())
+        ? align.toLowerCase()
+        : 'center';
+
+    return `
+        <div style="
+            font-size: ${parseInt(fontSize, 10) || 10}px;
+            color: ${color || '#666'};
+            width: 100%;
+            padding: 0 ${pageMargin || '2cm'};
+            text-align: ${safeAlign};
+        ">
+            ${replaced}
+        </div>
+    `;
 }
 
-/**
- * Builds the complete HTML document for PDF rendering.
- */
 function buildHtmlDocument(content, css, printStyles) {
     const {
         pageSize = 'A4',
@@ -368,7 +431,6 @@ function buildHtmlDocument(content, css, printStyles) {
         googleFontFamily = '',
     } = printStyles;
 
-    // Build Google Fonts link if specified
     let fontsLink = '';
     if (googleFontFamily) {
         const families = googleFontFamily
@@ -398,275 +460,73 @@ function buildHtmlDocument(content, css, printStyles) {
             line-height: 1.6;
             color: #333;
         }
-        ${css}
-        ._pdf-header, ._pdf-footer {
-            position: absolute;
-            left: 0;
-            right: 0;
-            display: flex;
-            align-items: center;
-            pointer-events: none;
-            z-index: 999999;
+        .pagebreak {
+            display: none;
         }
+        .pagebreak + * {
+            break-before: page !important;
+            page-break-before: always !important;
+        }
+        ${css}
     </style>
 </head>
 <body>${content}</body>
 </html>`;
 }
 
-/**
- * Runs Paged.js inside the page to handle pagination.
- * Uses the non-polyfill version so we can control when it runs.
- */
-async function runPagedJs(page) {
-    try {
-        // Add console listener for debugging
-        page.on('console', msg => {
-            const text = msg.text();
-            // Log ALL messages from the page for better debugging if we hit timeouts
-            log('[PageConsole]', text);
-        });
-
-        page.on('pageerror', err => {
-            logError('[PageError]', err.message);
-        });
-
-        // Use the polyfill version but disable auto-run via config
-        // This ensures we have all handlers and polyfills loaded
-        await page.evaluate(() => {
-            window.PagedConfig = { auto: false };
-        });
-
-        // Use a specific older version of the polyfill if latest is problematic
-        // We now bundle it locally to avoid external dependency and reliability issues
-        const pagedJsPath = path.join(__dirname, 'lib', 'paged.polyfill.js');
-        
-        if (fs.existsSync(pagedJsPath)) {
-            log(`Using local Paged.js from: ${pagedJsPath}`);
-            await page.addScriptTag({ path: pagedJsPath });
-        } else {
-            // Fallback to CDN if local file is missing (e.g. inside a minimalistic container build?)
-            const pagedJsUrl = 'https://unpkg.com/pagedjs@0.4.3/dist/paged.polyfill.js';
-            logWarn(`Local Paged.js not found at ${pagedJsPath}, falling back to CDN: ${pagedJsUrl}`);
-            await page.addScriptTag({ url: pagedJsUrl, timeout: 20000 });
-        }
-
-        // Wait a bit for script to initialize
-        await new Promise(r => setTimeout(r, 1000));
-
-        log('Starting Paged.js pagination with timeout', CONFIG.PAGED_JS_TIMEOUT);
-        const success = await page.evaluate((timeout) => {
-            return new Promise((resolve) => {
-                // Check if Paged is loaded
-                if (!window.Paged?.Previewer) {
-                    console.log('[Paged.js] Library not loaded');
-                    resolve(false);
-                    return;
-                }
-
-                console.log('[Paged.js] Initializing Previewer...');
-                const paged = new window.Paged.Previewer();
-
-                // Track progress
-                let pageCount = 0;
-                paged.on('page', (page) => {
-                    pageCount++;
-                    console.log(`[Paged.js] Created page ${pageCount}`);
-                });
-
-                paged.on('rendered', (pages) => {
-                    console.log(`[Paged.js] Rendered ${pages.length} pages total`);
-                });
-
-                const timer = setTimeout(() => {
-                    console.log(`[Paged.js] Timeout reached! Current page count: ${pageCount}`);
-                    // If we have some pages, maybe we can still return something? 
-                    // But for now, let's just resolve false to see it in logs
-                    resolve(pageCount > 0);
-                }, timeout);
-
-                try {
-                    console.log('[Paged.js] Starting preview...');
-                    const content = document.body.innerHTML;
-                    document.body.innerHTML = '';
-
-                    paged.preview(content, [], document.body)
-                        .then(() => {
-                            clearTimeout(timer);
-                            console.log('[Paged.js] Preview finished successfully');
-                            resolve(true);
-                        })
-                        .catch((err) => {
-                            clearTimeout(timer);
-                            console.error('[Paged.js] Preview failed:', err?.message || err);
-                            resolve(false);
-                        });
-                } catch (e) {
-                    clearTimeout(timer);
-                    console.error('[Paged.js] Exception during preview:', e?.message || e);
-                    resolve(false);
-                }
-            });
-        }, CONFIG.PAGED_JS_TIMEOUT);
-
-        return success;
-    } catch (err) {
-        logWarn('Paged.js error:', err.message);
-        return false;
-    }
+async function countPdfPages(buffer) {
+    const doc = await PDFDocument.load(buffer);
+    return doc.getPageCount();
 }
 
-/**
- * Injects header and footer overlays on each page.
- */
-async function injectHeadersFooters(page, printStyles) {
-    const {
-        printHeaderHtml = '',
-        printFooterHtml = '',
-        headerFontSize = '10',
-        headerFontColor = '#666666',
-        headerAlign = 'center',
-        footerFontSize = '10',
-        footerFontColor = '#666666',
-        footerAlign = 'center',
-        hideHeaderOnFirst = false,
-        hideFooterOnFirst = false,
-        hideHeaderOnLast = false,
-        hideFooterOnLast = false,
-        headerHeight = '1.5cm',
-        footerHeight = '1.5cm',
-        headerOffset = '0cm',
-        footerOffset = '0cm',
-    } = printStyles;
-
-    await page.evaluate((config) => {
-        const pages = document.querySelectorAll('.pagedjs_page:not(.pagedjs_blank)');
-        const total = Math.max(1, pages.length);
-
-        function createOverlay(type, pageNum) {
-            const isHeader = type === 'header';
-            const html = isHeader ? config.headerHtml : config.footerHtml;
-            if (!html) return null;
-
-            // Check visibility rules
-            if (isHeader) {
-                if (pageNum === 1 && config.hideHeaderOnFirst) return null;
-                if (pageNum === total && config.hideHeaderOnLast) return null;
-            } else {
-                if (pageNum === 1 && config.hideFooterOnFirst) return null;
-                if (pageNum === total && config.hideFooterOnLast) return null;
-            }
-
-            const el = document.createElement('div');
-            el.className = isHeader ? '_pdf-header' : '_pdf-footer';
-            el.innerHTML = html.replace(/%p/g, pageNum).replace(/%P/g, total);
-
-            el.style.cssText = `
-                position: absolute;
-                left: 0;
-                right: 0;
-                display: flex;
-                align-items: center;
-                justify-content: ${isHeader ? config.headerJustify : config.footerJustify};
-                font-size: ${isHeader ? config.headerFontSize : config.footerFontSize}px;
-                color: ${isHeader ? config.headerColor : config.footerColor};
-                height: ${isHeader ? config.headerHeight : config.footerHeight};
-                ${isHeader ? 'top' : 'bottom'}: 0;
-                transform: translateY(${isHeader ? '-' + config.headerOffset : config.footerOffset});
-                z-index: 999999;
-                pointer-events: none;
-            `;
-
-            return el;
-        }
-
-        // If no pages (Paged.js didn't run), add to body
-        if (pages.length === 0) {
-            document.body.style.position = 'relative';
-            const header = createOverlay('header', 1);
-            const footer = createOverlay('footer', 1);
-            if (header) document.body.appendChild(header);
-            if (footer) document.body.appendChild(footer);
-            return;
-        }
-
-        // Add overlays to each page - append to the pagebox, not the page itself
-        pages.forEach((pageEl, i) => {
-            // Skip if we've already added overlays to this page
-            if (pageEl.querySelector('._pdf-header') || pageEl.querySelector('._pdf-footer')) {
-                return;
-            }
-
-            // Find the pagebox within the page for better positioning
-            const pagebox = pageEl.querySelector('.pagedjs_pagebox') || pageEl;
-            pagebox.style.position = 'relative';
-
-            const header = createOverlay('header', i + 1);
-            const footer = createOverlay('footer', i + 1);
-            if (header) pagebox.appendChild(header);
-            if (footer) pagebox.appendChild(footer);
-        });
-    }, {
-        headerHtml: printHeaderHtml,
-        footerHtml: printFooterHtml,
-        headerFontSize: parseInt(headerFontSize, 10),
-        headerColor: headerFontColor,
-        headerJustify: toFlexAlign(headerAlign),
-        footerFontSize: parseInt(footerFontSize, 10),
-        footerColor: footerFontColor,
-        footerJustify: toFlexAlign(footerAlign),
-        hideHeaderOnFirst,
-        hideFooterOnFirst,
-        hideHeaderOnLast,
-        hideFooterOnLast,
-        headerHeight,
-        footerHeight,
-        headerOffset: headerOffset.replace(/^\+/, ''),
-        footerOffset: footerOffset.replace(/^\+/, ''),
-    });
-}
-
-/**
- * Main PDF generation function.
- */
 async function generatePdf(req, res) {
-    const { htmlContent, cssStyles, printStyles = {} } = req.body;
+    const { htmlContent = '', cssStyles = '', printStyles: incomingPrintStyles = {} } = req.body || {};
     const userId = req.user?.user_id;
 
     if (!userId) {
         return res.status(401).send('Authentication required');
     }
 
-    // Sanitize inputs
-    const cleanHtml = purify.sanitize(htmlContent);
+    const mergedPrintStyles = { ...DEFAULT_PRINT_STYLES, ...incomingPrintStyles };
 
-    // Sanitize header/footer HTML to prevent XSS/injection
-    if (printStyles.printHeaderHtml) {
-        printStyles.printHeaderHtml = purify.sanitize(printStyles.printHeaderHtml);
+    const cleanHtml = purify.sanitize(htmlContent, {
+        ADD_ATTR: ['style'],
+    });
+
+    if (htmlContent.includes('break-after') || htmlContent.includes('pagebreak')) {
+        log('Input HTML contains pagebreak markers');
+        log('Sample: ' + htmlContent.substring(0, 500));
     }
-    if (printStyles.printFooterHtml) {
-        printStyles.printFooterHtml = purify.sanitize(printStyles.printFooterHtml);
+    if (cleanHtml.includes('break-after') || cleanHtml.includes('pagebreak')) {
+        log('Sanitized HTML contains pagebreak markers');
+    } else if (htmlContent.includes('break-after') || htmlContent.includes('pagebreak')) {
+        logWarn('Pagebreak markers were STRIPPED by DOMPurify!');
     }
 
-    // CSS sanitation: don't use DOMPurify for raw CSS strings as it's meant for HTML.
-    // Instead, just ensure we don't break out of the <style> tag.
-    const cleanCss = cssStyles.replace(/<\/style>/gi, '');
+    const processedPrintStyles = { ...mergedPrintStyles };
+
+    if (processedPrintStyles.printHeaderHtml) {
+        processedPrintStyles.printHeaderHtml = purify.sanitize(processedPrintStyles.printHeaderHtml);
+    }
+    if (processedPrintStyles.printFooterHtml) {
+        processedPrintStyles.printFooterHtml = purify.sanitize(processedPrintStyles.printFooterHtml);
+    }
+
+    const cleanCssInput = (cssStyles || '').replace(/<\/style>/gi, '');
+    const cleanCss = cleanCssInput.trim() ? cleanCssInput : printStylesToCss(processedPrintStyles);
 
     if (!cleanHtml) {
         return res.status(400).send('Invalid htmlContent');
     }
 
-    // Embed images in main content
     log('Embedding images in content...');
     const htmlWithImages = await embedImagesAsDataUri(cleanHtml, userId);
 
-    // Support for common page break markers
     const htmlWithPageBreaks = htmlWithImages
-        .replace(/\\pagebreak/g, '<div style="break-after: page; clear: both;"></div>')
-        .replace(/<!--\s*pagebreak\s*-->/g, '<div style="break-after: page; clear: both;"></div>');
+        .replace(/\\pagebreak/g, '<div class="pagebreak" style="break-after: page; page-break-after: always; clear: both;"></div>')
+        .replace(/<!--\s*pagebreak\s*-->/g, '<div class="pagebreak" style="break-after: page; page-break-after: always; clear: both;"></div>')
+        .replace(/---\s*pagebreak\s*---/gi, '<div class="pagebreak" style="break-after: page; page-break-after: always; clear: both;"></div>');
 
-    // Embed images in headers/footers if present
-    const processedPrintStyles = { ...printStyles };
     if (processedPrintStyles.printHeaderHtml) {
         log('Embedding images in header...');
         processedPrintStyles.printHeaderHtml = await embedImagesAsDataUri(processedPrintStyles.printHeaderHtml, userId);
@@ -676,9 +536,23 @@ async function generatePdf(req, res) {
         processedPrintStyles.printFooterHtml = await embedImagesAsDataUri(processedPrintStyles.printFooterHtml, userId);
     }
 
-    // Build document
     const fullHtml = buildHtmlDocument(htmlWithPageBreaks, cleanCss, processedPrintStyles);
 
+    const needsHeaderFooter = Boolean(processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml);
+
+    const basePdfOptions = {
+        format: processedPrintStyles.pageSize || 'A4',
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: needsHeaderFooter ? {
+            top: processedPrintStyles.headerHeight || '1.5cm',
+            bottom: processedPrintStyles.footerHeight || '1.5cm',
+            left: processedPrintStyles.pageMargin || '2cm',
+            right: processedPrintStyles.pageMargin || '2cm',
+        } : undefined,
+    };
+
+    let totalPagesText = null;
     let context = null;
 
     try {
@@ -693,19 +567,40 @@ async function generatePdf(req, res) {
             timeout: CONFIG.PAGE_LOAD_TIMEOUT,
         });
 
-        // Run Paged.js for pagination
-        const pagedSuccess = await runPagedJs(page);
-
-        // Inject headers/footers
-        if (processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml) {
-            await injectHeadersFooters(page, processedPrintStyles);
+        if (needsHeaderFooter) {
+            const draftBuffer = await page.pdf({
+                ...basePdfOptions,
+                displayHeaderFooter: true,
+                headerTemplate: '<span></span>',
+                footerTemplate: '<span></span>',
+            });
+            const totalPages = await countPdfPages(draftBuffer);
+            totalPagesText = String(totalPages);
         }
 
-        // Generate PDF
+        const headerTemplate = needsHeaderFooter ? buildHeaderFooterTemplate(
+            processedPrintStyles.printHeaderHtml,
+            processedPrintStyles.headerAlign,
+            processedPrintStyles.headerFontSize,
+            processedPrintStyles.headerFontColor,
+            processedPrintStyles.pageMargin,
+            totalPagesText,
+        ) : '<span></span>';
+
+        const footerTemplate = needsHeaderFooter ? buildHeaderFooterTemplate(
+            processedPrintStyles.printFooterHtml,
+            processedPrintStyles.footerAlign,
+            processedPrintStyles.footerFontSize,
+            processedPrintStyles.footerFontColor,
+            processedPrintStyles.pageMargin,
+            totalPagesText,
+        ) : '<span></span>';
+
         const pdfBuffer = await page.pdf({
-            format: printStyles.pageSize || 'A4',
-            printBackground: true,
-            preferCSSPageSize: true,
+            ...basePdfOptions,
+            displayHeaderFooter: needsHeaderFooter,
+            headerTemplate,
+            footerTemplate,
         });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'inline; filename=document.pdf');
@@ -719,3 +614,4 @@ async function generatePdf(req, res) {
         }
     }
 }
+
