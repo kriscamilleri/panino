@@ -26,7 +26,7 @@
                     @click="ui.toggleEditor()"
                     data-testid="submenu-view-editor"
                 >
-                    <Edit3 class="w-4 h-4" /><span>Editor</span>
+                    <FilePenLine class="w-4 h-4" /><span>Editor</span>
                 </BaseButton>
 
                 <BaseButton
@@ -336,7 +336,7 @@ import { useDocStore } from '@/store/docStore'
 import BaseButton from '@/components/BaseButton.vue'
 import {
     Folder,
-    Edit3,
+    FilePenLine,
     Eye,
     Palette,
     Bold,
@@ -357,6 +357,7 @@ import {
     Upload,
     Download,
     Printer,
+    Hammer,
     Image as ImageIcon,
     Replace,
     PanelLeftClose,

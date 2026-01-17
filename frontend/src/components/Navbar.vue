@@ -22,7 +22,7 @@
                     data-testid="navbar-editor-button"
                 >
 
-                    <Paintbrush class="md:w-4 md:h-4 w-5 h-5" />
+                    <FilePenLine class="md:w-4 md:h-4 w-5 h-5" />
                     <span class="hidden md:inline">Editor</span>
 
                 </BaseButton>
@@ -34,7 +34,7 @@
                     data-testid="navbar-tools-button"
                 >
 
-                    <FileIcon class="md:w-4 md:h-4 w-5 h-5" />
+                    <Hammer class="md:w-4 md:h-4 w-5 h-5" />
                     <span class="hidden md:inline">Tools</span>
 
                 </BaseButton>
@@ -166,9 +166,9 @@ import BaseButton from '@/components/BaseButton.vue'
 import MobileMenu from './MobileMenu.vue'
 
 import {
-    Paintbrush,
     Layout,
-    FileIcon,
+    FilePenLine,
+    Hammer,
     RefreshCw,
     Info,
     LogIn,
