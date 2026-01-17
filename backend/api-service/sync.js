@@ -165,14 +165,6 @@ router.post('/sync', (req, res, next) => {
                         seq: Number(ch.seq) || 0
                     };
                     
-                    // Try to parse val if it's a JSON string
-                    try {
-                        const parsedVal = JSON.parse(row.val);
-                        row.val = parsedVal;
-                    } catch {
-                        // Leave as-is if not JSON
-                    }
-                    
                     assertBindable(row);
                     insertStmt.run(Object.values(row));
                 }
