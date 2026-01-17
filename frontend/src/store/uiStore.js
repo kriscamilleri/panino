@@ -136,6 +136,14 @@ export const useUiStore = defineStore('uiStore', () => {
         toasts.value = toasts.value.filter(t => t.id !== id);
     }
 
+    // Collapse Documents on mobile
+    function collapseDocumentsOnMobile(isMobileView) {
+        if (isMobileView && showDocuments.value) {
+            showDocuments.value = false;
+            saveSettingsToDB();
+        }
+    }
+
     return {
         // State
         showDocuments, showEditor, showPreview, showStats, showMetadata, editorMenuCollapsed,
@@ -169,5 +177,6 @@ export const useUiStore = defineStore('uiStore', () => {
         closeExportModal: () => showExportModal.value = false,
         addToast,
         removeToast,
+        collapseDocumentsOnMobile,
     };
 });
