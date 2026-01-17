@@ -570,6 +570,10 @@ function insertTable() {
   insertAtCursor(tpl);
 }
 
+function insertPageBreak() {
+  insertAtCursor('\n\\pagebreak\n');
+}
+
 function insertCodeBlock() {
   insertAtCursor('\n```\n\n```\n');
 }
@@ -666,6 +670,7 @@ const insertFormatWrapped = wrapWithRecord(insertFormat);
 const insertListWrapped = wrapWithRecord(insertList);
 const insertLinkWrapped = wrapWithRecord(insertLink);
 const insertTableWrapped = wrapWithRecord(insertTable);
+const insertPageBreakWrapped = wrapWithRecord(insertPageBreak);
 const insertCodeBlockWrapped = wrapWithRecord(insertCodeBlock);
 const insertImagePlaceholderWrapped = wrapWithRecord(insertImagePlaceholder);
 
@@ -679,6 +684,7 @@ const exposedMethods = {
   insertList: insertListWrapped,
   insertLink: insertLinkWrapped,
   insertTable: insertTableWrapped,
+  insertPageBreak: insertPageBreakWrapped,
   insertCodeBlock: insertCodeBlockWrapped,
   insertImagePlaceholder: insertImagePlaceholderWrapped,
 

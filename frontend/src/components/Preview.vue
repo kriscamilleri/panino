@@ -36,7 +36,37 @@ const text = computed(() => {
 
 const renderedHtml = computed(() => {
     const md = docStore.getMarkdownIt()
-    const raw = md.render(text.value || '')
+    const source = text.value || ''
+    const withPageBreaks = source
+        .replace(/\\pagebreak/g, '\n<div class="pagebreak-banner" data-pagebreak="true">Page break</div>\n')
+        .replace(/<!--\s*pagebreak\s*-->/g, '\n<div class="pagebreak-banner" data-pagebreak="true">Page break</div>\n')
+        .replace(/---\s*pagebreak\s*---/gi, '\n<div class="pagebreak-banner" data-pagebreak="true">Page break</div>\n')
+    const raw = md.render(withPageBreaks)
     return DOMPurify.sanitize(raw)
 })
 </script>
+
+<style scoped>
+:deep(.pagebreak-banner) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 2rem 0;
+    width: 100%;
+    color: #6b7280;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    user-select: none;
+    background: #f9fafb;
+    padding: 0.35rem 0.85rem;
+}
+
+:deep(.pagebreak-banner)::before,
+:deep(.pagebreak-banner)::after {
+    content: '';
+    flex: 1 1 auto;
+    height: 1px;
+    background-color: rgba(156, 163, 175, 0.6);
+}
+</style>
