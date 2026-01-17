@@ -39,6 +39,8 @@ onUnmounted(() => window.removeEventListener('resize', handleResize))
 async function applyRouteSelection() {
     if (route.params.fileId) {
         await docStore.selectFile(route.params.fileId)
+        // Auto-collapse Documents pane on mobile when a document is selected
+        ui.collapseDocumentsOnMobile(isMobileView.value)
     } else if (route.params.folderId) {
         docStore.selectFolder(route.params.folderId)
     } else {
