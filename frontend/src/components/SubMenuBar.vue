@@ -114,6 +114,16 @@
                     <span class="button-text">Link</span>
                 </button>
 
+                <button
+                    @click="insertPageBreak"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    title="Insert Page Break"
+                    data-testid="submenu-editor-pagebreak"
+                >
+                    <BookOpen class="w-4 h-4" />
+                    <span class="button-text">Page&nbsp;Break</span>
+                </button>
+
                 <div class="separator"></div>
 
                 <button
@@ -337,6 +347,7 @@ import {
     ListOrdered,
     CheckSquare,
     Link,
+    BookOpen,
     Table,
     Code2,
     BarChart2,
@@ -391,6 +402,9 @@ function insertList(l) {
 }
 function insertLink() {
     editorStore.insertLink()
+}
+function insertPageBreak() {
+    editorStore.insertPageBreak()
 }
 function insertTable() {
     editorStore.insertTable()

@@ -48,6 +48,14 @@ export const useEditorStore = defineStore('editorStore', () => {
         }
     }
 
+    function insertPageBreak() {
+        if (editorRef.value && typeof editorRef.value.insertPageBreak === 'function') {
+            editorRef.value.insertPageBreak()
+        } else {
+            console.warn('Editor not available for insertPageBreak')
+        }
+    }
+
     function insertCodeBlock() {
         if (editorRef.value && typeof editorRef.value.insertCodeBlock === 'function') {
             editorRef.value.insertCodeBlock()
@@ -121,6 +129,7 @@ export const useEditorStore = defineStore('editorStore', () => {
         insertList,
         insertLink,
         insertTable,
+        insertPageBreak,
         insertCodeBlock,
         insertImagePlaceholder,
         uploadImage,
