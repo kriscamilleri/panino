@@ -3,10 +3,14 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { useSyncStore } from './syncStore';
 import { useDocStore } from './docStore';
+import { isTauriApp } from '@/utils/tauriWindow';
 
 // The single, unified API URL
 const isProd = import.meta.env.PROD;
-const API_SERVICE_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
+const fallbackApiUrl = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
+const API_SERVICE_URL = isTauriApp()
+    ? fallbackApiUrl
+    : (isProd ? '/api' : fallbackApiUrl);
 
 export const useAuthStore = defineStore('authStore', () => {
     const token = ref(localStorage.getItem('jwt_token'));

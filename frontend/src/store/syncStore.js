@@ -5,10 +5,27 @@ import initWasm from '@vlcn.io/crsqlite-wasm';
 import wasmUrl from '@vlcn.io/crsqlite-wasm/crsqlite.wasm?url';
 import { useAuthStore } from './authStore';
 import { useDocStore } from './docStore';
+import { isTauriApp } from '@/utils/tauriWindow';
 
 const isProd = import.meta.env.PROD;
-const API_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
-const WS_URL = isProd ? window.location.origin.replace(/^http/, 'ws') + '/ws/' : API_URL.replace(/^http/, 'ws');
+const fallbackApiUrl = import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000';
+const API_URL = isTauriApp()
+  ? fallbackApiUrl
+  : (isProd ? '/api' : fallbackApiUrl);
+const getWsBase = () => {
+  try {
+    const url = new URL(API_URL, window.location.origin);
+    return url.origin.replace(/^http/, 'ws') + '/ws/';
+  } catch {
+    return API_URL.replace(/^http/, 'ws') + '/ws/';
+  }
+};
+
+const WS_URL = isTauriApp()
+  ? getWsBase()
+  : (isProd
+    ? window.location.origin.replace(/^http/, 'ws') + '/ws/'
+    : API_URL.replace(/^http/, 'ws'));
 
 const DB_SCHEMA = `
 PRAGMA foreign_keys = ON;

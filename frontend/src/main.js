@@ -91,6 +91,12 @@ if (window.__TAURI__) {
           updateWindowRadius()
         })
       }
+
+      if (typeof tauriWindow.onWindowEvent === 'function') {
+        tauriWindow.onWindowEvent(() => {
+          updateWindowRadius()
+        })
+      }
     })
     .catch(() => {})
 }

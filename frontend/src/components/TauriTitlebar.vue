@@ -11,7 +11,7 @@
         data-tauri-drag-region="false"
         @click="handleMinimize"
       >
-        <span aria-hidden="true">–</span>
+        <Minus aria-hidden="true" />
       </button>
       <button
         class="tauri-titlebar__btn"
@@ -20,7 +20,7 @@
         data-tauri-drag-region="false"
         @click="handleToggleMaximize"
       >
-        <span aria-hidden="true">{{ maximized ? '❐' : '□' }}</span>
+        <component :is="maximized ? Copy : Square" aria-hidden="true" />
       </button>
       <button
         class="tauri-titlebar__btn tauri-titlebar__btn--close"
@@ -29,7 +29,7 @@
         data-tauri-drag-region="false"
         @click="handleClose"
       >
-        <span aria-hidden="true">×</span>
+        <X aria-hidden="true" />
       </button>
     </div>
   </div>
@@ -37,6 +37,7 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { Minus, Square, Copy, X } from 'lucide-vue-next'
 import { getCurrentTauriWindow } from '@/utils/tauriWindow'
 
 const maximized = ref(false)
@@ -117,6 +118,17 @@ onMounted(async () => {
     unlisten = await tauriWindow.onResized(() => {
       syncMaximized()
     })
+  }
+
+  if (typeof tauriWindow.onWindowEvent === 'function') {
+    const unlistenWindowEvent = await tauriWindow.onWindowEvent(() => {
+      syncMaximized()
+    })
+    const prevUnlisten = unlisten
+    unlisten = () => {
+      if (typeof prevUnlisten === 'function') prevUnlisten()
+      if (typeof unlistenWindowEvent === 'function') unlistenWindowEvent()
+    }
   }
 })
 

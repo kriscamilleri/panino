@@ -16,9 +16,11 @@
     --window-radius: 14px;
     --window-inset: 2px;
     --titlebar-height: 36px;
+    --titlebar-inset: 4px;
     accent-color: var(--app-accent);
     scrollbar-color: var(--app-accent) transparent;
 }
+
 
 @media (prefers-color-scheme: dark) {
     :root {
@@ -43,6 +45,14 @@ body,
     background: transparent;
 }
 
+html.tauri {
+    --window-inset: 12px;
+    --titlebar-inset: 6px;
+    --titlebar-offset: 6px;
+    --titlebar-offset-x-left: 6px;
+    --titlebar-right-gap: -6px;
+}
+
 body {
     margin: 0;
     min-height: 100vh;
@@ -61,9 +71,30 @@ body {
     box-sizing: border-box;
 }
 
+
 html.window-maximized #app {
     border-radius: 0;
     padding: 0;
+    filter: none;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    position: fixed;
+    inset: 0;
+    background: var(--app-bg);
+}
+
+html.window-maximized,
+html.window-maximized body {
+    background: var(--app-bg);
+}
+
+html.window-maximized {
+    --window-inset: 0px;
+    --titlebar-inset: 0px;
+    --titlebar-offset: 0px;
+    --titlebar-offset-x-left: 0px;
+    --titlebar-right-gap: 0px;
 }
 
 .app-frame {
@@ -78,16 +109,29 @@ html.window-maximized #app {
     overflow: hidden;
 }
 
+html.tauri .app-frame::before {
+    content: none;
+}
+
 html.tauri .app-frame {
     padding-top: var(--titlebar-height);
+}
+
+html.tauri #app {
+    filter: drop-shadow(0 5px 12px rgba(0, 0, 0, 0.32))
+        drop-shadow(0 2px 5px rgba(0, 0, 0, 0.2));
 }
 
 .tauri-titlebar {
     display: none;
     position: absolute;
-    top: var(--window-inset);
-    left: var(--window-inset);
-    right: var(--window-inset);
+    top: var(--titlebar-inset);
+    left: var(--titlebar-inset);
+    right: var(--titlebar-right-gap);
+    transform: translate(
+        calc(-1 * var(--titlebar-offset-x-left)),
+        calc(-1 * var(--titlebar-offset))
+    );
     height: var(--titlebar-height);
     display: flex;
     align-items: center;
@@ -102,6 +146,10 @@ html.tauri .app-frame {
 }
 
 html.tauri .tauri-titlebar {
+    right: var(--titlebar-right-gap);
+}
+
+html.tauri .tauri-titlebar {
     display: flex;
 }
 
@@ -110,6 +158,7 @@ html.window-maximized .tauri-titlebar {
     left: 0;
     right: 0;
     top: 0;
+    transform: none;
 }
 
 .tauri-titlebar__drag {
@@ -135,8 +184,8 @@ html.window-maximized .tauri-titlebar {
 }
 
 .tauri-titlebar__btn {
-    width: 28px;
-    height: 24px;
+    width: 30px;
+    height: 26px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -148,6 +197,12 @@ html.window-maximized .tauri-titlebar {
     line-height: 1;
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tauri-titlebar__btn svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2;
 }
 
 .tauri-titlebar__btn:hover {
