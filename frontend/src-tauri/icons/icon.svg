@@ -1,0 +1,5 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Panino">
+  <rect width="256" height="256" rx="48" fill="#1F2937"/>
+  <circle cx="128" cy="128" r="72" fill="#F59E0B"/>
+  <path d="M88 132c12 18 28 28 48 28s36-10 48-28" fill="none" stroke="#111827" stroke-width="14" stroke-linecap="round"/>
+</svg>
