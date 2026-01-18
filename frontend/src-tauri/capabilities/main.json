@@ -1,0 +1,14 @@
+{
+  "identifier": "main-window-controls",
+  "description": "Allow window drag and control buttons for the main webview.",
+  "windows": ["*"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close"
+  ]
+}

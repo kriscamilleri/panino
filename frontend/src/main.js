@@ -5,6 +5,7 @@ import { router } from './router'
 import AppShell from './AppShell.vue'
 import './assets/main.css'
 import { useUiStore } from '@/store/uiStore'
+import { isTauriApp } from '@/utils/tauriWindow'
 
 // Register Service Worker for PWA functionality
 if ('serviceWorker' in navigator) {
@@ -56,8 +57,43 @@ if ('serviceWorker' in navigator) {
 const app = createApp(AppShell)
 const pinia = createPinia()
 
+if (isTauriApp()) {
+  document.documentElement.classList.add('tauri')
+}
+
 app.use(pinia)
 app.use(router)
+
+if (window.__TAURI__) {
+  import('@/utils/tauriWindow')
+    .then(async ({ getCurrentTauriWindow }) => {
+      const tauriWindow = await getCurrentTauriWindow()
+      if (!tauriWindow) return
+
+      const root = document.documentElement
+      const updateWindowRadius = async () => {
+        try {
+          const maximized = await tauriWindow.isMaximized()
+          let fullscreen = false
+          if (typeof tauriWindow.isFullscreen === 'function') {
+            fullscreen = await tauriWindow.isFullscreen()
+          }
+          root.classList.toggle('window-maximized', maximized || fullscreen)
+        } catch {
+          root.classList.remove('window-maximized')
+        }
+      }
+
+      await updateWindowRadius()
+
+      if (typeof tauriWindow.onResized === 'function') {
+        tauriWindow.onResized(() => {
+          updateWindowRadius()
+        })
+      }
+    })
+    .catch(() => {})
+}
 
 // grab your UI store
 const ui = useUiStore()

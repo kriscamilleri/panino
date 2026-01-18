@@ -2,6 +2,162 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+    color-scheme: light dark;
+    font-family: system-ui, "Ubuntu", "Segoe UI", "Noto Sans", "Cantarell", sans-serif;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    --app-bg: #f8fafc;
+    --app-fg: #0f172a;
+    --app-muted: #475569;
+    --app-border: #e2e8f0;
+    --app-accent: #2563eb;
+    --window-radius: 14px;
+    --window-inset: 2px;
+    --titlebar-height: 36px;
+    accent-color: var(--app-accent);
+    scrollbar-color: var(--app-accent) transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --app-bg: #0b1220;
+        --app-fg: #e2e8f0;
+        --app-muted: #94a3b8;
+        --app-border: #1f2937;
+        --app-accent: #60a5fa;
+    }
+}
+
+@media (prefers-contrast: more) {
+    :root {
+        --app-border: currentColor;
+    }
+}
+
+html,
+body,
+#app {
+    height: 100%;
+    background: transparent;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background: transparent;
+    color: var(--app-fg);
+}
+
+#app {
+    min-height: 100%;
+    background: transparent;
+    border-radius: var(--window-radius);
+    overflow: hidden;
+    display: flex;
+    position: relative;
+    padding: var(--window-inset);
+    box-sizing: border-box;
+}
+
+html.window-maximized #app {
+    border-radius: 0;
+    padding: 0;
+}
+
+.app-frame {
+    flex: 1;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 1;
+    background: var(--app-bg);
+    border-radius: inherit;
+    overflow: hidden;
+}
+
+html.tauri .app-frame {
+    padding-top: var(--titlebar-height);
+}
+
+.tauri-titlebar {
+    display: none;
+    position: absolute;
+    top: var(--window-inset);
+    left: var(--window-inset);
+    right: var(--window-inset);
+    height: var(--titlebar-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 8px 0 12px;
+    border-radius: calc(var(--window-radius) - 2px) calc(var(--window-radius) - 2px) 0 0;
+    background: color-mix(in srgb, var(--app-bg) 92%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent);
+    backdrop-filter: blur(10px);
+    z-index: 5;
+}
+
+html.tauri .tauri-titlebar {
+    display: flex;
+}
+
+html.window-maximized .tauri-titlebar {
+    border-radius: 0;
+    left: 0;
+    right: 0;
+    top: 0;
+}
+
+.tauri-titlebar__drag {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.tauri-titlebar__title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--app-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tauri-titlebar__controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tauri-titlebar__btn {
+    width: 28px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--app-fg);
+    font-size: 0.95rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tauri-titlebar__btn:hover {
+    background: color-mix(in srgb, var(--app-border) 50%, transparent);
+}
+
+.tauri-titlebar__btn--close:hover {
+    background: color-mix(in srgb, #ef4444 70%, transparent);
+    color: #fff;
+}
 
 .fade-fast-enter-active,
 .fade-fast-leave-active {

@@ -1,0 +1,33 @@
+{
+  "identifier": "com.panino.desktop",
+  "productName": "Panino",
+  "version": "0.1.0",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "pnpm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Panino",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "transparent": true,
+        "decorations": false,
+        "shadow": true,
+        "backgroundColor": "#00000000"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all"
+  }
+}
