@@ -14,6 +14,7 @@ A browser based, local-first markdown note-taking Progressive Web App (PWA) with
 - 📁 Files and folders 
 - 📱 Responsive web interface
 - ⚡ Lightning-fast offline access
+- 🧩 Front‑matter metadata variables for preview & PDF
 
 ## Technology Stack
 
@@ -38,6 +39,33 @@ Notes are stored locally in SQLite using WebAssembly. The app functions complete
 - StackEdit: Compatible with StackEdit editor
 - ZIP: Markdown files in folder structure
 - SQLite: Raw database export
+
+## Metadata Variables (Front‑Matter)
+
+Panino supports document‑level variables defined in a YAML‑style front‑matter block at the very top of a note. The block is **not rendered** in the preview or PDF. You can reference any variable in the document using `{{ Variable Name }}` and it will be replaced in both preview and print output.
+
+Example:
+
+```markdown
+---
+layout: post
+title: Hit by a Bus
+subtitle: The artful management metaphor
+author: Kris Camilleri
+tags: ['Communication', 'Best practices', 'Artful Management Metaphors']
+timeToRead: 5'30"
+---
+
+# {{ title }}
+
+By {{ author }}
+
+Reading time: {{ timeToRead }}
+```
+
+Global placeholders:
+- `{{ GLOBAL_DATE }}`
+- `{{ GLOBAL_TIME }}`
 
 ## Quick Start
 
