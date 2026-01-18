@@ -240,7 +240,8 @@ async function regeneratePdf() {
 
   try {
     const md = await markdownStore.getPrintMarkdownIt();
-    const rawHtmlContent = md.render(docStore.selectedFileContent);
+    const processedMarkdown = markdownStore.applyMetadataVariables(docStore.selectedFileContent);
+    const rawHtmlContent = md.render(processedMarkdown);
     const htmlContent = DOMPurify.sanitize(rawHtmlContent);
     const cssStyles = markdownStore.printStylesCssString;
 
