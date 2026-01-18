@@ -10,6 +10,67 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
   const syncStore = useSyncStore();
   const authStore = useAuthStore();
 
+  function normalizeVariableName(name) {
+    return (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  function parseFrontMatter(markdown) {
+    if (!markdown) return { metadata: {}, body: '' };
+    const lines = markdown.split(/\r?\n/);
+    let idx = 0;
+    while (idx < lines.length && lines[idx].trim() === '') idx += 1;
+    if (idx >= lines.length || lines[idx].trim() !== '---') {
+      return { metadata: {}, body: markdown };
+    }
+
+    const metadata = {};
+    idx += 1;
+    for (; idx < lines.length; idx += 1) {
+      const line = lines[idx];
+      const trimmed = line.trim();
+      if (trimmed === '---') {
+        idx += 1;
+        break;
+      }
+      if (!trimmed) continue;
+      const match = line.match(/^([^:\n]+?)\s*:\s*(.+)$/);
+      if (match) {
+        const key = match[1].trim();
+        const value = match[2].trim();
+        if (key) metadata[key] = value;
+      }
+    }
+
+    const body = lines.slice(idx).join('\n');
+    return { metadata, body };
+  }
+
+  function extractDocumentMetadata(markdown) {
+    return parseFrontMatter(markdown).metadata;
+  }
+
+  function applyMetadataVariables(markdown) {
+    if (!markdown) return '';
+    const { metadata, body } = parseFrontMatter(markdown);
+    const variableMap = new Map();
+
+    Object.entries(metadata).forEach(([key, value]) => {
+      const normalizedKey = normalizeVariableName(key);
+      if (normalizedKey) variableMap.set(normalizedKey, value);
+    });
+
+    const now = new Date();
+    variableMap.set(normalizeVariableName('GLOBAL_DATE'), now.toLocaleDateString());
+    variableMap.set(normalizeVariableName('GLOBAL_TIME'), now.toLocaleTimeString());
+
+    return body.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, name) => {
+      const normalizedName = normalizeVariableName(name);
+      if (!normalizedName) return match;
+      const value = variableMap.get(normalizedName);
+      return value !== undefined ? value : match;
+    });
+  }
+
   const printStylesCssString = computed(() => {
     const s = printStyles.value;
     let css = '';
@@ -355,6 +416,7 @@ pre > code {
     styles, printStyles,
     updateStyle, updatePrintStyle,
     resetStyles, resetPrintStyles,
-    getMarkdownIt, getPrintMarkdownIt, printStylesCssString
+    getMarkdownIt, getPrintMarkdownIt, printStylesCssString,
+    extractDocumentMetadata, applyMetadataVariables
   };
 });

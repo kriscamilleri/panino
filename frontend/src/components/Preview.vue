@@ -19,10 +19,12 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
+import { useMarkdownStore } from '@/store/markdownStore'
 import DOMPurify from 'dompurify'
 
 const docStore = useDocStore()
 const draftStore = useDraftStore()
+const markdownStore = useMarkdownStore()
 
 // pull the ref directly
 const { selectedFile: file, selectedFileContent } = storeToRefs(docStore)
@@ -36,7 +38,7 @@ const text = computed(() => {
 
 const renderedHtml = computed(() => {
     const md = docStore.getMarkdownIt()
-    const source = text.value || ''
+    const source = markdownStore.applyMetadataVariables(text.value || '')
     const withPageBreaks = source
         .replace(/\\pagebreak/g, '\n<div class="pagebreak-banner" data-pagebreak="true">Page break</div>\n')
         .replace(/<!--\s*pagebreak\s*-->/g, '\n<div class="pagebreak-banner" data-pagebreak="true">Page break</div>\n')
