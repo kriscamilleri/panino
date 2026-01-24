@@ -6,6 +6,8 @@ import AppShell from './AppShell.vue'
 import './assets/main.css'
 import { useUiStore } from '@/store/uiStore'
 
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev'
+
 // Register Service Worker for PWA functionality
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -22,12 +24,13 @@ if ('serviceWorker' in navigator) {
         // Listen for updates
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
+          if (!newWorker) return;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              // New service worker available
-              console.log('[PWA] New version available');
+              console.log('[PWA] New version available, updating...', APP_VERSION);
               const ui = useUiStore();
-              ui.addToast('A new version is available. Refresh to update.', 'info', 10000);
+              ui.addToast('Updating to the latest version...', 'info', 5000);
+              newWorker.postMessage({ type: 'SKIP_WAITING' });
             }
           });
         });
@@ -48,6 +51,10 @@ if ('serviceWorker' in navigator) {
           }
         });
       }
+    });
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
     });
   });
 }

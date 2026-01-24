@@ -158,13 +158,15 @@ setup_ssl
 ################################################################################
 
 echo "Creating production environment file..."
+RELEASE_ID=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 ENV_PATH="$FRONTEND_PATH/.env.production"
 ENV_CONTENT="# Production environment variables
 # Generated for $FULL_DOMAIN
 VITE_API_BASE_URL=$FULL_DOMAIN
 VITE_COUCHDB_PORT=443
 VITE_SIGNUP_PORT=443
-VITE_IMAGE_PORT=443"
+VITE_IMAGE_PORT=443
+VITE_APP_VERSION=$RELEASE_ID"
 
 echo "$ENV_CONTENT" > "$ENV_PATH"
 

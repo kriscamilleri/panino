@@ -10,6 +10,7 @@
     "scripts": {
         "postinstall": "./patch-crsqlite.sh",
         "start": "node index.js",
+        "migrate:globals": "node scripts/migrate-globals.js",
         "test": "vitest run",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage"

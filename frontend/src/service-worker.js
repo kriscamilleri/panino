@@ -1,6 +1,7 @@
 // Service Worker for Panino PWA
-const CACHE_NAME = 'panino-v1';
-const RUNTIME_CACHE = 'panino-runtime-v1';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev';
+const CACHE_NAME = `panino-${APP_VERSION}`;
+const RUNTIME_CACHE = `panino-runtime-${APP_VERSION}`;
 
 // Assets to cache immediately on install
 // Only cache essential files that are guaranteed to exist
