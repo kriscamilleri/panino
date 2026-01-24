@@ -9,6 +9,7 @@
         <ImportModal :show="ui.showImportModal" @close="ui.closeImportModal()" @import-success="handleImportSuccess"
             data-testid="homepage-import-modal" />
         <ExportModal :show="ui.showExportModal" @close="ui.closeExportModal()" data-testid="homepage-export-modal" />
+        <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
     </div>
 </template>
 
@@ -21,6 +22,7 @@ import SidebarWithResizer from '@/components/SidebarWithResizer.vue'
 import ContentArea from '@/components/ContentArea.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
+import VariablesModal from '@/components/VariablesModal.vue'
 import { useUiStore } from '@/store/uiStore'
 import { useDocStore } from '@/store/docStore'
 

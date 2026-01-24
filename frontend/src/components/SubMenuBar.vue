@@ -321,6 +321,13 @@
                 >
                     <Download class="w-4 h-4" /><span>Export</span>
                 </BaseButton>
+
+                <BaseButton
+                    @click="ui.openVariablesModal()"
+                    data-testid="submenu-tools-variables"
+                >
+                    <Braces class="w-4 h-4" /><span>Variables</span>
+                </BaseButton>
             </div>
         </div>
     </transition>
@@ -358,6 +365,7 @@ import {
     Download,
     Printer,
     Hammer,
+    Braces,
     Image as ImageIcon,
     Replace,
     PanelLeftClose,

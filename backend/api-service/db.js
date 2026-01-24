@@ -53,9 +53,18 @@ const BASE_SCHEMA = `
     id TEXT PRIMARY KEY NOT NULL,
     value TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS globals (
+    key TEXT PRIMARY KEY NOT NULL,
+    id TEXT NOT NULL DEFAULT '',
+    value TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    display_key TEXT NOT NULL DEFAULT ''
+  );
 `;
 
-const CRR_TABLES = ['users', 'folders', 'notes', 'images', 'settings'];
+const CRR_TABLES = ['users', 'folders', 'notes', 'images', 'settings', 'globals'];
 
 /**
  * Recursively walk a directory and return all files.
@@ -113,6 +122,89 @@ function ensureCrr(db) {
   }
 }
 
+function ensureGlobalsSchema(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info('globals')").all();
+    if (!columns || columns.length === 0) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS globals (
+          key TEXT PRIMARY KEY NOT NULL,
+          id TEXT NOT NULL DEFAULT '',
+          value TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          display_key TEXT NOT NULL DEFAULT ''
+        )
+      `);
+      db.exec("SELECT crsql_as_crr('globals')");
+      return;
+    }
+
+    const names = new Set(columns.map(c => c.name));
+    const indexes = db.prepare("PRAGMA index_list('globals')").all();
+    const hasExtraUnique = (indexes || []).some(idx => idx?.unique && idx?.origin !== 'pk');
+
+    if (hasExtraUnique) {
+      const selectId = names.has('id') ? 'id' : 'key';
+      const selectCreated = names.has('created_at') ? 'created_at' : "datetime('now')";
+      const selectUpdated = names.has('updated_at') ? 'updated_at' : "datetime('now')";
+      const selectDisplay = names.has('display_key') ? 'display_key' : 'key';
+
+      db.exec('BEGIN');
+      try {
+        db.exec(`
+          CREATE TABLE globals_new (
+            key TEXT PRIMARY KEY NOT NULL,
+            id TEXT NOT NULL DEFAULT '',
+            value TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            display_key TEXT NOT NULL DEFAULT ''
+          )
+        `);
+        db.exec(`
+          INSERT INTO globals_new (key, id, value, created_at, updated_at, display_key)
+          SELECT
+            key,
+            ${selectId} as id,
+            value,
+            ${selectCreated} as created_at,
+            ${selectUpdated} as updated_at,
+            ${selectDisplay} as display_key
+          FROM globals
+        `);
+        db.exec('DROP TABLE globals');
+        db.exec('ALTER TABLE globals_new RENAME TO globals');
+        db.exec("SELECT crsql_as_crr('globals')");
+        db.exec('COMMIT');
+        return;
+      } catch (err) {
+        db.exec('ROLLBACK');
+        throw err;
+      }
+    }
+    if (!names.has('id')) {
+      db.exec("ALTER TABLE globals ADD COLUMN id TEXT NOT NULL DEFAULT ''");
+      db.exec('UPDATE globals SET id = key WHERE id IS NULL');
+    }
+    if (!names.has('created_at')) {
+      db.exec("ALTER TABLE globals ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))");
+      db.exec("UPDATE globals SET created_at = datetime('now') WHERE created_at IS NULL");
+    }
+    if (!names.has('updated_at')) {
+      db.exec("ALTER TABLE globals ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
+      db.exec("UPDATE globals SET updated_at = datetime('now') WHERE updated_at IS NULL");
+    }
+    if (!names.has('display_key')) {
+      db.exec("ALTER TABLE globals ADD COLUMN display_key TEXT NOT NULL DEFAULT ''");
+      db.exec('UPDATE globals SET display_key = key WHERE display_key IS NULL');
+    }
+    db.exec("SELECT crsql_as_crr('globals')");
+  } catch (err) {
+    console.error('[db] Failed to ensure globals schema:', err);
+  }
+}
+
 export function getUserDb(userId) {
   if (dbConnections.has(userId)) return dbConnections.get(userId);
 
@@ -131,6 +223,7 @@ export function getUserDb(userId) {
   }
 
   db.exec(BASE_SCHEMA);
+  ensureGlobalsSchema(db);
   ensureCrr(db);
 
   db.pragma('journal_mode = wal');

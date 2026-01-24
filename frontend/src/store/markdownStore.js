@@ -5,10 +5,12 @@ import MarkdownIt from 'markdown-it'
 import markdownItTaskLists from 'markdown-it-task-lists'
 import { useSyncStore } from './syncStore'
 import { useAuthStore } from './authStore'
+import { useGlobalVariablesStore } from './globalVariablesStore'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
   const syncStore = useSyncStore();
   const authStore = useAuthStore();
+  const globalVariablesStore = useGlobalVariablesStore();
 
   function normalizeVariableName(name) {
     return (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -54,14 +56,18 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
     const { metadata, body } = parseFrontMatter(markdown);
     const variableMap = new Map();
 
+    const now = new Date();
+    variableMap.set(normalizeVariableName('GLOBAL_DATE'), now.toLocaleDateString());
+    variableMap.set(normalizeVariableName('GLOBAL_TIME'), now.toLocaleTimeString());
+
+    globalVariablesStore.globalsMap.forEach((value, key) => {
+      if (key) variableMap.set(key, value);
+    });
+
     Object.entries(metadata).forEach(([key, value]) => {
       const normalizedKey = normalizeVariableName(key);
       if (normalizedKey) variableMap.set(normalizedKey, value);
     });
-
-    const now = new Date();
-    variableMap.set(normalizeVariableName('GLOBAL_DATE'), now.toLocaleDateString());
-    variableMap.set(normalizeVariableName('GLOBAL_TIME'), now.toLocaleTimeString());
 
     return body.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, name) => {
       const normalizedName = normalizeVariableName(name);

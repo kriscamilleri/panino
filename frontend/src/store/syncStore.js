@@ -5,6 +5,7 @@ import initWasm from '@vlcn.io/crsqlite-wasm';
 import wasmUrl from '@vlcn.io/crsqlite-wasm/crsqlite.wasm?url';
 import { useAuthStore } from './authStore';
 import { useDocStore } from './docStore';
+import { useGlobalVariablesStore } from './globalVariablesStore';
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
@@ -17,6 +18,14 @@ CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, 
 CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, folder_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, filename TEXT, mime_type TEXT, path TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY NOT NULL, value TEXT);
+CREATE TABLE IF NOT EXISTS globals (
+  key TEXT PRIMARY KEY NOT NULL,
+  id TEXT NOT NULL DEFAULT '',
+  value TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  display_key TEXT NOT NULL DEFAULT ''
+);
 SELECT crsql_as_crr('users');
 SELECT crsql_as_crr('folders');
 SELECT crsql_as_crr('notes');
@@ -68,6 +77,7 @@ export const useSyncStore = defineStore('syncStore', () => {
 
     db.value = markRaw(await sqlite.value.open(dbName));
     db.value.exec(DB_SCHEMA);
+    await ensureGlobalsSchema();
 
     let siteId = getSiteId();
     if (!siteId) {
@@ -90,6 +100,91 @@ export const useSyncStore = defineStore('syncStore', () => {
     
     // Set up online/offline listeners
     setupOnlineOfflineListeners();
+  }
+
+  async function ensureGlobalsSchema() {
+    if (!db.value) return;
+    try {
+      const columns = await db.value.execO("PRAGMA table_info('globals')");
+      if (!columns || columns.length === 0) {
+        await db.value.exec(`
+          CREATE TABLE IF NOT EXISTS globals (
+            key TEXT PRIMARY KEY NOT NULL,
+             id TEXT NOT NULL DEFAULT '',
+            value TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            display_key TEXT NOT NULL DEFAULT ''
+          )
+        `);
+        await db.value.exec("SELECT crsql_as_crr('globals')");
+        return;
+      }
+
+      const names = new Set((columns || []).map(c => c.name));
+      const indexes = await db.value.execO("PRAGMA index_list('globals')");
+      const hasExtraUnique = (indexes || []).some(idx => idx?.unique && idx?.origin !== 'pk');
+
+      if (hasExtraUnique) {
+        const selectId = names.has('id') ? 'id' : 'key';
+        const selectCreated = names.has('created_at') ? 'created_at' : "datetime('now')";
+        const selectUpdated = names.has('updated_at') ? 'updated_at' : "datetime('now')";
+        const selectDisplay = names.has('display_key') ? 'display_key' : 'key';
+
+        await db.value.exec('BEGIN');
+        try {
+          await db.value.exec(`
+            CREATE TABLE globals_new (
+              key TEXT PRIMARY KEY NOT NULL,
+               id TEXT NOT NULL DEFAULT '',
+              value TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL DEFAULT (datetime('now')),
+              updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+              display_key TEXT NOT NULL DEFAULT ''
+            )
+          `);
+          await db.value.exec(`
+            INSERT INTO globals_new (key, id, value, created_at, updated_at, display_key)
+            SELECT
+              key,
+              ${selectId} as id,
+              value,
+              ${selectCreated} as created_at,
+              ${selectUpdated} as updated_at,
+              ${selectDisplay} as display_key
+            FROM globals
+          `);
+          await db.value.exec('DROP TABLE globals');
+          await db.value.exec('ALTER TABLE globals_new RENAME TO globals');
+          await db.value.exec("SELECT crsql_as_crr('globals')");
+          await db.value.exec('COMMIT');
+          return;
+        } catch (err) {
+          await db.value.exec('ROLLBACK');
+          throw err;
+        }
+      }
+
+      if (!names.has('id')) {
+        await db.value.exec("ALTER TABLE globals ADD COLUMN id TEXT NOT NULL DEFAULT ''");
+        await db.value.exec('UPDATE globals SET id = key WHERE id IS NULL');
+      }
+      if (!names.has('created_at')) {
+        await db.value.exec("ALTER TABLE globals ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))");
+        await db.value.exec("UPDATE globals SET created_at = datetime('now') WHERE created_at IS NULL");
+      }
+      if (!names.has('updated_at')) {
+        await db.value.exec("ALTER TABLE globals ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
+        await db.value.exec("UPDATE globals SET updated_at = datetime('now') WHERE updated_at IS NULL");
+      }
+      if (!names.has('display_key')) {
+        await db.value.exec("ALTER TABLE globals ADD COLUMN display_key TEXT NOT NULL DEFAULT ''");
+        await db.value.exec('UPDATE globals SET display_key = key WHERE display_key IS NULL');
+      }
+      await db.value.exec("SELECT crsql_as_crr('globals')");
+    } catch (err) {
+      console.error('[syncStore] Failed to ensure globals schema', err);
+    }
   }
 
   function setupOnlineOfflineListeners() {
@@ -169,7 +264,7 @@ export const useSyncStore = defineStore('syncStore', () => {
       console.log('[Sync] Skipping sync - offline');
       return;
     }
-    
+
     isSyncing.value = true;
     try {
       const myClock = getClock();
@@ -241,6 +336,7 @@ export const useSyncStore = defineStore('syncStore', () => {
         }
 
         useDocStore().refreshData();
+        useGlobalVariablesStore().loadGlobals();
       }
 
       setClock(newClock ?? myClock);
@@ -312,7 +408,7 @@ export const useSyncStore = defineStore('syncStore', () => {
     isInitialized, syncEnabled, isSyncing, isOnline,
     db: { get value() { return db.value; } },
     execute, initializeDB, resetDatabase,
-    sync, setSyncEnabled,
+    sync, setSyncEnabled, ensureGlobalsSchema,
     connectWebSocket, disconnectWebSocket,
   };
 });
