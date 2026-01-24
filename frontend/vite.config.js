@@ -1,11 +1,15 @@
 // vite.config.js
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 import fs from 'fs'
 
-export default defineConfig({
-  plugins: [
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const appVersion = env.VITE_APP_VERSION || 'dev'
+
+  return {
+    plugins: [
     vue(),
     // Custom plugin to copy service worker in dev mode
     {
@@ -19,7 +23,11 @@ export default defineConfig({
               path.resolve(__dirname, 'src/service-worker.js'),
               'utf-8'
             );
-            res.end(swContent);
+            const replaced = swContent.replace(
+              'import.meta.env.VITE_APP_VERSION',
+              JSON.stringify(appVersion)
+            );
+            res.end(replaced);
           } else {
             next();
           }
@@ -30,38 +38,44 @@ export default defineConfig({
         const swSource = path.resolve(__dirname, 'src/service-worker.js');
         const swDest = path.resolve(__dirname, 'dist/service-worker.js');
         if (fs.existsSync(swSource)) {
-          fs.copyFileSync(swSource, swDest);
+          const swContent = fs.readFileSync(swSource, 'utf-8');
+          const replaced = swContent.replace(
+            'import.meta.env.VITE_APP_VERSION',
+            JSON.stringify(appVersion)
+          );
+          fs.writeFileSync(swDest, replaced);
           console.log('✓ Service worker copied to dist/');
         }
       }
     }
-  ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  // Required for cr-sqlite to use SharedArrayBuffer
-  optimizeDeps: {
-    exclude: ["@vlcn.io/crsqlite-wasm"]
-  },
-  server: {
-    host: true, // For Docker
-    port: 5173,
-    strictPort: true,
-    headers: {
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
-      "Service-Worker-Allowed": "/",
-    },
-  },
-  publicDir: 'public',
-  build: {
-    outDir: 'dist',
-    rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, 'index.html'),
+    ],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, './src'),
       },
     },
-  },
+    // Required for cr-sqlite to use SharedArrayBuffer
+    optimizeDeps: {
+      exclude: ["@vlcn.io/crsqlite-wasm"]
+    },
+    server: {
+      host: true, // For Docker
+      port: 5173,
+      strictPort: true,
+      headers: {
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Embedder-Policy": "require-corp",
+        "Service-Worker-Allowed": "/",
+      },
+    },
+    publicDir: 'public',
+    build: {
+      outDir: 'dist',
+      rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+        },
+      },
+    },
+  }
 })
