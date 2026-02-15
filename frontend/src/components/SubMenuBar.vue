@@ -272,6 +272,24 @@
                     <span class="button-text">Info</span>
                 </BaseButton>
 
+                <BaseButton
+                    :isActive="ui.scrollSync"
+                    @click="ui.toggleScrollSync()"
+                    data-testid="submenu-editor-scroll-sync"
+                    title="Sync Editor & Preview Scroll"
+                    class="text-sm"
+                >
+                    <LockKeyhole
+                        v-if="ui.scrollSync"
+                        class="w-4 h-4"
+                    />
+                    <UnlockKeyhole
+                        v-else
+                        class="w-4 h-4"
+                    />
+                    <span class="button-text">Scroll&nbsp;Sync</span>
+                </BaseButton>
+
                 <div class="separator"></div>
 
                 <BaseButton
@@ -374,6 +392,8 @@ import {
     ToggleRight,
     Undo,
     Redo,
+    LockKeyhole,
+    UnlockKeyhole,
 } from 'lucide-vue-next'
 
 const ui = useUiStore()

@@ -35,6 +35,7 @@
                 <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
                     <template v-if="ui.showEditor">
                         <div
+                            ref="editorPaneRef"
                             :class="{
                                 'h-1/2': isMobileView && ui.showPreview,
                                 'h-full': isMobileView && !ui.showPreview,
@@ -59,6 +60,7 @@
 
                     <div
                         v-if="ui.showPreview"
+                        ref="previewPaneRef"
                         :class="{
                             'h-1/2': isMobileView && ui.showEditor,
                             'h-full': isMobileView && !ui.showEditor,
@@ -78,7 +80,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, onUnmounted, watch, nextTick } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import FolderPreview from '@/components/FolderPreview.vue'
@@ -102,6 +104,75 @@ const isResizing = ref(false)
 const startX = ref(0)
 const startWidth = ref(0)
 const editorRef = ref(null)
+
+// Scroll sync
+const editorPaneRef = ref(null)
+const previewPaneRef = ref(null)
+let isSyncingScroll = false
+
+function getEditorScrollEl() {
+    return editorPaneRef.value?.querySelector('.overflow-y-auto')
+}
+
+function getPreviewScrollEl() {
+    return previewPaneRef.value?.querySelector('.overflow-y-auto')
+}
+
+function onEditorScroll() {
+    if (!ui.scrollSync || isSyncingScroll) return
+    const src = getEditorScrollEl()
+    const dst = getPreviewScrollEl()
+    if (!src || !dst) return
+    const maxScroll = src.scrollHeight - src.clientHeight
+    if (maxScroll <= 0) return
+    const ratio = src.scrollTop / maxScroll
+    isSyncingScroll = true
+    dst.scrollTop = ratio * (dst.scrollHeight - dst.clientHeight)
+    requestAnimationFrame(() => { isSyncingScroll = false })
+}
+
+function onPreviewScroll() {
+    if (!ui.scrollSync || isSyncingScroll) return
+    const src = getPreviewScrollEl()
+    const dst = getEditorScrollEl()
+    if (!src || !dst) return
+    const maxScroll = src.scrollHeight - src.clientHeight
+    if (maxScroll <= 0) return
+    const ratio = src.scrollTop / maxScroll
+    isSyncingScroll = true
+    dst.scrollTop = ratio * (dst.scrollHeight - dst.clientHeight)
+    requestAnimationFrame(() => { isSyncingScroll = false })
+}
+
+function attachScrollListeners() {
+    detachScrollListeners()
+    const editorEl = getEditorScrollEl()
+    const previewEl = getPreviewScrollEl()
+    if (editorEl) editorEl.addEventListener('scroll', onEditorScroll, { passive: true })
+    if (previewEl) previewEl.addEventListener('scroll', onPreviewScroll, { passive: true })
+}
+
+function detachScrollListeners() {
+    const editorEl = getEditorScrollEl()
+    const previewEl = getPreviewScrollEl()
+    if (editorEl) editorEl.removeEventListener('scroll', onEditorScroll)
+    if (previewEl) previewEl.removeEventListener('scroll', onPreviewScroll)
+}
+
+// Re-attach listeners whenever scroll sync or pane visibility changes
+watch(
+    () => [ui.scrollSync, ui.showEditor, ui.showPreview],
+    () => {
+        nextTick(() => {
+            if (ui.scrollSync && ui.showEditor && ui.showPreview) {
+                attachScrollListeners()
+            } else {
+                detachScrollListeners()
+            }
+        })
+    },
+    { immediate: true }
+)
 
 function startEditorResize(event) {
     if (props.isMobileView) return
@@ -158,5 +229,6 @@ function getContentContainer() {
 onUnmounted(() => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
+    detachScrollListeners()
 })
 </script>

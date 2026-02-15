@@ -15,6 +15,7 @@ export const useUiStore = defineStore('uiStore', () => {
     const showStats = ref(false);
     const showMetadata = ref(false);
     const editorMenuCollapsed = ref(false);
+    const scrollSync = ref(false);
 
     // Menu visibility (transient, not persisted)
     const showViewMenu = ref(false);
@@ -48,6 +49,7 @@ export const useUiStore = defineStore('uiStore', () => {
             showStats: showStats.value,
             showMetadata: showMetadata.value,
             editorMenuCollapsed: editorMenuCollapsed.value,
+            scrollSync: scrollSync.value,
         };
         try {
             await syncStore.execute(
@@ -73,6 +75,7 @@ export const useUiStore = defineStore('uiStore', () => {
                 showStats.value = settings.showStats ?? false;
                 showMetadata.value = settings.showMetadata ?? false;
                 editorMenuCollapsed.value = settings.editorMenuCollapsed ?? false;
+                scrollSync.value = settings.scrollSync ?? false;
             } else {
                 resetToDefaults();
             }
@@ -91,6 +94,7 @@ export const useUiStore = defineStore('uiStore', () => {
         showStats.value = false;
         showMetadata.value = false;
         editorMenuCollapsed.value = false;
+        scrollSync.value = false;
     }
 
     // Load settings when the DB is ready or when the user changes
@@ -147,7 +151,7 @@ export const useUiStore = defineStore('uiStore', () => {
 
     return {
         // State
-        showDocuments, showEditor, showPreview, showStats, showMetadata, editorMenuCollapsed,
+        showDocuments, showEditor, showPreview, showStats, showMetadata, editorMenuCollapsed, scrollSync,
         showViewMenu, showActionBar, showFileMenu,
         showImportModal, showExportModal, showVariablesModal, toasts,
 
@@ -161,6 +165,7 @@ export const useUiStore = defineStore('uiStore', () => {
         toggleStats: () => toggleAndSave(showStats),
         toggleMetadata: () => toggleAndSave(showMetadata),
         toggleEditorMenuCollapsed: () => toggleAndSave(editorMenuCollapsed),
+        toggleScrollSync: () => toggleAndSave(scrollSync),
 
         toggleViewMenu: () => toggleMenu(showViewMenu),
         toggleActionBar: () => toggleMenu(showActionBar),
