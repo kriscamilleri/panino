@@ -233,6 +233,25 @@ export function getUserDb(userId) {
   return db;
 }
 
+export function getUserDbSizeBytes(userId) {
+  if (!userId) return 0;
+
+  const dbPath = path.join(DB_DIR, `${userId}.db`);
+  const walPath = `${dbPath}-wal`;
+  const shmPath = `${dbPath}-shm`;
+
+  return [dbPath, walPath, shmPath].reduce((total, filePath) => {
+    try {
+      if (fs.existsSync(filePath)) {
+        return total + fs.statSync(filePath).size;
+      }
+    } catch (error) {
+      console.error(`[db] Failed to read file size for ${filePath}:`, error);
+    }
+    return total;
+  }, 0);
+}
+
 const AUTH_SCHEMA = `
   PRAGMA foreign_keys = ON;
   CREATE TABLE IF NOT EXISTS users (

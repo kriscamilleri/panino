@@ -43,6 +43,9 @@ describe('GET /me', () => {
         expect(response.body).toHaveProperty('id', testUser.userId);
         expect(response.body).toHaveProperty('email', testUser.email);
         expect(response.body).toHaveProperty('name');
+        expect(response.body).toHaveProperty('database_size_bytes');
+        expect(typeof response.body.database_size_bytes).toBe('number');
+        expect(response.body.database_size_bytes).toBeGreaterThanOrEqual(0);
     });
 
     it('should not return the password hash', async () => {

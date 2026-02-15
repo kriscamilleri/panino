@@ -20,6 +20,10 @@
                     <strong class="block text-gray-800">Member since</strong>
                     <span class="text-gray-600">{{ new Date(user.created_at).toLocaleDateString() }}</span>
                 </div>
+                <div>
+                    <strong class="block text-gray-800">Database size</strong>
+                    <span class="text-gray-600">{{ formatBytes(user.database_size_bytes) }}</span>
+                </div>
             </div>
             <div v-else class="text-gray-500">
                 Could not load profile information.
@@ -43,6 +47,27 @@ import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 const authStore = useAuthStore();
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
+
+function formatBytes(value) {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) {
+        return 'Unknown';
+    }
+    if (bytes < 1024) {
+        return `${bytes} B`;
+    }
+
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let unitIndex = -1;
+    let formattedValue = bytes;
+
+    do {
+        formattedValue /= 1024;
+        unitIndex += 1;
+    } while (formattedValue >= 1024 && unitIndex < units.length - 1);
+
+    return `${formattedValue.toFixed(formattedValue >= 10 || unitIndex === 0 ? 1 : 2)} ${units[unitIndex]}`;
+}
 
 onMounted(async () => {
     try {

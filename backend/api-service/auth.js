@@ -2,7 +2,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { getAuthDb } from './db.js';
+import { getAuthDb, getUserDbSizeBytes } from './db.js';
 
 export const authRoutes = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
@@ -94,7 +94,11 @@ authRoutes.get('/me', authenticateToken, (req, res) => {
         const db = getAuthDb();
         const user = db.prepare('SELECT id, email, name, created_at FROM users WHERE id = ?').get(req.user.user_id);
         if (!user) return res.status(404).json({ error: 'User not found' });
-        res.json(user);
+
+        res.json({
+            ...user,
+            database_size_bytes: getUserDbSizeBytes(req.user.user_id)
+        });
     } catch (error) {
         console.error('Get me error:', error);
         res.status(500).json({ error: 'Internal server error' });
