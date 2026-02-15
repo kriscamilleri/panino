@@ -24,8 +24,8 @@
             </div>
 
             <div class="px-6 py-4 flex-1 overflow-y-auto">
-                <p class="text-sm text-gray-600 mb-6">Choose an export format. All your notes and folders will be
-                    included in the export.</p>
+                <p class="text-sm text-gray-600 mb-6">Choose an export format. All your notes, folders, images,
+                    settings, and variables will be included in the export.</p>
 
                 <div class="space-y-4">
                     <button
@@ -36,8 +36,8 @@
                         <FileJson class="w-8 h-8 text-gray-500" />
                         <div>
                             <p class="font-semibold text-gray-800">Panino JSON</p>
-                            <p class="text-sm text-gray-500">A single JSON file containing all your notes and folders.
-                                Ideal for backups or migrating to another Panino instance.</p>
+                            <p class="text-sm text-gray-500">A single JSON file containing all your notes, folders,
+                                images, settings, and variables. Ideal for full backups or migrating to another Panino instance.</p>
                         </div>
                     </button>
 
@@ -63,7 +63,7 @@
                         <div>
                             <p class="font-semibold text-gray-800">Markdown Files (.zip)</p>
                             <p class="text-sm text-gray-500">A ZIP archive containing all your notes as individual `.md`
-                                files, organized in their respective folders.</p>
+                                files, organized in their respective folders, plus images and settings.</p>
                         </div>
                     </button>
                 </div>
@@ -125,7 +125,7 @@ async function handleExport(format) {
                 await exportZip();
                 break;
         }
-        uiStore.addToast(`Exported as ${format.toUpperCase()} successfully!`);
+        uiStore.addToast(`Exported as ${format.toUpperCase()} successfully!`, 'success');
     } catch (err) {
         console.error(`Failed to export as ${format}:`, err);
         error.value = `Failed to export as ${format.toUpperCase()}: ${err.message}`;
