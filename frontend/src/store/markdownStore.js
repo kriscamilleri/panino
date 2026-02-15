@@ -422,6 +422,7 @@ pre > code {
     styles, printStyles,
     updateStyle, updatePrintStyle,
     resetStyles, resetPrintStyles,
+    loadStylesFromDB,
     getMarkdownIt, getPrintMarkdownIt, printStylesCssString,
     extractDocumentMetadata, applyMetadataVariables
   };
