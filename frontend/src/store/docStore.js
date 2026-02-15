@@ -6,6 +6,7 @@ import { useStructureStore } from './structureStore';
 import { useMarkdownStore } from './markdownStore';
 import { useSyncStore } from './syncStore';
 import { useImportExportStore } from './importExportStore';
+import { normalizeRecentDocument } from '../utils/recentDocuments.js';
 
 export const useDocStore = defineStore('docStore', () => {
     const structureStore = useStructureStore();
@@ -54,11 +55,42 @@ export const useDocStore = defineStore('docStore', () => {
     }
 
     async function getRecentDocuments(limit = 10) {
-        const query = `SELECT id, title as name, updated_at as displayedDate FROM notes ORDER BY updated_at DESC LIMIT ?`;
+        const query = `
+            WITH RECURSIVE folder_paths AS (
+                SELECT
+                    id,
+                    parent_id,
+                    name,
+                    name AS path
+                FROM folders
+                WHERE parent_id IS NULL
+
+                UNION ALL
+
+                SELECT
+                    child.id,
+                    child.parent_id,
+                    child.name,
+                    folder_paths.path || ' / ' || child.name AS path
+                FROM folders AS child
+                JOIN folder_paths ON folder_paths.id = child.parent_id
+            )
+
+            SELECT
+                notes.id,
+                notes.title,
+                notes.content,
+                notes.updated_at,
+                notes.created_at,
+                COALESCE(folder_paths.path, 'Root') AS folderPath
+            FROM notes
+            LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
+            ORDER BY datetime(notes.updated_at) DESC
+            LIMIT ?
+        `;
         try {
-            // CORRECTED: The result is the array itself
             const results = await syncStore.execute(query, [limit]);
-            return results || [];
+            return (results || []).map(normalizeRecentDocument);
         } catch (error) {
             console.error('Failed to get recent documents:', error);
             return [];
