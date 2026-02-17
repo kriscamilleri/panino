@@ -5,12 +5,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { createRequire } from 'module';
+import { spawnSync } from 'child_process';
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, 'data');
 
 const dbConnections = new Map();
+let crsqliteInstallAttempted = false;
 
 const BASE_SCHEMA = `
   PRAGMA foreign_keys = ON;
@@ -46,6 +48,8 @@ const BASE_SCHEMA = `
     filename TEXT,
     mime_type TEXT,
     path TEXT,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    sha256 TEXT NOT NULL DEFAULT '',
     created_at TEXT
   );
 
@@ -65,6 +69,31 @@ const BASE_SCHEMA = `
 `;
 
 const CRR_TABLES = ['users', 'folders', 'notes', 'images', 'settings', 'globals'];
+
+function ensureImagesSchema(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info('images')").all();
+    if (!columns || columns.length === 0) {
+      return;
+    }
+
+    const names = new Set(columns.map((column) => column.name));
+
+    if (!names.has('size_bytes')) {
+      db.exec("ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0");
+      db.exec('UPDATE images SET size_bytes = 0 WHERE size_bytes IS NULL');
+    }
+
+    if (!names.has('sha256')) {
+      db.exec("ALTER TABLE images ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''");
+      db.exec("UPDATE images SET sha256 = '' WHERE sha256 IS NULL");
+    }
+
+    db.exec("SELECT crsql_as_crr('images')");
+  } catch (err) {
+    console.error('[db] Failed to ensure images schema:', err);
+  }
+}
 
 /**
  * Recursively walk a directory and return all files.
@@ -96,9 +125,36 @@ function resolveCrsqlitePath() {
     );
   }
 
-  const candidates = walk(pkgDir).filter((p) =>
+  const findCandidates = () => walk(pkgDir).filter((p) =>
     /crsqlite\.(node|so|dylib|dll)$/.test(p)
   );
+
+  let candidates = findCandidates();
+
+  if (candidates.length === 0 && !crsqliteInstallAttempted) {
+    crsqliteInstallAttempted = true;
+    try {
+      const installHelperPath = path.join(pkgDir, 'nodejs-install-helper.js');
+      if (fs.existsSync(installHelperPath)) {
+        const install = spawnSync(process.execPath, [installHelperPath], {
+          cwd: pkgDir,
+          stdio: 'pipe',
+        });
+
+        if (install.status !== 0) {
+          const errorOutput = [install.stdout?.toString(), install.stderr?.toString()]
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+          console.warn('[db] Failed to auto-install crsqlite binary:', errorOutput || 'unknown error');
+        }
+
+        candidates = findCandidates();
+      }
+    } catch (error) {
+      console.warn('[db] Error while attempting to auto-install crsqlite binary:', error);
+    }
+  }
 
   if (candidates.length > 0) {
     // Prefer Release over Debug if both exist
@@ -223,6 +279,7 @@ export function getUserDb(userId) {
   }
 
   db.exec(BASE_SCHEMA);
+  ensureImagesSchema(db);
   ensureGlobalsSchema(db);
   ensureCrr(db);
 
@@ -288,6 +345,17 @@ export function initDb() {
   console.log('Authentication database initialized.');
 }
 
+export function listUserDbIds() {
+  if (!fs.existsSync(DB_DIR)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(DB_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.db') && entry.name !== '_users.db')
+    .map((entry) => entry.name.slice(0, -3));
+}
+
 /**
  * Close all database connections
  */
@@ -338,6 +406,7 @@ export function getTestDb(userId, options = {}) {
   }
 
   db.exec(BASE_SCHEMA);
+  ensureImagesSchema(db);
   ensureCrr(db);
 
   db.pragma('journal_mode = wal');

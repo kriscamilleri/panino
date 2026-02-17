@@ -41,9 +41,12 @@ const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 const CONFIG = {
     EXTERNAL_IMAGE_TIMEOUT: 10000,
-    PAGE_LOAD_TIMEOUT: 60000,
+    PAGE_LOAD_TIMEOUT: 10000,
     MAX_EXTERNAL_IMAGE_SIZE: 5000,
 };
+const ENABLE_REMOTE_FONTS = process.env.PDF_DISABLE_REMOTE_FONTS === '1'
+    ? false
+    : process.env.NODE_ENV !== 'test';
 
 const log = (message, ...args) => console.log(`[PDF] ${message}`, ...args);
 const logWarn = (message, ...args) => console.warn(`[PDF] ${message}`, ...args);
@@ -116,7 +119,7 @@ function printStylesToCss(styleMap = {}) {
     const s = styleMap;
     let css = '';
 
-    if (s.googleFontFamily) {
+    if (ENABLE_REMOTE_FONTS && s.googleFontFamily) {
         const families = s.googleFontFamily
             .split(',')
             .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)
@@ -432,7 +435,7 @@ function buildHtmlDocument(content, css, printStyles) {
     } = printStyles;
 
     let fontsLink = '';
-    if (googleFontFamily) {
+    if (ENABLE_REMOTE_FONTS && googleFontFamily) {
         const families = googleFontFamily
             .split(',')
             .map(f => `family=${encodeURIComponent(f.trim())}:wght@400;600;700`)

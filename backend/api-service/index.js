@@ -11,7 +11,7 @@ import { URL } from 'url';
 
 import { authRoutes, authenticateToken } from './auth.js';
 import { syncRoutes } from './sync.js';
-import { imageRoutes } from './image.js';
+import { imageRoutes, startImageOrphanPruneJob } from './image.js';
 import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
@@ -24,6 +24,7 @@ if (!fs.existsSync(dataDir)) {
 }
 
 initDb();
+startImageOrphanPruneJob();
 
 const PORT = process.env.PORT || 8000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';

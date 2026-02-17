@@ -1,15 +1,61 @@
-FROM node:20-alpine
+FROM node:20-bookworm-slim
 
-# Install build tools required for native modules
-RUN apk add --no-cache python3 make g++
+# Native build deps (crsqlite) + runtime deps needed by backend test suite (including PDF tests)
+RUN apt-get update -o Acquire::Retries=5 \
+	&& apt-get install -y --no-install-recommends \
+		ca-certificates \
+		fonts-liberation \
+		libasound2 \
+		libatk-bridge2.0-0 \
+		libatk1.0-0 \
+		libcairo2 \
+		libcups2 \
+		libdbus-1-3 \
+		libexpat1 \
+		libfontconfig1 \
+		libgbm1 \
+		libglib2.0-0 \
+		libgtk-3-0 \
+		libnspr4 \
+		libnss3 \
+		libpango-1.0-0 \
+		libpangocairo-1.0-0 \
+		libstdc++6 \
+		libx11-6 \
+		libx11-xcb1 \
+		libxcb1 \
+		libxcomposite1 \
+		libxcursor1 \
+		libxdamage1 \
+		libxext6 \
+		libxfixes3 \
+		libxi6 \
+		libxrandr2 \
+		libxrender1 \
+		libxss1 \
+		libxtst6 \
+		lsb-release \
+		wget \
+		xdg-utils \
+		build-essential \
+		python3 \
+		pkg-config \
+		libsqlite3-dev \
+		git \
+		unzip \
+	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+ENV PYTHON=/usr/bin/python3
+
 # Copy package files
 COPY package*.json ./
+COPY patch-crsqlite.sh ./
 
-# Install dependencies (this will compile native modules)
-RUN npm ci
+# Install dependencies and ensure CR-SQLite native extension is available for tests
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+	&& npm rebuild @vlcn.io/crsqlite --build-from-source
 
 # Copy application code
 COPY . .

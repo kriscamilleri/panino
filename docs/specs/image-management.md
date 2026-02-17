@@ -157,7 +157,7 @@ Response `200`:
 
 ## Upload Rules (tightened)
 For `POST /images`:
-- Keep max size 10MB.
+- Keep max size 1MB.
 - Enforce MIME allowlist: `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/svg+xml`.
 - Validate stored file extension against accepted MIME mapping.
 - Record `size_bytes` and `sha256` at upload time.
@@ -239,7 +239,11 @@ For `POST /images`:
    - Bounded batch behavior works across runs.
 
 ## Open Questions
-- Should deletion of in-use images require explicit typed confirmation in UI?
+- Should deletion of in-use images require explicit typed confirmation in UI? 
+NO.
 - Should v1 include hard quota enforcement or only visibility metrics?
+VISIBILITY.
 - Should image usage matching include absolute URLs to same host in addition to relative `/images/:id` patterns?
+NO.
 - Should ZIP import be added in this same milestone to better pair with image management?
+NO.
