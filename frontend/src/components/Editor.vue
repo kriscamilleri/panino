@@ -582,6 +582,18 @@ function insertImagePlaceholder() {
   insertAtCursor('![Alt text](url)');
 }
 
+function insertImagesFromLibrary(images) {
+  if (!Array.isArray(images) || images.length === 0) return;
+
+  const markdown = images
+    .filter((image) => image?.imageUrl)
+    .map((image) => `![${image.filename || 'Image'}](${image.imageUrl})`)
+    .join('\n');
+
+  if (!markdown) return;
+  insertAtCursor(`${markdown}\n`);
+}
+
 /* ───── find / replace ───── */
 function findNext(term) {
   if (!term?.trim()) return;
@@ -673,6 +685,7 @@ const insertTableWrapped = wrapWithRecord(insertTable);
 const insertPageBreakWrapped = wrapWithRecord(insertPageBreak);
 const insertCodeBlockWrapped = wrapWithRecord(insertCodeBlock);
 const insertImagePlaceholderWrapped = wrapWithRecord(insertImagePlaceholder);
+const insertImagesFromLibraryWrapped = wrapWithRecord(insertImagesFromLibrary);
 
 // Helper wrappers for button enabling state
 const canUndo = computed(() => file.value ? historyStore.canUndo(file.value.id) : false);
@@ -687,6 +700,7 @@ const exposedMethods = {
   insertPageBreak: insertPageBreakWrapped,
   insertCodeBlock: insertCodeBlockWrapped,
   insertImagePlaceholder: insertImagePlaceholderWrapped,
+  insertImagesFromLibrary: insertImagesFromLibraryWrapped,
 
   uploadImage,
   findNext,

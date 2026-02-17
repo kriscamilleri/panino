@@ -41,6 +41,16 @@
 
             <!-- About link -->
             <BaseButton
+                v-if="authStore.isAuthenticated"
+                @click="goToImages"
+                class="w-full"
+                data-testid="mobile-menu-images-button"
+            >
+                <Image class="w-4 h-4" />
+                <span>Images</span>
+            </BaseButton>
+
+            <BaseButton
                 as="a"
                 href="https://github.com/kriscamilleri/pn-markdown-notes"
                 target="_blank"
@@ -91,7 +101,7 @@ import { useSyncStore } from '@/store/syncStore'
 import { useUiStore } from '@/store/uiStore'
 import { useRouter } from 'vue-router'
 import BaseButton from '@/components/BaseButton.vue'
-import { RefreshCw, Info, LogIn, LogOut } from 'lucide-vue-next'
+import { RefreshCw, Info, LogIn, LogOut, Image } from 'lucide-vue-next'
 
 const emit = defineEmits(['close'])
 const authStore = useAuthStore()
@@ -145,6 +155,11 @@ async function handleLogout() {
 
 function goToLogin() {
     router.push('/login')
+    emit('close')
+}
+
+function goToImages() {
+    router.push('/images')
     emit('close')
 }
 </script>

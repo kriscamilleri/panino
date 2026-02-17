@@ -10,6 +10,12 @@
             data-testid="homepage-import-modal" />
         <ExportModal :show="ui.showExportModal" @close="ui.closeExportModal()" data-testid="homepage-export-modal" />
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
+        <ImageLibraryModal
+            :show="ui.showImageLibraryModal"
+            @close="ui.closeImageLibraryModal()"
+            @insert-selected="handleInsertSelectedImages"
+            data-testid="homepage-image-library-modal"
+        />
     </div>
 </template>
 
@@ -23,11 +29,14 @@ import ContentArea from '@/components/ContentArea.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
+import ImageLibraryModal from '@/components/ImageLibraryModal.vue'
 import { useUiStore } from '@/store/uiStore'
 import { useDocStore } from '@/store/docStore'
+import { useEditorStore } from '@/store/editorStore'
 
 const ui = useUiStore()
 const docStore = useDocStore()
+const editorStore = useEditorStore()
 const route = useRoute()
 
 // Mobile view detection
@@ -57,5 +66,10 @@ function handleImportSuccess() {
     console.log('Import successful')
     ui.addToast('Data imported successfully!', 'success');
     docStore.loadInitialData();
+}
+
+function handleInsertSelectedImages(images) {
+    editorStore.insertImageFromLibrary(images)
+    ui.closeImageLibraryModal()
 }
 </script>
