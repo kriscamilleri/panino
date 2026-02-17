@@ -80,6 +80,14 @@ export const useEditorStore = defineStore('editorStore', () => {
         }
     }
 
+    function insertImageFromLibrary(images) {
+        if (editorRef.value && typeof editorRef.value.insertImagesFromLibrary === 'function') {
+            editorRef.value.insertImagesFromLibrary(images)
+        } else {
+            console.warn('Editor not available for insertImagesFromLibrary')
+        }
+    }
+
     function findNext(term) {
         if (editorRef.value && typeof editorRef.value.findNext === 'function') {
             editorRef.value.findNext(term)
@@ -133,6 +141,7 @@ export const useEditorStore = defineStore('editorStore', () => {
         insertCodeBlock,
         insertImagePlaceholder,
         uploadImage,
+        insertImageFromLibrary,
         findNext,
         replaceNext,
         replaceAll,

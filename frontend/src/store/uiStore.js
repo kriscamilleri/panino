@@ -26,6 +26,7 @@ export const useUiStore = defineStore('uiStore', () => {
     const showImportModal = ref(false);
     const showExportModal = ref(false);
     const showVariablesModal = ref(false);
+    const showImageLibraryModal = ref(false);
     const toasts = ref([]);
 
     let settingsLoaded = false;
@@ -154,6 +155,7 @@ export const useUiStore = defineStore('uiStore', () => {
         showDocuments, showEditor, showPreview, showStats, showMetadata, editorMenuCollapsed, scrollSync,
         showViewMenu, showActionBar, showFileMenu,
         showImportModal, showExportModal, showVariablesModal, toasts,
+        showImageLibraryModal,
 
         // Computed
         isAnyMenuOpen,
@@ -184,6 +186,8 @@ export const useUiStore = defineStore('uiStore', () => {
         closeExportModal: () => showExportModal.value = false,
         openVariablesModal: () => showVariablesModal.value = true,
         closeVariablesModal: () => showVariablesModal.value = false,
+        openImageLibraryModal: () => showImageLibraryModal.value = true,
+        closeImageLibraryModal: () => showImageLibraryModal.value = false,
         addToast,
         removeToast,
         collapseDocumentsOnMobile,

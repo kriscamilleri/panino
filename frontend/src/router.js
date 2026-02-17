@@ -9,6 +9,7 @@ import TermsOfServicePage from '@/pages/TermsOfServicePage.vue'
 import SettingsPage from '@/pages/SettingsPage.vue'
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage.vue'
 import ResetPasswordPage from '@/pages/ResetPasswordPage.vue'
+import ImageManagerPage from '@/pages/ImageManagerPage.vue'
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -69,6 +70,11 @@ export const router = createRouter({
       path: '/settings',
       name: 'settings',
       component: SettingsPage
+    },
+    {
+      path: '/images',
+      name: 'images',
+      component: ImageManagerPage
     },
     {
       path: '/forgot-password',

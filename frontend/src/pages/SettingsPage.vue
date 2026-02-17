@@ -34,19 +34,35 @@
             <h2 class="text-lg font-medium text-gray-900">Change Password</h2>
             <ChangePasswordForm />
         </div>
+
+        <div class="mt-8 border-t pt-6">
+            <h2 class="text-lg font-medium text-gray-900 mb-3">Tools</h2>
+            <BaseButton @click="goToImages" data-testid="settings-images-button">
+                <Image class="w-4 h-4" />
+                <span>Manage Images</span>
+            </BaseButton>
+        </div>
     </AccountLayout>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '@/store/authStore';
 import AccountLayout from '@/components/AccountLayout.vue';
 import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
+import BaseButton from '@/components/BaseButton.vue';
+import { Image } from 'lucide-vue-next';
 
 const authStore = useAuthStore();
+const router = useRouter();
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
+
+function goToImages() {
+    router.push('/images');
+}
 
 function formatBytes(value) {
     const bytes = Number(value);

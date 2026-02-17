@@ -175,6 +175,17 @@
                     @change="handleImageSelect"
                 />
 
+                <button
+                    @click="ui.openImageLibraryModal()"
+                    :disabled="imageLibraryDisabled"
+                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    :title="imageLibraryDisabled ? 'Select a document to insert images' : 'Insert Image from Library'"
+                    data-testid="submenu-editor-image-library"
+                >
+                    <Image class="w-4 h-4" />
+                    <span class="button-text">Image&nbsp;from&nbsp;Library</span>
+                </button>
+
                 <div class="separator"></div>
 
                 <div class="flex items-center gap-2">
@@ -341,6 +352,13 @@
                 </BaseButton>
 
                 <BaseButton
+                    @click="goToImages"
+                    data-testid="submenu-tools-images"
+                >
+                    <Image class="w-4 h-4" /><span>Images</span>
+                </BaseButton>
+
+                <BaseButton
                     @click="ui.openVariablesModal()"
                     data-testid="submenu-tools-variables"
                 >
@@ -381,6 +399,7 @@ import {
     ArrowRight,
     Upload,
     Download,
+    Image,
     Printer,
     Hammer,
     Braces,
@@ -402,6 +421,7 @@ const router = useRouter()
 const docStore = useDocStore()
 const { selectedFileId } = storeToRefs(docStore)
 const printDisabled = computed(() => !selectedFileId.value)
+const imageLibraryDisabled = computed(() => !selectedFileId.value)
 
 /* ───────── state ───────── */
 const searchTerm = ref('')
@@ -475,6 +495,9 @@ function goToStyles() {
 }
 function goToPrintStyles() {
     router.push('/print-styles')
+}
+function goToImages() {
+    router.push('/images')
 }
 
 // History actions: undo, redo
