@@ -1,6 +1,7 @@
 // backend/api-service/sync.js
 import express from 'express';
 import { getUserDb } from './db.js';
+import { createRevisionSnapshot, deleteNoteRevisionsForDeletedNote } from './revision.js';
 
 const router = express.Router();
 
@@ -86,25 +87,94 @@ function assertBindable(obj) {
         throw new TypeError(`Param ${k} has invalid type ${typeof v}`);
     }
 }
-function extractUserId(req) {
-    if (req.user?.user_id) return req.user.user_id;
-    if (req.body?.user_id) return req.body.user_id;
-    if (req.body?.userId) return req.body.userId;
-    const auth = req.headers.authorization || '';
-    if (auth.startsWith('Bearer ')) {
-        const token = auth.slice(7);
-        try {
-            const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
-            return payload.user_id || payload.userId || payload.sub;
-        } catch {/* ignore */ }
+
+function parsePkId(pk) {
+    try {
+        const parsed = typeof pk === 'string' ? JSON.parse(pk) : pk;
+        if (Array.isArray(parsed) && parsed.length > 0) return String(parsed[0]);
+
+        if (parsed && typeof parsed === 'object') {
+            const packed = toBufferLike(parsed);
+            const unpacked = packed.toString('utf8');
+            const uuidMatch = unpacked.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+            if (uuidMatch) return uuidMatch[0];
+
+            const printable = unpacked.replace(/[^\x20-\x7E]/g, '');
+            const jsonArrayMatch = printable.match(/\["([^"\\]+)"\]/);
+            if (jsonArrayMatch) return jsonArrayMatch[1];
+
+            const dollarValueMatch = printable.match(/\$([A-Za-z0-9._:-]+)/);
+            if (dollarValueMatch) return dollarValueMatch[1];
+
+            const plainTokenMatch = printable.match(/[A-Za-z0-9][A-Za-z0-9._:-]*/);
+            if (plainTokenMatch) return plainTokenMatch[0];
+
+            return null;
+        }
+
+        if (parsed != null && typeof parsed !== 'object') return String(parsed);
+    } catch {
+        return null;
     }
-    return undefined;
+    return null;
+}
+
+function parseChangeValue(value) {
+    if (value == null) return null;
+    if (typeof value !== 'string') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return value;
+    }
+}
+
+function isNotesDeleteTombstone(change) {
+    if (!change || change.table !== 'notes') return false;
+    return Number(change.cl) === 1 && (change.cid == null || change.cid === '' || String(change.cid) === '-1');
+}
+
+function extractNoteMutations(changes) {
+    const byNoteId = new Map();
+
+    for (const change of changes) {
+        if (change?.table !== 'notes') continue;
+        const noteId = parsePkId(change.pk);
+        if (!noteId) continue;
+
+        const current = byNoteId.get(noteId) || {
+            noteId,
+            contentChanged: false,
+            titleChanged: false,
+            content: undefined,
+            title: undefined,
+            deleted: false,
+        };
+
+        if (isNotesDeleteTombstone(change)) {
+            current.deleted = true;
+        }
+
+        if (change.cid === 'content') {
+            current.contentChanged = true;
+            current.content = parseChangeValue(change.val);
+        }
+
+        if (change.cid === 'title') {
+            current.titleChanged = true;
+            current.title = parseChangeValue(change.val);
+        }
+
+        byNoteId.set(noteId, current);
+    }
+
+    return [...byNoteId.values()];
 }
 
 
 router.post('/sync', (req, res, next) => {
-    const userId = extractUserId(req);
-    if (!userId) return res.status(400).json({ error: 'Missing userId' });
+    const userId = req.user?.user_id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
     const since = Number(req.body?.since ?? 0);
     const siteId = req.body?.siteId ?? null;
@@ -123,11 +193,7 @@ router.post('/sync', (req, res, next) => {
 
     try {
         if (changes.length) {
-            // CR-SQLite 0.16 NOTE: Inserting into crsql_changes does NOT automatically
-            // apply changes to base tables. This INSERT records the changeset but doesn't
-            // materialize it in the actual tables. This is a known limitation/change in 0.16.
-            // For a production sync implementation, consider using a different approach or
-            // applying changes directly to base tables.
+            const noteMutations = extractNoteMutations(changes);
             const insertSQL = `
         INSERT INTO crsql_changes
           ("table", pk, cid, val, col_version, db_version, site_id, cl, seq)
@@ -135,14 +201,14 @@ router.post('/sync', (req, res, next) => {
           (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
             const insertStmt = db.prepare(insertSQL);
-            const applyChanges = db.transaction((rows) => {
+            const getNoteBase = db.prepare('SELECT title, content FROM notes WHERE id = ?');
+
+            const applyChanges = db.transaction((rows, extractedMutations) => {
                 for (const ch of rows) {
-                    // Parse JSON array PK format: '["value"]' -> pack as bytes using crsql_pack_columns()
                     let pkBytes;
                     try {
                         const parsed = JSON.parse(ch.pk);
                         if (Array.isArray(parsed) && parsed.length > 0) {
-                            // Use crsql_pack_columns to pack the primary key value
                             const pkValue = parsed[0];
                             const packResult = db.prepare('SELECT crsql_pack_columns(?) as pk').get(pkValue);
                             pkBytes = packResult.pk;
@@ -168,8 +234,31 @@ router.post('/sync', (req, res, next) => {
                     assertBindable(row);
                     insertStmt.run(Object.values(row));
                 }
+
+                for (const mutation of extractedMutations) {
+                    if (mutation.deleted) {
+                        deleteNoteRevisionsForDeletedNote(db, mutation.noteId);
+                        continue;
+                    }
+
+                    if (!mutation.contentChanged && !mutation.titleChanged) continue;
+
+                    const base = getNoteBase.get(mutation.noteId) || { title: null, content: '' };
+                    const snapshotTitle = mutation.titleChanged ? mutation.title : base.title;
+                    const snapshotContent = mutation.contentChanged ? mutation.content : base.content;
+
+                    createRevisionSnapshot(db, {
+                        noteId: mutation.noteId,
+                        title: snapshotTitle,
+                        content: snapshotContent,
+                        type: 'auto',
+                        skipDuplicateCheck: false,
+                        enforceAutoThrottle: true,
+                        runPruneGate: true,
+                    });
+                }
             });
-            applyChanges(changes);
+            applyChanges(changes, noteMutations);
 
             // ✅ FIX: Notify other clients, excluding the one that sent the changes.
             const { clients } = req;

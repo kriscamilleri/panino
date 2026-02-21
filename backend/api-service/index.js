@@ -16,6 +16,7 @@ import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { initDb } from './db.js';
+import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, 'data');
@@ -25,6 +26,7 @@ if (!fs.existsSync(dataDir)) {
 
 initDb();
 startImageOrphanPruneJob();
+startRevisionMaintenanceJob();
 
 const PORT = process.env.PORT || 8000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
@@ -92,6 +94,7 @@ export function createApp() {
     app.use(syncRoutes);
     app.use(imageRoutes);
     app.use(pdfRoutes); // Mount the new PDF route
+    app.use(revisionRoutes);
 
     return { app, server, wss, clients };
 }
