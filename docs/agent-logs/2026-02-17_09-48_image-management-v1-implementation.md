@@ -254,6 +254,32 @@ Analyze the complete working tree before commit/push, verify automated checks, a
 
 ---
 
+## Follow-up 2026-02-17 15:01 — clipboard screenshot naming
+
+**Status:** completed
+
+### Objective
+Ensure clipboard screenshot uploads are not stored as `image.png`, and instead use `Screenshot YYYY-MM-DD` naming.
+
+### Root Cause
+- Clipboard image blobs arrive with a default filename (`image.png`) in the editor paste upload flow.
+- The upload request forwarded that raw filename directly, and backend persisted it to `images.filename`.
+
+### Changes Made
+- `frontend/src/components/Editor.vue`
+	- Updated paste flow to tag uploads as clipboard-originated.
+	- Added screenshot naming helper (`Screenshot YYYY-MM-DD`) with MIME-aware extension.
+	- For clipboard images named `image.png`, upload now sends `Screenshot YYYY-MM-DD.<ext>` as multipart filename.
+	- Inserted markdown alt text now uses `Screenshot YYYY-MM-DD` for renamed clipboard screenshots.
+
+### Validation
+- Ran `pnpm exec vitest run tests/unit/editorStore.test.js` in `frontend` — passed (`2/2`).
+
+### Additional Verification
+- Ran `pnpm exec vitest run` in `frontend` — passed (`19/19`).
+
+---
+
 ## Follow-up 2026-02-17 14:43 — image library modal no longer fullscreen
 
 **Status:** completed

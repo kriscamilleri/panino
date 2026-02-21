@@ -449,13 +449,27 @@ async function handlePaste(event) {
     if (item.type.startsWith('image/')) {
       event.preventDefault();
       const fileObj = item.getAsFile();
-      if (fileObj) await uploadImage(fileObj);
+      if (fileObj) await uploadImage(fileObj, { isClipboard: true });
       break;
     }
   }
 }
 
-async function uploadImage(fileObj) {
+function getScreenshotExtension(fileObj) {
+  const mimeType = (fileObj?.type || '').toLowerCase();
+  if (mimeType === 'image/jpeg') return '.jpg';
+  if (mimeType === 'image/gif') return '.gif';
+  if (mimeType === 'image/webp') return '.webp';
+  if (mimeType === 'image/svg+xml') return '.svg';
+  return '.png';
+}
+
+function getScreenshotBaseName() {
+  const date = new Date().toISOString().slice(0, 10);
+  return `Screenshot ${date}`;
+}
+
+async function uploadImage(fileObj, options = {}) {
   if (!authStore.isAuthenticated) {
     uploadError.value = 'You must be logged in to upload images.';
     return;
@@ -463,8 +477,16 @@ async function uploadImage(fileObj) {
   isUploading.value = true;
   uploadError.value = '';
   try {
+    const shouldRenameClipboardImage =
+      options.isClipboard === true &&
+      (!fileObj.name || fileObj.name.toLowerCase() === 'image.png');
+    const screenshotBaseName = shouldRenameClipboardImage ? getScreenshotBaseName() : null;
+    const uploadFilename = shouldRenameClipboardImage
+      ? `${screenshotBaseName}${getScreenshotExtension(fileObj)}`
+      : fileObj.name;
+
     const formData = new FormData();
-    formData.append('image', fileObj);
+    formData.append('image', fileObj, uploadFilename);
 
     const response = await fetch(`${imageServiceUrl}/images`, {
       method: 'POST',
@@ -480,7 +502,8 @@ async function uploadImage(fileObj) {
     }
     const data = await response.json();
     const finalUrl = isProduction ? `/api${data.url}` : `${imageServiceUrl}${data.url}`;
-    insertAtCursor(`![${fileObj.name}](${finalUrl})\n`);
+    const markdownLabel = screenshotBaseName || fileObj.name;
+    insertAtCursor(`![${markdownLabel}](${finalUrl})\n`);
   } catch (err) {
     console.error('Image upload error:', err);
     uploadError.value = err.message || 'Failed to upload image.';

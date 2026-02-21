@@ -10,6 +10,7 @@ import SettingsPage from '@/pages/SettingsPage.vue'
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage.vue'
 import ResetPasswordPage from '@/pages/ResetPasswordPage.vue'
 import ImageManagerPage from '@/pages/ImageManagerPage.vue'
+import RevisionHistoryPage from '@/pages/RevisionHistoryPage.vue'
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -75,6 +76,12 @@ export const router = createRouter({
       path: '/images',
       name: 'images',
       component: ImageManagerPage
+    },
+    {
+      path: '/revisions',
+      name: 'revisions',
+      component: RevisionHistoryPage,
+      meta: { keepAlive: true }
     },
     {
       path: '/forgot-password',

@@ -66,6 +66,30 @@ const BASE_SCHEMA = `
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     display_key TEXT NOT NULL DEFAULT ''
   );
+
+  CREATE TABLE IF NOT EXISTS note_revisions (
+    id TEXT PRIMARY KEY NOT NULL,
+    note_id TEXT NOT NULL,
+    title TEXT,
+    content_gzip BLOB NOT NULL,
+    type TEXT NOT NULL DEFAULT 'auto',
+    content_sha256 TEXT NOT NULL,
+    uncompressed_bytes INTEGER NOT NULL,
+    compressed_bytes INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (note_id) REFERENCES notes(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_note_revisions_note_created
+    ON note_revisions(note_id, created_at DESC);
+
+  CREATE INDEX IF NOT EXISTS idx_note_revisions_note_type_created
+    ON note_revisions(note_id, type, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS note_revision_meta (
+    note_id TEXT PRIMARY KEY NOT NULL,
+    last_pruned_at TEXT
+  );
 `;
 
 const CRR_TABLES = ['users', 'folders', 'notes', 'images', 'settings', 'globals'];

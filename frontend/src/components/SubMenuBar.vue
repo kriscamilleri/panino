@@ -353,9 +353,20 @@
 
                 <BaseButton
                     @click="goToImages"
+                    :disabled="!isOnline"
+                    :title="!isOnline ? 'Image library requires an internet connection' : ''"
                     data-testid="submenu-tools-images"
                 >
                     <Image class="w-4 h-4" /><span>Images</span>
+                </BaseButton>
+
+                <BaseButton
+                    @click="goToRevisions"
+                    :disabled="!isOnline || !selectedFileId"
+                    :title="!isOnline ? 'Revision History requires an internet connection' : !selectedFileId ? 'Select a document to view revision history' : ''"
+                    data-testid="submenu-tools-revisions"
+                >
+                    <History class="w-4 h-4" /><span>Revisions</span>
                 </BaseButton>
 
                 <BaseButton
@@ -376,9 +387,11 @@ import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
+import { useSyncStore } from '@/store/syncStore'
 import BaseButton from '@/components/BaseButton.vue'
 import {
     Folder,
+    History,
     FilePenLine,
     Eye,
     Palette,
@@ -419,7 +432,9 @@ const ui = useUiStore()
 const editorStore = useEditorStore()
 const router = useRouter()
 const docStore = useDocStore()
+const syncStore = useSyncStore()
 const { selectedFileId } = storeToRefs(docStore)
+const { isOnline } = storeToRefs(syncStore)
 const printDisabled = computed(() => !selectedFileId.value)
 const imageLibraryDisabled = computed(() => !selectedFileId.value)
 
@@ -498,6 +513,9 @@ function goToPrintStyles() {
 }
 function goToImages() {
     router.push('/images')
+}
+function goToRevisions() {
+    router.push('/revisions')
 }
 
 // History actions: undo, redo
