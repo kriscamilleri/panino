@@ -9,6 +9,7 @@
         <ImportModal :show="ui.showImportModal" @close="ui.closeImportModal()" @import-success="handleImportSuccess"
             data-testid="homepage-import-modal" />
         <ExportModal :show="ui.showExportModal" @close="ui.closeExportModal()" data-testid="homepage-export-modal" />
+        <GitHubBackupModal :show="ui.showGithubBackupModal" @close="ui.closeGithubBackupModal()" data-testid="homepage-github-backup-modal" />
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
         <ImageLibraryModal
             :show="ui.showImageLibraryModal"
@@ -28,16 +29,19 @@ import SidebarWithResizer from '@/components/SidebarWithResizer.vue'
 import ContentArea from '@/components/ContentArea.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
+import GitHubBackupModal from '@/components/GitHubBackupModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
 import ImageLibraryModal from '@/components/ImageLibraryModal.vue'
 import { useUiStore } from '@/store/uiStore'
 import { useDocStore } from '@/store/docStore'
 import { useEditorStore } from '@/store/editorStore'
+import { useRouter } from 'vue-router'
 
 const ui = useUiStore()
 const docStore = useDocStore()
 const editorStore = useEditorStore()
 const route = useRoute()
+const router = useRouter()
 
 // Mobile view detection
 const windowWidth = ref(window.innerWidth)
@@ -72,4 +76,23 @@ function handleInsertSelectedImages(images) {
     editorStore.insertImageFromLibrary(images)
     ui.closeImageLibraryModal()
 }
+
+watch(() => route.query.githubBackup, async (value) => {
+    if (!value) {
+        return;
+    }
+
+    ui.openGithubBackupModal();
+    if (value === 'connected') {
+        ui.addToast('GitHub backup connected.', 'success');
+    } else if (value === 'error') {
+        const message = String(route.query.message || 'GitHub backup connection failed.');
+        ui.addToast(message, 'error');
+    }
+
+    const nextQuery = { ...route.query };
+    delete nextQuery.githubBackup;
+    delete nextQuery.message;
+    await router.replace({ query: nextQuery });
+}, { immediate: true });
 </script>

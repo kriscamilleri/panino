@@ -66,6 +66,21 @@ const BASE_SCHEMA = `
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     display_key TEXT NOT NULL DEFAULT ''
   );
+
+  CREATE TABLE IF NOT EXISTS backup_config (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL UNIQUE,
+    access_token_enc TEXT,
+    username TEXT,
+    avatar_url TEXT,
+    repo_full_name TEXT,
+    auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
+    last_backup_at TEXT,
+    last_backup_sha TEXT,
+    last_warning TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL
+  );
 `;
 
 const CRR_TABLES = ['users', 'folders', 'notes', 'images', 'settings', 'globals'];
@@ -261,6 +276,72 @@ function ensureGlobalsSchema(db) {
   }
 }
 
+function ensureBackupConfigSchema(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info('backup_config')").all();
+    if (!columns || columns.length === 0) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS backup_config (
+          id TEXT PRIMARY KEY NOT NULL,
+          provider TEXT NOT NULL UNIQUE,
+          access_token_enc TEXT,
+          username TEXT,
+          avatar_url TEXT,
+          repo_full_name TEXT,
+          auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
+          last_backup_at TEXT,
+          last_backup_sha TEXT,
+          last_warning TEXT,
+          last_error TEXT,
+          created_at TEXT NOT NULL
+        )
+      `);
+      return;
+    }
+
+    const names = new Set(columns.map((column) => column.name));
+
+    if (!names.has('provider')) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN provider TEXT NOT NULL DEFAULT 'github'");
+      db.exec("UPDATE backup_config SET provider = 'github' WHERE provider IS NULL OR provider = ''");
+    }
+    if (!names.has('access_token_enc')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN access_token_enc TEXT');
+    }
+    if (!names.has('username')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN username TEXT');
+    }
+    if (!names.has('avatar_url')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN avatar_url TEXT');
+    }
+    if (!names.has('repo_full_name')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN repo_full_name TEXT');
+    }
+    if (!names.has('auto_backup_enabled')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN auto_backup_enabled INTEGER NOT NULL DEFAULT 1');
+      db.exec('UPDATE backup_config SET auto_backup_enabled = 1 WHERE auto_backup_enabled IS NULL');
+    }
+    if (!names.has('last_backup_at')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN last_backup_at TEXT');
+    }
+    if (!names.has('last_backup_sha')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN last_backup_sha TEXT');
+    }
+    if (!names.has('last_warning')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN last_warning TEXT');
+    }
+    if (!names.has('last_error')) {
+      db.exec('ALTER TABLE backup_config ADD COLUMN last_error TEXT');
+    }
+    if (!names.has('created_at')) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))");
+      db.exec("UPDATE backup_config SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''");
+    }
+  } catch (err) {
+    console.error('[db] Failed to ensure backup config schema:', err);
+  }
+}
+
 export function getUserDb(userId) {
   if (dbConnections.has(userId)) return dbConnections.get(userId);
 
@@ -281,6 +362,7 @@ export function getUserDb(userId) {
   db.exec(BASE_SCHEMA);
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
+  ensureBackupConfigSchema(db);
   ensureCrr(db);
 
   db.pragma('journal_mode = wal');
@@ -407,6 +489,8 @@ export function getTestDb(userId, options = {}) {
 
   db.exec(BASE_SCHEMA);
   ensureImagesSchema(db);
+  ensureGlobalsSchema(db);
+  ensureBackupConfigSchema(db);
   ensureCrr(db);
 
   db.pragma('journal_mode = wal');

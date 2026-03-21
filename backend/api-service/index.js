@@ -15,6 +15,7 @@ import { imageRoutes, startImageOrphanPruneJob } from './image.js';
 import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
+import { backupPublicRoutes, backupRoutes } from './backup.js';
 import { initDb } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,6 +84,7 @@ export function createApp() {
     // Public routes
     app.use(signupRoutes);
     app.use(passwordResetRoutes);
+    app.use(backupPublicRoutes);
 
     // Routes that are mixed public/private
     app.use(authRoutes);
@@ -92,6 +94,7 @@ export function createApp() {
     app.use(syncRoutes);
     app.use(imageRoutes);
     app.use(pdfRoutes); // Mount the new PDF route
+    app.use(backupRoutes);
 
     return { app, server, wss, clients };
 }

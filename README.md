@@ -10,6 +10,7 @@ A browser based, local-first markdown note-taking Progressive Web App (PWA) with
 - 🎨 Custom styling for preview and print
 - 🖼️ Image uploads and management
 - 📦 Import/export in multiple formats
+- ☁️ GitHub backup with per-user repository connection
 - 🔍 Full-text search
 - 📁 Files and folders 
 - 📱 Responsive web interface
@@ -108,10 +109,17 @@ TURNSTILE_SECRET_KEY=0x4...SECRET...VI
 TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
 # The public URL of your frontend (e.g., [https://notes.example.com](https://notes.example.com))
 FRONTEND_URL="[https://panino.sh](https://panino.sh)"
+# The public URL of the API after proxying. This is used to generate the OAuth callback URL.
+PUBLIC_API_BASE_URL="https://panino.sh/api"
 # Domain name used by the Nginx setup script (e.g., notes.example.com)
 DOMAIN="panino.sh"
 # Your email address for Let's Encrypt SSL certificate registration.
 EMAIL="your-email@example.com"
+# --- GitHub OAuth (for GitHub Backup) ---
+# One GitHub OAuth app per deployment. For panino.sh, the callback URL should be:
+# https://panino.sh/api/backup/github/callback
+GITHUB_CLIENT_ID=Iv1.yourgithubclientid
+GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
 # --- SMTP Server Settings (for password resets) ---
 # Hostname of your SMTP server.
 SMTP_HOST=smtp.mailgun.org
@@ -141,7 +149,61 @@ VITE_TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
 > #### Where to Get Keys
 > - JWT_SECRET: You should generate this yourself. A good method is to run openssl rand -hex 32 in your terminal.
 > - TURNSTILE_SECRET_KEY & TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
+> - GITHUB_CLIENT_ID & GITHUB_CLIENT_SECRET: Create a GitHub OAuth App in GitHub Developer Settings. For the deployed Panino instance at `panino.sh`, use homepage URL `https://panino.sh` and authorization callback URL `https://panino.sh/api/backup/github/callback`.
 > - SMTP_*: These settings are provided by your email service (e.g., Mailgun, SendGrid, Amazon SES, or your personal email provider).
+
+## GitHub Backup OAuth Setup
+
+Panino's GitHub Backup feature uses a standard GitHub OAuth App.
+
+### Production (`panino.sh`)
+
+Create a GitHub OAuth App with:
+
+- Application name: `Panino`
+- Homepage URL: `https://panino.sh`
+- Authorization callback URL: `https://panino.sh/api/backup/github/callback`
+
+Set these values in the root `.env` used by production:
+
+```ini
+FRONTEND_URL="https://panino.sh"
+PUBLIC_API_BASE_URL="https://panino.sh/api"
+GITHUB_CLIENT_ID=Iv1.yourgithubclientid
+GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+```
+
+Then restart the backend container:
+
+```bash
+docker compose up --build -d api-service
+```
+
+### Local development
+
+Use a separate GitHub OAuth App for local testing:
+
+- Homepage URL: `http://localhost:5173`
+- Authorization callback URL: `http://localhost:8000/backup/github/callback`
+
+Example local `.env` additions:
+
+```ini
+FRONTEND_URL="http://localhost:5173"
+PUBLIC_API_BASE_URL="http://localhost:8000"
+GITHUB_CLIENT_ID=Iv1.localdevclientid
+GITHUB_CLIENT_SECRET=your_local_dev_client_secret
+```
+
+### Verification
+
+After configuration:
+
+1. Log into Panino.
+2. Open `Tools -> GitHub Backup`.
+3. Click `Connect GitHub`.
+4. Authorize the app on GitHub and return to Panino.
+5. Select or create a repository, then run `Back Up Now`.
 
 
 ## License
