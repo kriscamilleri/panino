@@ -1,10 +1,11 @@
 // frontend/src/main.js
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
 import { router } from './router'
 import AppShell from './AppShell.vue'
 import './assets/main.css'
 import { useUiStore } from '@/store/uiStore'
+import { useSyncStore } from '@/store/syncStore'
+import { pinia } from './pinia'
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev'
 
@@ -45,7 +46,7 @@ if ('serviceWorker' in navigator) {
         console.log('[PWA] Background sync message received');
         // Trigger sync if applicable
         import('@/store/syncStore').then(({ useSyncStore }) => {
-          const syncStore = useSyncStore();
+          const syncStore = useSyncStore(pinia);
           if (syncStore.syncEnabled && syncStore.isInitialized) {
             syncStore.sync();
           }
@@ -61,13 +62,12 @@ if ('serviceWorker' in navigator) {
 
 // Call the function
 const app = createApp(AppShell)
-const pinia = createPinia()
 
 app.use(pinia)
 app.use(router)
 
 // grab your UI store
-const ui = useUiStore()
+const ui = useUiStore(pinia)
 
 // override native alert
 window.alert = (msg) => ui.addToast(String(msg))

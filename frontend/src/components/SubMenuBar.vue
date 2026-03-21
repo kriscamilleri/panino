@@ -352,6 +352,13 @@
                 </BaseButton>
 
                 <BaseButton
+                    @click="ui.openGithubBackupModal()"
+                    data-testid="submenu-tools-github-backup"
+                >
+                    <Github class="w-4 h-4" /><span>GitHub Backup</span>
+                </BaseButton>
+
+                <BaseButton
                     @click="goToImages"
                     data-testid="submenu-tools-images"
                 >
@@ -399,6 +406,7 @@ import {
     ArrowRight,
     Upload,
     Download,
+    Github,
     Image,
     Printer,
     Hammer,

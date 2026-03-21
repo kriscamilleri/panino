@@ -10,6 +10,7 @@ import SettingsPage from '@/pages/SettingsPage.vue'
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage.vue'
 import ResetPasswordPage from '@/pages/ResetPasswordPage.vue'
 import ImageManagerPage from '@/pages/ImageManagerPage.vue'
+import { pinia } from './pinia'
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -96,8 +97,8 @@ router.beforeEach(async (to, from, next) => {
   const { useAuthStore } = await import('@/store/authStore')
   const { useSyncStore } = await import('@/store/syncStore')
   
-  const authStore = useAuthStore()
-  const syncStore = useSyncStore()
+  const authStore = useAuthStore(pinia)
+  const syncStore = useSyncStore(pinia)
 
   // Attempt to check if user is logged in
   await authStore.checkAuth()

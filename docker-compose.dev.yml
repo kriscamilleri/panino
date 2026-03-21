@@ -14,6 +14,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
       NODE_ENV: development
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:8000}
       # Internal URL for PDF image resolution (Puppeteer runs in same container)
       INTERNAL_API_URL: http://localhost:8000
       # Email settings (e.g., for MailHog or other test SMTP)

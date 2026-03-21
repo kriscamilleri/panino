@@ -1,6 +1,7 @@
 // backend/api-service/sync.js
 import express from 'express';
 import { getUserDb } from './db.js';
+import { triggerDailyAutoBackup } from './backup.js';
 
 const router = express.Router();
 
@@ -201,6 +202,7 @@ router.post('/sync', (req, res, next) => {
         const newClock = clockRow.version ?? since;
 
         res.json({ changes: remote, clock: newClock });
+        void triggerDailyAutoBackup(userId);
     } catch (err) {
         console.error('Sync endpoint error:', err.message);
         console.error('Error stack:', err.stack);
