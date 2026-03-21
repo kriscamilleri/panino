@@ -51,6 +51,16 @@
             </BaseButton>
 
             <BaseButton
+                v-if="authStore.isAuthenticated"
+                @click="goToRevisions"
+                class="w-full"
+                data-testid="mobile-menu-revisions-button"
+            >
+                <History class="w-4 h-4" />
+                <span>Revisions</span>
+            </BaseButton>
+
+            <BaseButton
                 as="a"
                 href="https://github.com/kriscamilleri/pn-markdown-notes"
                 target="_blank"
@@ -101,7 +111,7 @@ import { useSyncStore } from '@/store/syncStore'
 import { useUiStore } from '@/store/uiStore'
 import { useRouter } from 'vue-router'
 import BaseButton from '@/components/BaseButton.vue'
-import { RefreshCw, Info, LogIn, LogOut, Image } from 'lucide-vue-next'
+import { RefreshCw, Info, LogIn, LogOut, Image, History } from 'lucide-vue-next'
 
 const emit = defineEmits(['close'])
 const authStore = useAuthStore()
@@ -160,6 +170,11 @@ function goToLogin() {
 
 function goToImages() {
     router.push('/images')
+    emit('close')
+}
+
+function goToRevisions() {
+    router.push('/revisions')
     emit('close')
 }
 </script>
