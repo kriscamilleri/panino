@@ -355,7 +355,7 @@
                     @click="ui.openGithubBackupModal()"
                     data-testid="submenu-tools-github-backup"
                 >
-                    <Github class="w-4 h-4" /><span>GitHub Backup</span>
+                    <Github class="w-4 h-4" /><span>Backup</span>
                 </BaseButton>
 
                 <BaseButton
