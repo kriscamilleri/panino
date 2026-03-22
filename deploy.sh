@@ -4,6 +4,7 @@
 DOMAIN="localhost"
 SKIP_SSL=false
 EMAIL=""
+VITE_TURNSTILE_SITE_KEY=""
 
 # Load environment variables from .env file if it exists
 if [ -f ".env" ]; then
@@ -30,6 +31,8 @@ if [ -f ".env" ]; then
       if [ "$value" = "true" ] || [ "$value" = "1" ] || [ "$value" = "yes" ]; then
         SKIP_SSL=true
       fi
+    elif [ "$key" = "VITE_TURNSTILE_SITE_KEY" ]; then
+      VITE_TURNSTILE_SITE_KEY="$value"
     fi
   done < .env
 fi
@@ -37,6 +40,7 @@ fi
 # Check for environment variables (overrides .env file)
 [ -n "$DOMAIN" ] && DOMAIN="$DOMAIN"
 [ -n "$EMAIL" ] && EMAIL="$EMAIL"
+[ -n "$VITE_TURNSTILE_SITE_KEY" ] && VITE_TURNSTILE_SITE_KEY="$VITE_TURNSTILE_SITE_KEY"
 if [ "$SKIP_SSL" = "true" ] || [ "$SKIP_SSL" = "1" ] || [ "$SKIP_SSL" = "yes" ]; then
   SKIP_SSL=true
 fi
@@ -159,13 +163,11 @@ setup_ssl
 
 echo "Creating production environment file..."
 RELEASE_ID=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-ENV_PATH="$FRONTEND_PATH/.env.production"
+ENV_PATH="$FRONTEND_PATH/.env.production.local"
 ENV_CONTENT="# Production environment variables
 # Generated for $FULL_DOMAIN
-VITE_API_BASE_URL=$FULL_DOMAIN
-VITE_COUCHDB_PORT=443
-VITE_SIGNUP_PORT=443
-VITE_IMAGE_PORT=443
+VITE_API_SERVICE_URL=$FULL_DOMAIN/api
+VITE_TURNSTILE_SITE_KEY=${VITE_TURNSTILE_SITE_KEY:-}
 VITE_APP_VERSION=$RELEASE_ID"
 
 echo "$ENV_CONTENT" > "$ENV_PATH"

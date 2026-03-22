@@ -30,4 +30,21 @@ describe('editorStore', () => {
 
         expect(() => store.insertImageFromLibrary([{ id: 'img-1' }])).not.toThrow();
     });
+
+    it('forwards insertText to exposed editor method', () => {
+        const store = useEditorStore();
+        const insertText = vi.fn();
+
+        store.setEditorRef({ insertText });
+        store.insertText(' dictated words');
+
+        expect(insertText).toHaveBeenCalledWith(' dictated words');
+    });
+
+    it('does not throw when insertText is unavailable', () => {
+        const store = useEditorStore();
+        store.setEditorRef({});
+
+        expect(() => store.insertText('dictated words')).not.toThrow();
+    });
 });

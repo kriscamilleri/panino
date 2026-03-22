@@ -617,6 +617,19 @@ function insertImagesFromLibrary(images) {
   insertAtCursor(`${markdown}\n`);
 }
 
+function insertText(text) {
+  if (!text) return;
+
+  const textarea = getTextareaElement();
+  if (!textarea) return;
+
+  const start = textarea.selectionStart;
+  const previousChar = textarea.value.slice(Math.max(0, start - 1), start);
+  const needsLeadingSpace = previousChar && !/\s/.test(previousChar) && !/^\s/.test(text);
+
+  insertAtCursor(`${needsLeadingSpace ? ' ' : ''}${text}`);
+}
+
 /* ───── find / replace ───── */
 function findNext(term) {
   if (!term?.trim()) return;
@@ -709,6 +722,7 @@ const insertPageBreakWrapped = wrapWithRecord(insertPageBreak);
 const insertCodeBlockWrapped = wrapWithRecord(insertCodeBlock);
 const insertImagePlaceholderWrapped = wrapWithRecord(insertImagePlaceholder);
 const insertImagesFromLibraryWrapped = wrapWithRecord(insertImagesFromLibrary);
+const insertTextWrapped = wrapWithRecord(insertText);
 
 // Helper wrappers for button enabling state
 const canUndo = computed(() => file.value ? historyStore.canUndo(file.value.id) : false);
@@ -724,6 +738,7 @@ const exposedMethods = {
   insertCodeBlock: insertCodeBlockWrapped,
   insertImagePlaceholder: insertImagePlaceholderWrapped,
   insertImagesFromLibrary: insertImagesFromLibraryWrapped,
+  insertText: insertTextWrapped,
 
   uploadImage,
   findNext,

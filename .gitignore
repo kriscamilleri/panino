@@ -25,6 +25,7 @@ dist-ssr
 
 combined_content.txt
 .env
+.env.prd
 backend/api-service/data/*
 backend/api-service/uploads/*
 print_rendering_context.txt
