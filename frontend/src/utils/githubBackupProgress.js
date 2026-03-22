@@ -27,9 +27,9 @@ export function buildBackupProgressSteps(currentStage) {
         return {
             ...step,
             stateClass: isComplete
-                ? 'border-gray-300 bg-gray-100 text-gray-700'
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
                 : isActive
-                    ? 'border-gray-500 bg-white text-gray-900 shadow-sm'
+                    ? 'border-blue-300 bg-blue-50 text-blue-800 shadow-sm'
                     : 'border-gray-200 bg-white text-gray-500',
         };
     });

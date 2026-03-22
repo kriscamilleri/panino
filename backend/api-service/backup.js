@@ -889,7 +889,16 @@ backupPublicRoutes.get('/backup/github/callback', async (req, res) => {
 backupRoutes.get('/backup/github/status', (req, res) => {
   try {
     const db = getUserDb(req.user.user_id);
-    const config = getBackupConfig(db);
+    let config = getBackupConfig(db);
+    if (config?.access_token_enc) {
+      try {
+        decryptToken(config.access_token_enc);
+      } catch {
+        console.warn('[backup] Stored token is no longer decryptable; clearing credential for user', req.user.user_id);
+        deleteBackupConfig(db);
+        config = null;
+      }
+    }
     res.json(getBackupStatusPayload(config, req.user.user_id));
   } catch (error) {
     console.error('[backup] Failed to load status:', error);

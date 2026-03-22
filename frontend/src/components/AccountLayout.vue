@@ -14,7 +14,7 @@
                 </router-link>
             </template>
         </AccountNav>
-        <main class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+        <main :class="[maxWidthClass, 'mx-auto py-8 px-4 sm:px-6 lg:px-8']">
             <div class="bg-white p-6 sm:p-8 rounded-lg shadow">
                 <slot></slot>
             </div>
@@ -31,6 +31,10 @@ defineProps({
     title: {
         type: String,
         required: true,
+    },
+    maxWidthClass: {
+        type: String,
+        default: 'max-w-4xl',
     },
 });
 </script>
