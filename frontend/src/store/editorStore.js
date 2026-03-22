@@ -88,6 +88,14 @@ export const useEditorStore = defineStore('editorStore', () => {
         }
     }
 
+    function insertText(text) {
+        if (editorRef.value && typeof editorRef.value.insertText === 'function') {
+            editorRef.value.insertText(text)
+        } else {
+            console.warn('Editor not available for insertText')
+        }
+    }
+
     function findNext(term) {
         if (editorRef.value && typeof editorRef.value.findNext === 'function') {
             editorRef.value.findNext(term)
@@ -142,6 +150,7 @@ export const useEditorStore = defineStore('editorStore', () => {
         insertImagePlaceholder,
         uploadImage,
         insertImageFromLibrary,
+        insertText,
         findNext,
         replaceNext,
         replaceAll,

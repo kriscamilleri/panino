@@ -186,6 +186,59 @@
                     <span class="button-text">Image&nbsp;from&nbsp;Library</span>
                 </button>
 
+                <template v-if="isDictationSupported">
+                    <div class="separator"></div>
+
+                    <button
+                        @click="toggleDictation"
+                        :disabled="dictationDisabled"
+                        :class="[
+                            'px-3 py-1 border rounded text-sm flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                            isDictationRecording
+                                ? 'bg-red-50 border-red-300 text-red-700'
+                                : 'bg-white hover:bg-gray-50',
+                            !dictationDisabled && 'cursor-pointer'
+                        ]"
+                        :title="isDictationRecording ? 'Stop Dictation' : 'Start Dictation'"
+                        :aria-label="isDictationRecording ? 'Stop dictation' : 'Start dictation'"
+                        :aria-pressed="isDictationRecording"
+                        data-testid="submenu-editor-dictate"
+                    >
+                        <Mic class="w-4 h-4 shrink-0" />
+
+                        <span
+                            v-if="!isDictationRecording"
+                            class="button-text"
+                        >Dictate</span>
+
+                        <span
+                            v-else
+                            class="dictation-status flex items-center gap-1.5 min-w-0"
+                        >
+                            <svg
+                                width="40"
+                                height="16"
+                                aria-hidden="true"
+                                class="shrink-0 overflow-visible"
+                            >
+                                <polyline
+                                    :points="dictationWaveformPoints"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                />
+                            </svg>
+
+                            <span
+                                aria-live="polite"
+                                class="tabular-nums"
+                            >{{ formatElapsed(dictationElapsedSeconds) }}</span>
+                        </span>
+                    </button>
+                </template>
+
                 <div class="separator"></div>
 
                 <div class="flex items-center gap-2">
@@ -392,6 +445,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
+import { useDictation } from '@/composables/useDictation'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -425,6 +479,7 @@ import {
     Hammer,
     Braces,
     Image as ImageIcon,
+    Mic,
     Replace,
     PanelLeftClose,
     PanelLeftOpen,
@@ -443,8 +498,32 @@ const docStore = useDocStore()
 const syncStore = useSyncStore()
 const { selectedFileId } = storeToRefs(docStore)
 const { isOnline } = storeToRefs(syncStore)
+const { isEditorAvailable } = storeToRefs(editorStore)
 const printDisabled = computed(() => !selectedFileId.value)
 const imageLibraryDisabled = computed(() => !selectedFileId.value)
+const dictationDisabled = computed(() => !isEditorAvailable.value)
+const {
+    isSupported: isDictationSupported,
+    isRecording: isDictationRecording,
+    elapsedSeconds: dictationElapsedSeconds,
+    waveformPoints: dictationWaveformPoints,
+    startDictation,
+    stopDictation,
+} = useDictation({
+    onFinalResult(text) {
+        editorStore.insertText(text)
+    },
+    onError(type) {
+        if (type === 'permission-denied') {
+            ui.addToast('Microphone access denied. Please allow microphone in your browser settings.', 'error')
+            return
+        }
+
+        if (type === 'unavailable') {
+            ui.addToast('Speech recognition is unavailable. Check your connection or browser settings.', 'error')
+        }
+    },
+})
 
 /* ───────── state ───────── */
 const searchTerm = ref('')
@@ -486,6 +565,23 @@ function insertCodeBlock() {
 }
 function insertImagePlaceholder() {
     editorStore.insertImagePlaceholder()
+}
+
+function toggleDictation() {
+    if (dictationDisabled.value) return
+
+    if (isDictationRecording.value) {
+        stopDictation()
+        return
+    }
+
+    startDictation()
+}
+
+function formatElapsed(totalSeconds) {
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${String(seconds).padStart(2, '0')}`
 }
 
 function openImageDialog() {
@@ -549,6 +645,10 @@ function triggerRedo() {
 .editor-menu-collapsed .button-text,
 .editor-menu-collapsed label[for="replaceEnabled"] {
     display: none;
+}
+
+.editor-menu-collapsed .dictation-status {
+    display: inline-flex;
 }
 
 .editor-menu-collapsed button,
