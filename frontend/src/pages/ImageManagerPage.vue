@@ -1,5 +1,5 @@
 <template>
-    <AccountLayout title="Images">
+    <AccountLayout title="Images" max-width-class="max-w-7xl">
         <div class="space-y-6">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="text-sm text-gray-600">
