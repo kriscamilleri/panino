@@ -80,7 +80,7 @@
                             <TreeItem
                                 :item="item"
                                 :is-filtered="true"
-                                :matching-files="getMatchingFilesForFolder(item)"
+                                :matching-files="getMatchingFilesForItem(item)"
                             />
                         </li>
                     </ul>
@@ -150,7 +150,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, provide } from 'vue';
+import { ref, computed, watch, nextTick, provide } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useDocStore } from '@/store/docStore';
@@ -180,10 +180,8 @@ function toggleSearch() {
 function clearSearch() { searchQuery.value = '' }
 
 /* filtering helpers */
-// This part will not work correctly with the new lazy-loading model as it assumes all data is in memory.
-// It would need to be replaced with a full-text search query against the database.
-// For now, it will only search the items that have been loaded.
-function matchesSearch(text) { return text.toLowerCase().includes(searchQuery.value.toLowerCase()) }
+function matchesSearch(text, query) { return text.toLowerCase().includes(query.toLowerCase()) }
+
 async function getAllFilesInFolder(f) {
     let res = [];
     const children = await docStore.getChildren(f.id);
@@ -196,28 +194,51 @@ async function getAllFilesInFolder(f) {
     }
     return res;
 }
-async function getImmediateFiles(f) { return (await docStore.getChildren(f.id)).filter(c => c.type === 'file') }
-async function getMatchingFilesForFolder(f) {
-    if (!searchQuery.value) return []
-    if (matchesSearch(f.name)) return await getImmediateFiles(f)
-    return (await getAllFilesInFolder(f)).filter(fi => matchesSearch(fi.name))
+
+async function getImmediateFiles(f) {
+    return (await docStore.getChildren(f.id)).filter(c => c.type === 'file')
 }
-async function folderMatchesSearch(f) {
-    if (matchesSearch(f.name)) return true
-    if ((await getAllFilesInFolder(f)).some(fi => matchesSearch(fi.name))) return true
-    const subFolders = (await docStore.getChildren(f.id)).filter(c => c.type === 'folder');
-    for (const sf of subFolders) {
-        if (await folderMatchesSearch(sf)) return true;
+
+const filteredStructure = ref([])
+const matchingFilesMap = ref({})
+
+let searchVersion = 0
+watch(searchQuery, async (query) => {
+    if (!query) {
+        filteredStructure.value = []
+        matchingFilesMap.value = {}
+        return
     }
-    return false;
+    const version = ++searchVersion
+    const results = []
+    const filesMap = {}
+    for (const item of rootItems.value) {
+        if (version !== searchVersion) return
+        if (item.type === 'file') {
+            if (matchesSearch(item.name, query)) results.push(item)
+        } else {
+            const folderNameMatches = matchesSearch(item.name, query)
+            let files
+            if (folderNameMatches) {
+                files = await getImmediateFiles(item)
+            } else {
+                files = (await getAllFilesInFolder(item)).filter(fi => matchesSearch(fi.name, query))
+            }
+            if (version !== searchVersion) return
+            if (folderNameMatches || files.length > 0) {
+                results.push(item)
+                filesMap[item.id] = files
+            }
+        }
+    }
+    if (version !== searchVersion) return
+    filteredStructure.value = results
+    matchingFilesMap.value = filesMap
+})
+
+function getMatchingFilesForItem(item) {
+    return matchingFilesMap.value[item.id] || []
 }
-const filteredStructure = computed(() => {
-    // This computed property becomes problematic with async operations.
-    // A proper implementation would involve a debounced async search function updating a ref.
-    // For now, this will only search rootItems.
-    if (!searchQuery.value) return [];
-    return rootItems.value.filter(item => matchesSearch(item.name));
-});
 
 
 /* create-modal helpers */

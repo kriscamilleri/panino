@@ -16,12 +16,12 @@ if ('serviceWorker' in navigator) {
       .register('/service-worker.js', { scope: '/' })
       .then((registration) => {
         console.log('[PWA] Service Worker registered:', registration.scope);
-        
+
         // Check for updates periodically
         setInterval(() => {
           registration.update();
         }, 60000); // Check every minute
-        
+
         // Listen for updates
         registration.addEventListener('updatefound', () => {
           const newWorker = registration.installing;
@@ -39,7 +39,7 @@ if ('serviceWorker' in navigator) {
       .catch((error) => {
         console.error('[PWA] Service Worker registration failed:', error);
       });
-    
+
     // Listen for messages from service worker
     navigator.serviceWorker.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'BACKGROUND_SYNC') {
