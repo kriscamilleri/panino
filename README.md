@@ -9,6 +9,7 @@ A browser based, local-first markdown note-taking Progressive Web App (PWA) with
 - 💾 Local SQLite storage via WebAssembly
 - 🔄 Optional multi-device sync using CR-SQLite
 - ✍️ Markdown editing with live preview
+- 🎙️ Speech dictation for the selected document
 - 🎨 Custom styling for preview and print
 - 🖼️ Image uploads and management
 - 📦 Import/export in multiple formats
@@ -17,6 +18,16 @@ A browser based, local-first markdown note-taking Progressive Web App (PWA) with
 - 📁 Files and folders 
 - 📱 Responsive web interface
 - 🧩 Front‑matter metadata variables for preview & PDF
+
+### Dictate
+
+Open `Tools -> Dictate` with a document selected to speak directly into the active editor. Panino uses the browser's speech recognition support, inserts finalized transcript text at the cursor, and keeps the control in the Tools menu alongside the other document-dependent actions.
+
+Dictation includes:
+- One-click start and stop from the Tools menu.
+- Live recording feedback with an elapsed timer and waveform.
+- Direct insertion into the current note without leaving the editor.
+- Browser-level microphone permission handling and unsupported-browser feedback.
 
 ### Print
 
@@ -170,13 +181,12 @@ This file should be placed in the root directory of the project. It configures t
 ```ini
 # A long, random, secure string for signing authentication tokens.
 JWT_SECRET=generate_a_strong_random_secret
-# Cloudflare Turnstile credentials for CAPTCHA. Get these from your Cloudflare dashboard.
-# Used for server-side verification.
+# Cloudflare Turnstile secret used for server-side verification.
 TURNSTILE_SECRET_KEY=0x4...SECRET...VI
-# Used by the Nginx setup script to create the frontend .env file.
-TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
-# The public URL of your frontend (e.g., [https://notes.example.com](https://notes.example.com))
-FRONTEND_URL="[https://panino.sh](https://panino.sh)"
+# Cloudflare Turnstile site key. Needed when running the frontend through docker compose in development.
+VITE_TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
+# The public URL of your frontend (e.g., https://notes.example.com)
+FRONTEND_URL="https://panino.sh"
 # The public URL of the API after proxying. This is used to generate the OAuth callback URL.
 PUBLIC_API_BASE_URL="https://panino.sh/api"
 # Domain name used by the Nginx setup script (e.g., notes.example.com)
@@ -204,19 +214,18 @@ SKIP_SSL=false
 ```
 ### 2. Frontend (`/frontend/.env`)
 
-This file is used to build the frontend application. The deployment script (deploy.sh) can generate a production version of this for you, but you may need to create it manually for development.
+This file is used when running the frontend directly with Vite instead of through Docker Compose. The deployment script (deploy.sh) can generate a production version of this for you, but you may need to create it manually for local development.
 
 ```ini
-# The public URL where the backend API is accessible. In production, this is
-# usually the same as your main domain.
-VITE_API_SERVICE_URL="[https://panino.sh](https://panino.sh)"
+# The backend API URL used by the frontend during development.
+VITE_API_SERVICE_URL="http://localhost:8000"
 # Your public site key from the Cloudflare Turnstile dashboard.
 VITE_TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
 ```
 
 > #### Where to Get Keys
 > - JWT_SECRET: You should generate this yourself. A good method is to run openssl rand -hex 32 in your terminal.
-> - TURNSTILE_SECRET_KEY & TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
+> - TURNSTILE_SECRET_KEY & VITE_TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
 > - GITHUB_CLIENT_ID & GITHUB_CLIENT_SECRET: Create a GitHub OAuth App in GitHub Developer Settings. For the deployed Panino instance at `panino.sh`, use homepage URL `https://panino.sh` and authorization callback URL `https://panino.sh/api/backup/github/callback`.
 > - SMTP_*: These settings are provided by your email service (e.g., Mailgun, SendGrid, Amazon SES, or your personal email provider).
 

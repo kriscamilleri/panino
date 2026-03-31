@@ -219,7 +219,7 @@ router.post('/sync', (req, res, next) => {
                     } catch {
                         pkBytes = toBufferLike(ch.pk);
                     }
-                    
+
                     const row = {
                         table: toSqliteScalar(ch.table),
                         pk: pkBytes,
@@ -231,7 +231,7 @@ router.post('/sync', (req, res, next) => {
                         cl: Number(ch.cl) || 0,
                         seq: Number(ch.seq) || 0
                     };
-                    
+
                     assertBindable(row);
                     insertStmt.run(Object.values(row));
                 }
@@ -244,7 +244,9 @@ router.post('/sync', (req, res, next) => {
 
                     if (!mutation.contentChanged && !mutation.titleChanged) continue;
 
-                    const base = getNoteBase.get(mutation.noteId) || { title: null, content: '' };
+                    const base = getNoteBase.get(mutation.noteId);
+                    if (!base) continue;
+
                     const snapshotTitle = mutation.titleChanged ? mutation.title : base.title;
                     const snapshotContent = mutation.contentChanged ? mutation.content : base.content;
 
