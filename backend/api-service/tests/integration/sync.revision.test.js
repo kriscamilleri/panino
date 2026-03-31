@@ -151,6 +151,42 @@ describe('Sync revision capture', () => {
     expect(latest.type).toBe('auto');
   });
 
+  it('skips revision capture when sync mutation references a note absent from the base table', async () => {
+    const siteId = generateSiteId('z');
+
+    const response = await request(app)
+      .post('/sync')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        since: 0,
+        siteId,
+        changes: [
+          {
+            table: 'notes',
+            pk: '["missing-note"]',
+            cid: 'title',
+            val: '"Missing note title"',
+            col_version: 1,
+            db_version: 1,
+            site_id: siteId,
+            cl: 0,
+            seq: 1,
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+
+    const db = getUserDb(testUser.userId);
+    const revisionCount = db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM note_revisions
+      WHERE note_id = ?
+    `).get('missing-note');
+
+    expect(revisionCount.count).toBe(0);
+  });
+
   it('keeps the last content value when multiple content changes exist in one payload', async () => {
     const siteId = generateSiteId('g');
 

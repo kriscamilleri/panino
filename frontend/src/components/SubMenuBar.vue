@@ -186,59 +186,6 @@
                     <span class="button-text">Image&nbsp;from&nbsp;Library</span>
                 </button>
 
-                <template v-if="isDictationSupported">
-                    <div class="separator"></div>
-
-                    <button
-                        @click="toggleDictation"
-                        :disabled="dictationDisabled"
-                        :class="[
-                            'px-3 py-1 border rounded text-sm flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
-                            isDictationRecording
-                                ? 'bg-red-50 border-red-300 text-red-700'
-                                : 'bg-white hover:bg-gray-50',
-                            !dictationDisabled && 'cursor-pointer'
-                        ]"
-                        :title="isDictationRecording ? 'Stop Dictation' : 'Start Dictation'"
-                        :aria-label="isDictationRecording ? 'Stop dictation' : 'Start dictation'"
-                        :aria-pressed="isDictationRecording"
-                        data-testid="submenu-editor-dictate"
-                    >
-                        <Mic class="w-4 h-4 shrink-0" />
-
-                        <span
-                            v-if="!isDictationRecording"
-                            class="button-text"
-                        >Dictate</span>
-
-                        <span
-                            v-else
-                            class="dictation-status flex items-center gap-1.5 min-w-0"
-                        >
-                            <svg
-                                width="40"
-                                height="16"
-                                aria-hidden="true"
-                                class="shrink-0 overflow-visible"
-                            >
-                                <polyline
-                                    :points="dictationWaveformPoints"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    stroke-width="1.5"
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                />
-                            </svg>
-
-                            <span
-                                aria-live="polite"
-                                class="tabular-nums"
-                            >{{ formatElapsed(dictationElapsedSeconds) }}</span>
-                        </span>
-                    </button>
-                </template>
-
                 <div class="separator"></div>
 
                 <div class="flex items-center gap-2">
@@ -381,6 +328,59 @@
                 class="flex flex-wrap items-center gap-2"
                 key="file"
             >
+                <template v-if="isDictationSupported">
+                    <BaseButton
+                        @click="toggleDictation"
+                        :disabled="dictationDisabled"
+                        :title="dictationDisabled ? 'Select a document to enable dictation' : isDictationRecording ? 'Stop Dictation' : 'Start Dictation'"
+                        :aria-label="isDictationRecording ? 'Stop dictation' : 'Start dictation'"
+                        :aria-pressed="isDictationRecording"
+                        data-testid="submenu-tools-dictate"
+                    >
+                        <Mic class="w-4 h-4 shrink-0" />
+
+                        <span
+                            v-if="!isDictationRecording"
+                            class="button-text"
+                        >Dictate</span>
+
+                        <span
+                            v-else
+                            class="dictation-status flex items-center gap-1.5 min-w-0"
+                        >
+                            <svg
+                                width="40"
+                                height="16"
+                                aria-hidden="true"
+                                class="shrink-0 overflow-visible"
+                            >
+                                <polyline
+                                    :points="dictationWaveformPoints"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.5"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                />
+                            </svg>
+
+                            <span
+                                aria-live="polite"
+                                class="tabular-nums"
+                            >{{ formatElapsed(dictationElapsedSeconds) }}</span>
+                        </span>
+                    </BaseButton>
+                </template>
+
+                <BaseButton
+                    @click="goToRevisions"
+                    :disabled="!isOnline || !selectedFileId"
+                    :title="!isOnline ? 'Revision History requires an internet connection' : !selectedFileId ? 'Select a document to view revision history' : ''"
+                    data-testid="submenu-tools-revisions"
+                >
+                    <History class="w-4 h-4" /><span>Revisions</span>
+                </BaseButton>
+
                 <BaseButton
                     :disabled="printDisabled"
                     :title="printDisabled ? 'Select a document to enable printing' : 'Customize print styles'"
@@ -389,6 +389,8 @@
                 >
                     <Printer class="w-4 h-4" /><span>Print</span>
                 </BaseButton>
+
+                <div class="separator"></div>
 
                 <BaseButton
                     @click="ui.openImportModal()"
@@ -418,15 +420,6 @@
                     data-testid="submenu-tools-images"
                 >
                     <Image class="w-4 h-4" /><span>Images</span>
-                </BaseButton>
-
-                <BaseButton
-                    @click="goToRevisions"
-                    :disabled="!isOnline || !selectedFileId"
-                    :title="!isOnline ? 'Revision History requires an internet connection' : !selectedFileId ? 'Select a document to view revision history' : ''"
-                    data-testid="submenu-tools-revisions"
-                >
-                    <History class="w-4 h-4" /><span>Revisions</span>
                 </BaseButton>
 
                 <BaseButton
@@ -640,6 +633,15 @@ function triggerRedo() {
     /* gray-300 */
     margin-left: 0.5rem;
     margin-right: 0.5rem;
+}
+
+button[data-testid="submenu-tools-dictate"][aria-pressed="true"] {
+    background-color: #fef2f2;
+    color: #b91c1c;
+}
+
+button[data-testid="submenu-tools-dictate"][aria-pressed="true"]:hover {
+    background-color: #fee2e2;
 }
 
 .editor-menu-collapsed .button-text,

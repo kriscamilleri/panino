@@ -103,7 +103,7 @@ router.beforeEach(async (to, from, next) => {
   // Use dynamic imports to avoid pinia activation issues
   const { useAuthStore } = await import('@/store/authStore')
   const { useSyncStore } = await import('@/store/syncStore')
-  
+
   const authStore = useAuthStore(pinia)
   const syncStore = useSyncStore(pinia)
 
