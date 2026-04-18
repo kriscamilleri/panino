@@ -1,5 +1,6 @@
 // /frontend/src/store/importExportStore.js
 import { defineStore } from 'pinia';
+import { v4 as uuidv4 } from 'uuid';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { useSyncStore } from './syncStore';
@@ -9,6 +10,17 @@ import { useGlobalVariablesStore } from './globalVariablesStore';
 import { useMarkdownStore } from './markdownStore';
 import { useUiStore } from './uiStore';
 import { replaceImageReferences, blobToBase64, base64ToBlob } from '../utils/exportUtils';
+import {
+    sanitizePathSegments,
+    extractTitleFromFrontMatter,
+    titleFromFilename,
+    deduplicateName,
+    isMarkdownFile,
+    isHiddenSegment,
+    buildFolderTree,
+    validateImportLimits,
+    IMPORT_LIMITS,
+} from '../utils/importUtils';
 
 const API_URL = import.meta.env.VITE_API_SERVICE_URL || '';
 const IS_PRODUCTION = import.meta.env.PROD;
@@ -437,11 +449,418 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         console.log('StackEdit import completed successfully.');
     }
 
+    // ─── Markdown file import (additive) ─────────────────────
+
+    /**
+     * Read a File object as UTF-8 text.
+     * @param {File} file
+     * @returns {Promise<string>}
+     */
+    function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+            reader.readAsText(file);
+        });
+    }
+
+    /**
+     * Query existing folder names at a given parent level.
+     * @param {string|null} parentId
+     * @returns {Promise<Set<string>>}
+     */
+    async function getExistingFolderNames(parentId) {
+        const rows = await syncStore.execute(
+            'SELECT name FROM folders WHERE parent_id IS ?',
+            [parentId ?? null]
+        );
+        return new Set((rows || []).map(r => r.name));
+    }
+
+    /**
+     * Query existing note titles in a given folder.
+     * @param {string|null} folderId
+     * @returns {Promise<Set<string>>}
+     */
+    async function getExistingNoteTitles(folderId) {
+        const rows = await syncStore.execute(
+            'SELECT title FROM notes WHERE folder_id IS ?',
+            [folderId ?? null]
+        );
+        return new Set((rows || []).map(r => r.title));
+    }
+
+    /**
+     * Import one or more markdown files as individual notes (additive).
+     * @param {FileList|File[]} files
+     * @param {string|null} [targetFolderId=null] - Folder to import into (null = root)
+     * @param {function} [onProgress] - Progress callback (current, total)
+     * @returns {Promise<{imported: number, skipped: number}>}
+     */
+    async function importMarkdownFiles(files, targetFolderId = null, onProgress = null) {
+        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
+        const authStore = useAuthStore();
+        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
+
+        const fileArray = Array.from(files);
+        const mdFiles = fileArray.filter(f => isMarkdownFile(f.name));
+
+        if (mdFiles.length === 0) throw new Error('No markdown files found in selection.');
+
+        validateImportLimits(mdFiles.length, 0);
+
+        const existingTitles = await getExistingNoteTitles(targetFolderId);
+        const now = new Date().toISOString();
+        let imported = 0;
+        let skipped = 0;
+
+        try {
+            await syncStore.db.value.exec('BEGIN TRANSACTION;');
+
+            for (let i = 0; i < mdFiles.length; i++) {
+                const file = mdFiles[i];
+
+                if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
+                    console.warn(`[import] Skipping "${file.name}" — exceeds 50 MB per-file limit.`);
+                    skipped++;
+                    continue;
+                }
+
+                const content = await readFileAsText(file);
+                const fmTitle = extractTitleFromFrontMatter(content);
+                const fnTitle = titleFromFilename(file.name);
+                let title = fmTitle || fnTitle;
+
+                title = deduplicateName(title, existingTitles);
+                existingTitles.add(title);
+
+                await syncStore.db.value.exec(
+                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [uuidv4(), authStore.user.id, targetFolderId, title, content, now, now]
+                );
+                imported++;
+
+                if (onProgress) onProgress(i + 1, mdFiles.length);
+
+                // Yield to UI every 100 files
+                if (imported % 100 === 0) {
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+
+            await syncStore.db.value.exec('COMMIT;');
+        } catch (e) {
+            console.error('Markdown import failed, rolling back.', e);
+            await syncStore.db.value.exec('ROLLBACK;');
+            throw e;
+        }
+
+        await docStore.loadInitialData();
+        return { imported, skipped };
+    }
+
+    /**
+     * Import a directory of markdown files, preserving folder structure (additive).
+     * Expects files from an `<input webkitdirectory>` — each File has `webkitRelativePath`.
+     *
+     * @param {FileList|File[]} files
+     * @param {function} [onProgress] - Progress callback (current, total)
+     * @returns {Promise<{imported: number, skipped: number, folders: number}>}
+     */
+    async function importMarkdownDirectory(files, onProgress = null) {
+        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
+        const authStore = useAuthStore();
+        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
+
+        const fileArray = Array.from(files);
+
+        // Read all markdown files
+        const entries = [];
+        let totalBytes = 0;
+
+        for (const file of fileArray) {
+            const path = file.webkitRelativePath || file.name;
+            if (!isMarkdownFile(path)) continue;
+
+            const segments = sanitizePathSegments(path);
+            if (segments.length === 0) continue;
+            if (segments.some(isHiddenSegment)) continue;
+
+            if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
+                console.warn(`[import] Skipping "${path}" — exceeds 50 MB per-file limit.`);
+                continue;
+            }
+
+            totalBytes += file.size;
+            const content = await readFileAsText(file);
+            entries.push({ relativePath: path, content });
+        }
+
+        if (entries.length === 0) throw new Error('No markdown files found in selected directory.');
+
+        const { folders: folderMap, notes } = buildFolderTree(entries);
+
+        validateImportLimits(notes.length, folderMap.size, totalBytes);
+
+        const now = new Date().toISOString();
+        const userId = authStore.user.id;
+
+        // Map folderPath -> Panino folder UUID
+        const folderIdMap = new Map();
+        let foldersCreated = 0;
+
+        try {
+            await syncStore.db.value.exec('BEGIN TRANSACTION;');
+
+            // Create folders in topological order (parents first)
+            const sortedPaths = [...folderMap.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
+
+            for (const fullPath of sortedPaths) {
+                const { name, parentPath } = folderMap.get(fullPath);
+                const parentId = parentPath ? folderIdMap.get(parentPath) : null;
+
+                // Deduplicate folder name at this level
+                const existingNames = await getExistingFolderNames(parentId);
+                const safeName = deduplicateName(name, existingNames);
+
+                const folderId = uuidv4();
+                await syncStore.db.value.exec(
+                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                    [folderId, userId, safeName, parentId, now]
+                );
+                folderIdMap.set(fullPath, folderId);
+                foldersCreated++;
+            }
+
+            // Insert notes
+            let imported = 0;
+            let skipped = 0;
+            const total = notes.length;
+
+            for (let i = 0; i < notes.length; i++) {
+                const note = notes[i];
+                const folderId = note.folderPath ? folderIdMap.get(note.folderPath) : null;
+
+                // Deduplicate title
+                const existingTitles = await getExistingNoteTitles(folderId);
+                let title = deduplicateName(note.title, existingTitles);
+
+                await syncStore.db.value.exec(
+                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [uuidv4(), userId, folderId, title, note.content, now, now]
+                );
+                imported++;
+
+                if (onProgress) onProgress(i + 1, total);
+
+                if (imported % 100 === 0) {
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+
+            await syncStore.db.value.exec('COMMIT;');
+
+            await docStore.loadInitialData();
+            return { imported, skipped, folders: foldersCreated };
+        } catch (e) {
+            console.error('Directory import failed, rolling back.', e);
+            await syncStore.db.value.exec('ROLLBACK;');
+            throw e;
+        }
+    }
+
+    /**
+     * Import a ZIP archive of markdown files (additive).
+     * Detects Panino re-imports via `_panino_metadata.json`.
+     *
+     * @param {File} file - The ZIP file
+     * @param {function} [onProgress] - Progress callback (current, total)
+     * @returns {Promise<{imported: number, skipped: number, folders: number, hasPaninoMetadata: boolean}>}
+     */
+    async function importZipArchive(file, onProgress = null) {
+        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
+        const authStore = useAuthStore();
+        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
+
+        const zip = await JSZip.loadAsync(file);
+        const entries = [];
+        let totalBytes = 0;
+        let fileCount = 0;
+        let dirCount = 0;
+        const seenDirs = new Set();
+        let hasPaninoMetadata = false;
+
+        // Check for Panino metadata
+        if (zip.file('_panino_metadata.json')) {
+            hasPaninoMetadata = true;
+        }
+
+        // First pass: count entries and validate limits
+        const zipEntries = Object.keys(zip.files);
+        for (const path of zipEntries) {
+            const zipEntry = zip.files[path];
+            if (zipEntry.dir) {
+                dirCount++;
+                continue;
+            }
+            fileCount++;
+        }
+
+        validateImportLimits(fileCount, dirCount);
+
+        // Second pass: read markdown files
+        let skipped = 0;
+        for (const path of zipEntries) {
+            const zipEntry = zip.files[path];
+            if (zipEntry.dir) continue;
+
+            // Normalize path separators
+            const normalizedPath = path.replace(/\\/g, '/');
+
+            // Skip non-markdown, _panino_metadata.json, and _images/
+            if (normalizedPath === '_panino_metadata.json') continue;
+            if (normalizedPath.startsWith('_images/')) continue;
+
+            const segments = sanitizePathSegments(normalizedPath);
+            if (segments.length === 0) continue;
+            if (segments.some(isHiddenSegment)) continue;
+            if (!isMarkdownFile(segments[segments.length - 1])) continue;
+
+            // Read content
+            const data = await zipEntry.async('uint8array');
+            if (data.length > IMPORT_LIMITS.MAX_FILE_BYTES) {
+                console.warn(`[import] Skipping "${path}" — exceeds 50 MB per-file limit.`);
+                skipped++;
+                continue;
+            }
+
+            totalBytes += data.length;
+            if (totalBytes > IMPORT_LIMITS.MAX_TOTAL_BYTES) {
+                throw new Error('This import exceeds the maximum total size of 500 MB.');
+            }
+
+            const content = new TextDecoder('utf-8').decode(data);
+            entries.push({ relativePath: normalizedPath, content });
+
+            // Track directories
+            for (let i = 0; i < segments.length - 1; i++) {
+                seenDirs.add(segments.slice(0, i + 1).join('/'));
+            }
+        }
+
+        if (entries.length === 0) throw new Error('No markdown files found in the ZIP archive.');
+
+        validateImportLimits(entries.length, seenDirs.size, totalBytes);
+
+        const { folders: folderMap, notes } = buildFolderTree(entries);
+
+        const now = new Date().toISOString();
+        const userId = authStore.user.id;
+        const folderIdMap = new Map();
+        let foldersCreated = 0;
+
+        try {
+            await syncStore.db.value.exec('BEGIN TRANSACTION;');
+
+            // Create folders
+            const sortedPaths = [...folderMap.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
+
+            for (const fullPath of sortedPaths) {
+                const { name, parentPath } = folderMap.get(fullPath);
+                const parentId = parentPath ? folderIdMap.get(parentPath) : null;
+
+                const existingNames = await getExistingFolderNames(parentId);
+                const safeName = deduplicateName(name, existingNames);
+
+                const folderId = uuidv4();
+                await syncStore.db.value.exec(
+                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                    [folderId, userId, safeName, parentId, now]
+                );
+                folderIdMap.set(fullPath, folderId);
+                foldersCreated++;
+            }
+
+            // Insert notes
+            let imported = 0;
+            const total = notes.length;
+
+            for (let i = 0; i < notes.length; i++) {
+                const note = notes[i];
+                const folderId = note.folderPath ? folderIdMap.get(note.folderPath) : null;
+
+                const existingTitles = await getExistingNoteTitles(folderId);
+                let title = deduplicateName(note.title, existingTitles);
+
+                await syncStore.db.value.exec(
+                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [uuidv4(), userId, folderId, title, note.content, now, now]
+                );
+                imported++;
+
+                if (onProgress) onProgress(i + 1, total);
+
+                if (imported % 100 === 0) {
+                    await new Promise(r => setTimeout(r, 0));
+                }
+            }
+
+            await syncStore.db.value.exec('COMMIT;');
+
+            // If this is a Panino re-import, handle metadata (settings/globals)
+            if (hasPaninoMetadata) {
+                try {
+                    const metadataJson = await zip.file('_panino_metadata.json').async('string');
+                    const metadata = JSON.parse(metadataJson);
+
+                    if (metadata.settings && Array.isArray(metadata.settings) && metadata.settings.length > 0) {
+                        for (const setting of metadata.settings) {
+                            await syncStore.db.value.exec(
+                                'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+                                [setting.id, setting.value]
+                            );
+                        }
+                    }
+
+                    if (metadata.globals && Array.isArray(metadata.globals) && metadata.globals.length > 0) {
+                        for (const g of metadata.globals) {
+                            await syncStore.db.value.exec(
+                                'INSERT OR REPLACE INTO globals (key, id, value, created_at, updated_at, display_key) VALUES (?, ?, ?, ?, ?, ?)',
+                                [g.key, g.id || '', g.value || '', g.created_at || now, g.updated_at || now, g.display_key || g.key]
+                            );
+                        }
+                    }
+
+                    // Refresh settings stores
+                    const markdownStore = useMarkdownStore();
+                    const uiStore = useUiStore();
+                    await markdownStore.loadStylesFromDB();
+                    await uiStore.loadSettingsFromDB();
+                    const globalVariablesStore = useGlobalVariablesStore();
+                    await globalVariablesStore.loadGlobals();
+                } catch (metaErr) {
+                    console.warn('[import] Failed to restore Panino metadata from ZIP:', metaErr);
+                }
+            }
+
+            await docStore.loadInitialData();
+            return { imported, skipped, folders: foldersCreated, hasPaninoMetadata };
+        } catch (e) {
+            console.error('ZIP import failed, rolling back.', e);
+            await syncStore.db.value.exec('ROLLBACK;');
+            throw e;
+        }
+    }
+
     return {
         exportDataAsJsonString,
         exportDataAsZip,
         importData,
         exportDataAsStackEditJsonString,
         importStackEditData,
+        importMarkdownFiles,
+        importMarkdownDirectory,
+        importZipArchive,
     };
 });
