@@ -171,6 +171,23 @@ describe('titleFromFilename', () => {
     it('preserves name without .md extension', () => {
         expect(titleFromFilename('readme.txt')).toBe('readme.txt');
     });
+
+    it('strips control characters from filename-derived title', () => {
+        expect(titleFromFilename('bad\x00title\x01.md')).toBe('badtitle');
+    });
+
+    it('normalizes filename-derived title to NFC', () => {
+        expect(titleFromFilename('cafe\u0301.md')).toBe('caf\u00e9');
+    });
+
+    it('truncates filename-derived title to 500 chars', () => {
+        const longName = `${'a'.repeat(600)}.md`;
+        expect(titleFromFilename(longName)).toHaveLength(500);
+    });
+
+    it('returns "Untitled" when filename-derived title is whitespace/control only', () => {
+        expect(titleFromFilename(' \x00\x01 .md')).toBe('Untitled');
+    });
 });
 
 // ── deduplicateName ──────────────────────────────────────────

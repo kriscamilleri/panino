@@ -70,7 +70,7 @@ function createMockSyncStore(db) {
         execute: vi.fn(async (sql, params) => {
             // Handle folder name queries
             if (sql.includes('SELECT name FROM folders')) {
-                const parentId = params[1] ?? null;
+                const parentId = params[0] ?? null;
                 const name = params.length > 1 ? params[1] : undefined;
                 if (name !== undefined) {
                     // Query with name filter
