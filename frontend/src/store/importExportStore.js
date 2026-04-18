@@ -508,7 +508,11 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
         if (mdFiles.length === 0) throw new Error('No markdown files found in selection.');
 
-        validateImportLimits(mdFiles.length, 0);
+        const totalImportBytes = mdFiles.reduce(
+            (sum, file) => sum + (file.size <= IMPORT_LIMITS.MAX_FILE_BYTES ? file.size : 0),
+            0
+        );
+        validateImportLimits(mdFiles.length, totalImportBytes);
 
         const existingTitles = await getExistingNoteTitles(targetFolderId);
         const now = new Date().toISOString();
@@ -589,6 +593,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
             if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
                 console.warn(`[import] Skipping "${path}" — exceeds 50 MB per-file limit.`);
+                skipped += 1;
                 continue;
             }
 
@@ -637,19 +642,24 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             let imported = 0;
             let skipped = 0;
             const total = notes.length;
+            const existingTitlesByFolderId = new Map();
 
             for (let i = 0; i < notes.length; i++) {
                 const note = notes[i];
                 const folderId = note.folderPath ? folderIdMap.get(note.folderPath) : null;
 
-                // Deduplicate title
-                const existingTitles = await getExistingNoteTitles(folderId);
+                // Deduplicate title using a per-folder cache to avoid repeated SELECTs
+                if (!existingTitlesByFolderId.has(folderId)) {
+                    existingTitlesByFolderId.set(folderId, new Set(await getExistingNoteTitles(folderId)));
+                }
+                const existingTitles = existingTitlesByFolderId.get(folderId);
                 let title = deduplicateName(note.title, existingTitles);
 
                 await syncStore.db.value.exec(
                     'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                     [uuidv4(), userId, folderId, title, note.content, now, now]
                 );
+                existingTitles.add(title);
                 imported++;
 
                 if (onProgress) onProgress(i + 1, total);

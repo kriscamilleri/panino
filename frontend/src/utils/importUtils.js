@@ -66,7 +66,13 @@ export function extractTitleFromFrontMatter(content) {
  */
 export function titleFromFilename(filename) {
     if (!filename || typeof filename !== 'string') return 'Untitled';
-    const title = filename.replace(/\.(md|markdown)$/i, '').trim();
+    const title = filename
+        .replace(/\.(md|markdown)$/i, '')
+        .trim()
+        .normalize('NFC')
+        .replace(/[\x00-\x1f]/g, '')
+        .slice(0, 500)
+        .trim();
     return title || 'Untitled';
 }
 
