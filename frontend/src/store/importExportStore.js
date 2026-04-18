@@ -593,6 +593,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
             if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
                 console.warn(`[import] Skipping "${path}" — exceeds 50 MB per-file limit.`);
+                skipped += 1;
                 continue;
             }
 
