@@ -196,6 +196,20 @@
                     <div v-if="selectedZipFile" class="mt-4">
                         <p class="text-sm text-gray-600">Selected: {{ selectedZipFile.name }}</p>
                     </div>
+                    <div class="mt-4">
+                        <div class="flex items-center">
+                            <input
+                                id="restore-panino-metadata"
+                                type="checkbox"
+                                v-model="restoreZipMetadata"
+                                class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500"
+                                data-testid="import-modal-restore-metadata-toggle"
+                            >
+                            <label for="restore-panino-metadata" class="ml-2 block text-sm text-gray-900">
+                                Restore settings and variables from Panino metadata (if present)
+                            </label>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- ── JSON mode (existing behavior) ── -->
@@ -342,6 +356,7 @@
 import { ref, computed } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
+import { isMarkdownFile } from '@/utils/importUtils'
 import { X, Upload, AlertCircle, FileText, FolderOpen, Archive, Braces } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -376,6 +391,7 @@ const dirInput = ref(null)
 // ZIP mode
 const selectedZipFile = ref(null)
 const zipFileInput = ref(null)
+const restoreZipMetadata = ref(false)
 
 // JSON mode
 const jsonData = ref('')
@@ -426,6 +442,7 @@ function handleClose() {
 function resetSelections() {
     selectedFiles.value = []
     selectedZipFile.value = null
+    restoreZipMetadata.value = false
     jsonData.value = ''
     isStackEditFormat.value = false
     progressCurrent.value = 0
@@ -441,9 +458,7 @@ function onProgress(current, total) {
 
 function handleMarkdownDrop(e) {
     isDragging.value = false
-    const files = Array.from(e.dataTransfer.files).filter(f =>
-        f.name.endsWith('.md') || f.name.endsWith('.markdown')
-    )
+    const files = Array.from(e.dataTransfer.files).filter(f => isMarkdownFile(f.name))
     if (files.length > 0) {
         selectedFiles.value = files
         error.value = ''
@@ -469,7 +484,7 @@ function handleDirectorySelect(e) {
 function handleZipDrop(e) {
     isDragging.value = false
     const file = e.dataTransfer.files[0]
-    if (file && file.name.endsWith('.zip')) {
+    if (file && file.name.toLowerCase().endsWith('.zip')) {
         selectedZipFile.value = file
         error.value = ''
     } else {
@@ -544,10 +559,14 @@ async function doImport() {
                 break
             }
             case 'zip': {
-                const result = await docStore.importZipArchive(selectedZipFile.value, onProgress)
+                const result = await docStore.importZipArchive(selectedZipFile.value, onProgress, restoreZipMetadata.value)
                 let msg = `Imported ${result.imported} note${result.imported !== 1 ? 's' : ''} in ${result.folders} folder${result.folders !== 1 ? 's' : ''}`
                 if (result.skipped) msg += ` (${result.skipped} skipped)`
-                if (result.hasPaninoMetadata) msg += '. Settings restored from Panino export.'
+                if (result.metadataRestored) {
+                    msg += '. Settings and variables restored from Panino export.'
+                } else if (result.hasPaninoMetadata && !restoreZipMetadata.value) {
+                    msg += '. Panino metadata detected (not applied).'
+                }
                 uiStore.addToast(msg, 'success')
                 break
             }

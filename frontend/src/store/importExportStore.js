@@ -512,7 +512,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             (sum, file) => sum + (file.size <= IMPORT_LIMITS.MAX_FILE_BYTES ? file.size : 0),
             0
         );
-        validateImportLimits(mdFiles.length, totalImportBytes);
+        validateImportLimits(mdFiles.length, 0, totalImportBytes);
 
         const existingTitles = await getExistingNoteTitles(targetFolderId);
         const now = new Date().toISOString();
@@ -582,6 +582,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         // Read all markdown files
         const entries = [];
         let totalBytes = 0;
+        let skipped = 0;
 
         for (const file of fileArray) {
             const path = file.webkitRelativePath || file.name;
@@ -593,7 +594,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
             if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
                 console.warn(`[import] Skipping "${path}" — exceeds 50 MB per-file limit.`);
-                skipped += 1;
+                skipped++;
                 continue;
             }
 
@@ -620,14 +621,19 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
             // Create folders in topological order (parents first)
             const sortedPaths = [...folderMap.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
+            const existingFolderNamesByParentId = new Map();
 
             for (const fullPath of sortedPaths) {
                 const { name, parentPath } = folderMap.get(fullPath);
                 const parentId = parentPath ? folderIdMap.get(parentPath) : null;
 
                 // Deduplicate folder name at this level
-                const existingNames = await getExistingFolderNames(parentId);
+                if (!existingFolderNamesByParentId.has(parentId)) {
+                    existingFolderNamesByParentId.set(parentId, await getExistingFolderNames(parentId));
+                }
+                const existingNames = existingFolderNamesByParentId.get(parentId);
                 const safeName = deduplicateName(name, existingNames);
+                existingNames.add(safeName);
 
                 const folderId = uuidv4();
                 await syncStore.db.value.exec(
@@ -640,7 +646,6 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
             // Insert notes
             let imported = 0;
-            let skipped = 0;
             const total = notes.length;
             const existingTitlesByFolderId = new Map();
 
@@ -686,9 +691,10 @@ export const useImportExportStore = defineStore('importExportStore', () => {
      *
      * @param {File} file - The ZIP file
      * @param {function} [onProgress] - Progress callback (current, total)
-     * @returns {Promise<{imported: number, skipped: number, folders: number, hasPaninoMetadata: boolean}>}
+     * @param {boolean} [restorePaninoMetadata=false] - Whether to restore settings/globals from Panino metadata
+     * @returns {Promise<{imported: number, skipped: number, folders: number, hasPaninoMetadata: boolean, metadataRestored: boolean}>}
      */
-    async function importZipArchive(file, onProgress = null) {
+    async function importZipArchive(file, onProgress = null, restorePaninoMetadata = false) {
         if (!syncStore.isInitialized) throw new Error('Sync not ready.');
         const authStore = useAuthStore();
         if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
@@ -700,6 +706,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         let dirCount = 0;
         const seenDirs = new Set();
         let hasPaninoMetadata = false;
+        let metadataRestored = false;
 
         // Check for Panino metadata
         if (zip.file('_panino_metadata.json')) {
@@ -818,8 +825,8 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
             await syncStore.db.value.exec('COMMIT;');
 
-            // If this is a Panino re-import, handle metadata (settings/globals)
-            if (hasPaninoMetadata) {
+            // If this is a Panino re-import and user opted in, restore metadata (settings/globals)
+            if (hasPaninoMetadata && restorePaninoMetadata) {
                 try {
                     const metadataJson = await zip.file('_panino_metadata.json').async('string');
                     const metadata = JSON.parse(metadataJson);
@@ -849,13 +856,14 @@ export const useImportExportStore = defineStore('importExportStore', () => {
                     await uiStore.loadSettingsFromDB();
                     const globalVariablesStore = useGlobalVariablesStore();
                     await globalVariablesStore.loadGlobals();
+                    metadataRestored = true;
                 } catch (metaErr) {
                     console.warn('[import] Failed to restore Panino metadata from ZIP:', metaErr);
                 }
             }
 
             await docStore.loadInitialData();
-            return { imported, skipped, folders: foldersCreated, hasPaninoMetadata };
+            return { imported, skipped, folders: foldersCreated, hasPaninoMetadata, metadataRestored };
         } catch (e) {
             console.error('ZIP import failed, rolling back.', e);
             await syncStore.db.value.exec('ROLLBACK;');

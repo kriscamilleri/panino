@@ -87,14 +87,14 @@ export function titleFromFilename(filename) {
 export function deduplicateName(name, existingNames) {
     if (!existingNames.has(name)) return name;
 
-    let counter = 1;
-    let candidate;
-    do {
-        candidate = `${name} (import ${counter})`;
-        counter++;
-    } while (existingNames.has(candidate) && counter < 1000);
+    for (let counter = 1; counter <= 999; counter++) {
+        const candidate = `${name} (import ${counter})`;
+        if (!existingNames.has(candidate)) {
+            return candidate;
+        }
+    }
 
-    return candidate;
+    throw new Error(`Unable to deduplicate name "${name}" after 999 import suffix attempts.`);
 }
 
 /**

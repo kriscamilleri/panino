@@ -213,6 +213,13 @@ describe('deduplicateName', () => {
         const result = deduplicateName('test', existing);
         expect(result).toBe('test (import 999)');
     });
+
+    it('throws when all suffixes up to 999 are exhausted', () => {
+        const existing = new Set();
+        existing.add('test');
+        for (let i = 1; i <= 999; i++) existing.add(`test (import ${i})`);
+        expect(() => deduplicateName('test', existing)).toThrow(/Unable to deduplicate name/);
+    });
 });
 
 // ── isMarkdownFile ───────────────────────────────────────────

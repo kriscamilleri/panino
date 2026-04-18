@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import JSZip from 'jszip';
 
 /**
- * These tests verify the markdown import store functions using mocked stores.
- * Since the store functions depend on Pinia (syncStore, authStore, docStore),
- * we test the logic by mocking those dependencies.
+ * These tests validate markdown import utility integration logic.
+ * They simulate core import behavior (path/title parsing, tree building, limits)
+ * without directly invoking Pinia store actions.
  */
 
 // ── Mock store helpers ───────────────────────────────────────
