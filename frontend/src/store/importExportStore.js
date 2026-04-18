@@ -641,19 +641,24 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             let imported = 0;
             let skipped = 0;
             const total = notes.length;
+            const existingTitlesByFolderId = new Map();
 
             for (let i = 0; i < notes.length; i++) {
                 const note = notes[i];
                 const folderId = note.folderPath ? folderIdMap.get(note.folderPath) : null;
 
-                // Deduplicate title
-                const existingTitles = await getExistingNoteTitles(folderId);
+                // Deduplicate title using a per-folder cache to avoid repeated SELECTs
+                if (!existingTitlesByFolderId.has(folderId)) {
+                    existingTitlesByFolderId.set(folderId, new Set(await getExistingNoteTitles(folderId)));
+                }
+                const existingTitles = existingTitlesByFolderId.get(folderId);
                 let title = deduplicateName(note.title, existingTitles);
 
                 await syncStore.db.value.exec(
                     'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                     [uuidv4(), userId, folderId, title, note.content, now, now]
                 );
+                existingTitles.add(title);
                 imported++;
 
                 if (onProgress) onProgress(i + 1, total);
