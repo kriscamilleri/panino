@@ -508,7 +508,11 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
         if (mdFiles.length === 0) throw new Error('No markdown files found in selection.');
 
-        validateImportLimits(mdFiles.length, 0);
+        const totalImportBytes = mdFiles.reduce(
+            (sum, file) => sum + (file.size <= IMPORT_LIMITS.MAX_FILE_BYTES ? file.size : 0),
+            0
+        );
+        validateImportLimits(mdFiles.length, totalImportBytes);
 
         const existingTitles = await getExistingNoteTitles(targetFolderId);
         const now = new Date().toISOString();
