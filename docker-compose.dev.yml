@@ -7,6 +7,8 @@ services:
     build: ./backend/api-service
     ports:
       - "127.0.0.1:8000:8000"
+      - "127.0.0.1:9229:9229" # Node.js debugger
+    command: node --inspect=0.0.0.0:9229 index.js
     dns:
       - 8.8.8.8
       - 8.8.4.4

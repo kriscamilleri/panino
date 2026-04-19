@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug: Backend (attach to Docker)",
+      "type": "node",
+      "request": "attach",
+      "port": 9229,
+      "address": "localhost",
+      "localRoot": "${workspaceFolder}/backend/api-service",
+      "remoteRoot": "/app",
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"],
+      "preLaunchTask": "Dev: Docker Compose Up (detached)"
+    },
+    {
+      "name": "Debug: Frontend (Chrome)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "sourceMaps": true,
+      "userDataDir": "${workspaceFolder}/.vscode/.chrome-debug-profile",
+      "runtimeArgs": ["--disable-gpu-compositing"],
+      "preLaunchTask": "Dev: Docker Compose Up (detached)"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug: Full Stack",
+      "configurations": [
+        "Debug: Backend (attach to Docker)",
+        "Debug: Frontend (Chrome)"
+      ],
+      "preLaunchTask": "Dev: Docker Compose Up (detached)",
+      "stopAll": true
+    }
+  ]
+}
