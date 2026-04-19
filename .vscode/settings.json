@@ -1,0 +1,9 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "docker restart": true,
+        "/^git ls-tree -r --name-only origin/tests \\| grep -E \"\\(test\\|spec\\)\\\\\\.\" \\| head -50$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
