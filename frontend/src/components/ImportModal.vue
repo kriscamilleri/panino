@@ -39,7 +39,7 @@
                             <FileText class="w-5 h-5 text-gray-500 mt-0.5 shrink-0" />
                             <div>
                                 <p class="font-medium text-gray-800 group-hover:text-gray-900">Markdown Files (.md)</p>
-                                <p class="text-sm text-gray-500 mt-0.5">Import one or more markdown files as individual notes.</p>
+                                <p class="text-sm text-gray-500 mt-0.5">Import one or more markdown files and update matching notes in place.</p>
                             </div>
                         </div>
                     </button>
@@ -53,7 +53,7 @@
                             <FolderOpen class="w-5 h-5 text-gray-500 mt-0.5 shrink-0" />
                             <div>
                                 <p class="font-medium text-gray-800 group-hover:text-gray-900">Markdown Folder</p>
-                                <p class="text-sm text-gray-500 mt-0.5">Import a directory of .md files, preserving folder structure.</p>
+                                <p class="text-sm text-gray-500 mt-0.5">Import a directory of .md files, preserving folder structure and updating matching notes.</p>
                             </div>
                         </div>
                     </button>
@@ -67,7 +67,7 @@
                             <Archive class="w-5 h-5 text-gray-500 mt-0.5 shrink-0" />
                             <div>
                                 <p class="font-medium text-gray-800 group-hover:text-gray-900">ZIP Archive (.zip)</p>
-                                <p class="text-sm text-gray-500 mt-0.5">Import a .zip containing markdown files and folders.</p>
+                                <p class="text-sm text-gray-500 mt-0.5">Import folders and .md files from a .zip archive, update matching notes, and restore bundled images from Panino exports.</p>
                             </div>
                         </div>
                     </button>
@@ -82,8 +82,8 @@
                             <div>
                                 <p class="font-medium text-gray-800 group-hover:text-gray-900">Panino / StackEdit JSON</p>
                                 <p class="text-sm text-gray-500 mt-0.5">
-                                    Import a Panino or StackEdit JSON backup file.
-                                    <span class="text-amber-600 font-medium">Replaces all data.</span>
+                                    Import folders and markdown notes from a Panino or StackEdit JSON export.
+                                    <span class="text-amber-600 font-medium">Images, settings, and variables are skipped.</span>
                                 </p>
                             </div>
                         </div>
@@ -108,7 +108,7 @@
                             <p class="text-sm text-gray-500">or</p>
                             <input
                                 type="file"
-                                accept=".md,.markdown"
+                                accept=".md"
                                 multiple
                                 @change="handleMarkdownFileSelect"
                                 class="hidden"
@@ -195,20 +195,6 @@
                     </div>
                     <div v-if="selectedZipFile" class="mt-4">
                         <p class="text-sm text-gray-600">Selected: {{ selectedZipFile.name }}</p>
-                    </div>
-                    <div class="mt-4">
-                        <div class="flex items-center">
-                            <input
-                                id="restore-panino-metadata"
-                                type="checkbox"
-                                v-model="restoreZipMetadata"
-                                class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500"
-                                data-testid="import-modal-restore-metadata-toggle"
-                            >
-                            <label for="restore-panino-metadata" class="ml-2 block text-sm text-gray-900">
-                                Restore settings and variables from Panino metadata (if present)
-                            </label>
-                        </div>
                     </div>
                 </div>
 
@@ -391,7 +377,6 @@ const dirInput = ref(null)
 // ZIP mode
 const selectedZipFile = ref(null)
 const zipFileInput = ref(null)
-const restoreZipMetadata = ref(false)
 
 // JSON mode
 const jsonData = ref('')
@@ -442,7 +427,6 @@ function handleClose() {
 function resetSelections() {
     selectedFiles.value = []
     selectedZipFile.value = null
-    restoreZipMetadata.value = false
     jsonData.value = ''
     isStackEditFormat.value = false
     progressCurrent.value = 0
@@ -532,60 +516,89 @@ function readJsonFile(file) {
     reader.readAsText(file)
 }
 
+function buildImportToastMessage(result) {
+    const parts = []
+
+    if (result.created) parts.push(`${result.created} created`)
+    if (result.updated) parts.push(`${result.updated} updated`)
+    if (result.unchanged) parts.push(`${result.unchanged} unchanged`)
+    if (result.foldersCreated) parts.push(`${result.foldersCreated} folder${result.foldersCreated !== 1 ? 's' : ''} created`)
+
+    return parts.length ? `Import complete: ${parts.join(', ')}.` : 'Nothing changed during import.'
+}
+
+function showSkippedItemsToast(result) {
+    if (!result?.skippedItems?.length) return
+
+    const preview = result.skippedItems
+        .slice(0, 3)
+        .map(item => `${item.path} (${item.reason})`)
+        .join('; ')
+    const remaining = result.skippedItems.length - 3
+    const suffix = remaining > 0 ? `; +${remaining} more` : ''
+
+    uiStore.addToast(`Skipped ${result.skippedItems.length} item(s): ${preview}${suffix}`, 'warning', 8000)
+}
+
+function shouldReloadAfterImport(result) {
+    return Boolean(result && (result.created || result.updated || result.foldersCreated))
+}
+
 // ── Import dispatcher ────────────────────────────────────────
 
-async function doImport() {
+async function doImport(importOptions = {}) {
     error.value = ''
     isImporting.value = true
 
     try {
+        let result = null
+
         switch (activeMode.value) {
             case 'markdown': {
-                const result = await docStore.importMarkdownFiles(selectedFiles.value, null, onProgress)
-                uiStore.addToast(
-                    `Imported ${result.imported} note${result.imported !== 1 ? 's' : ''}` +
-                    (result.skipped ? ` (${result.skipped} skipped)` : ''),
-                    'success'
-                )
+                result = await docStore.importMarkdownFiles(selectedFiles.value, null, onProgress, importOptions)
                 break
             }
             case 'directory': {
-                const result = await docStore.importMarkdownDirectory(selectedFiles.value, onProgress)
-                uiStore.addToast(
-                    `Imported ${result.imported} note${result.imported !== 1 ? 's' : ''} in ${result.folders} folder${result.folders !== 1 ? 's' : ''}` +
-                    (result.skipped ? ` (${result.skipped} skipped)` : ''),
-                    'success'
-                )
+                result = await docStore.importMarkdownDirectory(selectedFiles.value, onProgress, importOptions)
                 break
             }
             case 'zip': {
-                const result = await docStore.importZipArchive(selectedZipFile.value, onProgress, restoreZipMetadata.value)
-                let msg = `Imported ${result.imported} note${result.imported !== 1 ? 's' : ''} in ${result.folders} folder${result.folders !== 1 ? 's' : ''}`
-                if (result.skipped) msg += ` (${result.skipped} skipped)`
-                if (result.metadataRestored) {
-                    msg += '. Settings and variables restored from Panino export.'
-                } else if (result.hasPaninoMetadata && !restoreZipMetadata.value) {
-                    msg += '. Panino metadata detected (not applied).'
-                }
-                uiStore.addToast(msg, 'success')
+                result = await docStore.importZipArchive(selectedZipFile.value, onProgress, importOptions)
                 break
             }
             case 'json': {
                 const data = JSON.parse(jsonData.value)
                 if (isStackEditFormat.value) {
-                    await docStore.importStackEditData(data)
+                    result = await docStore.importStackEditData(data, importOptions)
                 } else {
-                    await docStore.importData(data)
+                    result = await docStore.importData(data, importOptions)
                 }
-                uiStore.addToast('Data imported successfully!', 'success')
                 break
             }
         }
+
+        if (result) {
+            uiStore.addToast(buildImportToastMessage(result), 'success')
+            showSkippedItemsToast(result)
+        }
+
         emit('import-success')
         emit('close')
         activeMode.value = null
         resetSelections()
+
+        if (shouldReloadAfterImport(result)) {
+            window.location.reload()
+        }
     } catch (err) {
+        if (err?.code === 'UNSAFE_OVERWRITE') {
+            const confirmed = window.confirm(`${err.message}\n\nContinue anyway?`)
+            if (confirmed) {
+                await doImport({ ...importOptions, allowUnsafeOverwrite: true })
+            }
+            return
+        }
+
         console.error('Import failed:', err)
         error.value = 'Import failed: ' + (err.message || 'Unknown error')
     } finally {

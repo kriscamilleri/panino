@@ -3,7 +3,7 @@ import {
     sanitizePathSegments,
     extractTitleFromFrontMatter,
     titleFromFilename,
-    deduplicateName,
+    getTextByteLength,
     isMarkdownFile,
     isHiddenSegment,
     buildFolderTree,
@@ -153,7 +153,7 @@ describe('titleFromFilename', () => {
     });
 
     it('strips .markdown extension', () => {
-        expect(titleFromFilename('my-note.markdown')).toBe('my-note');
+        expect(titleFromFilename('my-note.markdown')).toBe('my-note.markdown');
     });
 
     it('returns "Untitled" for just ".md"', () => {
@@ -190,35 +190,20 @@ describe('titleFromFilename', () => {
     });
 });
 
-// ── deduplicateName ──────────────────────────────────────────
+// ── getTextByteLength ────────────────────────────────────────
 
-describe('deduplicateName', () => {
-    it('returns original name when no conflict', () => {
-        expect(deduplicateName('journal', new Set(['notes', 'drafts']))).toBe('journal');
+describe('getTextByteLength', () => {
+    it('returns UTF-8 byte length for ASCII text', () => {
+        expect(getTextByteLength('hello')).toBe(5);
     });
 
-    it('appends (import 1) on first conflict', () => {
-        expect(deduplicateName('journal', new Set(['journal']))).toBe('journal (import 1)');
+    it('returns UTF-8 byte length for multibyte text', () => {
+        expect(getTextByteLength('café')).toBe(5);
     });
 
-    it('increments suffix on multiple conflicts', () => {
-        const existing = new Set(['journal', 'journal (import 1)', 'journal (import 2)']);
-        expect(deduplicateName('journal', existing)).toBe('journal (import 3)');
-    });
-
-    it('handles 999 conflicts as safety cap', () => {
-        const existing = new Set();
-        existing.add('test');
-        for (let i = 1; i < 999; i++) existing.add(`test (import ${i})`);
-        const result = deduplicateName('test', existing);
-        expect(result).toBe('test (import 999)');
-    });
-
-    it('throws when all suffixes up to 999 are exhausted', () => {
-        const existing = new Set();
-        existing.add('test');
-        for (let i = 1; i <= 999; i++) existing.add(`test (import ${i})`);
-        expect(() => deduplicateName('test', existing)).toThrow(/Unable to deduplicate name/);
+    it('returns 0 for empty or null input', () => {
+        expect(getTextByteLength('')).toBe(0);
+        expect(getTextByteLength(null)).toBe(0);
     });
 });
 
@@ -226,7 +211,7 @@ describe('deduplicateName', () => {
 
 describe('isMarkdownFile', () => {
     it('matches .md', () => expect(isMarkdownFile('note.md')).toBe(true));
-    it('matches .markdown', () => expect(isMarkdownFile('note.markdown')).toBe(true));
+    it('rejects .markdown', () => expect(isMarkdownFile('note.markdown')).toBe(false));
     it('matches .MD (case-insensitive)', () => expect(isMarkdownFile('note.MD')).toBe(true));
     it('rejects .txt', () => expect(isMarkdownFile('note.txt')).toBe(false));
     it('rejects .json', () => expect(isMarkdownFile('data.json')).toBe(false));
@@ -411,7 +396,7 @@ describe('IMPORT_LIMITS', () => {
     it('has expected values', () => {
         expect(IMPORT_LIMITS.MAX_FILES).toBe(10_000);
         expect(IMPORT_LIMITS.MAX_TOTAL_BYTES).toBe(500 * 1024 * 1024);
-        expect(IMPORT_LIMITS.MAX_FILE_BYTES).toBe(50 * 1024 * 1024);
+        expect(IMPORT_LIMITS.MAX_FILE_BYTES).toBe(1 * 1024 * 1024);
         expect(IMPORT_LIMITS.MAX_DIRECTORIES).toBe(1_000);
     });
 });

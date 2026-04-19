@@ -6,15 +6,12 @@ import { saveAs } from 'file-saver';
 import { useSyncStore } from './syncStore';
 import { useDocStore } from './docStore';
 import { useAuthStore } from './authStore';
-import { useGlobalVariablesStore } from './globalVariablesStore';
-import { useMarkdownStore } from './markdownStore';
-import { useUiStore } from './uiStore';
-import { replaceImageReferences, blobToBase64, base64ToBlob } from '../utils/exportUtils';
+import { blobToBase64, replaceImageReferences } from '../utils/exportUtils';
 import {
     sanitizePathSegments,
     extractTitleFromFrontMatter,
     titleFromFilename,
-    deduplicateName,
+    getTextByteLength,
     isMarkdownFile,
     isHiddenSegment,
     buildFolderTree,
@@ -28,6 +25,14 @@ const IS_PRODUCTION = import.meta.env.PROD;
 /** Build the correct image URL for the current environment. */
 function buildImageUrl(imageId) {
     return IS_PRODUCTION ? `/api/images/${imageId}` : `${API_URL}/images/${imageId}`;
+}
+
+function buildImageUploadUrl() {
+    return IS_PRODUCTION ? '/api/images' : `${API_URL}/images`;
+}
+
+function normalizeZipEntryPath(value) {
+    return String(value || '').replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
 /**
@@ -64,6 +69,105 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
     // ─── helpers ──────────────────────────────────────────────
 
+    const ROOT_CACHE_KEY = '__root__';
+
+    function buildFolderCacheKey(parentId, name) {
+        return `${parentId ?? ROOT_CACHE_KEY}::${name}`;
+    }
+
+    function buildNoteCacheKey(folderId, title) {
+        return `${folderId ?? ROOT_CACHE_KEY}::${title}`;
+    }
+
+    function createSkippedItem(path, reason) {
+        return { path, reason };
+    }
+
+    function normalizeImportedTitle(value) {
+        const title = String(value || '').trim().replace(/[\x00-\x1f]/g, '').slice(0, 500).trim();
+        return title || 'Untitled';
+    }
+
+    function addFolderPathToMap(folderMap, folderPath) {
+        if (!folderPath) return;
+
+        const segments = folderPath.split('/').filter(Boolean);
+        let currentPath = null;
+
+        for (const segment of segments) {
+            const fullPath = currentPath ? `${currentPath}/${segment}` : segment;
+            if (!folderMap.has(fullPath)) {
+                folderMap.set(fullPath, {
+                    name: segment,
+                    parentPath: currentPath,
+                });
+            }
+            currentPath = fullPath;
+        }
+    }
+
+    function buildImportTreeFromStructuredData(folderRows, noteRows, config) {
+        const {
+            folderIdKey,
+            folderNameKey,
+            folderParentIdKey,
+            noteFolderIdKey,
+            noteTitleKey,
+            noteContentKey,
+            noteCreatedAtKey,
+            noteUpdatedAtKey,
+        } = config;
+
+        const folderById = new Map((folderRows || []).map(folder => [folder[folderIdKey], folder]));
+        const pathCache = new Map();
+        const folderMap = new Map();
+        const notes = [];
+        const skippedItems = [];
+
+        function resolveFolderPath(folderId) {
+            if (!folderId) return null;
+            if (pathCache.has(folderId)) return pathCache.get(folderId);
+
+            const folder = folderById.get(folderId);
+            if (!folder) return null;
+
+            const name = normalizeImportedTitle(folder[folderNameKey]);
+            const parentId = folder[folderParentIdKey] || null;
+            const parentPath = parentId ? resolveFolderPath(parentId) : null;
+            const path = parentPath ? `${parentPath}/${name}` : name;
+            pathCache.set(folderId, path);
+            return path;
+        }
+
+        for (const folder of folderRows || []) {
+            const fullPath = resolveFolderPath(folder[folderIdKey]);
+            if (!fullPath) continue;
+            addFolderPathToMap(folderMap, fullPath);
+        }
+
+        for (const note of noteRows || []) {
+            const title = normalizeImportedTitle(note[noteTitleKey]);
+            const content = String(note[noteContentKey] || '');
+            const folderPath = note[noteFolderIdKey] ? resolveFolderPath(note[noteFolderIdKey]) : null;
+            const virtualPath = folderPath ? `${folderPath}/${title}.md` : `${title}.md`;
+
+            if (getTextByteLength(content) > IMPORT_LIMITS.MAX_FILE_BYTES) {
+                skippedItems.push(createSkippedItem(virtualPath, 'larger than 1 MB'));
+                continue;
+            }
+
+            notes.push({
+                title,
+                content,
+                folderPath,
+                createdAt: note[noteCreatedAtKey] || null,
+                updatedAt: note[noteUpdatedAtKey] || null,
+            });
+        }
+
+        return { folderMap, notes, skippedItems };
+    }
+
     /** Query all core tables needed for a full export. */
     async function queryAllData() {
         const [folders, notes, images, settings, globals] = await Promise.all([
@@ -79,6 +183,493 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             images: images || [],
             settings: settings || [],
             globals: globals || [],
+        };
+    }
+
+    /**
+     * Read a File object as UTF-8 text.
+     * @param {File} file
+     * @returns {Promise<string>}
+     */
+    function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+            reader.readAsText(file);
+        });
+    }
+
+    async function uploadImportedImage(blob, filename, token) {
+        const formData = new FormData();
+        formData.append('image', blob, filename);
+
+        const response = await fetch(buildImageUploadUrl(), {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.error || 'Failed to import bundled image.');
+        }
+
+        return payload;
+    }
+
+    async function restorePaninoZipImages(zip, authStore) {
+        const handledZipPaths = new Set();
+        const metadataEntry = zip.file('_panino_metadata.json');
+        if (!metadataEntry) {
+            return { idMapping: new Map(), skippedItems: [], handledZipPaths };
+        }
+
+        let metadata;
+        try {
+            metadata = JSON.parse(await metadataEntry.async('string'));
+        } catch {
+            return {
+                idMapping: new Map(),
+                skippedItems: [createSkippedItem('_panino_metadata.json', 'invalid metadata file')],
+                handledZipPaths,
+            };
+        }
+
+        const bundledImages = Array.isArray(metadata?.images) ? metadata.images : [];
+        for (const image of bundledImages) {
+            const zipPath = normalizeZipEntryPath(image?.zipPath);
+            if (zipPath) handledZipPaths.add(zipPath);
+        }
+
+        if (bundledImages.length === 0) {
+            return { idMapping: new Map(), skippedItems: [], handledZipPaths };
+        }
+
+        if (!authStore.isAuthenticated || !authStore.token || !syncStore.isOnline) {
+            return {
+                idMapping: new Map(),
+                skippedItems: [
+                    createSkippedItem(
+                        `${bundledImages.length} bundled image(s)`,
+                        'bundled image restore requires an online signed-in session'
+                    ),
+                ],
+                handledZipPaths,
+            };
+        }
+
+        const idMapping = new Map();
+        const skippedItems = [];
+
+        for (const image of bundledImages) {
+            const oldId = String(image?.id || '').trim();
+            const zipPath = normalizeZipEntryPath(image?.zipPath);
+            const filename = String(image?.filename || zipPath.split('/').pop() || `${oldId || 'imported-image'}.bin`);
+            const mimeType = String(image?.mime_type || 'application/octet-stream');
+
+            if (!oldId || !zipPath) {
+                skippedItems.push(createSkippedItem(zipPath || filename, 'invalid image metadata'));
+                continue;
+            }
+
+            const imageEntry = zip.file(zipPath);
+            if (!imageEntry) {
+                skippedItems.push(createSkippedItem(zipPath, 'bundled image missing from ZIP'));
+                continue;
+            }
+
+            try {
+                const data = await imageEntry.async('uint8array');
+                const uploadBlob = new Blob([data], { type: mimeType });
+                const payload = await uploadImportedImage(uploadBlob, filename, authStore.token);
+                if (!payload?.id) {
+                    throw new Error('Bundled image upload did not return an image id.');
+                }
+                idMapping.set(oldId, payload.id);
+            } catch (error) {
+                skippedItems.push(createSkippedItem(zipPath, error.message || 'failed to import bundled image'));
+            }
+        }
+
+        return { idMapping, skippedItems, handledZipPaths };
+    }
+
+    async function findExistingFolder(parentId, name, folderLookupCache) {
+        const cacheKey = buildFolderCacheKey(parentId, name);
+        if (folderLookupCache.has(cacheKey)) {
+            return folderLookupCache.get(cacheKey);
+        }
+
+        const rows = await syncStore.execute(
+            'SELECT id, name, parent_id, created_at FROM folders WHERE parent_id IS ? AND name = ? LIMIT 1',
+            [parentId ?? null, name]
+        );
+        const row = rows?.[0] || null;
+        folderLookupCache.set(cacheKey, row);
+        return row;
+    }
+
+    async function findExistingNote(folderId, title, noteLookupCache) {
+        const cacheKey = buildNoteCacheKey(folderId, title);
+        if (noteLookupCache.has(cacheKey)) {
+            return noteLookupCache.get(cacheKey);
+        }
+
+        const rows = await syncStore.execute(
+            'SELECT id, folder_id, title, content, created_at, updated_at FROM notes WHERE folder_id IS ? AND title = ? LIMIT 1',
+            [folderId ?? null, title]
+        );
+        const row = rows?.[0] || null;
+        noteLookupCache.set(cacheKey, row);
+        return row;
+    }
+
+    async function resolveFolderPathId(folderPath, folderLookupCache, folderPathIdCache, options = {}) {
+        const {
+            createMissing = false,
+            userId = null,
+            createdAt = new Date().toISOString(),
+            foldersCreatedRef = null,
+        } = options;
+
+        if (!folderPath) return null;
+        if (folderPathIdCache.has(folderPath)) return folderPathIdCache.get(folderPath);
+
+        const segments = folderPath.split('/').filter(Boolean);
+        let parentId = null;
+        let currentPath = null;
+
+        for (const segment of segments) {
+            currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+            if (folderPathIdCache.has(currentPath)) {
+                parentId = folderPathIdCache.get(currentPath);
+                if (parentId === null && !createMissing) return null;
+                continue;
+            }
+
+            let folderRow = await findExistingFolder(parentId, segment, folderLookupCache);
+
+            if (!folderRow && !createMissing) {
+                folderPathIdCache.set(currentPath, null);
+                return null;
+            }
+
+            if (!folderRow) {
+                const folderId = uuidv4();
+                await syncStore.db.value.exec(
+                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                    [folderId, userId, segment, parentId, createdAt]
+                );
+                folderRow = { id: folderId, name: segment, parent_id: parentId, created_at: createdAt };
+                folderLookupCache.set(buildFolderCacheKey(parentId, segment), folderRow);
+                if (foldersCreatedRef) foldersCreatedRef.count += 1;
+            }
+
+            folderPathIdCache.set(currentPath, folderRow.id);
+            parentId = folderRow.id;
+        }
+
+        return parentId;
+    }
+
+    async function collectOverwriteCandidates(notes) {
+        const folderLookupCache = new Map();
+        const folderPathIdCache = new Map();
+        const noteLookupCache = new Map();
+        const overwriteCandidates = [];
+
+        for (const note of notes) {
+            const folderId = note.folderPath
+                ? await resolveFolderPathId(note.folderPath, folderLookupCache, folderPathIdCache, { createMissing: false })
+                : null;
+
+            if (note.folderPath && !folderId) continue;
+
+            const existingNote = await findExistingNote(folderId, note.title, noteLookupCache);
+            if (!existingNote) continue;
+
+            if ((existingNote.content || '') !== note.content) {
+                overwriteCandidates.push(existingNote);
+            }
+        }
+
+        return overwriteCandidates;
+    }
+
+    async function createRevisionSnapshot(noteId, token) {
+        const endpoint = IS_PRODUCTION ? `/api/notes/${noteId}/revisions` : `${API_URL}/notes/${noteId}/revisions`;
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({}),
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload.error || 'Failed to save a revision before import overwrite.');
+        }
+        return payload;
+    }
+
+    async function applyImportTree({ folderMap, notes, skippedItems = [] }, options = {}) {
+        const { allowUnsafeOverwrite = false, onProgress = null } = options;
+        const authStore = useAuthStore();
+        const now = new Date().toISOString();
+
+        const overwriteCandidates = await collectOverwriteCandidates(notes);
+        const requiresGuaranteedRevisions = overwriteCandidates.length > 0;
+        const canGuaranteeRevisions = Boolean(
+            authStore.isAuthenticated && authStore.token && syncStore.isOnline && syncStore.syncEnabled
+        );
+
+        if (requiresGuaranteedRevisions && !canGuaranteeRevisions && !allowUnsafeOverwrite) {
+            const error = new Error(
+                `This import will overwrite ${overwriteCandidates.length} existing note(s). You are offline or revision capture is unavailable, so continuing may permanently replace the current content without a guaranteed restore path.`
+            );
+            error.code = 'UNSAFE_OVERWRITE';
+            error.overwriteCount = overwriteCandidates.length;
+            throw error;
+        }
+
+        if (requiresGuaranteedRevisions && canGuaranteeRevisions) {
+            await syncStore.sync();
+            for (const note of overwriteCandidates) {
+                await createRevisionSnapshot(note.id, authStore.token);
+            }
+        }
+
+        const folderLookupCache = new Map();
+        const folderPathIdCache = new Map();
+        const noteLookupCache = new Map();
+        const foldersCreatedRef = { count: 0 };
+        const result = {
+            created: 0,
+            updated: 0,
+            unchanged: 0,
+            foldersCreated: 0,
+            skippedItems: [...skippedItems],
+            overwriteCount: overwriteCandidates.length,
+        };
+
+        try {
+            await syncStore.db.value.exec('BEGIN TRANSACTION;');
+
+            const sortedFolderPaths = [...folderMap.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
+            for (const folderPath of sortedFolderPaths) {
+                await resolveFolderPathId(folderPath, folderLookupCache, folderPathIdCache, {
+                    createMissing: true,
+                    userId: authStore.user.id,
+                    createdAt: now,
+                    foldersCreatedRef,
+                });
+            }
+
+            for (let index = 0; index < notes.length; index++) {
+                const note = notes[index];
+                const folderId = note.folderPath
+                    ? await resolveFolderPathId(note.folderPath, folderLookupCache, folderPathIdCache, {
+                        createMissing: true,
+                        userId: authStore.user.id,
+                        createdAt: note.createdAt || now,
+                        foldersCreatedRef,
+                    })
+                    : null;
+
+                const existingNote = await findExistingNote(folderId, note.title, noteLookupCache);
+
+                if (existingNote) {
+                    if ((existingNote.content || '') === note.content) {
+                        result.unchanged += 1;
+                    } else {
+                        const updatedAt = note.updatedAt || now;
+                        await syncStore.db.value.exec(
+                            'UPDATE notes SET content = ?, updated_at = ? WHERE id = ?',
+                            [note.content, updatedAt, existingNote.id]
+                        );
+                        noteLookupCache.set(buildNoteCacheKey(folderId, note.title), {
+                            ...existingNote,
+                            content: note.content,
+                            updated_at: updatedAt,
+                        });
+                        result.updated += 1;
+                    }
+                } else {
+                    const noteId = uuidv4();
+                    const createdAt = note.createdAt || now;
+                    const updatedAt = note.updatedAt || createdAt;
+                    await syncStore.db.value.exec(
+                        'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                        [noteId, authStore.user.id, folderId, note.title, note.content, createdAt, updatedAt]
+                    );
+                    noteLookupCache.set(buildNoteCacheKey(folderId, note.title), {
+                        id: noteId,
+                        folder_id: folderId,
+                        title: note.title,
+                        content: note.content,
+                        created_at: createdAt,
+                        updated_at: updatedAt,
+                    });
+                    result.created += 1;
+                }
+
+                if (onProgress) onProgress(index + 1, notes.length);
+            }
+
+            await syncStore.db.value.exec('COMMIT;');
+        } catch (error) {
+            await syncStore.db.value.exec('ROLLBACK;');
+            throw error;
+        }
+
+        result.foldersCreated = foldersCreatedRef.count;
+        await docStore.loadInitialData();
+        return result;
+    }
+
+    async function buildMarkdownFileTree(files, { useRelativePath = false } = {}) {
+        const fileArray = Array.from(files || []);
+        const skippedItems = [];
+        const entries = [];
+        let totalBytes = 0;
+
+        for (const file of fileArray) {
+            const relativePath = useRelativePath ? (file.webkitRelativePath || file.name) : file.name;
+            const sanitizedSegments = sanitizePathSegments(relativePath);
+
+            if (!isMarkdownFile(relativePath)) {
+                skippedItems.push(createSkippedItem(relativePath, 'unsupported file type'));
+                continue;
+            }
+
+            if (sanitizedSegments.length === 0) {
+                skippedItems.push(createSkippedItem(relativePath, 'invalid or empty path'));
+                continue;
+            }
+
+            if (sanitizedSegments.some(isHiddenSegment)) {
+                skippedItems.push(createSkippedItem(relativePath, 'hidden files and folders are not imported'));
+                continue;
+            }
+
+            if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
+                skippedItems.push(createSkippedItem(relativePath, 'larger than 1 MB'));
+                continue;
+            }
+
+            totalBytes += file.size;
+            entries.push({
+                relativePath,
+                content: await readFileAsText(file),
+            });
+        }
+
+        if (entries.length === 0) {
+            throw new Error('No importable .md files found.');
+        }
+
+        const tree = buildFolderTree(entries);
+        validateImportLimits(tree.notes.length, tree.folders.size, totalBytes);
+        return { ...tree, skippedItems };
+    }
+
+    async function buildZipImportTree(file) {
+        const zip = await JSZip.loadAsync(file);
+        const authStore = useAuthStore();
+        const {
+            idMapping: bundledImageIdMapping,
+            skippedItems: bundledImageSkippedItems,
+            handledZipPaths,
+        } = await restorePaninoZipImages(zip, authStore);
+        const skippedItems = [...bundledImageSkippedItems];
+        const entries = [];
+        const folderMap = new Map();
+        let totalBytes = 0;
+
+        const zipEntries = Object.keys(zip.files);
+        let fileCount = 0;
+        let dirCount = 0;
+
+        for (const path of zipEntries) {
+            if (zip.files[path].dir) dirCount += 1;
+            else fileCount += 1;
+        }
+
+        validateImportLimits(fileCount, dirCount);
+
+        for (const path of zipEntries) {
+            const zipEntry = zip.files[path];
+            const normalizedPath = path.replace(/\\/g, '/');
+            const segments = sanitizePathSegments(normalizedPath);
+
+            if (zipEntry.dir) {
+                if (normalizedPath === '_images/' || normalizedPath === '_images') {
+                    continue;
+                }
+                if (segments.length === 0 || segments.some(isHiddenSegment)) {
+                    if (normalizedPath) {
+                        skippedItems.push(createSkippedItem(normalizedPath, 'hidden or invalid folder path'));
+                    }
+                    continue;
+                }
+                addFolderPathToMap(folderMap, segments.join('/'));
+                continue;
+            }
+
+            if (normalizedPath === '_panino_metadata.json') {
+                continue;
+            }
+
+            if (normalizedPath.startsWith('_images/')) {
+                if (!handledZipPaths.has(normalizedPath)) {
+                    skippedItems.push(createSkippedItem(normalizedPath, 'unsupported file type'));
+                }
+                continue;
+            }
+
+            if (!isMarkdownFile(normalizedPath)) {
+                skippedItems.push(createSkippedItem(normalizedPath, 'unsupported file type'));
+                continue;
+            }
+
+            if (segments.length === 0 || segments.some(isHiddenSegment)) {
+                skippedItems.push(createSkippedItem(normalizedPath, 'hidden or invalid path'));
+                continue;
+            }
+
+            const data = await zipEntry.async('uint8array');
+            if (data.length > IMPORT_LIMITS.MAX_FILE_BYTES) {
+                skippedItems.push(createSkippedItem(normalizedPath, 'larger than 1 MB'));
+                continue;
+            }
+
+            totalBytes += data.length;
+            const content = new TextDecoder('utf-8').decode(data);
+            entries.push({
+                relativePath: normalizedPath,
+                content: replaceImageReferences(content, bundledImageIdMapping, buildImageUrl),
+            });
+        }
+
+        if (entries.length === 0 && folderMap.size === 0) {
+            throw new Error('No importable .md files found in the ZIP archive.');
+        }
+
+        const derivedTree = buildFolderTree(entries);
+        for (const folderPath of derivedTree.folders.keys()) {
+            addFolderPathToMap(folderMap, folderPath);
+        }
+
+        validateImportLimits(derivedTree.notes.length, folderMap.size, totalBytes);
+        return {
+            folderMap,
+            notes: derivedTree.notes,
+            skippedItems,
         };
     }
 
@@ -261,614 +852,124 @@ export const useImportExportStore = defineStore('importExportStore', () => {
     // ─── JSON import ─────────────────────────────────────────
 
     /**
-     * Upload an image from an export entry and return { oldId, newId }.
-     * Returns null if the upload fails.
+     * Imports folders and markdown notes from a Panino JSON object.
+     * Images, settings, and globals are not imported.
      */
-    async function uploadImageFromExport(imageEntry, token) {
-        try {
-            const blob = base64ToBlob(imageEntry.data);
-            const file = new File([blob], imageEntry.filename || 'image.png', {
-                type: imageEntry.mime_type || 'application/octet-stream',
-            });
-            const formData = new FormData();
-            formData.append('image', file);
-
-            const uploadUrl = IS_PRODUCTION ? '/api/images' : `${API_URL}/images`;
-            const response = await fetch(uploadUrl, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData,
-            });
-            if (!response.ok) return null;
-            const result = await response.json();
-            return { oldId: imageEntry.id, newId: result.id };
-        } catch (err) {
-            console.warn(`[import] Failed to upload image ${imageEntry.id}:`, err);
-            return null;
-        }
-    }
-
-    /**
-     * Imports data from a JSON object into the local SQLite database.
-     * Supports both v1 (folders + notes only) and v2 (with images, settings, globals).
-     */
-    async function importData(data) {
+    async function importData(data, options = {}) {
         if (!syncStore.isInitialized) throw new Error('Sync not ready.');
         const authStore = useAuthStore();
-        if (!authStore.user?.id) throw new Error("User is not authenticated for import.");
+        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
 
         if (!data || !Array.isArray(data.folders) || !Array.isArray(data.notes)) {
             throw new Error('Invalid import data format. Expected { folders: [], notes: [] }');
         }
 
-        const hasImages = Array.isArray(data.images) && data.images.length > 0;
-        const hasSettings = Array.isArray(data.settings) && data.settings.length > 0;
-        const hasGlobals = Array.isArray(data.globals) && data.globals.length > 0;
-
-        // ── Re-upload images first (before we insert notes) ──
-        const idMapping = new Map(); // old image ID → new image ID
-        if (hasImages && authStore.isAuthenticated) {
-            for (const imgEntry of data.images) {
-                if (!imgEntry.data) continue; // skip entries without image data
-                const result = await uploadImageFromExport(imgEntry, authStore.token);
-                if (result) {
-                    idMapping.set(result.oldId, result.newId);
-                }
-            }
-        }
-
-        // ── Remap image references in note content ──
-        const remappedNotes = data.notes.map(note => {
-            if (idMapping.size === 0 || !note.content) return note;
-            return { ...note, content: replaceImageReferences(note.content, idMapping, buildImageUrl) };
+        const tree = buildImportTreeFromStructuredData(data.folders, data.notes, {
+            folderIdKey: 'id',
+            folderNameKey: 'name',
+            folderParentIdKey: 'parent_id',
+            noteFolderIdKey: 'folder_id',
+            noteTitleKey: 'title',
+            noteContentKey: 'content',
+            noteCreatedAtKey: 'created_at',
+            noteUpdatedAtKey: 'updated_at',
         });
 
-        // ── Clear existing data ──
-        await syncStore.execute('DELETE FROM notes');
-        await syncStore.execute('DELETE FROM folders');
-
-        try {
-            await syncStore.db.value.exec('BEGIN TRANSACTION;');
-
-            // Insert folders
-            for (const folder of data.folders) {
-                await syncStore.db.value.exec(
-                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
-                    [folder.id, authStore.user.id, folder.name, folder.parent_id, folder.created_at]
-                );
-            }
-
-            // Insert notes (with remapped image URLs)
-            for (const note of remappedNotes) {
-                await syncStore.db.value.exec(
-                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [note.id, authStore.user.id, note.folder_id, note.title, note.content, note.created_at, note.updated_at]
-                );
-            }
-
-            // Insert settings (replace existing)
-            if (hasSettings) {
-                await syncStore.db.value.exec('DELETE FROM settings;');
-                for (const setting of data.settings) {
-                    await syncStore.db.value.exec(
-                        'INSERT INTO settings (id, value) VALUES (?, ?)',
-                        [setting.id, setting.value]
-                    );
-                }
-            }
-
-            // Insert globals (replace existing)
-            if (hasGlobals) {
-                await syncStore.db.value.exec('DELETE FROM globals;');
-                for (const g of data.globals) {
-                    await syncStore.db.value.exec(
-                        'INSERT INTO globals (key, id, value, created_at, updated_at, display_key) VALUES (?, ?, ?, ?, ?, ?)',
-                        [g.key, g.id || '', g.value || '', g.created_at || new Date().toISOString(), g.updated_at || new Date().toISOString(), g.display_key || g.key]
-                    );
-                }
-            }
-
-            await syncStore.db.value.exec('COMMIT;');
-        } catch (e) {
-            console.error('Import transaction failed, rolling back.', e);
-            await syncStore.db.value.exec('ROLLBACK;');
-            throw e;
+        if (Array.isArray(data.images) && data.images.length > 0) {
+            tree.skippedItems.push(createSkippedItem(`${data.images.length} image record(s)`, 'image imports are not supported'));
+        }
+        if (Array.isArray(data.settings) && data.settings.length > 0) {
+            tree.skippedItems.push(createSkippedItem(`${data.settings.length} setting record(s)`, 'settings imports are not supported'));
+        }
+        if (Array.isArray(data.globals) && data.globals.length > 0) {
+            tree.skippedItems.push(createSkippedItem(`${data.globals.length} variable record(s)`, 'global variable imports are not supported'));
         }
 
-        // Refresh all dependent stores
-        await docStore.loadInitialData();
-        const globalVariablesStore = useGlobalVariablesStore();
-        await globalVariablesStore.loadGlobals();
-        if (hasSettings) {
-            const markdownStore = useMarkdownStore();
-            const uiStore = useUiStore();
-            await markdownStore.loadStylesFromDB();
-            await uiStore.loadSettingsFromDB();
-        }
-        console.log('Import completed successfully.');
+        return applyImportTree(tree, options);
     }
 
     // ─── StackEdit import ────────────────────────────────────
 
     /**
-     * Imports data from a StackEdit JSON object into the local SQLite database.
+     * Imports folders and markdown notes from a StackEdit JSON object.
      */
-    async function importStackEditData(data) {
+    async function importStackEditData(data, options = {}) {
         if (!syncStore.isInitialized) throw new Error('Sync not ready.');
         if (typeof data !== 'object' || data === null) {
             throw new Error('Invalid import data format. Expected a JSON object.');
         }
 
         const authStore = useAuthStore();
-        if (!authStore.user?.id) throw new Error("User is not authenticated for import.");
+        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
 
-        const files = [];
         const folders = [];
+        const files = [];
         const contents = new Map();
 
-        // Segregate items by type
-        for (const key in data) {
+        for (const key of Object.keys(data)) {
             const item = data[key];
-            if (item.type === 'folder') {
+            if (item?.type === 'folder') {
                 folders.push(item);
-            } else if (item.type === 'file') {
+            } else if (item?.type === 'file') {
                 files.push(item);
-            } else if (item.type === 'content') {
-                const fileId = key.split('/')[0];
-                contents.set(fileId, item.text);
+            } else if (item?.type === 'content') {
+                contents.set(key.split('/')[0], item.text || '');
             }
         }
 
-        // Clear existing data to avoid conflicts.
-        await syncStore.execute('DELETE FROM notes');
-        await syncStore.execute('DELETE FROM folders');
+        const noteRows = files.map(file => ({
+            folder_id: file.parentId || null,
+            title: file.name,
+            content: contents.get(file.id) || '',
+            created_at: new Date(file.tx || Date.now()).toISOString(),
+            updated_at: new Date(file.tx || Date.now()).toISOString(),
+        }));
 
-        try {
-            await syncStore.db.value.exec('BEGIN TRANSACTION;');
-            // Batch insert folders
-            for (const folder of folders) {
-                await syncStore.db.value.exec(
-                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
-                    [folder.id, authStore.user.id, folder.name, folder.parentId, new Date(folder.tx || Date.now()).toISOString()]
-                );
-            }
-            // Batch insert notes (files) with their content
-            for (const file of files) {
-                await syncStore.db.value.exec(
-                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [file.id, authStore.user.id, file.parentId, file.name, contents.get(file.id) || '', new Date(file.tx || Date.now()).toISOString(), new Date(file.tx || Date.now()).toISOString()]
-                );
-            }
-            await syncStore.db.value.exec('COMMIT;');
-        } catch (e) {
-            console.error('StackEdit import transaction failed, rolling back.', e);
-            await syncStore.db.value.exec('ROLLBACK;');
-            throw e; // Re-throw
-        }
-
-        console.log('StackEdit import completed successfully.');
-    }
-
-    // ─── Markdown file import (additive) ─────────────────────
-
-    /**
-     * Read a File object as UTF-8 text.
-     * @param {File} file
-     * @returns {Promise<string>}
-     */
-    function readFileAsText(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-            reader.readAsText(file);
+        const tree = buildImportTreeFromStructuredData(folders, noteRows, {
+            folderIdKey: 'id',
+            folderNameKey: 'name',
+            folderParentIdKey: 'parentId',
+            noteFolderIdKey: 'folder_id',
+            noteTitleKey: 'title',
+            noteContentKey: 'content',
+            noteCreatedAtKey: 'created_at',
+            noteUpdatedAtKey: 'updated_at',
         });
+
+        return applyImportTree(tree, options);
+    }
+
+    // ─── Markdown file import ────────────────────────────────
+
+    /**
+     * Import one or more markdown files into the root folder.
+     * Matching notes are updated in place.
+     */
+    async function importMarkdownFiles(files, targetFolderId = null, onProgress = null, options = {}) {
+        if (targetFolderId) {
+            throw new Error('Importing markdown files into a specific destination folder is not supported by this import mode.');
+        }
+
+        const tree = await buildMarkdownFileTree(files, { useRelativePath: false });
+        return applyImportTree(tree, { ...options, onProgress });
     }
 
     /**
-     * Query existing folder names at a given parent level.
-     * @param {string|null} parentId
-     * @returns {Promise<Set<string>>}
+     * Import a directory of markdown files, preserving folder structure.
+     * Matching notes are updated in place.
      */
-    async function getExistingFolderNames(parentId) {
-        const rows = await syncStore.execute(
-            'SELECT name FROM folders WHERE parent_id IS ?',
-            [parentId ?? null]
-        );
-        return new Set((rows || []).map(r => r.name));
+    async function importMarkdownDirectory(files, onProgress = null, options = {}) {
+        const tree = await buildMarkdownFileTree(files, { useRelativePath: true });
+        return applyImportTree(tree, { ...options, onProgress });
     }
 
     /**
-     * Query existing note titles in a given folder.
-     * @param {string|null} folderId
-     * @returns {Promise<Set<string>>}
+     * Import a ZIP archive containing folders and .md files.
+     * Matching notes are updated in place.
      */
-    async function getExistingNoteTitles(folderId) {
-        const rows = await syncStore.execute(
-            'SELECT title FROM notes WHERE folder_id IS ?',
-            [folderId ?? null]
-        );
-        return new Set((rows || []).map(r => r.title));
-    }
-
-    /**
-     * Import one or more markdown files as individual notes (additive).
-     * @param {FileList|File[]} files
-     * @param {string|null} [targetFolderId=null] - Folder to import into (null = root)
-     * @param {function} [onProgress] - Progress callback (current, total)
-     * @returns {Promise<{imported: number, skipped: number}>}
-     */
-    async function importMarkdownFiles(files, targetFolderId = null, onProgress = null) {
-        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
-        const authStore = useAuthStore();
-        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
-
-        const fileArray = Array.from(files);
-        const mdFiles = fileArray.filter(f => isMarkdownFile(f.name));
-
-        if (mdFiles.length === 0) throw new Error('No markdown files found in selection.');
-
-        const totalImportBytes = mdFiles.reduce(
-            (sum, file) => sum + (file.size <= IMPORT_LIMITS.MAX_FILE_BYTES ? file.size : 0),
-            0
-        );
-        validateImportLimits(mdFiles.length, 0, totalImportBytes);
-
-        const existingTitles = await getExistingNoteTitles(targetFolderId);
-        const now = new Date().toISOString();
-        let imported = 0;
-        let skipped = 0;
-
-        try {
-            await syncStore.db.value.exec('BEGIN TRANSACTION;');
-
-            for (let i = 0; i < mdFiles.length; i++) {
-                const file = mdFiles[i];
-
-                if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
-                    console.warn(`[import] Skipping "${file.name}" — exceeds 50 MB per-file limit.`);
-                    skipped++;
-                    continue;
-                }
-
-                const content = await readFileAsText(file);
-                const fmTitle = extractTitleFromFrontMatter(content);
-                const fnTitle = titleFromFilename(file.name);
-                let title = fmTitle || fnTitle;
-
-                title = deduplicateName(title, existingTitles);
-                existingTitles.add(title);
-
-                await syncStore.db.value.exec(
-                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [uuidv4(), authStore.user.id, targetFolderId, title, content, now, now]
-                );
-                imported++;
-
-                if (onProgress) onProgress(i + 1, mdFiles.length);
-
-                // Yield to UI every 100 files
-                if (imported % 100 === 0) {
-                    await new Promise(r => setTimeout(r, 0));
-                }
-            }
-
-            await syncStore.db.value.exec('COMMIT;');
-        } catch (e) {
-            console.error('Markdown import failed, rolling back.', e);
-            await syncStore.db.value.exec('ROLLBACK;');
-            throw e;
-        }
-
-        await docStore.loadInitialData();
-        return { imported, skipped };
-    }
-
-    /**
-     * Import a directory of markdown files, preserving folder structure (additive).
-     * Expects files from an `<input webkitdirectory>` — each File has `webkitRelativePath`.
-     *
-     * @param {FileList|File[]} files
-     * @param {function} [onProgress] - Progress callback (current, total)
-     * @returns {Promise<{imported: number, skipped: number, folders: number}>}
-     */
-    async function importMarkdownDirectory(files, onProgress = null) {
-        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
-        const authStore = useAuthStore();
-        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
-
-        const fileArray = Array.from(files);
-
-        // Read all markdown files
-        const entries = [];
-        let totalBytes = 0;
-        let skipped = 0;
-
-        for (const file of fileArray) {
-            const path = file.webkitRelativePath || file.name;
-            if (!isMarkdownFile(path)) continue;
-
-            const segments = sanitizePathSegments(path);
-            if (segments.length === 0) continue;
-            if (segments.some(isHiddenSegment)) continue;
-
-            if (file.size > IMPORT_LIMITS.MAX_FILE_BYTES) {
-                console.warn(`[import] Skipping "${path}" — exceeds 50 MB per-file limit.`);
-                skipped++;
-                continue;
-            }
-
-            totalBytes += file.size;
-            const content = await readFileAsText(file);
-            entries.push({ relativePath: path, content });
-        }
-
-        if (entries.length === 0) throw new Error('No markdown files found in selected directory.');
-
-        const { folders: folderMap, notes } = buildFolderTree(entries);
-
-        validateImportLimits(notes.length, folderMap.size, totalBytes);
-
-        const now = new Date().toISOString();
-        const userId = authStore.user.id;
-
-        // Map folderPath -> Panino folder UUID
-        const folderIdMap = new Map();
-        let foldersCreated = 0;
-
-        try {
-            await syncStore.db.value.exec('BEGIN TRANSACTION;');
-
-            // Create folders in topological order (parents first)
-            const sortedPaths = [...folderMap.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
-            const existingFolderNamesByParentId = new Map();
-
-            for (const fullPath of sortedPaths) {
-                const { name, parentPath } = folderMap.get(fullPath);
-                const parentId = parentPath ? folderIdMap.get(parentPath) : null;
-
-                // Deduplicate folder name at this level
-                if (!existingFolderNamesByParentId.has(parentId)) {
-                    existingFolderNamesByParentId.set(parentId, await getExistingFolderNames(parentId));
-                }
-                const existingNames = existingFolderNamesByParentId.get(parentId);
-                const safeName = deduplicateName(name, existingNames);
-                existingNames.add(safeName);
-
-                const folderId = uuidv4();
-                await syncStore.db.value.exec(
-                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
-                    [folderId, userId, safeName, parentId, now]
-                );
-                folderIdMap.set(fullPath, folderId);
-                foldersCreated++;
-            }
-
-            // Insert notes
-            let imported = 0;
-            const total = notes.length;
-            const existingTitlesByFolderId = new Map();
-
-            for (let i = 0; i < notes.length; i++) {
-                const note = notes[i];
-                const folderId = note.folderPath ? folderIdMap.get(note.folderPath) : null;
-
-                // Deduplicate title using a per-folder cache to avoid repeated SELECTs
-                if (!existingTitlesByFolderId.has(folderId)) {
-                    existingTitlesByFolderId.set(folderId, new Set(await getExistingNoteTitles(folderId)));
-                }
-                const existingTitles = existingTitlesByFolderId.get(folderId);
-                let title = deduplicateName(note.title, existingTitles);
-
-                await syncStore.db.value.exec(
-                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [uuidv4(), userId, folderId, title, note.content, now, now]
-                );
-                existingTitles.add(title);
-                imported++;
-
-                if (onProgress) onProgress(i + 1, total);
-
-                if (imported % 100 === 0) {
-                    await new Promise(r => setTimeout(r, 0));
-                }
-            }
-
-            await syncStore.db.value.exec('COMMIT;');
-
-            await docStore.loadInitialData();
-            return { imported, skipped, folders: foldersCreated };
-        } catch (e) {
-            console.error('Directory import failed, rolling back.', e);
-            await syncStore.db.value.exec('ROLLBACK;');
-            throw e;
-        }
-    }
-
-    /**
-     * Import a ZIP archive of markdown files (additive).
-     * Detects Panino re-imports via `_panino_metadata.json`.
-     *
-     * @param {File} file - The ZIP file
-     * @param {function} [onProgress] - Progress callback (current, total)
-     * @param {boolean} [restorePaninoMetadata=false] - Whether to restore settings/globals from Panino metadata
-     * @returns {Promise<{imported: number, skipped: number, folders: number, hasPaninoMetadata: boolean, metadataRestored: boolean}>}
-     */
-    async function importZipArchive(file, onProgress = null, restorePaninoMetadata = false) {
-        if (!syncStore.isInitialized) throw new Error('Sync not ready.');
-        const authStore = useAuthStore();
-        if (!authStore.user?.id) throw new Error('User is not authenticated for import.');
-
-        const zip = await JSZip.loadAsync(file);
-        const entries = [];
-        let totalBytes = 0;
-        let fileCount = 0;
-        let dirCount = 0;
-        const seenDirs = new Set();
-        let hasPaninoMetadata = false;
-        let metadataRestored = false;
-
-        // Check for Panino metadata
-        if (zip.file('_panino_metadata.json')) {
-            hasPaninoMetadata = true;
-        }
-
-        // First pass: count entries and validate limits
-        const zipEntries = Object.keys(zip.files);
-        for (const path of zipEntries) {
-            const zipEntry = zip.files[path];
-            if (zipEntry.dir) {
-                dirCount++;
-                continue;
-            }
-            fileCount++;
-        }
-
-        validateImportLimits(fileCount, dirCount);
-
-        // Second pass: read markdown files
-        let skipped = 0;
-        for (const path of zipEntries) {
-            const zipEntry = zip.files[path];
-            if (zipEntry.dir) continue;
-
-            // Normalize path separators
-            const normalizedPath = path.replace(/\\/g, '/');
-
-            // Skip non-markdown, _panino_metadata.json, and _images/
-            if (normalizedPath === '_panino_metadata.json') continue;
-            if (normalizedPath.startsWith('_images/')) continue;
-
-            const segments = sanitizePathSegments(normalizedPath);
-            if (segments.length === 0) continue;
-            if (segments.some(isHiddenSegment)) continue;
-            if (!isMarkdownFile(segments[segments.length - 1])) continue;
-
-            // Read content
-            const data = await zipEntry.async('uint8array');
-            if (data.length > IMPORT_LIMITS.MAX_FILE_BYTES) {
-                console.warn(`[import] Skipping "${path}" — exceeds 50 MB per-file limit.`);
-                skipped++;
-                continue;
-            }
-
-            totalBytes += data.length;
-            if (totalBytes > IMPORT_LIMITS.MAX_TOTAL_BYTES) {
-                throw new Error('This import exceeds the maximum total size of 500 MB.');
-            }
-
-            const content = new TextDecoder('utf-8').decode(data);
-            entries.push({ relativePath: normalizedPath, content });
-
-            // Track directories
-            for (let i = 0; i < segments.length - 1; i++) {
-                seenDirs.add(segments.slice(0, i + 1).join('/'));
-            }
-        }
-
-        if (entries.length === 0) throw new Error('No markdown files found in the ZIP archive.');
-
-        validateImportLimits(entries.length, seenDirs.size, totalBytes);
-
-        const { folders: folderMap, notes } = buildFolderTree(entries);
-
-        const now = new Date().toISOString();
-        const userId = authStore.user.id;
-        const folderIdMap = new Map();
-        let foldersCreated = 0;
-
-        try {
-            await syncStore.db.value.exec('BEGIN TRANSACTION;');
-
-            // Create folders
-            const sortedPaths = [...folderMap.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
-
-            for (const fullPath of sortedPaths) {
-                const { name, parentPath } = folderMap.get(fullPath);
-                const parentId = parentPath ? folderIdMap.get(parentPath) : null;
-
-                const existingNames = await getExistingFolderNames(parentId);
-                const safeName = deduplicateName(name, existingNames);
-
-                const folderId = uuidv4();
-                await syncStore.db.value.exec(
-                    'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
-                    [folderId, userId, safeName, parentId, now]
-                );
-                folderIdMap.set(fullPath, folderId);
-                foldersCreated++;
-            }
-
-            // Insert notes
-            let imported = 0;
-            const total = notes.length;
-
-            for (let i = 0; i < notes.length; i++) {
-                const note = notes[i];
-                const folderId = note.folderPath ? folderIdMap.get(note.folderPath) : null;
-
-                const existingTitles = await getExistingNoteTitles(folderId);
-                let title = deduplicateName(note.title, existingTitles);
-
-                await syncStore.db.value.exec(
-                    'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [uuidv4(), userId, folderId, title, note.content, now, now]
-                );
-                imported++;
-
-                if (onProgress) onProgress(i + 1, total);
-
-                if (imported % 100 === 0) {
-                    await new Promise(r => setTimeout(r, 0));
-                }
-            }
-
-            await syncStore.db.value.exec('COMMIT;');
-
-            // If this is a Panino re-import and user opted in, restore metadata (settings/globals)
-            if (hasPaninoMetadata && restorePaninoMetadata) {
-                try {
-                    const metadataJson = await zip.file('_panino_metadata.json').async('string');
-                    const metadata = JSON.parse(metadataJson);
-
-                    if (metadata.settings && Array.isArray(metadata.settings) && metadata.settings.length > 0) {
-                        for (const setting of metadata.settings) {
-                            await syncStore.db.value.exec(
-                                'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-                                [setting.id, setting.value]
-                            );
-                        }
-                    }
-
-                    if (metadata.globals && Array.isArray(metadata.globals) && metadata.globals.length > 0) {
-                        for (const g of metadata.globals) {
-                            await syncStore.db.value.exec(
-                                'INSERT OR REPLACE INTO globals (key, id, value, created_at, updated_at, display_key) VALUES (?, ?, ?, ?, ?, ?)',
-                                [g.key, g.id || '', g.value || '', g.created_at || now, g.updated_at || now, g.display_key || g.key]
-                            );
-                        }
-                    }
-
-                    // Refresh settings stores
-                    const markdownStore = useMarkdownStore();
-                    const uiStore = useUiStore();
-                    await markdownStore.loadStylesFromDB();
-                    await uiStore.loadSettingsFromDB();
-                    const globalVariablesStore = useGlobalVariablesStore();
-                    await globalVariablesStore.loadGlobals();
-                    metadataRestored = true;
-                } catch (metaErr) {
-                    console.warn('[import] Failed to restore Panino metadata from ZIP:', metaErr);
-                }
-            }
-
-            await docStore.loadInitialData();
-            return { imported, skipped, folders: foldersCreated, hasPaninoMetadata, metadataRestored };
-        } catch (e) {
-            console.error('ZIP import failed, rolling back.', e);
-            await syncStore.db.value.exec('ROLLBACK;');
-            throw e;
-        }
+    async function importZipArchive(file, onProgress = null, options = {}) {
+        const tree = await buildZipImportTree(file);
+        return applyImportTree(tree, { ...options, onProgress });
     }
 
     return {

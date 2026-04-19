@@ -5,6 +5,19 @@
 
 ---
 
+## 0) Implementation Update
+
+The current branch behavior now differs from parts of the original draft below.
+
+- All import modes update matching notes in place by folder path plus note title; they do not wipe the workspace.
+- Before an existing note is overwritten, the app attempts to create a backend revision snapshot first. If revision capture is unavailable, the user must explicitly confirm the unsafe overwrite.
+- Only folders and `.md` notes up to 1 MB are imported. Other file types, oversized notes, and non-note metadata payloads are skipped and reported to the user.
+- Deduplication via `(import N)` suffixing is no longer used in the import flow.
+- JSON metadata restore is no longer part of import behavior; settings, globals, and other non-note artifacts are skipped.
+- Panino ZIP re-import is the one exception for non-note assets: bundled `_images/` entries are re-uploaded and note image URLs are remapped so exported ZIPs round-trip correctly.
+
+---
+
 ## 1) Problem Statement
 
 Panino's import pipeline only accepts JSON — either Panino's own v2 format or StackEdit's format. The `ImportModal` hard-codes `accept=".json"` on the file input and explicitly rejects non-JSON files (`file.type !== 'application/json'`). There is no way to import:
@@ -32,7 +45,7 @@ This is a significant gap because:
 
 ## Non-Goals
 
-- No import of images embedded in markdown (linked images stay as-is; handling `![](./img.png)` relative paths or `_images/` re-upload is out of scope for v1).
+- No generic import of images embedded in markdown (linked images stay as-is; handling arbitrary `![](./img.png)` relative paths remains out of scope for v1).
 - No two-way sync with the filesystem or external tools.
 - No `.txt`, `.html`, or other non-markdown file import in this spec.
 - No backend endpoint changes — all processing happens client-side in the browser.
