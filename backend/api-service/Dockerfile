@@ -53,6 +53,7 @@ ENV CRSQLITE_EXT_PATH=/app/node_modules/@vlcn.io/crsqlite/build/Release/crsqlite
 
 COPY package*.json ./
 COPY patch-crsqlite.sh ./
+RUN sed -i 's/\r$//' patch-crsqlite.sh && chmod +x patch-crsqlite.sh
 
 # Prefer npm ci when lockfile exists
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
