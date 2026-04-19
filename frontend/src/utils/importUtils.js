@@ -7,7 +7,7 @@
 export const IMPORT_LIMITS = {
     MAX_FILES: 10_000,
     MAX_TOTAL_BYTES: 500 * 1024 * 1024,   // 500 MB
-    MAX_FILE_BYTES: 50 * 1024 * 1024,      // 50 MB per file
+    MAX_FILE_BYTES: 1 * 1024 * 1024,       // 1 MB per file
     MAX_DIRECTORIES: 1_000,
 };
 
@@ -67,7 +67,7 @@ export function extractTitleFromFrontMatter(content) {
 export function titleFromFilename(filename) {
     if (!filename || typeof filename !== 'string') return 'Untitled';
     const title = filename
-        .replace(/\.(md|markdown)$/i, '')
+        .replace(/\.md$/i, '')
         .trim()
         .normalize('NFC')
         .replace(/[\x00-\x1f]/g, '')
@@ -77,24 +77,13 @@ export function titleFromFilename(filename) {
 }
 
 /**
- * Deduplicate a name against a set of existing names.
- * If `name` is in `existingNames`, appends `(import N)` until unique.
+ * Calculate the UTF-8 byte size for imported markdown content.
  *
- * @param {string} name - The candidate name
- * @param {Set<string>} existingNames - Set of names already taken
- * @returns {string} A unique name (original or with suffix)
+ * @param {string} content - Markdown content
+ * @returns {number} UTF-8 byte length
  */
-export function deduplicateName(name, existingNames) {
-    if (!existingNames.has(name)) return name;
-
-    for (let counter = 1; counter <= 999; counter++) {
-        const candidate = `${name} (import ${counter})`;
-        if (!existingNames.has(candidate)) {
-            return candidate;
-        }
-    }
-
-    throw new Error(`Unable to deduplicate name "${name}" after 999 import suffix attempts.`);
+export function getTextByteLength(content) {
+    return new TextEncoder().encode(content || '').length;
 }
 
 /**
@@ -105,7 +94,7 @@ export function deduplicateName(name, existingNames) {
  */
 export function isMarkdownFile(path) {
     if (!path || typeof path !== 'string') return false;
-    return /\.(md|markdown)$/i.test(path);
+    return /\.md$/i.test(path);
 }
 
 /**

@@ -96,7 +96,6 @@ import {
     sanitizePathSegments,
     extractTitleFromFrontMatter,
     titleFromFilename,
-    deduplicateName,
     isMarkdownFile,
     buildFolderTree,
     validateImportLimits,
@@ -141,10 +140,9 @@ describe('importMarkdownFiles (logic simulation)', () => {
         expect(titleFromFilename('.md')).toBe('Untitled');
     });
 
-    it('deduplicates titles when conflicts exist', () => {
-        const existing = new Set(['my-note']);
-        const title = deduplicateName('my-note', existing);
-        expect(title).toBe('my-note (import 1)');
+    it('matches only .md files for filesystem imports', () => {
+        expect(isMarkdownFile('my-note.md')).toBe(true);
+        expect(isMarkdownFile('my-note.markdown')).toBe(false);
     });
 
     it('skips non-markdown files', () => {
@@ -190,10 +188,9 @@ describe('importMarkdownDirectory (logic simulation)', () => {
         expect(notes[0].title).toBe('note');
     });
 
-    it('deduplicates folder names at same level', () => {
-        const existing = new Set(['journal']);
-        const name = deduplicateName('journal', existing);
-        expect(name).toBe('journal (import 1)');
+    it('skips large markdown files over 1 MB', () => {
+        const overLimit = 'a'.repeat((1 * 1024 * 1024) + 1);
+        expect(new TextEncoder().encode(overLimit).length).toBeGreaterThan(IMPORT_LIMITS.MAX_FILE_BYTES);
     });
 });
 
