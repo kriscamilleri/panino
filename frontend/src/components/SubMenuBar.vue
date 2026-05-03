@@ -423,6 +423,13 @@
                 </BaseButton>
 
                 <BaseButton
+                    @click="goToTemplates"
+                    data-testid="submenu-tools-templates"
+                >
+                    <FileText class="w-4 h-4" /><span>Templates</span>
+                </BaseButton>
+
+                <BaseButton
                     @click="ui.openVariablesModal()"
                     data-testid="submenu-tools-variables"
                 >
@@ -482,6 +489,7 @@ import {
     Redo,
     LockKeyhole,
     UnlockKeyhole,
+    FileText,
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
@@ -613,6 +621,9 @@ function goToImages() {
 }
 function goToRevisions() {
     router.push('/revisions')
+}
+function goToTemplates() {
+    router.push('/templates')
 }
 
 // History actions: undo, redo

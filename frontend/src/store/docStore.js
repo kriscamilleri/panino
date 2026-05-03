@@ -147,6 +147,9 @@ export const useDocStore = defineStore('docStore', () => {
         importData: importExportStore.importData,
         exportStackEditJson: importExportStore.exportDataAsStackEditJsonString,
         importStackEditData: importExportStore.importStackEditData,
+        importMarkdownFiles: importExportStore.importMarkdownFiles,
+        importMarkdownDirectory: importExportStore.importMarkdownDirectory,
+        importZipArchive: importExportStore.importZipArchive,
 
         updateStyle: markdownStore.updateStyle,
         getMarkdownIt: markdownStore.getMarkdownIt,

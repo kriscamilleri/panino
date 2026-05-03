@@ -37,6 +37,14 @@
                 >
                     <FolderPlus class="w-4 h-4" />
                 </BaseButton>
+
+                <BaseButton
+                    @click="showTemplatePicker = true"
+                    title="New from Template"
+                    data-testid="documents-new-from-template-button"
+                >
+                    <FileText class="w-4 h-4" />
+                </BaseButton>
             </div>
         </div>
 
@@ -146,6 +154,13 @@
                 </div>
             </div>
         </div>
+
+        <TemplatePickerModal
+            v-if="showTemplatePicker"
+            :current-folder-id="structureStore.selectedFolderId"
+            @close="showTemplatePicker = false"
+            @created="onNoteCreatedFromTemplate"
+        />
     </div>
 </template>
 
@@ -157,10 +172,13 @@ import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
 import TreeItem from './TreeItem.vue'
 import BaseButton from './BaseButton.vue'
-import { Search, X, FilePlus, FolderPlus } from 'lucide-vue-next'
+import { Search, X, FilePlus, FolderPlus, FileText } from 'lucide-vue-next'
+import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
+import { useStructureStore } from '@/store/structureStore'
 
 const docStore = useDocStore()
 const ui = useUiStore();
+const structureStore = useStructureStore()
 const router = useRouter();
 
 const { rootItems } = storeToRefs(docStore)
@@ -243,6 +261,7 @@ function getMatchingFilesForItem(item) {
 
 /* create-modal helpers */
 const showCreateModal = ref(false)
+const showTemplatePicker = ref(false)
 const createType = ref('')
 const newItemName = ref('')
 function showCreateFileModal() { createType.value = 'File'; showCreateModal.value = true; nextTick(focusModalInput) }
@@ -275,6 +294,11 @@ async function confirmCreate() {
     }
 }
 function cancelCreate() { showCreateModal.value = false; newItemName.value = ''; createType.value = '' }
+
+function onNoteCreatedFromTemplate(noteId) {
+    showTemplatePicker.value = false;
+    router.push({ name: 'doc', params: { fileId: noteId } });
+}
 
 /* misc */
 function handleDocumentsClick() { docStore.selectFolder(null) }
