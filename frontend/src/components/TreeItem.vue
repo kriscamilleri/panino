@@ -18,6 +18,15 @@
             <div class="border-t my-1" />
 
             <button
+                @click="handleDuplicate"
+                class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1"
+                :data-testid="`tree-item-context-menu-duplicate-${item.id}`"
+            >
+                <Copy class="w-4 h-4" />
+                <span>Duplicate</span>
+            </button>
+
+            <button
                 @click="handleDelete"
                 class="w-full text-left px-3 py-1 hover:bg-red-100 text-red-600 rounded flex items-center space-x-1"
                 :data-testid="`tree-item-context-menu-delete-${item.id}`"
@@ -256,7 +265,7 @@ import { useStructureStore } from '@/store/structureStore'
 
 import {
     Trash2, FilePlus, FolderPlus, MoreHorizontal,
-    ChevronRight, ChevronDown, Folder, File, Edit
+    ChevronRight, ChevronDown, Folder, File, Edit, Copy
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -370,6 +379,16 @@ function showMenu(event) {
     contextMenuY.value = event.clientY
     showContextMenu.value = true
     event.preventDefault()
+}
+
+async function handleDuplicate() {
+    if (props.item.type === 'file') {
+        const result = await docStore.duplicateFile(props.item.id)
+        if (result) {
+            refreshParent()
+        }
+    }
+    showContextMenu.value = false
 }
 
 async function handleDelete() {

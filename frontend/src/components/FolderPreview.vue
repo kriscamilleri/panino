@@ -87,6 +87,8 @@ const recentFiles = ref([])
 
 watchEffect(async () => {
     if (!isRecentView.value) return
+    // eslint-disable-next-line no-unused-vars
+    const _trigger = docStore.recentDocVersion // re-run after sync
     recentFiles.value = await docStore.getRecentDocuments(10)
 })
 
