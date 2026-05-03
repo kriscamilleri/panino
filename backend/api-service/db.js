@@ -1,15 +1,15 @@
 // /app/db.js  (api-service)
 // ---------------------------------
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
-import { createRequire } from 'module';
-import { spawnSync } from 'child_process';
+import Database from "better-sqlite3";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
+import { createRequire } from "module";
+import { spawnSync } from "child_process";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_DIR = path.join(__dirname, 'data');
+const DB_DIR = path.join(__dirname, "data");
 
 const dbConnections = new Map();
 let crsqliteInstallAttempted = false;
@@ -104,9 +104,28 @@ const BASE_SCHEMA = `
     note_id TEXT PRIMARY KEY NOT NULL,
     last_pruned_at TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_templates_updated
+    ON templates(updated_at DESC);
 `;
 
-const CRR_TABLES = ['users', 'folders', 'notes', 'images', 'settings', 'globals'];
+const CRR_TABLES = [
+  "users",
+  "folders",
+  "notes",
+  "images",
+  "settings",
+  "globals",
+  "templates",
+];
 
 function ensureImagesSchema(db) {
   try {
@@ -117,19 +136,21 @@ function ensureImagesSchema(db) {
 
     const names = new Set(columns.map((column) => column.name));
 
-    if (!names.has('size_bytes')) {
-      db.exec("ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0");
-      db.exec('UPDATE images SET size_bytes = 0 WHERE size_bytes IS NULL');
+    if (!names.has("size_bytes")) {
+      db.exec(
+        "ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0",
+      );
+      db.exec("UPDATE images SET size_bytes = 0 WHERE size_bytes IS NULL");
     }
 
-    if (!names.has('sha256')) {
+    if (!names.has("sha256")) {
       db.exec("ALTER TABLE images ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''");
       db.exec("UPDATE images SET sha256 = '' WHERE sha256 IS NULL");
     }
 
     db.exec("SELECT crsql_as_crr('images')");
   } catch (err) {
-    console.error('[db] Failed to ensure images schema:', err);
+    console.error("[db] Failed to ensure images schema:", err);
   }
 }
 
@@ -156,41 +177,49 @@ function resolveCrsqlitePath() {
 
   let pkgDir;
   try {
-    pkgDir = path.dirname(require.resolve('@vlcn.io/crsqlite/package.json'));
+    pkgDir = path.dirname(require.resolve("@vlcn.io/crsqlite/package.json"));
   } catch (e) {
     throw new Error(
-      "Cannot resolve '@vlcn.io/crsqlite'. Is it installed in this service?"
+      "Cannot resolve '@vlcn.io/crsqlite'. Is it installed in this service?",
     );
   }
 
-  const findCandidates = () => walk(pkgDir).filter((p) =>
-    /crsqlite\.(node|so|dylib|dll)$/.test(p)
-  );
+  const findCandidates = () =>
+    walk(pkgDir).filter((p) => /crsqlite\.(node|so|dylib|dll)$/.test(p));
 
   let candidates = findCandidates();
 
   if (candidates.length === 0 && !crsqliteInstallAttempted) {
     crsqliteInstallAttempted = true;
     try {
-      const installHelperPath = path.join(pkgDir, 'nodejs-install-helper.js');
+      const installHelperPath = path.join(pkgDir, "nodejs-install-helper.js");
       if (fs.existsSync(installHelperPath)) {
         const install = spawnSync(process.execPath, [installHelperPath], {
           cwd: pkgDir,
-          stdio: 'pipe',
+          stdio: "pipe",
         });
 
         if (install.status !== 0) {
-          const errorOutput = [install.stdout?.toString(), install.stderr?.toString()]
+          const errorOutput = [
+            install.stdout?.toString(),
+            install.stderr?.toString(),
+          ]
             .filter(Boolean)
-            .join('\n')
+            .join("\n")
             .trim();
-          console.warn('[db] Failed to auto-install crsqlite binary:', errorOutput || 'unknown error');
+          console.warn(
+            "[db] Failed to auto-install crsqlite binary:",
+            errorOutput || "unknown error",
+          );
         }
 
         candidates = findCandidates();
       }
     } catch (error) {
-      console.warn('[db] Error while attempting to auto-install crsqlite binary:', error);
+      console.warn(
+        "[db] Error while attempting to auto-install crsqlite binary:",
+        error,
+      );
     }
   }
 
@@ -202,14 +231,14 @@ function resolveCrsqlitePath() {
 
   throw new Error(
     `Could not locate crsqlite binary. Looked under ${pkgDir}. ` +
-    `Set CRSQLITE_EXT_PATH to the absolute path of crsqlite.(node|so|dylib|dll).`
+      `Set CRSQLITE_EXT_PATH to the absolute path of crsqlite.(node|so|dylib|dll).`,
   );
 }
 
 function ensureCrr(db) {
   for (const t of CRR_TABLES) {
     try {
-      db.prepare('SELECT crsql_as_crr(?)').get(t);
+      db.prepare("SELECT crsql_as_crr(?)").get(t);
     } catch {
       // ignore if already a CRR or extension issue
     }
@@ -234,17 +263,23 @@ function ensureGlobalsSchema(db) {
       return;
     }
 
-    const names = new Set(columns.map(c => c.name));
+    const names = new Set(columns.map((c) => c.name));
     const indexes = db.prepare("PRAGMA index_list('globals')").all();
-    const hasExtraUnique = (indexes || []).some(idx => idx?.unique && idx?.origin !== 'pk');
+    const hasExtraUnique = (indexes || []).some(
+      (idx) => idx?.unique && idx?.origin !== "pk",
+    );
 
     if (hasExtraUnique) {
-      const selectId = names.has('id') ? 'id' : 'key';
-      const selectCreated = names.has('created_at') ? 'created_at' : "datetime('now')";
-      const selectUpdated = names.has('updated_at') ? 'updated_at' : "datetime('now')";
-      const selectDisplay = names.has('display_key') ? 'display_key' : 'key';
+      const selectId = names.has("id") ? "id" : "key";
+      const selectCreated = names.has("created_at")
+        ? "created_at"
+        : "datetime('now')";
+      const selectUpdated = names.has("updated_at")
+        ? "updated_at"
+        : "datetime('now')";
+      const selectDisplay = names.has("display_key") ? "display_key" : "key";
 
-      db.exec('BEGIN');
+      db.exec("BEGIN");
       try {
         db.exec(`
           CREATE TABLE globals_new (
@@ -267,35 +302,45 @@ function ensureGlobalsSchema(db) {
             ${selectDisplay} as display_key
           FROM globals
         `);
-        db.exec('DROP TABLE globals');
-        db.exec('ALTER TABLE globals_new RENAME TO globals');
+        db.exec("DROP TABLE globals");
+        db.exec("ALTER TABLE globals_new RENAME TO globals");
         db.exec("SELECT crsql_as_crr('globals')");
-        db.exec('COMMIT');
+        db.exec("COMMIT");
         return;
       } catch (err) {
-        db.exec('ROLLBACK');
+        db.exec("ROLLBACK");
         throw err;
       }
     }
-    if (!names.has('id')) {
+    if (!names.has("id")) {
       db.exec("ALTER TABLE globals ADD COLUMN id TEXT NOT NULL DEFAULT ''");
-      db.exec('UPDATE globals SET id = key WHERE id IS NULL');
+      db.exec("UPDATE globals SET id = key WHERE id IS NULL");
     }
-    if (!names.has('created_at')) {
-      db.exec("ALTER TABLE globals ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))");
-      db.exec("UPDATE globals SET created_at = datetime('now') WHERE created_at IS NULL");
+    if (!names.has("created_at")) {
+      db.exec(
+        "ALTER TABLE globals ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+      );
+      db.exec(
+        "UPDATE globals SET created_at = datetime('now') WHERE created_at IS NULL",
+      );
     }
-    if (!names.has('updated_at')) {
-      db.exec("ALTER TABLE globals ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
-      db.exec("UPDATE globals SET updated_at = datetime('now') WHERE updated_at IS NULL");
+    if (!names.has("updated_at")) {
+      db.exec(
+        "ALTER TABLE globals ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))",
+      );
+      db.exec(
+        "UPDATE globals SET updated_at = datetime('now') WHERE updated_at IS NULL",
+      );
     }
-    if (!names.has('display_key')) {
-      db.exec("ALTER TABLE globals ADD COLUMN display_key TEXT NOT NULL DEFAULT ''");
-      db.exec('UPDATE globals SET display_key = key WHERE display_key IS NULL');
+    if (!names.has("display_key")) {
+      db.exec(
+        "ALTER TABLE globals ADD COLUMN display_key TEXT NOT NULL DEFAULT ''",
+      );
+      db.exec("UPDATE globals SET display_key = key WHERE display_key IS NULL");
     }
     db.exec("SELECT crsql_as_crr('globals')");
   } catch (err) {
-    console.error('[db] Failed to ensure globals schema:', err);
+    console.error("[db] Failed to ensure globals schema:", err);
   }
 }
 
@@ -324,44 +369,56 @@ function ensureBackupConfigSchema(db) {
 
     const names = new Set(columns.map((column) => column.name));
 
-    if (!names.has('provider')) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN provider TEXT NOT NULL DEFAULT 'github'");
-      db.exec("UPDATE backup_config SET provider = 'github' WHERE provider IS NULL OR provider = ''");
+    if (!names.has("provider")) {
+      db.exec(
+        "ALTER TABLE backup_config ADD COLUMN provider TEXT NOT NULL DEFAULT 'github'",
+      );
+      db.exec(
+        "UPDATE backup_config SET provider = 'github' WHERE provider IS NULL OR provider = ''",
+      );
     }
-    if (!names.has('access_token_enc')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN access_token_enc TEXT');
+    if (!names.has("access_token_enc")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN access_token_enc TEXT");
     }
-    if (!names.has('username')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN username TEXT');
+    if (!names.has("username")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN username TEXT");
     }
-    if (!names.has('avatar_url')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN avatar_url TEXT');
+    if (!names.has("avatar_url")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN avatar_url TEXT");
     }
-    if (!names.has('repo_full_name')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN repo_full_name TEXT');
+    if (!names.has("repo_full_name")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN repo_full_name TEXT");
     }
-    if (!names.has('auto_backup_enabled')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN auto_backup_enabled INTEGER NOT NULL DEFAULT 1');
-      db.exec('UPDATE backup_config SET auto_backup_enabled = 1 WHERE auto_backup_enabled IS NULL');
+    if (!names.has("auto_backup_enabled")) {
+      db.exec(
+        "ALTER TABLE backup_config ADD COLUMN auto_backup_enabled INTEGER NOT NULL DEFAULT 1",
+      );
+      db.exec(
+        "UPDATE backup_config SET auto_backup_enabled = 1 WHERE auto_backup_enabled IS NULL",
+      );
     }
-    if (!names.has('last_backup_at')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN last_backup_at TEXT');
+    if (!names.has("last_backup_at")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN last_backup_at TEXT");
     }
-    if (!names.has('last_backup_sha')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN last_backup_sha TEXT');
+    if (!names.has("last_backup_sha")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN last_backup_sha TEXT");
     }
-    if (!names.has('last_warning')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN last_warning TEXT');
+    if (!names.has("last_warning")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN last_warning TEXT");
     }
-    if (!names.has('last_error')) {
-      db.exec('ALTER TABLE backup_config ADD COLUMN last_error TEXT');
+    if (!names.has("last_error")) {
+      db.exec("ALTER TABLE backup_config ADD COLUMN last_error TEXT");
     }
-    if (!names.has('created_at')) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))");
-      db.exec("UPDATE backup_config SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''");
+    if (!names.has("created_at")) {
+      db.exec(
+        "ALTER TABLE backup_config ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))",
+      );
+      db.exec(
+        "UPDATE backup_config SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''",
+      );
     }
   } catch (err) {
-    console.error('[db] Failed to ensure backup config schema:', err);
+    console.error("[db] Failed to ensure backup config schema:", err);
   }
 }
 
@@ -378,7 +435,7 @@ export function getUserDb(userId) {
     const extPath = resolveCrsqlitePath();
     db.loadExtension(extPath);
   } catch (e) {
-    console.error('Failed to load crsqlite extension:', e);
+    console.error("Failed to load crsqlite extension:", e);
     throw e;
   }
 
@@ -388,8 +445,8 @@ export function getUserDb(userId) {
   ensureBackupConfigSchema(db);
   ensureCrr(db);
 
-  db.pragma('journal_mode = wal');
-  db.pragma('synchronous = normal');
+  db.pragma("journal_mode = wal");
+  db.pragma("synchronous = normal");
 
   dbConnections.set(userId, db);
   return db;
@@ -432,12 +489,12 @@ const AUTH_SCHEMA = `
 `;
 
 export function getAuthDb() {
-  const key = '_auth';
+  const key = "_auth";
   if (dbConnections.has(key)) return dbConnections.get(key);
 
   if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
 
-  const dbPath = path.join(DB_DIR, '_users.db');
+  const dbPath = path.join(DB_DIR, "_users.db");
   const db = new Database(dbPath);
   db.exec(AUTH_SCHEMA);
 
@@ -447,7 +504,7 @@ export function getAuthDb() {
 
 export function initDb() {
   getAuthDb();
-  console.log('Authentication database initialized.');
+  console.log("Authentication database initialized.");
 }
 
 export function listUserDbIds() {
@@ -457,7 +514,12 @@ export function listUserDbIds() {
 
   return fs
     .readdirSync(DB_DIR, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.db') && entry.name !== '_users.db')
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".db") &&
+        entry.name !== "_users.db",
+    )
     .map((entry) => entry.name.slice(0, -3));
 }
 
@@ -498,7 +560,7 @@ export function getTestDb(userId, options = {}) {
     fs.mkdirSync(DB_DIR, { recursive: true });
   }
 
-  const dbPath = inMemory ? ':memory:' : path.join(DB_DIR, `${userId}.db`);
+  const dbPath = inMemory ? ":memory:" : path.join(DB_DIR, `${userId}.db`);
   const db = new Database(dbPath);
 
   // Load CR-SQLite
@@ -506,7 +568,7 @@ export function getTestDb(userId, options = {}) {
     const extPath = resolveCrsqlitePath();
     db.loadExtension(extPath);
   } catch (e) {
-    console.error('Failed to load crsqlite extension:', e);
+    console.error("Failed to load crsqlite extension:", e);
     throw e;
   }
 
@@ -516,8 +578,8 @@ export function getTestDb(userId, options = {}) {
   ensureBackupConfigSchema(db);
   ensureCrr(db);
 
-  db.pragma('journal_mode = wal');
-  db.pragma('synchronous = normal');
+  db.pragma("journal_mode = wal");
+  db.pragma("synchronous = normal");
 
   dbConnections.set(userId, db);
   return db;
@@ -543,7 +605,7 @@ export function deleteTestDb(userId) {
   const walPath = `${dbPath}-wal`;
   const shmPath = `${dbPath}-shm`;
 
-  [dbPath, walPath, shmPath].forEach(filePath => {
+  [dbPath, walPath, shmPath].forEach((filePath) => {
     if (fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
