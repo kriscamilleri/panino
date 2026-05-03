@@ -11,6 +11,7 @@
             <div
                 v-if="ui.showViewMenu"
                 class="flex flex-wrap items-center gap-2"
+                :class="{ 'editor-menu-collapsed': ui.viewMenuCollapsed }"
                 key="view"
             >
                 <BaseButton
@@ -18,7 +19,7 @@
                     @click="ui.toggleDocuments()"
                     data-testid="submenu-view-documents"
                 >
-                    <Folder class="w-4 h-4" /><span>Documents</span>
+                    <Folder class="w-4 h-4" /><span class="button-text">Documents</span>
                 </BaseButton>
 
                 <BaseButton
@@ -26,7 +27,7 @@
                     @click="ui.toggleEditor()"
                     data-testid="submenu-view-editor"
                 >
-                    <FilePenLine class="w-4 h-4" /><span>Editor</span>
+                    <FilePenLine class="w-4 h-4" /><span class="button-text">Editor</span>
                 </BaseButton>
 
                 <BaseButton
@@ -34,14 +35,34 @@
                     @click="ui.togglePreview()"
                     data-testid="submenu-view-preview"
                 >
-                    <Eye class="w-4 h-4" /><span>Preview</span>
+                    <Eye class="w-4 h-4" /><span class="button-text">Preview</span>
                 </BaseButton>
 
                 <BaseButton
                     @click="goToStyles"
                     data-testid="submenu-view-styles"
                 >
-                    <Palette class="w-4 h-4" /><span>Styles</span>
+                    <Palette class="w-4 h-4" /><span class="button-text">Styles</span>
+                </BaseButton>
+
+                <div class="separator" />
+
+                <BaseButton
+                    :isActive="ui.viewMenuCollapsed"
+                    @click="ui.toggleViewMenuCollapsed()"
+                    title="Collapse/Expand Menu"
+                    data-testid="submenu-view-collapse"
+                    class="text-sm"
+                >
+                    <PanelLeftClose
+                        v-if="!ui.viewMenuCollapsed"
+                        class="w-4 h-4"
+                    />
+                    <PanelLeftOpen
+                        v-else
+                        class="w-4 h-4"
+                    />
+                    <span class="button-text">Collapse</span>
                 </BaseButton>
             </div>
 
@@ -326,6 +347,7 @@
             <div
                 v-else-if="ui.showFileMenu"
                 class="flex flex-wrap items-center gap-2"
+                :class="{ 'editor-menu-collapsed': ui.toolsMenuCollapsed }"
                 key="file"
             >
                 <template v-if="isDictationSupported">
@@ -378,7 +400,7 @@
                     :title="!isOnline ? 'Revision History requires an internet connection' : !selectedFileId ? 'Select a document to view revision history' : ''"
                     data-testid="submenu-tools-revisions"
                 >
-                    <History class="w-4 h-4" /><span>Revisions</span>
+                    <History class="w-4 h-4" /><span class="button-text">Revisions</span>
                 </BaseButton>
 
                 <BaseButton
@@ -387,7 +409,7 @@
                     @click="goToPrintStyles"
                     data-testid="submenu-tools-print"
                 >
-                    <Printer class="w-4 h-4" /><span>Print</span>
+                    <Printer class="w-4 h-4" /><span class="button-text">Print</span>
                 </BaseButton>
 
                 <div class="separator"></div>
@@ -396,21 +418,21 @@
                     @click="ui.openImportModal()"
                     data-testid="submenu-tools-import"
                 >
-                    <Upload class="w-4 h-4" /><span>Import</span>
+                    <Upload class="w-4 h-4" /><span class="button-text">Import</span>
                 </BaseButton>
 
                 <BaseButton
                     @click="ui.openExportModal()"
                     data-testid="submenu-tools-export"
                 >
-                    <Download class="w-4 h-4" /><span>Export</span>
+                    <Download class="w-4 h-4" /><span class="button-text">Export</span>
                 </BaseButton>
 
                 <BaseButton
                     @click="ui.openGithubBackupModal()"
                     data-testid="submenu-tools-github-backup"
                 >
-                    <Github class="w-4 h-4" /><span>Backup</span>
+                    <Github class="w-4 h-4" /><span class="button-text">Backup</span>
                 </BaseButton>
 
                 <BaseButton
@@ -419,21 +441,41 @@
                     :title="!isOnline ? 'Image library requires an internet connection' : ''"
                     data-testid="submenu-tools-images"
                 >
-                    <Image class="w-4 h-4" /><span>Images</span>
+                    <Image class="w-4 h-4" /><span class="button-text">Images</span>
                 </BaseButton>
 
                 <BaseButton
                     @click="goToTemplates"
                     data-testid="submenu-tools-templates"
                 >
-                    <FileText class="w-4 h-4" /><span>Templates</span>
+                    <FileText class="w-4 h-4" /><span class="button-text">Templates</span>
                 </BaseButton>
 
                 <BaseButton
                     @click="ui.openVariablesModal()"
                     data-testid="submenu-tools-variables"
                 >
-                    <Braces class="w-4 h-4" /><span>Variables</span>
+                    <Braces class="w-4 h-4" /><span class="button-text">Variables</span>
+                </BaseButton>
+
+                <div class="separator" />
+
+                <BaseButton
+                    :isActive="ui.toolsMenuCollapsed"
+                    @click="ui.toggleToolsMenuCollapsed()"
+                    title="Collapse/Expand Menu"
+                    data-testid="submenu-tools-collapse"
+                    class="text-sm"
+                >
+                    <PanelLeftClose
+                        v-if="!ui.toolsMenuCollapsed"
+                        class="w-4 h-4"
+                    />
+                    <PanelLeftOpen
+                        v-else
+                        class="w-4 h-4"
+                    />
+                    <span class="button-text">Collapse</span>
                 </BaseButton>
             </div>
         </div>
