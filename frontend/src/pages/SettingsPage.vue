@@ -41,6 +41,10 @@
                 <Image class="w-4 h-4" />
                 <span>Manage Images</span>
             </BaseButton>
+            <BaseButton @click="goToTemplates" data-testid="settings-templates-button">
+                <FileText class="w-4 h-4" />
+                <span>Manage Templates</span>
+            </BaseButton>
         </div>
     </AccountLayout>
 </template>
@@ -53,7 +57,7 @@ import { useAuthStore } from '@/store/authStore';
 import AccountLayout from '@/components/AccountLayout.vue';
 import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 import BaseButton from '@/components/BaseButton.vue';
-import { Image } from 'lucide-vue-next';
+import { Image, FileText } from 'lucide-vue-next';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -62,6 +66,10 @@ const loadingProfile = ref(true);
 
 function goToImages() {
     router.push('/images');
+}
+
+function goToTemplates() {
+    router.push('/templates');
 }
 
 function formatBytes(value) {
