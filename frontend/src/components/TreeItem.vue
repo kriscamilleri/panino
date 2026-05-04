@@ -294,7 +294,7 @@ async function fetchChildren() {
 }
 
 watch(isOpen, (newVal) => {
-    if (newVal && children.value.length === 0) {
+    if (newVal) {
         fetchChildren();
     }
 });

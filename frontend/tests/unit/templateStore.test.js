@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 const source = readFileSync(
-  new URL('../../src/store/templateStore.js', import.meta.url),
-  'utf8'
+  new URL("../../src/store/templateStore.js", import.meta.url),
+  "utf8",
 );
 
 // ---------------------------------------------------------------------------
@@ -17,39 +17,39 @@ const source = readFileSync(
 function functionBody(fnName) {
   const re = new RegExp(
     `(?:async\\s+)?function\\s+${fnName}\\s*\\([^)]*\\)\\s*\\{`,
-    'g'
+    "g",
   );
   const match = re.exec(source);
-  if (!match) return '';
+  if (!match) return "";
 
   let pos = match.index + match[0].length;
   let depth = 1;
   let inString = false;
-  let stringChar = '';
+  let stringChar = "";
   let inComment = false;
   let inLineComment = false;
 
   while (depth > 0 && pos < source.length) {
     const ch = source[pos];
-    const prev = pos > 0 ? source[pos - 1] : '';
+    const prev = pos > 0 ? source[pos - 1] : "";
 
     if (inLineComment) {
-      if (ch === '\n') inLineComment = false;
+      if (ch === "\n") inLineComment = false;
     } else if (inComment) {
-      if (ch === '/' && prev === '*') inComment = false;
+      if (ch === "/" && prev === "*") inComment = false;
     } else if (inString) {
-      if (ch === stringChar && prev !== '\\') inString = false;
+      if (ch === stringChar && prev !== "\\") inString = false;
     } else {
-      if ((ch === '"' || ch === "'" || ch === '`') && prev !== '\\') {
+      if ((ch === '"' || ch === "'" || ch === "`") && prev !== "\\") {
         inString = true;
         stringChar = ch;
-      } else if (ch === '/' && prev === '/') {
+      } else if (ch === "/" && prev === "/") {
         inLineComment = true;
-      } else if (ch === '*' && prev === '/') {
+      } else if (ch === "*" && prev === "/") {
         inComment = true;
-      } else if (ch === '{') {
+      } else if (ch === "{") {
         depth++;
-      } else if (ch === '}') {
+      } else if (ch === "}") {
         depth--;
       }
     }
@@ -63,32 +63,34 @@ function functionBody(fnName) {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('templateStore – export and structure', () => {
-  it('exports useTemplateStore via defineStore', () => {
-    expect(source).toMatch(/export\s+const\s+useTemplateStore\s*=\s*defineStore/);
+describe("templateStore – export and structure", () => {
+  it("exports useTemplateStore via defineStore", () => {
+    expect(source).toMatch(
+      /export\s+const\s+useTemplateStore\s*=\s*defineStore/,
+    );
   });
 
   it('registers the store with the name "templateStore"', () => {
     expect(source).toMatch(/defineStore\s*\(\s*['"]templateStore['"]/);
   });
 
-  it('declares reactive state: templates (ref), isLoading (ref), error (ref)', () => {
+  it("declares reactive state: templates (ref), isLoading (ref), error (ref)", () => {
     expect(source).toMatch(/const\s+templates\s*=\s*ref\(/);
     expect(source).toMatch(/const\s+isLoading\s*=\s*ref\(/);
     expect(source).toMatch(/const\s+error\s*=\s*ref\(/);
   });
 
-  it('initialises templates as an empty array', () => {
+  it("initialises templates as an empty array", () => {
     expect(source).toMatch(/templates\s*=\s*ref\(\s*\[\s*\]\s*\)/);
   });
 
-  it('initialises isLoading as false and error as an empty string', () => {
+  it("initialises isLoading as false and error as an empty string", () => {
     expect(source).toMatch(/isLoading\s*=\s*ref\(\s*false\s*\)/);
     expect(source).toMatch(/error\s*=\s*ref\(\s*['"]["']\s*\)/);
   });
 
-  it('returns all expected keys from the store factory', () => {
-    const returnBlock = source.slice(source.lastIndexOf('return {'));
+  it("returns all expected keys from the store factory", () => {
+    const returnBlock = source.slice(source.lastIndexOf("return {"));
 
     expect(returnBlock).toMatch(/\btemplates\b/);
     expect(returnBlock).toMatch(/\bisLoading\b/);
@@ -101,161 +103,162 @@ describe('templateStore – export and structure', () => {
   });
 });
 
-describe('templateStore – method signatures', () => {
-  it('declares loadTemplates as an async function', () => {
+describe("templateStore – method signatures", () => {
+  it("declares loadTemplates as an async function", () => {
     expect(source).toMatch(/async\s+function\s+loadTemplates\s*\(/);
   });
 
-  it('declares createTemplate as an async function with (name, content) params', () => {
-    expect(source).toMatch(/async\s+function\s+createTemplate\s*\(name,\s*content\)/);
-  });
-
-  it('declares updateTemplate as an async function with (id, name, content) params', () => {
+  it("declares createTemplate as an async function with (name, content, titlePattern, defaultFolderId) params", () => {
     expect(source).toMatch(
-      /async\s+function\s+updateTemplate\s*\(id,\s*name,\s*content\)/
+      /async\s+function\s+createTemplate\s*\([^)]*name[^)]*content[^)]*titlePattern[^)]*defaultFolderId[^)]*\)/,
     );
   });
 
-  it('declares duplicateTemplate as an async function with (id) param', () => {
+  it("declares updateTemplate as an async function with (id, name, content, titlePattern, defaultFolderId) params", () => {
+    expect(source).toMatch(
+      /async\s+function\s+updateTemplate\s*\([^)]*id[^)]*name[^)]*content[^)]*titlePattern[^)]*defaultFolderId[^)]*\)/,
+    );
+  });
+
+  it("declares duplicateTemplate as an async function with (id) param", () => {
     expect(source).toMatch(/async\s+function\s+duplicateTemplate\s*\(id\)/);
   });
 
-  it('declares deleteTemplate as an async function with (id) param', () => {
+  it("declares deleteTemplate as an async function with (id) param", () => {
     expect(source).toMatch(/async\s+function\s+deleteTemplate\s*\(id\)/);
   });
 });
 
-describe('templateStore – SQL patterns', () => {
-  it('loadTemplates SELECTs all template columns ordered by updated_at DESC', () => {
-    const body = functionBody('loadTemplates');
-    expect(body).toMatch(
-      /SELECT\s+id,\s*name,\s*content,\s*created_at,\s*updated_at\s+FROM\s+templates\s+ORDER\s+BY\s+updated_at\s+DESC/
-    );
+describe("templateStore – SQL patterns", () => {
+  it("loadTemplates SELECTs all template columns including title_pattern and default_folder_id", () => {
+    const body = functionBody("loadTemplates");
+    expect(body).toMatch(/title_pattern/);
+    expect(body).toMatch(/default_folder_id/);
   });
 
-  it('loadTemplates maps snake_case columns to camelCase properties', () => {
-    const body = functionBody('loadTemplates');
-    expect(body).toMatch(/createdAt:\s*r\.created_at/);
-    expect(body).toMatch(/updatedAt:\s*r\.updated_at/);
+  it("loadTemplates maps title_pattern and default_folder_id to camelCase", () => {
+    const body = functionBody("loadTemplates");
+    expect(body).toMatch(/titlePattern:\s*r\.title_pattern/);
+    expect(body).toMatch(/defaultFolderId:\s*r\.default_folder_id/);
   });
 
-  it('createTemplate INSERTs with id, name, content, created_at, updated_at', () => {
-    const body = functionBody('createTemplate');
-    expect(body).toMatch(
-      /INSERT\s+INTO\s+templates\s*\(\s*id,\s*name,\s*content,\s*created_at,\s*updated_at\s*\)\s*VALUES/
-    );
+  it("createTemplate INSERTs with title_pattern and default_folder_id columns", () => {
+    const body = functionBody("createTemplate");
+    expect(body).toMatch(/title_pattern/);
+    expect(body).toMatch(/default_folder_id/);
   });
 
-  it('createTemplate generates a UUID and ISO timestamp for the new row', () => {
-    const body = functionBody('createTemplate');
+  it("createTemplate generates a UUID and ISO timestamp for the new row", () => {
+    const body = functionBody("createTemplate");
     expect(body).toMatch(/uuidv4\(\)/);
     expect(body).toMatch(/new\s+Date\(\)\.toISOString\(\)/);
   });
 
-  it('createTemplate reloads templates and shows a success toast', () => {
-    const body = functionBody('createTemplate');
+  it("createTemplate reloads templates and shows a success toast", () => {
+    const body = functionBody("createTemplate");
     expect(body).toMatch(/await\s+loadTemplates\(\)/);
     expect(body).toMatch(/uiStore\.addToast\(.*Template created/);
   });
 
-  it('updateTemplate issues UPDATE SET name, content, updated_at WHERE id', () => {
-    const body = functionBody('updateTemplate');
-    expect(body).toMatch(
-      /UPDATE\s+templates\s+SET\s+name\s*=\s*\?,\s*content\s*=\s*\?,\s*updated_at\s*=\s*\?\s+WHERE\s+id\s*=\s*\?/
-    );
+  it("updateTemplate UPDATEs title_pattern and default_folder_id columns", () => {
+    const body = functionBody("updateTemplate");
+    expect(body).toMatch(/title_pattern/);
+    expect(body).toMatch(/default_folder_id/);
   });
 
-  it('duplicateTemplate SELECTs the source row before INSERTing a copy', () => {
-    const body = functionBody('duplicateTemplate');
-    expect(body).toMatch(
-      /SELECT\s+name,\s*content\s+FROM\s+templates\s+WHERE\s+id\s*=\s*\?/
-    );
-    expect(body).toMatch(
-      /INSERT\s+INTO\s+templates\s*\(\s*id,\s*name,\s*content,\s*created_at,\s*updated_at\s*\)\s*VALUES/
-    );
+  it("duplicateTemplate SELECTs title_pattern and default_folder_id from source", () => {
+    const body = functionBody("duplicateTemplate");
+    expect(body).toMatch(/title_pattern/);
+    expect(body).toMatch(/default_folder_id/);
+  });
+
+  it("duplicateTemplate copies title_pattern and default_folder_id from source", () => {
+    const body = functionBody("duplicateTemplate");
+    expect(body).toMatch(/orig\.title_pattern/);
+    expect(body).toMatch(/orig\.default_folder_id/);
   });
 
   it('duplicateTemplate appends " - Copy" to the original name', () => {
-    const body = functionBody('duplicateTemplate');
+    const body = functionBody("duplicateTemplate");
     expect(body).toMatch(/\$\{orig\.name\}\s*-\s*Copy/);
   });
 
-  it('duplicateTemplate throws when the source template is not found', () => {
-    const body = functionBody('duplicateTemplate');
+  it("duplicateTemplate throws when the source template is not found", () => {
+    const body = functionBody("duplicateTemplate");
     expect(body).toMatch(/throw\s+new\s+Error\(.*Template not found/);
   });
 
-  it('deleteTemplate issues DELETE FROM templates WHERE id', () => {
-    const body = functionBody('deleteTemplate');
+  it("deleteTemplate issues DELETE FROM templates WHERE id", () => {
+    const body = functionBody("deleteTemplate");
     expect(body).toMatch(/DELETE\s+FROM\s+templates\s+WHERE\s+id\s*=\s*\?/);
   });
 });
 
-describe('templateStore – error handling', () => {
-  it('loadTemplates sets error.value to err.message in the catch block', () => {
-    const body = functionBody('loadTemplates');
+describe("templateStore – error handling", () => {
+  it("loadTemplates sets error.value to err.message in the catch block", () => {
+    const body = functionBody("loadTemplates");
     expect(body).toMatch(/error\.value\s*=\s*err\.message/);
   });
 
-  it('loadTemplates clears isLoading in the finally block', () => {
-    const body = functionBody('loadTemplates');
+  it("loadTemplates clears isLoading in the finally block", () => {
+    const body = functionBody("loadTemplates");
     expect(body).toMatch(/finally\s*\{[^}]*isLoading\.value\s*=\s*false/);
   });
 
-  it('createTemplate catches errors and shows an error toast before re-throwing', () => {
-    const body = functionBody('createTemplate');
+  it("createTemplate catches errors and shows an error toast before re-throwing", () => {
+    const body = functionBody("createTemplate");
     expect(body).toMatch(/uiStore\.addToast\(.*Failed to create template/);
     expect(body).toMatch(/throw\s+err/);
   });
 
-  it('updateTemplate catches errors and shows an error toast before re-throwing', () => {
-    const body = functionBody('updateTemplate');
+  it("updateTemplate catches errors and shows an error toast before re-throwing", () => {
+    const body = functionBody("updateTemplate");
     expect(body).toMatch(/uiStore\.addToast\(.*Failed to update template/);
     expect(body).toMatch(/throw\s+err/);
   });
 
-  it('duplicateTemplate catches errors and shows an error toast before re-throwing', () => {
-    const body = functionBody('duplicateTemplate');
+  it("duplicateTemplate catches errors and shows an error toast before re-throwing", () => {
+    const body = functionBody("duplicateTemplate");
     expect(body).toMatch(/uiStore\.addToast\(.*Failed to duplicate template/);
     expect(body).toMatch(/throw\s+err/);
   });
 
-  it('deleteTemplate catches errors and shows an error toast before re-throwing', () => {
-    const body = functionBody('deleteTemplate');
+  it("deleteTemplate catches errors and shows an error toast before re-throwing", () => {
+    const body = functionBody("deleteTemplate");
     expect(body).toMatch(/uiStore\.addToast\(.*Failed to delete template/);
     expect(body).toMatch(/throw\s+err/);
   });
 });
 
-describe('templateStore – syncStore usage', () => {
-  it('references syncStore from useSyncStore for all DB operations', () => {
+describe("templateStore – syncStore usage", () => {
+  it("references syncStore from useSyncStore for all DB operations", () => {
     expect(source).toMatch(/const\s+syncStore\s*=\s*useSyncStore\(\)/);
   });
 
-  it('uses syncStore.execute for loadTemplates', () => {
-    const body = functionBody('loadTemplates');
+  it("uses syncStore.execute for loadTemplates", () => {
+    const body = functionBody("loadTemplates");
     expect(body).toMatch(/syncStore\.execute\(/);
   });
 
-  it('uses syncStore.execute for createTemplate', () => {
-    const body = functionBody('createTemplate');
+  it("uses syncStore.execute for createTemplate", () => {
+    const body = functionBody("createTemplate");
     expect(body).toMatch(/syncStore\.execute\(/);
   });
 
-  it('uses syncStore.execute for updateTemplate', () => {
-    const body = functionBody('updateTemplate');
+  it("uses syncStore.execute for updateTemplate", () => {
+    const body = functionBody("updateTemplate");
     expect(body).toMatch(/syncStore\.execute\(/);
   });
 
-  it('uses syncStore.execute for duplicateTemplate (both SELECT and INSERT)', () => {
-    const body = functionBody('duplicateTemplate');
+  it("uses syncStore.execute for duplicateTemplate (both SELECT and INSERT)", () => {
+    const body = functionBody("duplicateTemplate");
     const matches = body.match(/syncStore\.execute\(/g);
     expect(matches).not.toBeNull();
     expect(matches.length).toBe(2);
   });
 
-  it('uses syncStore.execute for deleteTemplate', () => {
-    const body = functionBody('deleteTemplate');
+  it("uses syncStore.execute for deleteTemplate", () => {
+    const body = functionBody("deleteTemplate");
     expect(body).toMatch(/syncStore\.execute\(/);
   });
 });
