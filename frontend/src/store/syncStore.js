@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS templates (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
   content TEXT NOT NULL DEFAULT '',
+  title_pattern TEXT NOT NULL DEFAULT '',
+  default_folder_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -281,6 +283,8 @@ export const useSyncStore = defineStore("syncStore", () => {
             id TEXT PRIMARY KEY NOT NULL,
             name TEXT NOT NULL,
             content TEXT NOT NULL DEFAULT '',
+            title_pattern TEXT NOT NULL DEFAULT '',
+            default_folder_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
           )
@@ -291,6 +295,24 @@ export const useSyncStore = defineStore("syncStore", () => {
         await db.value.exec("SELECT crsql_as_crr('templates')");
         await seedDefaultTemplates();
         return;
+      }
+
+      // Add title_pattern column if missing (added in v1.1)
+      const hasTitlePattern = columns.some((c) => c.name === "title_pattern");
+      if (!hasTitlePattern) {
+        await db.value.exec(
+          "ALTER TABLE templates ADD COLUMN title_pattern TEXT NOT NULL DEFAULT ''",
+        );
+      }
+
+      // Add default_folder_id column if missing (added in v1.1)
+      const hasDefaultFolder = columns.some(
+        (c) => c.name === "default_folder_id",
+      );
+      if (!hasDefaultFolder) {
+        await db.value.exec(
+          "ALTER TABLE templates ADD COLUMN default_folder_id TEXT",
+        );
       }
 
       const rows = await db.value.execO(
@@ -314,6 +336,8 @@ export const useSyncStore = defineStore("syncStore", () => {
     const defaults = [
       {
         name: "Meeting Notes",
+        titlePattern: "",
+        defaultFolderId: null,
         content: `---
 title: "{{input:Meeting Title}}"
 date: "{{today}}"
@@ -344,6 +368,8 @@ tags:
       },
       {
         name: "Project Brief",
+        titlePattern: "",
+        defaultFolderId: null,
         content: `---
 title: "{{input:Project Name}} - Project Brief"
 author: "{{input:Author}}"
@@ -374,6 +400,8 @@ tags:
       },
       {
         name: "Journal Entry",
+        titlePattern: "Journal Entry — {{today:dd-MM-yyyy}}",
+        defaultFolderId: null,
         content: `---
 title: "Journal Entry - {{today}}"
 date: "{{today}}"
@@ -391,6 +419,8 @@ tags:
       },
       {
         name: "Bug Report",
+        titlePattern: "Bug Report: {{input:Bug Title}}",
+        defaultFolderId: null,
         content: `---
 title: "Bug: {{input:Bug Title}}"
 date: "{{today}}"
@@ -432,8 +462,16 @@ tags:
 
     for (const tpl of defaults) {
       await db.value.exec(
-        "INSERT INTO templates (id, name, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        [uuidv4(), tpl.name, tpl.content, now, now],
+        "INSERT INTO templates (id, name, content, title_pattern, default_folder_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+          uuidv4(),
+          tpl.name,
+          tpl.content,
+          tpl.titlePattern || "",
+          tpl.defaultFolderId || null,
+          now,
+          now,
+        ],
       );
     }
   }

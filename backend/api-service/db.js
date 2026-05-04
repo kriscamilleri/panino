@@ -109,6 +109,8 @@ const BASE_SCHEMA = `
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
+    title_pattern TEXT NOT NULL DEFAULT '',
+    default_folder_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
