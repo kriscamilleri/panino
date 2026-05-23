@@ -38,12 +38,12 @@ SELECT crsql_as_crr('images');
 SELECT crsql_as_crr('settings');
 CREATE TABLE IF NOT EXISTS templates (
   id TEXT PRIMARY KEY NOT NULL,
-  name TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
   content TEXT NOT NULL DEFAULT '',
   title_pattern TEXT NOT NULL DEFAULT '',
   default_folder_id TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_templates_updated ON templates(updated_at DESC);
 SELECT crsql_as_crr('templates');
@@ -281,12 +281,12 @@ export const useSyncStore = defineStore("syncStore", () => {
         await db.value.exec(`
           CREATE TABLE IF NOT EXISTS templates (
             id TEXT PRIMARY KEY NOT NULL,
-            name TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
             content TEXT NOT NULL DEFAULT '',
             title_pattern TEXT NOT NULL DEFAULT '',
             default_folder_id TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
           )
         `);
         await db.value.exec(
@@ -313,6 +313,38 @@ export const useSyncStore = defineStore("syncStore", () => {
         await db.value.exec(
           "ALTER TABLE templates ADD COLUMN default_folder_id TEXT",
         );
+      }
+
+      // Check if existing table has the old schema (NOT NULL columns without DEFAULTs)
+      // CR-SQLite requires DEFAULTs on all NOT NULL columns
+      const needsMigration = columns.some(
+        (c) =>
+          (c.name === "name" ||
+            c.name === "created_at" ||
+            c.name === "updated_at") &&
+          c.notnull === 1 &&
+          c.dflt_value === null,
+      );
+
+      if (needsMigration) {
+        // Recreate table with proper DEFAULTs
+        await db.value.exec(`
+          ALTER TABLE templates RENAME TO templates_old;
+
+          CREATE TABLE templates (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',
+            title_pattern TEXT NOT NULL DEFAULT '',
+            default_folder_id TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+
+          INSERT INTO templates SELECT * FROM templates_old;
+          CREATE INDEX IF NOT EXISTS idx_templates_updated ON templates(updated_at DESC);
+          DROP TABLE templates_old;
+        `);
       }
 
       const rows = await db.value.execO(

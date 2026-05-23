@@ -107,12 +107,12 @@ const BASE_SCHEMA = `
 
   CREATE TABLE IF NOT EXISTS templates (
     id TEXT PRIMARY KEY NOT NULL,
-    name TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     title_pattern TEXT NOT NULL DEFAULT '',
     default_folder_id TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE INDEX IF NOT EXISTS idx_templates_updated
@@ -424,6 +424,48 @@ function ensureBackupConfigSchema(db) {
   }
 }
 
+function ensureTemplatesSchema(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info('templates')").all();
+    if (!columns || columns.length === 0) {
+      return; // BASE_SCHEMA creates it with correct defaults
+    }
+
+    // Check if existing table has the old schema (NOT NULL columns without DEFAULTs)
+    // CR-SQLite requires DEFAULTs on all NOT NULL columns
+    const needsMigration = columns.some(
+      (c) =>
+        (c.name === "name" ||
+          c.name === "created_at" ||
+          c.name === "updated_at") &&
+        c.notnull === 1 &&
+        c.dflt_value === null,
+    );
+
+    if (needsMigration) {
+      db.exec(`
+        ALTER TABLE templates RENAME TO templates_old;
+
+        CREATE TABLE templates (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL DEFAULT '',
+          content TEXT NOT NULL DEFAULT '',
+          title_pattern TEXT NOT NULL DEFAULT '',
+          default_folder_id TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO templates SELECT * FROM templates_old;
+        CREATE INDEX IF NOT EXISTS idx_templates_updated ON templates(updated_at DESC);
+        DROP TABLE templates_old;
+      `);
+    }
+  } catch (err) {
+    console.error("[db] Failed to ensure templates schema:", err);
+  }
+}
+
 export function getUserDb(userId) {
   if (dbConnections.has(userId)) return dbConnections.get(userId);
 
@@ -445,6 +487,7 @@ export function getUserDb(userId) {
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
   ensureBackupConfigSchema(db);
+  ensureTemplatesSchema(db);
   ensureCrr(db);
 
   db.pragma("journal_mode = wal");
@@ -578,6 +621,7 @@ export function getTestDb(userId, options = {}) {
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
   ensureBackupConfigSchema(db);
+  ensureTemplatesSchema(db);
   ensureCrr(db);
 
   db.pragma("journal_mode = wal");
