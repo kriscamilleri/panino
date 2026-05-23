@@ -198,7 +198,7 @@ function toggleSearch() {
 function clearSearch() { searchQuery.value = '' }
 
 /* filtering helpers */
-function matchesSearch(text, query) { return text.toLowerCase().includes(query.toLowerCase()) }
+function matchesSearch(text, query) { return (text || '').toLowerCase().includes(query.toLowerCase()) }
 
 async function getAllFilesInFolder(f) {
     let res = [];
