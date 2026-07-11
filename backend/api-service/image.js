@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { getUserDb, listUserDbIds } from './db.js';
+import { getHealthyUserDb, getUserDb, listUserDbIds } from './db.js';
 
 export const imageRoutes = express.Router();
 
@@ -368,7 +368,7 @@ imageRoutes.post('/images', (req, res) => {
         const sha256 = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 
         try {
-            const db = getUserDb(userId);
+            const db = getHealthyUserDb(userId, 'image-upload');
             db.prepare(`
                 INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -391,7 +391,7 @@ imageRoutes.delete('/images/:id', (req, res) => {
     const force = req.body?.force === true;
 
     try {
-        const db = getUserDb(userId);
+        const db = getHealthyUserDb(userId, 'image-delete');
         const image = db.prepare('SELECT id FROM images WHERE id = ? AND user_id = ?').get(imageId, userId);
         if (!image) {
             return res.status(404).json({ error: 'Image not found' });
@@ -406,6 +406,15 @@ imageRoutes.delete('/images/:id', (req, res) => {
         }
 
         const deletion = deleteImageRecordAndFile({ db, userId, imageId });
+        if (deletion.deleted) {
+            console.info('[images]', JSON.stringify({
+                event: 'image_prune_delete',
+                userId: `${String(userId).slice(0, 2)}…${String(userId).slice(-2)}`,
+                imageId: `${String(imageId).slice(0, 2)}…${String(imageId).slice(-2)}`,
+                reason: 'user-delete',
+                syncBit: 0,
+            }));
+        }
         if (!deletion.deleted && deletion.reason === 'forbidden') {
             return res.status(403).json({ error: 'Forbidden' });
         }
@@ -427,7 +436,7 @@ imageRoutes.post('/images/bulk-delete', (req, res) => {
     }
 
     try {
-        const db = getUserDb(userId);
+        const db = getHealthyUserDb(userId, 'image-bulk-delete');
         const uniqueIds = [...new Set(ids.map((id) => String(id)).filter(Boolean))];
 
         const results = uniqueIds.map((imageId) => {
@@ -498,7 +507,7 @@ export function pruneOrphanImagesForUser(userId, options = {}) {
     const olderThanDays = Number(options.olderThanDays) > 0 ? Math.floor(options.olderThanDays) : IMAGE_PRUNE_MIN_AGE_DAYS;
     const cutoff = new Date(Date.now() - (olderThanDays * 24 * 60 * 60 * 1000)).toISOString();
 
-    const db = getUserDb(userId);
+    const db = getHealthyUserDb(userId, 'image-orphan-prune');
     const candidates = db.prepare(`
         SELECT id
         FROM images
@@ -521,6 +530,13 @@ export function pruneOrphanImagesForUser(userId, options = {}) {
         const result = deleteImageRecordAndFile({ db, userId, imageId: candidate.id });
         if (result.deleted) {
             deletedCount += 1;
+            console.info('[images]', JSON.stringify({
+                event: 'image_prune_delete',
+                userId: `${String(userId).slice(0, 2)}…${String(userId).slice(-2)}`,
+                imageId: `${String(candidate.id).slice(0, 2)}…${String(candidate.id).slice(-2)}`,
+                reason: 'unused',
+                syncBit: 0,
+            }));
         }
     }
 

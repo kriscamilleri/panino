@@ -91,7 +91,7 @@ const BASE_SCHEMA = `
     uncompressed_bytes INTEGER NOT NULL,
     compressed_bytes INTEGER NOT NULL,
     created_at TEXT NOT NULL,
-    FOREIGN KEY (note_id) REFERENCES notes(id)
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
   );
 
   CREATE INDEX IF NOT EXISTS idx_note_revisions_note_created
@@ -466,6 +466,66 @@ function ensureTemplatesSchema(db) {
   }
 }
 
+export function ensureNoteRevisionsSchema(db) {
+  try {
+    const cols = db.prepare("PRAGMA table_info('note_revisions')").all();
+    if (!cols || cols.length === 0) {
+      // BASE_SCHEMA creates the table with the correct (cascade) FK already.
+      return;
+    }
+
+    // SQLite does not expose FK actions via PRAGMA table_info; inspect
+    // foreign_key_list to see if the existing FK still has NO ACTION.
+    const fks = db.prepare("PRAGMA foreign_key_list('note_revisions')").all();
+    const needsMigration = fks.some(
+      (f) =>
+        f.table === "notes" && (f.on_delete || "NO ACTION") === "NO ACTION",
+    );
+    if (!needsMigration) return;
+
+    // Standard SQLite pattern for changing FK actions: turn FK enforcement off,
+    // rebuild the table, then re-enable. crsqlite's merge_delete deletes the
+    // parent `notes` row mid-transaction during sync, so a non-cascade FK to a
+    // CRR parent table breaks sync transactions whenever the parent is
+    // deleted before the application-level cleanup runs.
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      ALTER TABLE note_revisions RENAME TO note_revisions_old;
+      CREATE TABLE note_revisions (
+        id TEXT PRIMARY KEY NOT NULL,
+        note_id TEXT NOT NULL,
+        title TEXT,
+        content_gzip BLOB NOT NULL,
+        type TEXT NOT NULL DEFAULT 'auto',
+        content_sha256 TEXT NOT NULL,
+        uncompressed_bytes INTEGER NOT NULL,
+        compressed_bytes INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+      );
+      INSERT INTO note_revisions SELECT * FROM note_revisions_old;
+      -- The renamed table still owns the old named indexes, which would make
+      -- CREATE INDEX IF NOT EXISTS silently skip re-creation. Drop them first.
+      DROP INDEX IF EXISTS idx_note_revisions_note_created;
+      DROP INDEX IF EXISTS idx_note_revisions_note_type_created;
+      CREATE INDEX IF NOT EXISTS idx_note_revisions_note_created
+        ON note_revisions(note_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_note_revisions_note_type_created
+        ON note_revisions(note_id, type, created_at DESC);
+      DROP TABLE note_revisions_old;
+      PRAGMA foreign_keys = ON;
+    `);
+  } catch (err) {
+    console.error("[db] Failed to ensure note_revisions schema:", err);
+  }
+}
+
+function maskUserId(userId) {
+  const value = String(userId ?? "");
+  if (value.length <= 4) return "****";
+  return `${value.slice(0, 2)}…${value.slice(-2)}`;
+}
+
 export function getUserDb(userId) {
   if (dbConnections.has(userId)) return dbConnections.get(userId);
 
@@ -480,20 +540,100 @@ export function getUserDb(userId) {
     db.loadExtension(extPath);
   } catch (e) {
     console.error("Failed to load crsqlite extension:", e);
+    try {
+      db.close();
+    } catch (closeError) {
+      console.error("[db] Failed to close database after extension load failure:", closeError);
+    }
     throw e;
   }
 
-  db.exec(BASE_SCHEMA);
-  ensureImagesSchema(db);
-  ensureGlobalsSchema(db);
-  ensureBackupConfigSchema(db);
-  ensureTemplatesSchema(db);
-  ensureCrr(db);
+  try {
+    db.exec(BASE_SCHEMA);
+    ensureImagesSchema(db);
+    ensureGlobalsSchema(db);
+    ensureBackupConfigSchema(db);
+    ensureTemplatesSchema(db);
+    ensureNoteRevisionsSchema(db);
+    ensureCrr(db);
 
-  db.pragma("journal_mode = wal");
-  db.pragma("synchronous = normal");
+    db.pragma("journal_mode = wal");
+    db.pragma("synchronous = normal");
+  } catch (error) {
+    try {
+      db.close();
+    } catch (closeError) {
+      console.error("[db] Failed to close database after initialization failure:", closeError);
+    }
+    throw error;
+  }
 
   dbConnections.set(userId, db);
+  return db;
+}
+
+/** Remove and close one user's cached connection without affecting other users. */
+export function invalidateUserDb(userId, expectedDb = null, reason = "unknown") {
+  const cachedDb = dbConnections.get(userId);
+  if (!cachedDb || (expectedDb && cachedDb !== expectedDb)) {
+    console.info("[db]", JSON.stringify({
+      event: "sync_db_connection_invalidated",
+      userId: maskUserId(userId),
+      reason,
+      cached: false,
+      closed: false,
+    }));
+    return false;
+  }
+
+  dbConnections.delete(userId);
+  let closed = false;
+  try {
+    cachedDb.close();
+    closed = true;
+  } catch (error) {
+    console.error("[db] Failed to close invalidated connection:", error);
+  }
+  console.warn("[db]", JSON.stringify({
+    event: "sync_db_connection_invalidated",
+    userId: maskUserId(userId),
+    reason,
+    cached: true,
+    closed,
+  }));
+  return true;
+}
+
+/** Reopen a user database if CR-SQLite reports a non-zero internal sync bit. */
+export function getHealthyUserDb(userId, operation = "unknown") {
+  let db = getUserDb(userId);
+  let health;
+  try {
+    health = db.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get();
+  } catch (error) {
+    invalidateUserDb(userId, db, `health-check-failure:${operation}`);
+    db = getUserDb(userId);
+    health = db.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get();
+  }
+
+  const syncBit = Number(health?.sync_bit ?? 0);
+  if (syncBit !== 0) {
+    console.warn("[db]", JSON.stringify({
+      event: "crsqlite_connection_health_reset",
+      userId: maskUserId(userId),
+      operation,
+      syncBit,
+    }));
+    invalidateUserDb(userId, db, `unhealthy-sync-bit:${operation}`);
+    db = getUserDb(userId);
+    const reopenedBit = Number(
+      db.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get()?.sync_bit ?? 0,
+    );
+    if (reopenedBit !== 0) {
+      invalidateUserDb(userId, db, `reopen-health-check-failure:${operation}`);
+      throw new Error("CR-SQLite connection health check failed");
+    }
+  }
   return db;
 }
 
@@ -622,6 +762,7 @@ export function getTestDb(userId, options = {}) {
   ensureGlobalsSchema(db);
   ensureBackupConfigSchema(db);
   ensureTemplatesSchema(db);
+  ensureNoteRevisionsSchema(db);
   ensureCrr(db);
 
   db.pragma("journal_mode = wal");

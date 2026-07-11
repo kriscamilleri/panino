@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import { getUserDb } from './db.js';
+import { getHealthyUserDb, getUserDb } from './db.js';
 
 export const backupPublicRoutes = express.Router();
 export const backupRoutes = express.Router();
@@ -588,7 +588,7 @@ export function buildBackupSnapshot({ folders, notes, images }) {
 }
 
 async function loadBackupSnapshot(userId) {
-  const db = getUserDb(userId);
+  const db = getHealthyUserDb(userId, 'backup-image-cleanup');
   const folders = db.prepare('SELECT id, name, parent_id, created_at FROM folders WHERE user_id = ?').all(userId);
   const notes = db.prepare('SELECT id, folder_id, title, content, created_at, updated_at FROM notes WHERE user_id = ?').all(userId);
   const images = db.prepare('SELECT id, filename, path, mime_type, created_at FROM images WHERE user_id = ?').all(userId);
@@ -602,6 +602,13 @@ async function loadBackupSnapshot(userId) {
       const usage = getImageUsage(db, image.id);
       if (usage.count === 0) {
         db.prepare('DELETE FROM images WHERE id = ? AND user_id = ?').run(image.id, userId);
+        console.info('[backup]', JSON.stringify({
+          event: 'image_prune_delete',
+          userId: `${String(userId).slice(0, 2)}…${String(userId).slice(-2)}`,
+          imageId: `${String(image.id).slice(0, 2)}…${String(image.id).slice(-2)}`,
+          reason: 'missing-file',
+          syncBit: 0,
+        }));
         continue;
       }
 
