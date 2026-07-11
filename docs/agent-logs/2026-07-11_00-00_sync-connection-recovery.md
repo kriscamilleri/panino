@@ -24,9 +24,12 @@ Implement connection invalidation and fail-closed sync recovery after CR-SQLite 
 
 ## Tests
 - `node --check` passed for the four changed backend modules.
-- Focused Vitest run is blocked by the environment: installed `better-sqlite3` binary targets Node module ABI 115 while the current Node requires ABI 137. Sync helper tests that do not load SQLite passed (15 tests).
+- Docker-focused run passed: `tests/integration/sync.test.js` and `tests/unit/db.test.js` — 30/30 tests.
+- Full Docker backend suite reached 151/152 tests; the sole failure is an unrelated pre-existing revision-capture expectation in `tests/integration/sync.revision.test.js` (`Base title` vs `Renamed via update only`).
+- Live HTTP verification passed against the Docker API: login `200`, failing mixed sync batch `503 SYNC_CONNECTION_RESET`, subsequent retry sync `200` with clock `0`.
+- Host Vitest remains blocked by the local `better-sqlite3` Node ABI mismatch (115 vs 137).
 
 ## Open Items / Notes
 - The working tree contained substantial pre-existing changes in the affected backend/test files and unrelated untracked repair/spec artifacts; they were preserved rather than reverted.
 - Full CR-SQLite regression tests should be rerun in the project’s production-compatible Node/Docker environment.
-- Commit: `5886957 Fail closed after CR-SQLite merge failures`.
+- Commit: `5886957 Fail closed after CR-SQLite merge failures`; test-contract updates are pending in the follow-up commit.

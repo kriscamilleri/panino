@@ -393,9 +393,9 @@ describe("POST /sync", () => {
   // fails because the base table lookup returns no rows. Without the
   // defense the whole /sync batch returns 500 and the client never advances.
   //
-  // With the patch the server skips the offending change, applies the
-  // remaining good changes inside the same transaction, and returns 200
-  // with the new clock so the client advances.
+  // A merge failure must roll back the entire batch, invalidate the
+  // connection, and return a retryable response. The client must not advance
+  // its clock past an unapplied change.
   //
   // To recreate the corruption deterministically we bypass the CRR
   // AFTER-INSERT/DELETE triggers and inject the clock rows + slab mapping
@@ -430,7 +430,7 @@ describe("POST /sync", () => {
     return key;
   }
 
-  it("should return 200 and skip the offending change when a images clock orphan causes a merge failure", async () => {
+  it("should fail closed when an images clock orphan causes a merge failure", async () => {
     const siteId = generateSiteId("z");
     const userId = testUser.userId;
     const db = getUserDb(userId);
@@ -482,14 +482,18 @@ describe("POST /sync", () => {
         ],
       });
 
-    // Before the patch this returned 500.
-    expect(response.status).toBe(200);
-    expect(response.body).toHaveProperty("changes");
-    expect(response.body).toHaveProperty("clock");
-    expect(response.body.skipped).toBeGreaterThanOrEqual(1);
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({
+      error: "Sync temporarily unavailable",
+      code: "SYNC_CONNECTION_RESET",
+    });
+
+    const reopenedDb = getUserDb(userId);
+    expect(reopenedDb).not.toBe(db);
+    expect(reopenedDb.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get().sync_bit).toBe(0);
   });
 
-  it("should still apply good changes in the same batch as a skipped orphan change", async () => {
+  it("should roll back good changes after an orphan merge failure", async () => {
     const siteId = generateSiteId("y");
     const userId = testUser.userId;
     const db = getUserDb(userId);
@@ -531,20 +535,18 @@ describe("POST /sync", () => {
         ],
       });
 
-    expect(response.status).toBe(200);
-    expect(response.body.skipped).toBeGreaterThanOrEqual(1);
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({
+      error: "Sync temporarily unavailable",
+      code: "SYNC_CONNECTION_RESET",
+    });
 
-    // The good note should have been merged. crsqlite's `merge_insert_stmt`
-    // (rs/core/src/tableinfo.rs:681) is `INSERT INTO notes (id, title)
-    // VALUES (... ) ON CONFLICT DO UPDATE SET title = ?`, so a successful
-    // merge produces a row in the live `notes` table. The val we sent is
-    // JSON-encoded (`"..."`), so the stored title has the literal
-    // surroundings — verify the row exists rather than pin the exact
-    // string.
-    const goodRow = db
-        .prepare('SELECT title FROM notes WHERE id = ?')
-        .get(goodNoteId);
-    expect(goodRow).toBeDefined();
-    expect(goodRow.title).toContain(goodNoteId);
+    // Neither the failing change nor the later valid change may be committed.
+    const reopenedDb = getUserDb(userId);
+    expect(reopenedDb).not.toBe(db);
+    expect(reopenedDb.prepare("SELECT id FROM notes WHERE id = ?").get(goodNoteId)).toBeUndefined();
+    // The fixture itself seeds clock rows at version 1; the failed batch must
+    // not advance that pre-existing clock.
+    expect(reopenedDb.prepare("SELECT max(db_version) AS version FROM crsql_changes").get().version ?? 0).toBe(1);
   });
 });
