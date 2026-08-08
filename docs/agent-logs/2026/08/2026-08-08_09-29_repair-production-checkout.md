@@ -24,6 +24,8 @@ Diagnose and, after explicit approval, repair the production VPS Git checkout so
   against the two likely account names without password authentication. Both were rejected.
 - `.env.prd` contains application, OAuth, CAPTCHA, SMTP, domain, and SSL settings only. It
   contains no SSH connection or credential setting, so it cannot establish VPS access.
+- The supplied `prd-server.env` has an IPv4 host, username, and password-shaped values. Direct
+  password authentication using `sshpass` was rejected (exit 5); no production command ran.
 
 ## Open Items / Notes
 - Any production IP is redacted as `<PROD_IP>`.
@@ -31,3 +33,4 @@ Diagnose and, after explicit approval, repair the production VPS Git checkout so
   Git pull result, container status, and public health are therefore unverified.
 - Need a working SSH connection method or a refreshed authorized key before the mandatory
   read-only diagnosis can continue. Do not approve the reset until that diagnosis is complete.
+- The account/password in `prd-server.env` may be stale or apply to a different VPS account.
