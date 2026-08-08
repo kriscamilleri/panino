@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 
 # Native build deps (crsqlite) + runtime deps needed by backend test suite (including PDF tests)
 RUN apt-get update -o Acquire::Retries=5 \
@@ -50,12 +50,15 @@ WORKDIR /app
 ENV PYTHON=/usr/bin/python3
 
 # Copy package files
-COPY package*.json ./
+COPY package*.json .npmrc ./
 COPY patch-crsqlite.sh ./
 
-# Install dependencies and ensure CR-SQLite native extension is available for tests
+# .npmrc disables lifecycle scripts so @vlcn.io/crsqlite's own "install" script
+# (Node <22 import-attribute syntax) can't crash npm ci before it's patched.
+# native:setup runs the patch, then rebuilds crsqlite and fetches Puppeteer's
+# Chrome build explicitly, in the right order.
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi \
-	&& npm rebuild @vlcn.io/crsqlite --build-from-source
+	&& npm run native:setup
 
 # Copy application code
 COPY . .

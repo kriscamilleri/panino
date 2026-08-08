@@ -342,7 +342,7 @@ async function embedImagesAsDataUri(html, userId) {
 let browserInstance = null;
 
 async function getBrowser() {
-    if (!browserInstance || !browserInstance.isConnected()) {
+    if (!browserInstance || !browserInstance.connected) {
         log('Launching browser...');
         browserInstance = await puppeteer.launch({
             headless: true,
@@ -607,7 +607,7 @@ async function generatePdf(req, res) {
         });
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', 'inline; filename=document.pdf');
-        res.send(pdfBuffer);
+        res.send(Buffer.from(pdfBuffer));
 
     } finally {
         if (context) {
