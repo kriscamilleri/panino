@@ -1,7 +1,9 @@
 # Tag System — Spec
 
 > Color-coded document tags defined in front-matter, visible in the sidebar.
-> Status: Draft — 2026-03-21
+> Status: proposed
+> Created: 2026-03-21
+> Last updated: 2026-08-08
 
 ---
 

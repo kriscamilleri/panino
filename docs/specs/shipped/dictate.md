@@ -1,7 +1,11 @@
 # Dictate — Spec
 
 > Browser-native voice-to-text transcription inserted into the editor.
-> Status: Draft — 2026-03-22
+> Status: shipped
+> Created: 2026-03-22
+> Last updated: 2026-08-08
+> Shipped: 2026-03-22 (see `docs/agent-logs/2026/03/2026-03-22_18-33_implement-dictate.md`)
+> Implementation: `frontend/src/composables/useDictation.js`, `frontend/src/components/SubMenuBar.vue`
 
 ---
 

@@ -1,7 +1,9 @@
 # Calendar Synchronization — Spec
 
 > Auto-create calendar events from date/time metadata in note front-matter.
-> Status: Draft — 2026-03-21
+> Status: proposed
+> Created: 2026-03-21
+> Last updated: 2026-08-08
 
 ---
 

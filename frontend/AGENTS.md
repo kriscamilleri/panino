@@ -1,7 +1,7 @@
 # Frontend — Agent Reference
 
 > Layer-specific reference for agents working on the frontend Vue 3 SPA.
-> Always read the root `agents.md` first for project-wide rules, architecture, database schema, and security guidelines.
+> Always read the root `AGENTS.md` first for project-wide rules, architecture, database schema, and security guidelines.
 
 ---
 

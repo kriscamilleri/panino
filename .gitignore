@@ -11,9 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+.claude/settings.local.json
 
 # Editor directories and files
 .vscode/*
+.vscode/.chrome-debug-profile/
 !.vscode/extensions.json
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -35,3 +37,4 @@ backend/api-service/uploads/*
 print_rendering_context.txt
 selected_files.txt
 prompt.md
+nginx.conf

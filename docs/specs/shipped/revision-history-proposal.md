@@ -1,7 +1,11 @@
 # Revision History — Product & Technical Specification (v2)
 
 > Per-document revision history for Panino.
-> Last updated: 2026-02-15
+> Status: shipped
+> Created: 2026-02-15
+> Last updated: 2026-08-08
+> Shipped: 2026-02-17 (see `docs/agent-logs/2026/02/2026-02-17_19-44_revision-history-page.md`)
+> Implementation: `frontend/src/store/revisionStore.js`, `frontend/src/pages/RevisionHistoryPage.vue`, `backend/api-service/revision.js`
 
 ---
 

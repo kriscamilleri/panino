@@ -47,7 +47,11 @@ Resolve conflicts by preserving both sides unless there is direct feature overla
 
 ### 0.3 Create Agent Log
 
-Create `docs/agent-logs/YYYY-MM-DD_HH-MM_<short-slug>.md` per the AGENTS.md handbook. Update it as work progresses.
+For investigations, production incidents, multi-file or multi-layer features, meaningful test
+results, or unfinished work, create
+`docs/agent-logs/YYYY/MM/YYYY-MM-DD_HH-MM_<short-slug>.md` per the AGENTS.md handbook. Do not
+create logs for trivial one-line or cosmetic changes. Commit substantive logs, redact
+production identifiers, and promote durable findings to `docs/architecture/`.
 
 ---
 
@@ -129,7 +133,8 @@ Always implement in this order. Each phase must pass its tests before moving to 
 
 ### Integration Tests
 
-- **Location:** `frontend/tests/integration/<feature>.test.js` or `backend/api-service/tests/integration/`
+- **Location:** `frontend/tests/unit/<feature>.test.js` (frontend integration tests currently
+  live alongside unit tests) or `backend/api-service/tests/integration/`
 - **Scope:** Store ↔ database interactions, multi-component flows
 - Run: same Vitest runner
 
@@ -147,7 +152,7 @@ Always implement in this order. Each phase must pass its tests before moving to 
 - [ ] Security-specific test cases from the spec are covered
 - [ ] Integration tests verify cross-layer behavior
 - [ ] E2E flow verified via MCP (documented in agent log)
-- [ ] Existing test suite still passes: `cd frontend && npm test` / `cd backend/api-service && npm test`
+- [ ] Existing test suite still passes: `npm run test:fe` / `npm run test:be`
 
 ---
 
@@ -181,10 +186,10 @@ grep -rn "exec('" frontend/src/ | grep -v "exec('"  # look for template literals
 - [ ] Transaction handling correct (`BEGIN` → `COMMIT` in try, `ROLLBACK` in catch)
 - [ ] Existing tests pass
 - [ ] New tests pass
-- [ ] Lint clean (no ESLint errors)
 - [ ] UI visually correct at 1280px and 375px
 - [ ] Feature works end-to-end in Docker dev stack
 - [ ] Agent log updated with all changes
+- [ ] Architecture docs remain accurate for changes touching sync or schema
 
 ---
 
@@ -213,6 +218,8 @@ Create PR with:
 - **Labels:** Appropriate labels (`feature`, `frontend`, `backend`, etc.)
 - **Checklist:** Paste Phase 5 + Phase 6 checklists with checked boxes
 - **Screenshots:** If UI changes, include before/after at 1280px and 375px
+- **Spec lifecycle:** Move the implemented spec with `git mv` to `docs/specs/shipped/` and fill
+  its `Shipped:` and `Implementation:` lines in the same PR.
 
 ### CRITICAL: The PR is never merged by the agent.
 
@@ -231,8 +238,8 @@ The developer reviews and merges at their discretion. The agent's job ends at PR
 | Frontend integration tests | `frontend/tests/integration/` |
 | Backend unit tests | `backend/api-service/tests/unit/` |
 | Backend integration tests | `backend/api-service/tests/integration/` |
-| Specs | `docs/specs/` |
-| Agent logs | `docs/agent-logs/` |
+| Specs | `docs/specs/` (`proposed/`, `active/`, `shipped/`, `dx/`) |
+| Agent logs | `docs/agent-logs/` (`YYYY/MM/` plus `archive/`) |
 
 ## Anti-Patterns
 

@@ -1,7 +1,7 @@
 # Backend — Agent Reference
 
 > Layer-specific reference for agents working on the backend API service.
-> Always read the root `agents.md` first for project-wide rules, architecture, database schema, and security guidelines.
+> Always read the root `AGENTS.md` first for project-wide rules, architecture, database schema, and security guidelines.
 
 ---
 
@@ -109,6 +109,10 @@ npm run test:coverage # vitest with v8 coverage
 docker build -f Dockerfile.test -t panino-test .
 docker run --rm panino-test
 ```
+
+The canonical repository command is `npm run test:be` from the repository root. It builds
+and runs `Dockerfile.test` with Node 20, matching production and avoiding native binding ABI
+mismatches on newer host Node versions. Use `npm test` here only on Node 20.
 
 ### Directory structure
 

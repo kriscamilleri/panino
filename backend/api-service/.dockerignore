@@ -3,3 +3,13 @@ npm-debug.log*
 pnpm-debug.log*
 .git
 .gitignore
+
+# Never ship user data into an image layer.
+data/
+uploads/
+
+# Local database and test artifacts.
+*.db
+*.db-wal
+*.db-shm
+coverage/

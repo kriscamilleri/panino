@@ -1,31 +1,27 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Paths agents and context-generation tools should not read.
+# Enforced by combine-files.cjs; advisory for AI agents (also stated in AGENTS.md).
 
 node_modules
 dist
 dist-ssr
 *.local
+coverage
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Logs
+logs
+*.log
 
-package-lock.json
-README.md
-generate-llm-file.js
+# Real user data — never read, never include
+backend/api-service/data
+backend/api-service/uploads
+
+# Generated / vendored — large, no signal
+backend/api-service/vendor
 combined_content.txt
-src/assets/data.json
+package-lock.json
+pnpm-lock.yaml
 frontend/dist
+.vscode/.chrome-debug-profile
+
+# Historical narrative; read docs/architecture/ instead. See docs/agent-logs/README.md
+docs/agent-logs/archive

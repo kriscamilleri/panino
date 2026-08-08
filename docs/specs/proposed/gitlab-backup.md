@@ -1,7 +1,9 @@
 # GitLab Backup Support — Spec
 
 > Add GitLab as a second backup provider while preserving the existing GitHub backup behavior.
-> Status: Draft — 2026-03-22
+> Status: proposed
+> Created: 2026-03-22
+> Last updated: 2026-08-08
 
 ---
 

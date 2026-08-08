@@ -1,5 +1,11 @@
 # Global Variables (Frontend) – Spec
 
+> Status: shipped
+> Created: 2026-03-21
+> Last updated: 2026-08-08
+> Shipped: 2026-03-21 (see `frontend/src/store/globalVariablesStore.js`)
+> Implementation: `frontend/src/store/globalVariablesStore.js`, `backend/api-service/db.js`
+
 ## Summary
 Add a global variables feature to Panino’s frontend so users can define variables that are available across all documents. Global variables are managed from a new **Tools → Variables** modal (reusing the Export modal layout). Local document front‑matter variables continue to work and **override** any global variable with the same name. Global variables are persisted in the database and synced via existing CR‑SQLite replication.
 

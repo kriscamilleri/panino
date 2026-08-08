@@ -1,7 +1,11 @@
 # Template Manager — Spec v2
 
 > Create, manage, and use reusable markdown templates; accessible from the Tools menu as a dedicated page.
-> Status: Draft — 2026-05-03
+> Status: shipped
+> Created: 2026-05-03
+> Last updated: 2026-08-08
+> Shipped: 2026-05-03 (see `docs/agent-logs/2026/05/2026-05-03_14-11_template-manager.md`)
+> Implementation: `frontend/src/store/templateStore.js`, `frontend/src/pages/TemplateManagerPage.vue`
 > Replaces: v1 draft (same file, previous revision)
 
 ---
@@ -265,7 +269,9 @@ The existing `ensureCrr()` function iterates `CRR_TABLES` and calls `crsql_as_cr
 
 Template variables are placeholders resolved **once** when a note is created from a template. The resulting note contains literal substituted values — variables are **not** re-evaluated when the note is viewed or edited later.
 
-For dynamic values that update each time a note is viewed, use **Global Variables** (see `docs/specs/global-variables.md`), which operate at preview/render time via the `{{ Variable Name }}` syntax.
+For dynamic values that update each time a note is viewed, use **Global Variables** (see
+`docs/specs/shipped/global-variables.md`), which operate at preview/render time via the
+`{{ Variable Name }}` syntax.
 
 ### 6.1 Variable Types
 

@@ -1,7 +1,11 @@
 # GitHub Backup — Spec
 
 > Back up notes, folders, and images to a GitHub repository with history-preserving snapshot commits.
-> Status: Draft — 2026-03-21
+> Status: shipped
+> Created: 2026-03-21
+> Last updated: 2026-08-08
+> Shipped: 2026-03-21 (see `docs/agent-logs/2026/03/2026-03-21_15-20_github-backup.md`)
+> Implementation: `frontend/src/store/githubBackupStore.js`, `frontend/src/components/GitHubBackupModal.vue`, `backend/api-service/backup.js`
 
 ---
 

@@ -1,7 +1,9 @@
 # Template Extensions — Dynamic Titles & Default Folders
 
-> Extends `docs/specs/document-templates.md` (v2).
-> Status: Draft — 2026-05-03
+> Extends `docs/specs/shipped/document-templates.md` (v2).
+> Status: active
+> Created: 2026-05-03
+> Last updated: 2026-08-08
 > Target: v1.1 (post initial template manager implementation)
 
 ---
@@ -539,7 +541,7 @@ A simpler approach: query the DB directly — `SELECT COUNT(*) FROM folders WHER
 | `backend/api-service/db.js` | Update `BASE_SCHEMA` CREATE TABLE templates with new columns |
 | `frontend/tests/unit/templateVariables.test.js` | Add tests for `formatDate()`, `{{today:format}}`, `{{now:format}}`, title pattern extraction |
 | `frontend/tests/unit/templateStore.test.js` | Update INSERT/UPDATE/SELECT tests for new columns |
-| `docs/specs/document-templates.md` | Add cross-reference to this extension spec under Non-Goals / Future |
+| `docs/specs/shipped/document-templates.md` | Add cross-reference to this extension spec under Non-Goals / Future |
 
 ### No New Files
 

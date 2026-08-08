@@ -1,7 +1,9 @@
- # AI Editor Pane — Spec
+# AI Editor Pane — Spec
 
 > Panino-native AI assistance for the active note, backed by a constrained tool-calling harness and pluggable inference providers.
-> Status: Draft — 2026-03-28
+> Status: proposed
+> Created: 2026-03-28
+> Last updated: 2026-08-08
 
 ---
 

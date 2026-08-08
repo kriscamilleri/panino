@@ -1,6 +1,10 @@
 # Uploaded Image Management (Current User) — Spec
 
-> Last updated: 2026-02-15
+> Status: shipped
+> Created: 2026-02-15
+> Last updated: 2026-08-08
+> Shipped: 2026-02-17 (see `docs/agent-logs/2026/02/2026-02-17_09-48_image-management-v1-implementation.md`)
+> Implementation: `frontend/src/store/imageManagerStore.js`, `frontend/src/pages/ImageManagerPage.vue`, `backend/api-service/image.js`
 
 ## Summary
 Add first-class image management for the authenticated user so they can view, understand usage of, and remove uploaded images safely. The feature covers API, data model additions, cleanup policy, and minimal UI to manage image assets already stored in the user’s account.

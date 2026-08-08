@@ -1,7 +1,10 @@
 # Markdown & Directory Import
 
-**Status:** Draft  
-**Created:** 2026-04-18  
+> Status: shipped
+> Created: 2026-04-18
+> Last updated: 2026-08-08
+> Shipped: 2026-04-18 (see `docs/agent-logs/2026/04/2026-04-18_10-00_markdown-directory-import.md`)
+> Implementation: `frontend/src/store/importExportStore.js`, `frontend/src/utils/importUtils.js`
 
 ---
 
@@ -495,7 +498,7 @@ git push origin feature/markdown-directory-import
 
 Create a PR with:
 - **Title:** `feat: markdown & directory import`
-- **Description:** Link to this spec (`docs/specs/markdown-import.md`), summary of changes, test results
+- **Description:** Link to this spec (`docs/specs/shipped/markdown-import.md`), summary of changes, test results
 - **Labels:** `feature`, `frontend`
 - **Checklist:** Copy of §5.4 and §5.5 checklists with checked boxes
 - **Screenshots:** Import modal at 1280px and 375px
