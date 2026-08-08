@@ -345,7 +345,7 @@ import { useUiStore } from '@/store/uiStore'
 import { isMarkdownFile } from '@/utils/importUtils'
 import { X, Upload, AlertCircle, FileText, FolderOpen, Archive, Braces } from 'lucide-vue-next'
 
-const props = defineProps({
+defineProps({
     show: Boolean
 })
 

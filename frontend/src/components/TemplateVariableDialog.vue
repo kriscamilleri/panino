@@ -77,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue';
+import { reactive } from 'vue';
 import { X } from 'lucide-vue-next';
 
 const props = defineProps({

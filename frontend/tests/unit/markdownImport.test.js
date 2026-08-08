@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
 
 /**
@@ -7,93 +7,10 @@ import JSZip from 'jszip';
  * without directly invoking Pinia store actions.
  */
 
-// ── Mock store helpers ───────────────────────────────────────
-
-function createMockDb() {
-    const tables = {
-        folders: [],
-        notes: [],
-        settings: [],
-        globals: [],
-    };
-
-    return {
-        tables,
-        exec: vi.fn(async (sql, params) => {
-            if (sql.startsWith('BEGIN') || sql.startsWith('COMMIT') || sql.startsWith('ROLLBACK')) {
-                return;
-            }
-            if (sql.startsWith('INSERT INTO folders')) {
-                tables.folders.push({
-                    id: params[0],
-                    user_id: params[1],
-                    name: params[2],
-                    parent_id: params[3],
-                    created_at: params[4],
-                });
-                return;
-            }
-            if (sql.startsWith('INSERT INTO notes')) {
-                tables.notes.push({
-                    id: params[0],
-                    user_id: params[1],
-                    folder_id: params[2],
-                    title: params[3],
-                    content: params[4],
-                    created_at: params[5],
-                    updated_at: params[6],
-                });
-                return;
-            }
-            if (sql.startsWith('INSERT OR REPLACE INTO settings')) {
-                const idx = tables.settings.findIndex(s => s.id === params[0]);
-                const entry = { id: params[0], value: params[1] };
-                if (idx >= 0) tables.settings[idx] = entry;
-                else tables.settings.push(entry);
-                return;
-            }
-            if (sql.startsWith('INSERT OR REPLACE INTO globals')) {
-                const idx = tables.globals.findIndex(g => g.key === params[0]);
-                const entry = { key: params[0], id: params[1], value: params[2], created_at: params[3], updated_at: params[4], display_key: params[5] };
-                if (idx >= 0) tables.globals[idx] = entry;
-                else tables.globals.push(entry);
-                return;
-            }
-        }),
-    };
-}
-
-function createMockSyncStore(db) {
-    return {
-        isInitialized: true,
-        db: { value: db },
-        execute: vi.fn(async (sql, params) => {
-            // Handle folder name queries
-            if (sql.includes('SELECT name FROM folders')) {
-                const parentId = params[0] ?? null;
-                const name = params.length > 1 ? params[1] : undefined;
-                if (name !== undefined) {
-                    // Query with name filter
-                    return db.tables.folders.filter(
-                        f => f.parent_id === parentId && f.name === name
-                    );
-                }
-                return db.tables.folders.filter(f => f.parent_id === parentId);
-            }
-            // Handle note title queries
-            if (sql.includes('SELECT title FROM notes')) {
-                const folderId = params[0] ?? null;
-                return db.tables.notes.filter(f => f.folder_id === folderId);
-            }
-            return [];
-        }),
-    };
-}
 
 // ── Tests for the import utility integration ─────────────────
 
 import {
-    sanitizePathSegments,
     extractTitleFromFrontMatter,
     titleFromFilename,
     isMarkdownFile,
@@ -103,12 +20,6 @@ import {
 } from '../../src/utils/importUtils.js';
 
 describe('importMarkdownFiles (logic simulation)', () => {
-    let db;
-
-    beforeEach(() => {
-        db = createMockDb();
-    });
-
     it('imports a single file with title from filename', async () => {
         const file = new File(['# Hello'], 'my-note.md', { type: 'text/markdown' });
         const content = await file.text();

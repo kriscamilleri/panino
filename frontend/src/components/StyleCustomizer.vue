@@ -432,7 +432,7 @@ const categorizedStyles = computed(() => {
   const extraKeys = props.config.extraFields?.map(f => f.modelKey) || [];
   return Object.entries(props.config.styleCategories).reduce((acc, [cat, keys]) => {
     const entries = keys
-      .filter(k => editableStyleMap.value.hasOwnProperty(k) && !extraKeys.includes(k))
+      .filter(k => Object.hasOwn(editableStyleMap.value, k) && !extraKeys.includes(k))
       .map(k => [k, editableStyleMap.value[k]]);
     if (entries.length) acc[cat] = Object.fromEntries(entries);
     return acc;

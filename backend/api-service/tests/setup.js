@@ -1,5 +1,5 @@
 // Test setup file - runs before all tests
-import { beforeEach, afterEach } from 'vitest';
+import { afterEach } from 'vitest';
 import { closeAllConnections } from '../db.js';
 
 // Set test environment variables

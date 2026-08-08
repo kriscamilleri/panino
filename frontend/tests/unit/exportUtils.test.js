@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { replaceImageReferences, base64ToBlob, blobToBase64 } from '../../src/utils/exportUtils.js';
+import { replaceImageReferences, base64ToBlob } from '../../src/utils/exportUtils.js';
 
 describe('replaceImageReferences', () => {
     const buildUrl = (id) => `/api/images/${id}`;

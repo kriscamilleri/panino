@@ -112,7 +112,7 @@ export const useUiStore = defineStore("uiStore", () => {
   // Load settings when the DB is ready or when the user changes
   watch(
     () => [syncStore.isInitialized, authStore.user?.id],
-    ([ready, userId]) => {
+    ([ready, _userId]) => {
       if (ready) {
         settingsLoaded = false; // Force reload on user change
         loadSettingsFromDB();

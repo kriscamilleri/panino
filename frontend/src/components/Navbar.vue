@@ -156,7 +156,6 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -177,7 +176,6 @@ import {
     User
 } from 'lucide-vue-next'
 
-const docStore = useDocStore()
 const ui = useUiStore()
 const authStore = useAuthStore()
 const syncStore = useSyncStore()

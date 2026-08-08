@@ -4,9 +4,6 @@ const TODAY_REGEX = /\{\{today(?::([^}]*))?\}\}/g;
 // Match {{now:format}} — format group is optional
 const NOW_REGEX = /\{\{now(?::([^}]*))?\}\}/g;
 
-// Match {{input:Label}}
-const INPUT_REGEX = /\{\{input:([^}]+)\}\}/g;
-
 /**
  * Format a Date object using simple pattern tokens.
  * Supports: yyyy, yy, MM, dd, HH, mm, ss

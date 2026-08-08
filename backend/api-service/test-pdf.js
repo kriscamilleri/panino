@@ -13,7 +13,9 @@ async function main() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password, name, 'cf-turnstile-response': 'dummy' })
         });
-    } catch (e) { }
+    } catch {
+        // Signup is best-effort here; the account may already exist from a previous run.
+    }
 
     // 2. Login
     const res = await fetch(`${API_URL}/login`, {

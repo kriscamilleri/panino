@@ -1,5 +1,5 @@
 // Unit tests for db.js
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -13,7 +13,6 @@ import {
   closeAllConnections,
   clearConnectionCache,
   invalidateUserDb,
-  getHealthyUserDb,
   ensureNoteRevisionsSchema,
 } from "../../db.js";
 
@@ -188,7 +187,7 @@ describe("Connection Management", () => {
   });
 
   it("should clear connection cache", () => {
-    const db1 = getUserDb(testUserId1);
+    getUserDb(testUserId1);
 
     clearConnectionCache();
 

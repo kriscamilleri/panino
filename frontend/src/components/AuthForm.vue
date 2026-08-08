@@ -125,14 +125,12 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
-import { useAuthStore } from '@/store/authStore';
 import { useRouter } from 'vue-router';
 
 const props = defineProps({
     config: { type: Object, required: true }
 });
 
-const authStore = useAuthStore();
 const router = useRouter();
 
 const formData = ref({});
@@ -191,7 +189,7 @@ async function loadTurnstileScript() {
             if (window.turnstile) resolve(window.turnstile)
             else reject(new Error('Turnstile script failed to initialize'))
         }
-        script.onerror = (err) => reject(new Error('Failed to load Turnstile script'))
+        script.onerror = () => reject(new Error('Failed to load Turnstile script'))
         document.head.appendChild(script)
     })
 }

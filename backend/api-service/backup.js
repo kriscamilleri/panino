@@ -70,7 +70,7 @@ function decryptToken(token) {
 
 function sanitizeFileSegment(value, fallback = 'Untitled') {
   const normalized = String(value || fallback)
-    .replace(/[\/\\:*?"<>|]/g, '-')
+    .replace(/[/\\:*?"<>|]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\.+$/, '');
@@ -131,19 +131,6 @@ function getImageUsage(db, imageId) {
     count: Number(countRow?.count || 0),
     notes: noteRows,
   };
-}
-
-function formatMissingImageError(image, usage) {
-  const noteTitles = usage.notes
-    .map((note) => note.title || 'Untitled')
-    .filter(Boolean);
-  const listedTitles = noteTitles.join(', ');
-  const remainingCount = Math.max(usage.count - noteTitles.length, 0);
-  const suffix = remainingCount > 0 ? ` and ${remainingCount} more` : '';
-  const references = listedTitles ? `${listedTitles}${suffix}` : `${usage.count} note${usage.count === 1 ? '' : 's'}`;
-  const imageLabel = image.filename || image.id;
-
-  return `Image file is missing on the server for ${imageLabel}. It is still referenced by: ${references}. Remove or replace the image before backing up.`;
 }
 
 function formatSkippedImageLabel(image) {

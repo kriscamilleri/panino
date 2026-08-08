@@ -77,7 +77,7 @@
           </div>
 
           <div v-else class="p-2 h-full">
-            <textarea readonly class="w-full h-full text-xs border rounded p-2 resize-none bg-white">{{ revisionStore.selectedRevisionDetail.content }}</textarea>
+            <textarea readonly class="w-full h-full text-xs border rounded p-2 resize-none bg-white" :value="revisionStore.selectedRevisionDetail.content"></textarea>
           </div>
         </template>
 
@@ -92,8 +92,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { diffLines } from 'diff';
-import { Save, RotateCcw } from 'lucide-vue-next';
-import BaseButton from '@/components/BaseButton.vue';
 import { useRevisionStore } from '@/store/revisionStore';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';

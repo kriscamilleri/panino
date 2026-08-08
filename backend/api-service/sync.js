@@ -66,22 +66,6 @@ export function toSiteIdBlob(v) {
   if (!buf) return null;
   return buf.length === SITE_ID_LEN ? buf : buf.subarray(0, SITE_ID_LEN);
 }
-function toPkValue(v) {
-  // Parse JSON array format FIRST: '["value"]' -> 'value'
-  // CR-SQLite expects single unpacked value, not JSON string or Buffer
-  try {
-    const parsed = JSON.parse(v);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed[0]; // Extract first pk value
-    }
-    return parsed;
-  } catch {
-    // Not JSON, try buffer
-    const b = toBufferLike(v);
-    if (b) return b;
-    return String(v);
-  }
-}
 function toSqliteScalar(v) {
   if (v === undefined || v === null) return null;
   if (typeof v === "boolean") return v ? 1 : 0;

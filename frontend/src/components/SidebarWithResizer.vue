@@ -34,9 +34,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, onUnmounted, watch } from 'vue'
 import { useUiStore } from '@/store/uiStore'
-import { useDocStore } from '@/store/docStore'
 import Documents from '@/components/Documents.vue'
 import { PanelLeftClose } from 'lucide-vue-next'
 
@@ -56,7 +55,6 @@ const startWidth = ref(0)
 
 // Access the UI store for toggling "showDocuments"
 const ui = useUiStore()
-const docStore = useDocStore() // not strictly needed if you only show <Documents />
 
 watch(() => props.isMobileView, (newVal, oldVal) => {
     if (!newVal && oldVal) {

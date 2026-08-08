@@ -4,7 +4,6 @@ import { router } from './router'
 import AppShell from './AppShell.vue'
 import './assets/main.css'
 import { useUiStore } from '@/store/uiStore'
-import { useSyncStore } from '@/store/syncStore'
 import { pinia } from './pinia'
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev'

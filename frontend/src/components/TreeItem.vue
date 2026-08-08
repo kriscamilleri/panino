@@ -467,7 +467,7 @@ function cancelRename() {
     renameType.value = ''
 }
 
-function handleClickOutside(e) {
+function handleClickOutside() {
     if (showContextMenu.value) {
         showContextMenu.value = false
     }
