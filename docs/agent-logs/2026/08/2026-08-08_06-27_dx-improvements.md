@@ -2,7 +2,7 @@
 
 **Agent:** Copilot CLI runtime in VS Code
 **Started:** 2026-08-08 06:27
-**Status:** in-progress
+**Status:** completed
 
 ## Objective
 
@@ -23,7 +23,7 @@ log/spec lifecycle improvements, and safe shared permissions.
 - [x] Complete DX-03 native entry points, shared skills, and handbook routing.
 - [x] Implement DX-07 spec lifecycle.
 - [x] Implement DX-08 safe permissions and record the production-access decision.
-- [ ] Run targeted/full validation and review the final diff.
+- [x] Run targeted/full validation and review the final diff.
 
 ## Changes Made
 
@@ -47,9 +47,16 @@ log/spec lifecycle improvements, and safe shared permissions.
 - `npm run test:be -- tests/integration/sync.revision.test.js` — passed, 11 tests.
 - `npm run test:be` — passed, 14 test files and 152 tests.
 - `npm run test:fe` — passed, 14 test files and 220 tests.
+- `npm run test:be -- tests/unit/db-repair.test.js` — passed, 6 tests.
+- `npm test` — passed, exercising both root test runners.
+- `git diff --check` — passed.
+- Code review follow-up — fixed generated deploy artifacts, repair failure exit status,
+  unsafe shared permissions, stale log references, and the PDF documentation claim.
 
 ## Open Items / Notes
 
 - Lint contradiction resolved pragmatically by removing the phantom checklist requirement;
   no new lint dependency was introduced.
 - Production SSH posture uses the recommended local-only setting and explicit approval rule.
+- Workflow YAML was reviewed structurally; no external workflow parser is installed in this
+  environment.
