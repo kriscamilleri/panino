@@ -75,7 +75,7 @@ Increase the visibility of the inline dictation waveform so normal speaking volu
 
 **Tests**
 - Ran `npm test -- tests/unit/editorStore.test.js tests/unit/useDictation.test.js` in `frontend` after the waveform gain adjustment — passed (12/12).
-- Browser validation on `http://localhost:5173/#/doc/5a14ea5b-5232-4269-b826-bee3fdc1bd50` with mocked speech/audio APIs — Dictate still entered and exited recording cleanly, and the inline waveform measured a visibly larger vertical spread (`5.6`) while remaining within the SVG bounds.
+- Browser validation on `http://localhost:5173/#/doc/doc-A` with mocked speech/audio APIs — Dictate still entered and exited recording cleanly, and the inline waveform measured a visibly larger vertical spread (`5.6`) while remaining within the SVG bounds.
 
 **Open Items / Notes**
 - This tweak only changes the visual scaling of the waveform; it does not change speech recognition behavior or transcript insertion.
