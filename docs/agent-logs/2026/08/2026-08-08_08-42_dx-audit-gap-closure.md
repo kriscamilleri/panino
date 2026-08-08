@@ -159,11 +159,23 @@ Verified every relative markdown link across all eight instruction files resolve
 
 ## Open Items / Notes
 
-- **`test.yml` and `deploy.yml` have still never executed.** Every item in DX-02's validation
-  checklist requires observing a real CI run. The workflows match the spec on disk, but
-  "CI works" is unverified until something is pushed. DX-02's own handover note advises
-  letting `test.yml` run green before relying on the `needs:` gate — that ordering was not
-  followed, and the lint job I added is likewise unobserved.
+- **CI has now run and passed.** `test.yml` executed for the first time on the `develop`
+  merge (run `31245971809`): `lint` 13s, `frontend` 17s, `backend` 1m09s — all green. The
+  backend Docker suite in CI is well inside the ~8 min threshold at which DX-02 says to add
+  GHA build caching, so no caching work is needed yet.
+- **The `needs: test` deploy gate is still unobserved.** `deploy.yml` only triggers on a push
+  to `main`, and `main` does not yet contain these workflows. The gate is verified the first
+  time `develop` is promoted — until then, DX-02's checklist items about job ordering and the
+  dirty-checkout pre-flight remain untested.
+- **The production server checkout is broken and blocks any promotion to `main`.** All
+  published branches had their history rewritten (Copilot co-author trailers removed at the
+  maintainer's request). The VPS still holds the pre-rewrite history, so the deploy workflow's
+  `git pull origin main` fails with `fatal: Need to specify how to reconcile divergent
+  branches` — run `31245423851` failed exactly this way. This must be fixed on the server
+  before `main` is promoted. It is a production write: inspect read-only first, capture
+  existing drift (`git status --porcelain` — the server carries untracked files such as
+  `prompt.md` and `nginx.conf.generated`), back up, then `git fetch origin && git reset --hard
+  origin/main` with explicit approval.
 - **DX-02 §7 maintainer actions remain open** — branch protection requiring the `lint`,
   `frontend` and `backend` checks, and confirming the four SSH secrets are still valid.
 - One mid-task error worth recording: a bulk find/replace hit 7 occurrences in
