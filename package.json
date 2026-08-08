@@ -7,9 +7,17 @@
     "test:fe": "./scripts/test-frontend.sh",
     "test:be": "./scripts/test-backend.sh",
     "test:be:host": "npm test --prefix backend/api-service",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "doctor": "./scripts/doctor.sh",
     "llm": "node combine-files.cjs",
     "llmfe": "node combine-files.cjs --path ./frontend/",
     "llmbe": "node combine-files.cjs --path ./backend/"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
+    "eslint-plugin-vue": "^10.10.0",
+    "globals": "^17.9.0"
   }
 }

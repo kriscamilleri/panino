@@ -121,11 +121,17 @@ short. Read when working in an area → one level down. Read once → `docs/arch
    occurrence of lowercase `AGENTS.md` references with the actual uppercase filename. Verify with:
 
    ```bash
-   grep -rn "agents\.md" --include="*.md" . | grep -v node_modules
+   grep -rn "agents\.md" --include="*.md" . | grep -v node_modules | grep -v docs/agent-logs
    ```
 
    Expect zero results afterwards (also fix the occurrence in
    `docs/specs/shipped/sync-note-delete-fk-fix.md:163`).
+
+   `docs/agent-logs/` is excluded deliberately. Historical logs describe the repo as it was
+   at the time — `2026/02/2026-02-15_12-00_expand-agents-handbook.md` is literally about
+   creating the then-lowercase `agents.md`. [DX-04](dx-04-agent-log-lifecycle.md) §6 Phase 2
+   step 5 says to leave old logs alone; rewriting them to match today's filenames would
+   falsify the record. Instruction files must be fixed; the logs must not.
 
 2. Replace `AGENTS.md:65-70` ("Distribute work across agents") with tool-accurate guidance:
 
@@ -280,7 +286,8 @@ short. Read when working in an area → one level down. Read once → `docs/arch
 
 ## 7) Validation Checklist
 
-- [ ] `grep -rn "agents\.md" --include="*.md" . | grep -v node_modules` returns nothing.
+- [ ] `grep -rn "agents\.md" --include="*.md" . | grep -v node_modules | grep -v docs/agent-logs`
+      returns nothing. (Hits inside `docs/agent-logs/` are historical and stay — see Phase 1 step 1.)
 - [ ] No instruction file mentions the nonexistent delegation call.
 - [ ] `CLAUDE.md` exists and resolves to `AGENTS.md` (confirm the import renders, or that
       the prose link is used instead).

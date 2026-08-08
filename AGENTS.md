@@ -57,6 +57,7 @@ docker compose -f docker-compose.dev.yml up --build
 
 # Environment and test verification
 npm run doctor
+npm run lint
 npm run test:fe
 npm run test:be
 npm test

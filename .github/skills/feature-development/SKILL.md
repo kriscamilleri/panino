@@ -186,6 +186,7 @@ grep -rn "exec('" frontend/src/ | grep -v "exec('"  # look for template literals
 - [ ] Transaction handling correct (`BEGIN` → `COMMIT` in try, `ROLLBACK` in catch)
 - [ ] Existing tests pass
 - [ ] New tests pass
+- [ ] Lint clean: `npm run lint` reports no errors (warnings are advisory)
 - [ ] UI visually correct at 1280px and 375px
 - [ ] Feature works end-to-end in Docker dev stack
 - [ ] Agent log updated with all changes
@@ -221,6 +222,22 @@ Create PR with:
 - **Spec lifecycle:** Move the implemented spec with `git mv` to `docs/specs/shipped/` and fill
   its `Shipped:` and `Implementation:` lines in the same PR.
 
+### CI runs on the PR
+
+`.github/workflows/test.yml` runs three jobs on every pull request targeting `develop` or
+`main` — `lint` (`npm run lint`), `frontend` (host, Node 20 from `.nvmrc`), and `backend`
+(`./scripts/test-backend.sh`, the same Docker runner you use locally). A push to `main` runs
+the same workflow before the deploy job starts, so a red job stops the deploy.
+
+**Check the CI result before reporting the PR as complete.** "Tests passed locally" is not
+the finish line; a green PR check is. If a job is red, fix it or explain why it is unrelated
+in the PR description — do not hand over a PR with an unexplained red check.
+
+```bash
+gh pr checks                   # status of both jobs
+gh run view --log-failed       # logs for whatever failed
+```
+
 ### CRITICAL: The PR is never merged by the agent.
 
 The developer reviews and merges at their discretion. The agent's job ends at PR creation.
@@ -235,7 +252,7 @@ The developer reviews and merges at their discretion. The agent's job ends at PR
 | Pinia stores | `frontend/src/store/` |
 | Vue components | `frontend/src/components/` |
 | Frontend unit tests | `frontend/tests/unit/` |
-| Frontend integration tests | `frontend/tests/integration/` |
+| Frontend integration tests | `frontend/tests/unit/` (no separate integration dir yet) |
 | Backend unit tests | `backend/api-service/tests/unit/` |
 | Backend integration tests | `backend/api-service/tests/integration/` |
 | Specs | `docs/specs/` (`proposed/`, `active/`, `shipped/`, `dx/`) |

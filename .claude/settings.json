@@ -10,6 +10,7 @@
       "Bash(npm run test:*)",
       "Bash(npm test:*)",
       "Bash(npm run doctor:*)",
+      "Bash(npm run lint:*)",
       "Bash(./scripts/test-backend.sh:*)",
       "Bash(./scripts/test-frontend.sh:*)",
       "Bash(./scripts/doctor.sh:*)",

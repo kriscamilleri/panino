@@ -251,6 +251,13 @@ diagnostic rather than exploratory.
 
 ### Phase 5 — Resolve the lint contradiction
 
+> **DECIDED 2026-08-08 by the maintainer: Option A.** ESLint is adopted. `eslint.config.mjs`
+> at the repo root (`.mjs`, not `.js`, because the root `package.json` has no
+> `"type": "module"`), `npm run lint` in root scripts, a `lint` job in `test.yml`, and the
+> "Lint clean" line restored to `feature-development/SKILL.md` Phase 6. The baseline
+> violations were fixed in their own commit, separate from the config commit, as specified
+> below. An earlier pass took Option B without asking; that was reversed.
+
 10. **Decision required from the maintainer.** Two acceptable outcomes; pick one and make
     the repo consistent:
 

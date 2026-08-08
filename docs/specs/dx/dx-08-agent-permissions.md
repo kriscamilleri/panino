@@ -128,6 +128,13 @@ though several repeated workflows are good candidates.
 
 ### Phase 2 — Make production access a decision
 
+> **DECIDED 2026-08-08 by the maintainer: Option A.** Credentialed production SSH stays
+> available per-machine via `.claude/settings.local.json` and is deliberately absent from
+> committed settings. The read-only default, explicit-approval requirement, backup-first
+> rule, and agent-log requirement are recorded in `AGENTS.md` §4 ("Production access").
+> An earlier pass implemented this without asking; the posture is unchanged, but it is now
+> a ratified decision rather than an assumed one.
+
 3. **Ask the maintainer**, then implement one of:
 
    - **Option A (recommended) — keep prod access, local-only, documented.** Leave
