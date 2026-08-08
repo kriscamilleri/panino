@@ -165,7 +165,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, provide } from 'vue';
+import { ref, watch, nextTick, provide } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useDocStore } from '@/store/docStore';

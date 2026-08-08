@@ -32,7 +32,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted, computed } from 'vue';
+import { ref, watch, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDebounceFn } from '@vueuse/core';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';

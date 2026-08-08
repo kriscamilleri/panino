@@ -9,8 +9,6 @@ import { useAuthStore } from './authStore';
 import { blobToBase64, replaceImageReferences } from '../utils/exportUtils';
 import {
     sanitizePathSegments,
-    extractTitleFromFrontMatter,
-    titleFromFilename,
     getTextByteLength,
     isMarkdownFile,
     isHiddenSegment,
@@ -726,7 +724,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             if (!item) return '';
 
             // Sanitize names to prevent invalid paths
-            const saneName = (item.name || item.title || "Untitled").replace(/[\/\\?%*:|"<>]/g, '_');
+            const saneName = (item.name || item.title || "Untitled").replace(/[/\\?%*:|"<>]/g, '_');
 
             const parentId = isFolder ? item.parent_id : item.folder_id;
             if (!parentId) {

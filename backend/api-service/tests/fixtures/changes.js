@@ -24,7 +24,7 @@ export const sampleChanges = [
     }
 ];
 
-export function createSampleNote(userId) {
+export function createSampleNote(_userId) {
     return {
         table: 'notes',
         pk: `["note-${Date.now()}"]`,

@@ -16,7 +16,7 @@ import {
   getTestToken,
   generateSiteId,
 } from "../testHelpers.js";
-import { getUserDb, getTestDb } from "../../db.js";
+import { getUserDb } from "../../db.js";
 
 describe("POST /sync", () => {
   let app, server;
@@ -74,7 +74,6 @@ describe("POST /sync", () => {
 
   it("should accept and apply incoming changes", async () => {
     const siteId = generateSiteId("b");
-    const userId = testUser.userId;
 
     // Create a note change
     const changes = [
@@ -209,7 +208,6 @@ describe("POST /sync", () => {
 
   it("should filter out changes from same site_id", async () => {
     const siteId = generateSiteId("f");
-    const userId = testUser.userId;
 
     // First, push some changes
     const changes = [
@@ -254,7 +252,7 @@ describe("POST /sync", () => {
   });
 
   it("should return changes from other sites", async () => {
-    const siteId1 = generateSiteId("1");
+    generateSiteId("1");
     const siteId2 = generateSiteId("2");
     const userId = testUser.userId;
 

@@ -570,7 +570,9 @@ tags:
     if (db.value) {
       try {
         await db.value.close();
-      } catch (_) {}
+      } catch {
+        // Already closed or mid-teardown; the handle is being discarded either way.
+      }
     }
     db.value = null;
     isInitialized.value = false;

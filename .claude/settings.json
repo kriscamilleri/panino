@@ -2,7 +2,27 @@
   "permissions": {
     "allow": [
       "Bash(docker ps:*)",
-      "Bash(docker restart:*)"
+      "Bash(docker restart:*)",
+      "Bash(docker compose:*)",
+      "Bash(docker build:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker inspect:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run doctor:*)",
+      "Bash(npm run lint:*)",
+      "Bash(./scripts/test-backend.sh:*)",
+      "Bash(./scripts/test-frontend.sh:*)",
+      "Bash(./scripts/doctor.sh:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(sudo ./deploy.sh:*)"
     ]
   }
 }

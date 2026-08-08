@@ -518,7 +518,6 @@ import {
     Github,
     Image,
     Printer,
-    Hammer,
     Braces,
     Image as ImageIcon,
     Mic,

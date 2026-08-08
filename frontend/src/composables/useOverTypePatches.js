@@ -9,7 +9,7 @@ export function useOverTypePatches() {
   
   // 1. Patch postProcessHTML to skip <pre> block creation but keep list consolidation
   if (OverType.MarkdownParser) {
-    OverType.MarkdownParser.postProcessHTML = function(html, instanceHighlighter) {
+    OverType.MarkdownParser.postProcessHTML = function(html) {
       if (typeof document === 'undefined' || !document) return html;
       
       const container = document.createElement('div');

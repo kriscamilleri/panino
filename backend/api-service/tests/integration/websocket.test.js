@@ -1,5 +1,5 @@
 // Integration tests for WebSocket connections and sync notifications
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import request from 'supertest';
 import { createTestApp, setupTestUser, cleanupTestUser, getTestToken, generateSiteId } from '../testHelpers.js';
@@ -7,20 +7,16 @@ import { createTestApp, setupTestUser, cleanupTestUser, getTestToken, generateSi
 const WS_PORT = 8001; // Use a different port for WebSocket tests
 
 describe('WebSocket Connection', () => {
-    let app, server, wss;
+    let server;
     let testUser;
-    let serverUrl;
 
     beforeAll(() => {
         const result = createTestApp();
-        app = result.app;
         server = result.server;
-        wss = result.wss;
 
         // Start server on test port
         return new Promise((resolve) => {
             server.listen(WS_PORT, () => {
-                serverUrl = `http://localhost:${WS_PORT}`;
                 resolve();
             });
         });
@@ -171,21 +167,17 @@ describe('WebSocket Connection', () => {
 });
 
 describe('Sync Poke Notification', () => {
-    let app, server, wss, clients;
+    let app, server;
     let testUser, otherUser;
-    let serverUrl;
 
     beforeAll(() => {
         const result = createTestApp();
         app = result.app;
         server = result.server;
-        wss = result.wss;
-        clients = result.clients;
 
         // Start server on test port
         return new Promise((resolve) => {
             server.listen(WS_PORT + 1, () => {
-                serverUrl = `http://localhost:${WS_PORT + 1}`;
                 resolve();
             });
         });

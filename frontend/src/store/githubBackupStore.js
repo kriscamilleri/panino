@@ -31,7 +31,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
             headers,
         });
 
-        let payload = null;
+        let payload;
         try {
             payload = await response.json();
         } catch {

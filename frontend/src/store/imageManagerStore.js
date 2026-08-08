@@ -40,7 +40,7 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
             headers,
         });
 
-        let payload = null;
+        let payload;
         try {
             payload = await response.json();
         } catch {

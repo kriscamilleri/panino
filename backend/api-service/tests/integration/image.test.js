@@ -194,7 +194,7 @@ describe('Image management API', () => {
     });
 
     it('lists images with deterministic search and sort', async () => {
-        const db = getUserDb(user.userId);
+        getUserDb(user.userId);
         insertImageRecord(user.userId, {
             id: 'img-a',
             filename: 'alpha.png',

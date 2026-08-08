@@ -183,6 +183,7 @@ function resolveCrsqlitePath() {
   } catch (e) {
     throw new Error(
       "Cannot resolve '@vlcn.io/crsqlite'. Is it installed in this service?",
+      { cause: e },
     );
   }
 

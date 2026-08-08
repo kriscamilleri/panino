@@ -6,7 +6,11 @@ on:
       - main
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
 
     steps:
@@ -15,6 +19,20 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: Check server checkout is clean
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
+        run: |
+          ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" \
+            "cd \"$PROJECT_PATH\" && git status --porcelain" > /tmp/dirty.txt
+          if [ -s /tmp/dirty.txt ]; then
+            echo "::error::Server checkout is dirty; deploy would fail on git pull:"
+            cat /tmp/dirty.txt
+            exit 1
+          fi
+
       - name: Deploy to server
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
@@ -22,4 +40,4 @@ jobs:
           PROJECT_PATH: ${{ secrets.PROJECT_PATH }}
         run: |
           ssh -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" \
-            "cd \"$PROJECT_PATH\" && ls && git pull origin main && sudo ./deploy.sh"
+            "cd \"$PROJECT_PATH\" && git pull origin main && sudo ./deploy.sh"

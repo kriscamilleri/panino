@@ -156,7 +156,6 @@
 import { ref, computed, onMounted, reactive } from 'vue';
 import { useTemplateStore } from '@/store/templateStore';
 import { useStructureStore } from '@/store/structureStore';
-import { useRouter } from 'vue-router';
 import { resolveTemplateVariables, extractInputLabels } from '@/utils/templateVariables';
 import { X } from 'lucide-vue-next';
 
@@ -171,7 +170,6 @@ const emit = defineEmits(['close', 'created']);
 
 const templateStore = useTemplateStore();
 const structureStore = useStructureStore();
-const router = useRouter();
 
 const selectedTemplateId = ref('__blank__');
 const showVariables = ref(false);

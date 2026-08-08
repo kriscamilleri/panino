@@ -169,6 +169,29 @@ npm install
 npm run dev
 ```
 
+### Testing and code quality
+
+All commands run from the repository root:
+
+```bash
+npm run doctor      # check your environment before anything else
+npm run lint        # ESLint across frontend and backend
+npm run test:fe     # frontend tests (runs on the host, fast)
+npm run test:be     # backend tests (runs in Docker on Node 20)
+npm test            # both suites (does not run lint)
+```
+
+Backend tests run inside the Node 20 image defined by
+`backend/api-service/Dockerfile.test`, because `better-sqlite3` and the CR-SQLite extension
+are native modules built against a specific Node ABI. Running them directly on a Node 21+
+host fails with an ABI mismatch — that is an environment condition, not a broken test. The
+repo pins the intended version in `.nvmrc`; if you are on Node 20 you can use
+`npm run test:be:host` to skip Docker.
+
+`npm run lint` must report zero errors. Warnings are advisory.
+
+CI runs the same three checks — `lint`, `frontend`, `backend` — on every pull request
+targeting `develop` or `main`, and again on a push to `main` before the deploy job starts.
 
 #### Environment Variables
 
@@ -308,6 +331,16 @@ After configuration:
 ### Architecture
 
 Notes are stored locally in SQLite using WebAssembly. The app functions completely offline. When backend sync is enabled, changes are replicated using CR-SQLite's conflict-free replication to a per-user database on the server. WebSocket connections provide real-time sync notifications.
+
+Deeper reference lives under `docs/`:
+
+| Topic | Where |
+|---|---|
+| How CR-SQLite sync actually works, and its failure modes | [`docs/architecture/crsqlite-sync.md`](docs/architecture/crsqlite-sync.md) |
+| Database schema and the `/sync` wire contract | [`docs/architecture/data-model.md`](docs/architecture/data-model.md) |
+| Deployment, Nginx, and Docker volumes | [`docs/runbooks/deployment.md`](docs/runbooks/deployment.md) |
+| Responding to a sync incident | [`docs/runbooks/sync-incident-response.md`](docs/runbooks/sync-incident-response.md) |
+| Contributing conventions for AI agents and humans | [`AGENTS.md`](AGENTS.md) |
 
 ## License
 

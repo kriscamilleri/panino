@@ -214,7 +214,7 @@ function handleNativeInput(e) {
   const isDelimiter =
     inputType === 'insertParagraph' ||
     inputType === 'insertLineBreak' ||
-    (char && /[\s\.,;!?:(){}\[\]"']/.test(char));
+    (char && /[\s.,;!?:(){}[\]"']/.test(char));
 
   if (isDelimiter) {
     // Record immediately on word break/sentence end
@@ -352,7 +352,7 @@ function initEditor() {
     onChange: (value) => {
       handleInput(value);
     },
-    onKeydown: (event, instance) => {
+    onKeydown: (event) => {
       // Forward keydown to our handler
       handleKeydown(event);
 
@@ -409,7 +409,7 @@ watch(() => file.value, (newFile) => {
 });
 
 /* ───── watch for file changes ───── */
-watch(() => file.value?.id, (newId, oldId) => {
+watch(() => file.value?.id, (newId) => {
   if (newId) {
     const newContent = file.value.content ?? '';
 
