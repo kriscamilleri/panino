@@ -237,11 +237,6 @@ in the PR description — do not hand over a PR with an unexplained red check.
 gh pr checks                   # status of both jobs
 gh run view --log-failed       # logs for whatever failed
 ```
-
-### CRITICAL: The PR is never merged by the agent.
-
-The developer reviews and merges at their discretion. The agent's job ends at PR creation.
-
 ---
 
 ## Quick Reference: File Locations

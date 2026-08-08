@@ -1,6 +1,6 @@
 ---
 name: prod-server-debug
-description: "Use when debugging the live production server, SSHing into the VPS, checking Docker Compose services, inspecting logs, comparing deployed config against the repo, navigating panino.sh paths, or triaging deployment drift on the production host. Helpful for signup/auth failures, env mismatches, nginx/static asset issues, and fast server navigation."
+description: "Use when debugging the live production server, SSHing into the VPS, checking Docker Compose services, inspecting logs, comparing deployed config against the repo, navigating panino.sh paths, or triaging deployment drift on the production host. Helpful for signup/auth failures, env mismatches, nginx/static asset issues, repeated /sync failures and CR-SQLite clock corruption, and fast server navigation."
 ---
 
 # Production Server Debugging
@@ -22,6 +22,8 @@ Use this skill for Panino production investigations on the VPS behind `panino.sh
 - Before overwriting a server file, create a timestamped backup first.
 - Prefer non-interactive commands and concise output.
 - If the server checkout is dirty, note exactly which files differ before attempting a pull or redeploy.
+- Any write, repair, or restart requires explicit approval in the current conversation, a timestamped backup first, and an agent log afterwards (see `AGENTS.md` §4, "Production access").
+- Redact production IPs and real user UUIDs in anything you write down. Use `<PROD_IP>` and `user-A` aliases — see [`docs/agent-logs/README.md`](../../../docs/agent-logs/README.md).
 
 ## Known Panino Production Paths
 
@@ -163,6 +165,23 @@ docker inspect panino-api-service-1 \
 2. Confirm what ended up in `/var/www/panino.sh/dist`.
 3. Compare `/home/kris/www/panino/frontend/dist` to `/var/www/panino.sh/dist`.
 4. Check nginx config/root paths if the served output does not match the latest build.
+
+### Repeated `/sync` failures
+
+**Stop and read [`docs/runbooks/sync-incident-response.md`](../../../docs/runbooks/sync-incident-response.md)
+before touching a user database.** Both 2026 production incidents originated here, and the
+failure mode is not guessable from the error message.
+
+Background you need first:
+[`docs/architecture/crsqlite-sync.md`](../../../docs/architecture/crsqlite-sync.md) — in
+particular the sync-bit section. A failed merge can leave `crsql_internal_sync_bit()` set on
+a *cached* connection, which silently suppresses delete triggers for the next caller and
+corrupts clock rows a day later. The symptom and the cause are separated in time, so treating
+`could not find row to merge with` as the starting point will mislead you.
+
+The repair tooling is `backend/api-service/scripts/repair-orphan-image-clocks.mjs`. It is
+dry-run by default. Never pass `--apply` without an identified backup and explicit user
+approval in the current conversation.
 
 ## Panino-Specific Gotcha
 

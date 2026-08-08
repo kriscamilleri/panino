@@ -18,8 +18,16 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `sync.js` | `POST /sync` — bidirectional CR-SQLite change set exchange | Authenticated |
 | `image.js` | `POST /images` (upload), `GET /images/:id` (serve) | Authenticated |
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
-| `db.js` | `getUserDb(userId)`, `getAuthDb()`, `initDb()`, DB connection caching, CR-SQLite extension loading | — |
+| `backup.js` | GitHub OAuth, repository selection, snapshot commits, auto-backup scheduling | Mixed |
+| `revision.js` | Note revision capture, listing, detail, restore, and pruning | Authenticated |
+| `db.js` | `getUserDb(userId)`, `getHealthyUserDb(userId, op)`, `invalidateUserDb(...)`, `getAuthDb()`, `initDb()`, DB connection caching, CR-SQLite extension loading | — |
+| `db-repair.js` | Orphan-clock detection and repair helpers used by the incident tooling | — |
 | `mailer.js` | Nodemailer transport, `sendPasswordResetEmail()` | — |
+
+`scripts/repair-orphan-image-clocks.mjs` is the operator-facing CLI wrapper around
+`db-repair.js`. Do not run it against production without reading
+[`docs/runbooks/sync-incident-response.md`](../../docs/runbooks/sync-incident-response.md)
+first — it defaults to a dry run and requires `--apply` to mutate anything.
 
 ---
 
@@ -126,15 +134,19 @@ tests/
 ├── unit/
 │   ├── auth.test.js      # authenticateToken middleware unit tests
 │   ├── db.test.js        # Database utility tests
+│   ├── db-repair.test.js # Orphan-clock detection and repair helpers
 │   └── sync.test.js      # Sync helper function tests
 └── integration/
-    ├── auth.test.js       # POST /login, token validation end-to-end
-    ├── image.test.js      # Image upload and retrieval
-    ├── me.test.js         # GET /me, POST /me/password
+    ├── auth.test.js            # POST /login, token validation end-to-end
+    ├── backup.test.js          # GitHub backup flow
+    ├── image.test.js           # Image upload, retrieval, and orphan prune
+    ├── me.test.js              # GET /me, POST /me/password
     ├── passwordReset.test.js
-    ├── pdf.test.js        # PDF generation
-    ├── sync.test.js       # Sync endpoint integration
-    └── websocket.test.js  # WebSocket connection and poke tests
+    ├── pdf.test.js             # PDF generation
+    ├── revision.test.js        # Revision list, detail, restore
+    ├── sync.test.js            # Sync endpoint integration
+    ├── sync.revision.test.js   # Revision capture driven by incoming change sets
+    └── websocket.test.js       # WebSocket connection and poke tests
 ```
 
 ### Test helper API
