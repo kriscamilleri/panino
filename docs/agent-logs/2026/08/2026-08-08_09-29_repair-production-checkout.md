@@ -10,7 +10,6 @@ Diagnose and, after explicit approval, repair the production VPS Git checkout so
 ## Progress
 - [x] Loaded the production-server debugging guidance.
 - [ ] Inspected the VPS checkout read-only for tracked drift and history divergence (blocked: SSH authentication failed).
-- [x] Reviewed the supplied `.env.prd` configuration keys without reading or exposing values.
 - [ ] Created backups and realigned the checkout after explicit approval.
 - [ ] Verified the Git pull path and production health.
 
@@ -22,15 +21,13 @@ Diagnose and, after explicit approval, repair the production VPS Git checkout so
   `prettyneat` account. Authentication was rejected before any command ran.
 - Tested the available default SSH identity and the local `github-actions-deploy` identity
   against the two likely account names without password authentication. Both were rejected.
-- `.env.prd` contains application, OAuth, CAPTCHA, SMTP, domain, and SSL settings only. It
-  contains no SSH connection or credential setting, so it cannot establish VPS access.
-- The supplied `prd-server.env` has an IPv4 host, username, and password-shaped values. Direct
-  password authentication using `sshpass` was rejected (exit 5); no production command ran.
+- Retried the same read-only inspection with the supplied machine-local password credentials.
+  The credential file was ASCII with no trailing carriage returns, but the VPS rejected the
+  authentication before executing any command.
 
 ## Open Items / Notes
 - Any production IP is redacted as `<PROD_IP>`.
 - No VPS read or write occurred. The production checkout state, tracked drift, backup paths,
   Git pull result, container status, and public health are therefore unverified.
-- Need a working SSH connection method or a refreshed authorized key before the mandatory
+- Need a working SSH connection method or refreshed server credentials before the mandatory
   read-only diagnosis can continue. Do not approve the reset until that diagnosis is complete.
-- The account/password in `prd-server.env` may be stale or apply to a different VPS account.
