@@ -26,6 +26,12 @@ updated so shipped features still read as `Draft`; two well-written skills sit i
 directory Claude does not load; and the incident-response tooling written in July was never
 committed.
 
+**DX-10 was added after the fact.** Tracing the ABI blocker to its source showed the pin is
+one npm package, and that the Node 20 runtime it protects reached end of life on
+2026-04-30. That makes it a production security item rather than a DX one, but it belongs
+here because it shares a root cause with DX-01 and is only safe to attempt once DX-01 and
+DX-02 have shipped.
+
 ---
 
 ## 2) The specs
@@ -40,6 +46,8 @@ committed.
 | 06 | [Repository Hygiene & Context](dx-06-repo-hygiene-context.md) | P1 | ~3 hrs | — |
 | 07 | [Spec Lifecycle & Status](dx-07-spec-lifecycle.md) | P2 | ~3 hrs | — |
 | 08 | [Agent Permissions](dx-08-agent-permissions.md) | P2 | ~1 hr | — |
+| 09 | [Backend Type Checking](dx-09-backend-type-checking.md) | P1 | ~1 day | 02 (soft — supplies the CI job) |
+| 10 | [Node Runtime Upgrade (20 → 24)](dx-10-node-runtime-upgrade.md) | **P0** | ~1½ days | 01, 02 (soft) |
 
 Effort estimates assume an agent with repo context, and include the validation checklist.
 
@@ -48,8 +56,8 @@ Effort estimates assume an agent with repo context, and include the validation c
 ## 3) Suggested sequence
 
 ```
-DX-01 ──────────────► DX-02
-(tests runnable)      (CI gate)
+DX-01 ──────────────► DX-02 ──────────────► DX-10
+(tests runnable)      (CI gate)             (Node 20 → 24)
 
 DX-03 Phase 1 ──► DX-05 ──► DX-03 Phases 2-5
 (fix broken refs)  (arch docs)  (entry points, trim AGENTS.md)
@@ -60,13 +68,15 @@ DX-06 Phase 1 ──► DX-04 ──► DX-07
 DX-08 (independent, any time)
 ```
 
-Three ordering constraints are real; the rest is preference:
+Four ordering constraints are real; the rest is preference:
 
 1. **DX-02 after DX-01.** A CI gate on tests nobody can run locally is a wall, not a gate.
 2. **DX-03 Phase 4 after DX-05.** Do not delete sections from `AGENTS.md` until
    `docs/architecture/` exists to receive them.
 3. **DX-05 Phase 3 after DX-06 Phase 1.** The incident runbook references
    `db-repair.js` and `repair-orphan-image-clocks.mjs`, which are currently untracked.
+4. **DX-10 after DX-01, ideally after DX-02.** The runtime upgrade lands on the sync path;
+   do not start it until a verified test run is one command and CI is gating it.
 
 **DX-03 Phase 1** (fix the lowercase `AGENTS.md` references, remove the nonexistent
 delegation-call instruction) is fifteen minutes and has no dependencies. Ship it first
