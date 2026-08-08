@@ -9,25 +9,30 @@ Diagnose and, after explicit approval, repair the production VPS Git checkout so
 
 ## Progress
 - [x] Loaded the production-server debugging guidance.
-- [ ] Inspected the VPS checkout read-only for tracked drift and history divergence (blocked: SSH authentication failed).
-- [ ] Created backups and realigned the checkout after explicit approval.
-- [ ] Verified the Git pull path and production health.
+- [x] Inspected the VPS checkout read-only for tracked drift and history divergence.
+- [ ] Created backups and realigned the checkout after explicit approval (blocked: approval
+  was not supplied).
+- [ ] Verified the Git pull path after repair (blocked: repair not authorized).
 
 ## Changes Made
 - None yet. This is a Git metadata repair, not an application code change.
 
 ## Tests
-- Attempted the prescribed read-only inspection over SSH to `<PROD_IP>` as the configured
-  `prettyneat` account. Authentication was rejected before any command ran.
-- Tested the available default SSH identity and the local `github-actions-deploy` identity
-  against the two likely account names without password authentication. Both were rejected.
-- Retried the same read-only inspection with the supplied machine-local password credentials.
-  The credential file was ASCII with no trailing carriage returns, but the VPS rejected the
-  authentication before executing any command.
+- Read-only VPS checkout inspection at `/home/kris/www/panino`:
+  - `HEAD` is `eeab25b04c79900997256205c31bb20745ffc8f8`, on the pre-rewrite lineage.
+  - `pull.rebase` is unset.
+  - `HEAD^{tree}` and `origin/main^{tree}` are both
+    `f60cc37aa35b17c68915ce7e2506dce7b2501d73`.
+  - `git status --porcelain` contained only `?? .env.bak.20260322181722`,
+    `?? backups/`, and `?? nginx.conf`; no tracked modifications exist.
+- Live health: `https://panino.sh/` returned HTTP 200. `/api/health` returned HTTP 401,
+  indicating the endpoint is reachable and protected. `panino-api-service-1` is up.
 
 ## Open Items / Notes
 - Any production IP is redacted as `<PROD_IP>`.
-- No VPS read or write occurred. The production checkout state, tracked drift, backup paths,
-  Git pull result, container status, and public health are therefore unverified.
-- Need a working SSH connection method or refreshed server credentials before the mandatory
-  read-only diagnosis can continue. Do not approve the reset until that diagnosis is complete.
+- The initial SSH-key attempt failed, but the subsequently supplied machine-local connection
+  configuration authenticated successfully.
+- The untracked items are unaffected by `git reset --hard`. Their presence does not block the
+  metadata repair. No VPS write has occurred yet.
+- Explicit approval to create the timestamped backup, reset to `origin/main`, and run the
+  read-only Git pull verification was not available. The repair is therefore not performed.
