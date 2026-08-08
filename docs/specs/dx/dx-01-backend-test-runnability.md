@@ -117,6 +117,12 @@ prebuilds. It would work, but it drifts the host away from the Node 20 productio
 and re-introduces the "works locally, fails in prod" class of bug that DX-05 documents for
 CR-SQLite. Revisit only when the production base image moves to Node 24.
 
+**Revisited by [DX-10](dx-10-node-runtime-upgrade.md).** Node 20 reached end of life on
+2026-04-30, which flips the trade-off above: matching production no longer means matching a
+supported runtime. DX-10 moves `better-sqlite3` to `^12.11.1` and the production base image
+to `node:24-bookworm-slim`, so this section's rejection no longer applies — production itself
+is now Node 24, and `npm run test:be:host` works on a Node 24 host.
+
 ### 5.3 A `doctor` script
 
 One command that reports environment readiness, so an agent's first move on any failure is

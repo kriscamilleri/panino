@@ -98,6 +98,26 @@ check. A fresh connection must report a zero sync bit before ordinary deletes or
 Follow [the sync incident runbook](../runbooks/sync-incident-response.md). It covers backup,
 dry-run inspection, repair, and post-repair sentinel checks.
 
+## Runtime note (2026-08-08, DX-10)
+
+`better-sqlite3` moved from 9.6.0 to 12.11.1, which bundles SQLite 3.53.2 — up from 3.45.3.
+`@vlcn.io/crsqlite` is pinned at 0.16.3, last published 2024-01-17 against the SQLite 3.45
+era, and the project is unmaintained: there is no upstream fix if it misbehaves against a
+newer SQLite. This extension is now running eight SQLite minors ahead of its last release.
+The next person to touch sync should treat any further SQLite version change as a real risk
+to `crsql_changes` semantics, not a routine bump.
+
+Verification performed for this change: a `loadExtension` + `crsql_db_version()` probe
+succeeded against SQLite 3.53.2 in both the Node 20 (pre-runtime-bump) and Node 24
+(post-runtime-bump) images, and the full `npm run test:be` suite (152 tests, including the
+sync, sync-revision, and image-orphan-merge integration tests) passed with no regressions
+relative to the pre-bump baseline. What was **not** done: the merge-behaviour round trip
+against a restored copy of real production data specified in
+[DX-10](../specs/dx/dx-10-node-runtime-upgrade.md) §6 Phase 2 step 8 — that requires
+production data access and must happen before this change reaches production. See the
+[DX-10 spec](../specs/dx/dx-10-node-runtime-upgrade.md) and the agent log for this session
+for details.
+
 ## Provenance
 
 - `docs/agent-logs/2026/06/2026-06-29_07-35_investigate-sync-500-fk-on-note-delete.md`

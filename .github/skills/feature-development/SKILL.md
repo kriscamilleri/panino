@@ -225,7 +225,7 @@ Create PR with:
 ### CI runs on the PR
 
 `.github/workflows/test.yml` runs three jobs on every pull request targeting `develop` or
-`main` — `lint` (`npm run lint`), `frontend` (host, Node 20 from `.nvmrc`), and `backend`
+`main` — `lint` (`npm run lint`), `frontend` (host, Node 24 from `.nvmrc`), and `backend`
 (`./scripts/test-backend.sh`, the same Docker runner you use locally). A push to `main` runs
 the same workflow before the deploy job starts, so a red job stops the deploy.
 

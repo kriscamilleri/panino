@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Canonical backend test runner. Uses the Node 20 image so results match production
+# Canonical backend test runner. Uses the Node 24 image so results match production
 # regardless of the host Node version. Pass extra arguments through to Vitest.
 set -euo pipefail
 

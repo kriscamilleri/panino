@@ -45,7 +45,7 @@ Production Nginx (static files, /api, /ws)
 ```
 
 Stack: Vue 3, Vite, Pinia, Tailwind, MarkdownIt, OverType, Lucide, CR-SQLite WASM;
-Node 20, Express, better-sqlite3, native CR-SQLite, Puppeteer, DOMPurify, pdf-lib.
+Node 24, Express, better-sqlite3, native CR-SQLite, Puppeteer, DOMPurify, pdf-lib.
 
 ---
 
@@ -63,8 +63,11 @@ npm run test:be
 npm test
 ```
 
-Backend tests run in the Node 20 Docker image because native SQLite bindings must match
-production. `npm run test:be:host` is for Node 20 only. `.nvmrc` pins the intended major.
+Backend tests run in the Node 24 Docker image because `better-sqlite3` is a native
+addon and must match the production ABI. CR-SQLite is a SQLite loadable extension
+compiled from source in the image, so it is not Node-ABI bound — but it is pinned to
+an unmaintained 0.16.3 release, so treat any SQLite version change as a sync risk.
+`.nvmrc` pins the intended major.
 
 Root `.env` supplies backend settings; `frontend/.env` supplies Vite settings. Vite and the
 backend configure the cross-origin headers required by CR-SQLite WASM.
