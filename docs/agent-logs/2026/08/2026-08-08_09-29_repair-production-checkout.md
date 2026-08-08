@@ -10,6 +10,7 @@ Diagnose and, after explicit approval, repair the production VPS Git checkout so
 ## Progress
 - [x] Loaded the production-server debugging guidance.
 - [ ] Inspected the VPS checkout read-only for tracked drift and history divergence (blocked: SSH authentication failed).
+- [x] Reviewed the supplied `.env.prd` configuration keys without reading or exposing values.
 - [ ] Created backups and realigned the checkout after explicit approval.
 - [ ] Verified the Git pull path and production health.
 
@@ -21,6 +22,8 @@ Diagnose and, after explicit approval, repair the production VPS Git checkout so
   `prettyneat` account. Authentication was rejected before any command ran.
 - Tested the available default SSH identity and the local `github-actions-deploy` identity
   against the two likely account names without password authentication. Both were rejected.
+- `.env.prd` contains application, OAuth, CAPTCHA, SMTP, domain, and SSL settings only. It
+  contains no SSH connection or credential setting, so it cannot establish VPS access.
 
 ## Open Items / Notes
 - Any production IP is redacted as `<PROD_IP>`.
