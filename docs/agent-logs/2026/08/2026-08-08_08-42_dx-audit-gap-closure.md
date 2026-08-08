@@ -125,6 +125,38 @@ two empty catches, two redundant initialisers, four needless regex escapes, and
 - Doctor failure branch — verified by simulation; exit 0, no mutations.
 - History split — `git diff 92f10dc HEAD` empty before replaying, `git log --follow` intact.
 
+## Follow-up: documentation sweep
+
+Asked whether README, the AGENTS files, or the skills needed updating given all the DX
+changes. Checked all eight instruction files for stale paths and commands — clean, one
+benign hit (`combined_content.txt` in the do-not-read table, still correct since it is
+regenerable via `npm run llm`). The real problem was the opposite: three files described
+the repo as it was *before* the DX work.
+
+- **`README.md`** had no testing section at all. DX-01 made both suites runnable in one
+  command and DX-02 added a CI gate, but nothing in the README said so — a contributor
+  reading only the README would not know `npm run test:be`, `npm run lint`, or CI existed.
+  Added a "Testing and code quality" section and routed the Architecture section to
+  `docs/architecture/` and `docs/runbooks/`.
+- **`backend/api-service/AGENTS.md`** module map was missing `backup.js`, `revision.js`, and
+  `db-repair.js`; the test tree was missing four files including `db-repair.test.js`. Worth
+  noting *why* this one matters: an agent grepping the backend handbook for the repair
+  tooling would have concluded it did not exist. That is the DX-06 "orphaned tooling"
+  problem recurring one level down — the files got committed, but the map pointing at them
+  did not get updated.
+- **`.github/skills/prod-server-debug/SKILL.md`** had no route to
+  `docs/runbooks/sync-incident-response.md` or `docs/architecture/crsqlite-sync.md`, and no
+  workflow for repeated `/sync` failures — despite both 2026 production incidents
+  originating there and the runbook existing specifically for that case. This was the
+  largest gap found in the sweep: `AGENTS.md` tells agents to load this skill before
+  production work, so the skill is the entry point, and it dead-ended. Added the workflow,
+  plus the approval/backup/logging and redaction rules the skill had been leaving to memory.
+
+Frontend `AGENTS.md`, root `AGENTS.md`, `CLAUDE.md`, and `.github/copilot-instructions.md`
+needed no changes.
+
+Verified every relative markdown link across all eight instruction files resolves.
+
 ## Open Items / Notes
 
 - **`test.yml` and `deploy.yml` have still never executed.** Every item in DX-02's validation
