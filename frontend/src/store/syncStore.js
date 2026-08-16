@@ -240,10 +240,14 @@ export const useSyncStore = defineStore("syncStore", () => {
 
   /**
    * Adds the `pinned` note attribute to databases created before the Recent
-   * Documents redesign. Pinning is a synced note attribute rather than local UI
-   * state, so the column has to exist on every replica; `crsql_as_crr` is
-   * re-run so CR-SQLite regenerates the clock table and triggers for it (the
-   * same pattern `ensureImagesSchema` uses for `size_bytes`/`sha256`).
+   * Documents redesign.
+   *
+   * `notes` is already a CRR, and CR-SQLite generates its insert/update/delete
+   * triggers from the column list at the time the table was registered. A bare
+   * `ALTER TABLE` therefore leaves triggers that bind the old column count, and
+   * the next write fails with `expected N values, got M` — re-running
+   * `crsql_as_crr` does not rebuild them. `crsql_begin_alter` /
+   * `crsql_commit_alter` is the supported way to change a CRR's shape.
    */
   async function ensureNotesSchema() {
     if (!db.value) return;
@@ -252,16 +256,44 @@ export const useSyncStore = defineStore("syncStore", () => {
       if (!columns || columns.length === 0) return;
 
       const names = new Set(columns.map((c) => c.name));
-      if (names.has("pinned")) return;
+      const triggerSql = await notesUpdateTriggerSql();
+      const isCrr = Boolean(triggerSql);
 
-      await db.value.exec(
-        "ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
-      );
-      await db.value.exec("UPDATE notes SET pinned = 0 WHERE pinned IS NULL");
-      await db.value.exec("SELECT crsql_as_crr('notes')");
+      if (!names.has("pinned")) {
+        if (isCrr) await db.value.exec("SELECT crsql_begin_alter('notes')");
+        try {
+          await db.value.exec(
+            "ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+          );
+          await db.value.exec(
+            "UPDATE notes SET pinned = 0 WHERE pinned IS NULL",
+          );
+        } finally {
+          if (isCrr) await db.value.exec("SELECT crsql_commit_alter('notes')");
+        }
+        return;
+      }
+
+      // Self-heal a database left half-migrated (column added, triggers not
+      // regenerated) by an interrupted or older migration.
+      if (isCrr && !triggerSql.includes("pinned")) {
+        await db.value.exec("SELECT crsql_begin_alter('notes')");
+        await db.value.exec("SELECT crsql_commit_alter('notes')");
+      }
     } catch (err) {
       console.error("[syncStore] Failed to ensure notes schema", err);
     }
+  }
+
+  /**
+   * CR-SQLite's generated update trigger for `notes`, or `undefined` when the
+   * table is not a CRR on this connection.
+   */
+  async function notesUpdateTriggerSql() {
+    const rows = await db.value.execO(
+      "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'notes__crsql_utrig'",
+    );
+    return rows?.[0]?.sql;
   }
 
   async function ensureImagesSchema() {

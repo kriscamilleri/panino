@@ -87,11 +87,52 @@ check. A fresh connection must report a zero sync bit before ordinary deletes or
 - Any local table with an FK to a CRR parent must use `ON DELETE CASCADE`.
 - Schema changes belong in both `syncStore.js` (`DB_SCHEMA`) and `db.js` (`BASE_SCHEMA`).
 - New CRR tables must also be added to `CRR_TABLES` in `db.js`.
+- **Adding a column to an existing CRR must go through `crsql_begin_alter` /
+  `crsql_commit_alter`.** See [Altering a CRR table](#altering-a-crr-table).
 - NOT NULL CRR columns need defaults for CR-SQLite compatibility.
 - Never mutate a CRR base table from a connection that may have a poisoned sync bit.
 - Background jobs must validate connection health before CRR writes.
 - Do not return success for a batch whose merge was not durably applied; preserve the request's
   failure semantics and invalidate the connection.
+
+## Altering a CRR table
+
+CR-SQLite generates a CRR's insert/update/delete triggers from the base table's column list
+at the moment the table is registered. Those triggers bind a fixed number of values. A bare
+`ALTER TABLE … ADD COLUMN` therefore leaves triggers that no longer match the table, and the
+next write to that table fails with:
+
+```text
+SQLiteError: expected 17 values, got 15
+```
+
+Re-running `crsql_as_crr('<table>')` does **not** rebuild them; it reports success and leaves
+the stale triggers in place. The supported sequence is:
+
+```sql
+SELECT crsql_begin_alter('notes');
+ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+SELECT crsql_commit_alter('notes');
+```
+
+`crsql_commit_alter` regenerates the clock table and the three triggers, and the new column
+starts producing `crsql_changes` rows, so it replicates like any other column.
+
+Two practical consequences:
+
+- A database can be left half-migrated (column present, triggers stale) if the process is
+  interrupted between the `ALTER` and the commit. `ensureNotesSchema` in both
+  `frontend/src/store/syncStore.js` and `backend/api-service/db.js` detects that shape by
+  checking whether `<table>__crsql_utrig`'s SQL mentions the column, and repairs it with an
+  empty `begin_alter` / `commit_alter` pair.
+- Only call `crsql_begin_alter` when the table really is a CRR on that connection. On a fresh
+  database `BASE_SCHEMA` creates the column before `ensureCrr` registers the table, and a
+  handle opened without the extension has no CR-SQLite functions at all.
+
+> **Known follow-up:** `ensureImagesSchema` (both layers) still adds `size_bytes` and `sha256`
+> with a bare `ALTER` plus `crsql_as_crr`. Any database created before those columns existed
+> has the same stale-trigger problem for `images`. That predates this note and is not yet
+> fixed.
 
 ## Diagnosing a live incident
 

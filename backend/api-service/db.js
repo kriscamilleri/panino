@@ -131,10 +131,28 @@ const CRR_TABLES = [
 ];
 
 /**
+ * CR-SQLite's generated update trigger for `notes`, or `undefined` when the
+ * table is not a CRR on this connection (a fresh database before `ensureCrr`,
+ * or a handle opened without the extension).
+ */
+function notesUpdateTriggerSql(db) {
+  return db
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'notes__crsql_utrig'",
+    )
+    .get()?.sql;
+}
+
+/**
  * Adds the `pinned` note attribute to per-user databases created before the
- * Recent Documents redesign. Pinning replicates as an ordinary note column, so
- * the merge point needs the column too; `ensureCrr` re-runs `crsql_as_crr` for
- * `notes` afterwards.
+ * Recent Documents redesign.
+ *
+ * `notes` is already a CRR, and CR-SQLite generates its insert/update/delete
+ * triggers from the column list at registration time. A bare `ALTER TABLE`
+ * leaves triggers bound to the old column count and the next write fails with
+ * `expected N values, got M`; re-running `crsql_as_crr` does not rebuild them.
+ * `crsql_begin_alter` / `crsql_commit_alter` is the supported way to change a
+ * CRR's shape.
  */
 export function ensureNotesSchema(db) {
   try {
@@ -142,10 +160,28 @@ export function ensureNotesSchema(db) {
     if (!columns || columns.length === 0) return;
 
     const names = new Set(columns.map((column) => column.name));
-    if (names.has("pinned")) return;
+    const triggerSql = notesUpdateTriggerSql(db);
+    const isCrr = Boolean(triggerSql);
 
-    db.exec("ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
-    db.exec("UPDATE notes SET pinned = 0 WHERE pinned IS NULL");
+    if (!names.has("pinned")) {
+      if (isCrr) db.prepare("SELECT crsql_begin_alter('notes')").get();
+      try {
+        db.exec(
+          "ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+        );
+        db.exec("UPDATE notes SET pinned = 0 WHERE pinned IS NULL");
+      } finally {
+        if (isCrr) db.prepare("SELECT crsql_commit_alter('notes')").get();
+      }
+      return;
+    }
+
+    // Self-heal a database left half-migrated (column added, triggers not
+    // regenerated) by an interrupted or older migration.
+    if (isCrr && !triggerSql.includes("pinned")) {
+      db.prepare("SELECT crsql_begin_alter('notes')").get();
+      db.prepare("SELECT crsql_commit_alter('notes')").get();
+    }
   } catch (err) {
     console.error("[db] Failed to ensure notes schema:", err);
   }

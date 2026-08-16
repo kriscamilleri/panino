@@ -1,15 +1,20 @@
 <!-- frontend/src/components/DocumentDashboardHeader.vue -->
 <template>
-    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <!--
+        The single-row header is the desktop layout (>= 1024px, per the spec).
+        Below that the title keeps its own line so it is never squeezed to an
+        ellipsis by the search field beside it.
+    -->
+    <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
         <h2
-            class="pn-title-page truncate"
+            class="min-w-0 truncate pn-title-page"
             :data-testid="titleTestid"
         >
             {{ title }}
         </h2>
 
-        <div class="flex items-center gap-2">
-            <div class="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
+        <div class="flex items-center gap-2 lg:shrink-0">
+            <div class="relative min-w-0 flex-1 lg:w-72 lg:flex-none">
                 <!--
                     Quick filter, not workspace search: it narrows the already
                     loaded documents of this dashboard's scope by title, folder

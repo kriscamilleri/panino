@@ -1,9 +1,23 @@
 # Recent Documents Redesign — Spec
 
 > Redesign Recent Documents and folder document views into searchable writing dashboards with a Continue Writing rail on the global view and persistent pinned notes.
-> Status: proposed
+> Status: shipped
 > Created: 2026-08-16
 > Last updated: 2026-08-16
+> Shipped: 2026-08-16 (see `docs/agent-logs/2026/08/2026-08-16_15-05_recent-documents-redesign-implementation.md`)
+> Implementation: `frontend/src/utils/recentDocuments.js`, `frontend/src/store/docStore.js`,
+> `frontend/src/store/structureStore.js`, `frontend/src/store/syncStore.js`,
+> `frontend/src/components/DocumentDashboard.vue`,
+> `frontend/src/components/DocumentDashboardHeader.vue`,
+> `frontend/src/components/DocumentPinButton.vue`,
+> `frontend/src/components/RecentDocumentCard.vue`,
+> `frontend/src/components/RecentDocumentRow.vue`,
+> `frontend/src/components/FolderNavigationList.vue`,
+> `frontend/src/components/FolderPreview.vue`, `backend/api-service/db.js`,
+> `frontend/tests/unit/recentDocuments.test.js`,
+> `frontend/tests/unit/documentDashboard.test.js`,
+> `frontend/tests/unit/docStoreDocuments.test.js`,
+> `backend/api-service/tests/unit/db.test.js`
 
 ---
 
@@ -295,24 +309,26 @@ filters; and confirm a sync refresh updates each dashboard without a manual relo
 
 ## 10) Acceptance criteria
 
-- [ ] Recent Documents visually contains the header, New Note action, Continue Writing rail,
+- [x] Recent Documents visually contains the header, New Note action, Continue Writing rail,
       filters, and grouped list described above.
-- [ ] A selected folder uses the shared header, New Note action, filters, child-folder
+- [x] A selected folder uses the shared header, New Note action, filters, child-folder
       navigation, and grouped document list, without the global Continue Writing rail.
-- [ ] The page uses the shared design-system primitives and has no new blue primary buttons or
+- [x] The page uses the shared design-system primitives and has no new blue primary buttons or
       blue focus rings.
-- [ ] Exactly the top three active results appear in Continue Writing, and they also remain in
+- [x] Exactly the top three active results appear in Continue Writing, and they also remain in
       the chronological list.
-- [ ] The list correctly groups local timestamps and sorts within groups.
-- [ ] Search matches title, folder path, and excerpt locally, with a clear control and no
+- [x] The list correctly groups local timestamps and sorts within groups.
+- [x] Search matches title, folder path, and excerpt locally, with a clear control and no
       misleading tag/full-text claim.
-- [ ] Pinning is persistent, synchronized, keyboard accessible, and filterable.
-- [ ] Recent Documents' Pinned filter includes pinned notes from every folder; a folder's Pinned
+- [x] Pinning is persistent, synchronized, keyboard accessible, and filterable.
+- [x] Recent Documents' Pinned filter includes pinned notes from every folder; a folder's Pinned
       filter includes only pinned notes directly assigned to that selected folder.
-- [ ] The `pinned` migration is present in both client and server schema definitions and CRR
+- [x] The `pinned` migration is present in both client and server schema definitions and CRR
       configuration.
-- [ ] Existing child-folder navigation and document open behavior remain unchanged.
-- [ ] Targeted unit/component tests pass and the three responsive layouts are browser-validated.
+- [x] Existing child-folder navigation and document open behavior remain unchanged.
+- [x] Targeted unit/component tests pass and the three responsive layouts are browser-validated.
+      (Desktop 1281px and tablet 800px checked directly; the sub-640px branch was checked at
+      584px, the narrowest viewport Chrome would open — see the implementation log.)
 
 ## 11) Risks and mitigations
 

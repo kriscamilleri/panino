@@ -500,6 +500,17 @@ describe('DocumentDashboard — presentation contracts', () => {
         expect(testid(wrapper, 'document-row-meta-mobile-beta').classes()).toContain('sm:hidden');
     });
 
+    it('stacks the header below the desktop breakpoint so the title is not squeezed', async () => {
+        const wrapper = await mountDashboard();
+        const header = testid(wrapper, 'folder-preview-recent-heading').element.parentElement;
+
+        // Single-row header is the >= 1024px layout; below that the title keeps
+        // its own line instead of being truncated by the search field.
+        expect(header.className).toContain('flex-col');
+        expect(header.className).toContain('lg:flex-row');
+        expect(header.className).not.toContain('sm:flex-row');
+    });
+
     it('omits a card excerpt for a note with no content', async () => {
         docStoreMock.getRecentDocuments.mockImplementation(async () => [
             makeDoc('blank', { excerpt: '' }),

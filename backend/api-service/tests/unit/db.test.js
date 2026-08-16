@@ -511,6 +511,94 @@ describe("ensureNotesSchema", () => {
     db.close();
   });
 
+  // The case that matters in production: `notes` is already a CRR, so the
+  // generated triggers bind the old column count until the alter is done
+  // through crsql_begin_alter / crsql_commit_alter.
+  it("migrates an existing CRR notes table so writes and replication still work", () => {
+    const db = getTestDb(testUserId, { inMemory: true });
+
+    // Rebuild `notes` in its pre-redesign shape, still registered as a CRR.
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_itrig");
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_utrig");
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_dtrig");
+    db.exec("DROP TABLE IF EXISTS notes");
+    db.exec("DROP TABLE IF EXISTS notes__crsql_clock");
+    db.exec("DROP TABLE IF EXISTS notes__crsql_pks");
+    db.exec(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        folder_id TEXT,
+        title TEXT,
+        content TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+    `);
+    db.prepare("SELECT crsql_as_crr('notes')").get();
+    db.prepare(
+      "INSERT INTO notes (id, user_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("legacy-crr-note", testUserId, "Legacy", "Body", "now", "now");
+
+    ensureNotesSchema(db);
+
+    expect(noteColumns(db).pinned).toBeDefined();
+    expect(() =>
+      db
+        .prepare("UPDATE notes SET pinned = 1, updated_at = ? WHERE id = ?")
+        .run("later", "legacy-crr-note"),
+    ).not.toThrow();
+    expect(
+      db
+        .prepare("SELECT pinned FROM notes WHERE id = ?")
+        .get("legacy-crr-note").pinned,
+    ).toBe(1);
+    expect(
+      db
+        .prepare(
+          `SELECT count(*) AS total FROM crsql_changes WHERE "table" = 'notes' AND cid = 'pinned'`,
+        )
+        .get().total,
+    ).toBeGreaterThan(0);
+
+    db.close();
+  });
+
+  it("repairs a half-migrated database whose CRR triggers predate the column", () => {
+    const db = getTestDb(testUserId, { inMemory: true });
+
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_itrig");
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_utrig");
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_dtrig");
+    db.exec("DROP TABLE IF EXISTS notes");
+    db.exec("DROP TABLE IF EXISTS notes__crsql_clock");
+    db.exec("DROP TABLE IF EXISTS notes__crsql_pks");
+    db.exec(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        title TEXT,
+        content TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+    `);
+    db.prepare("SELECT crsql_as_crr('notes')").get();
+    // The broken intermediate state: column present, triggers stale.
+    db.exec("ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+    db.prepare(
+      "INSERT INTO notes (id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ).run("half-migrated", "Half", "Body", "now", "now");
+
+    ensureNotesSchema(db);
+
+    expect(() =>
+      db.prepare("UPDATE notes SET pinned = 1 WHERE id = ?").run("half-migrated"),
+    ).not.toThrow();
+
+    db.close();
+  });
+
   it("keeps pinned under CR-SQLite change tracking so it replicates", () => {
     const db = getUserDb(testUserId);
 
