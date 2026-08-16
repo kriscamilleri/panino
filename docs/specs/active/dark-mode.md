@@ -1,6 +1,6 @@
 # Dark Mode — Spec
 
-> Add a persisted Deeply Leafy dark appearance to Panino, controlled by an accessible navbar
+> Add a persisted navy dark appearance to Panino, controlled by an accessible navbar
 > toggle.
 > Status: active
 > Created: 2026-08-16
@@ -11,7 +11,7 @@
 ## 1) Summary
 
 Panino currently renders only light-gray and white interface surfaces. Add a light/dark preference
-that uses the supplied Deeply Leafy palette when dark and is available from the right side of the
+that uses the supplied navy palette when dark and is available from the right side of the
 main navbar. The preference is local to the browser rather than synced, so users may choose a
 different interface theme on each device without creating a document change.
 
@@ -22,8 +22,9 @@ different interface theme on each device without creating a document change.
 3. Persist the selected preference in browser storage and restore it before user interaction.
 4. Apply the dark mode to application surfaces, text, icons, controls, menus, dialogs, tables,
    the markdown editor, rendered preview, and focus states.
-5. Use these Deeply Leafy dark surfaces: `#222327`, `#332b36`, `#233132`, `#345f58`, and
-   `#4a4a56`.
+5. Use `#000b2b` as the dark surface, `#77a0a5` as primary, and `#9377a5` as the accent.
+   Semantic status colors are success `#7dff95`, warning `#ffbc5e`, danger `#ff8080`, and
+   info `#87d1ff`.
 6. Keep text, icon, focus, link, error, and disabled states legible and keyboard accessible.
 7. Preserve the existing light appearance and all document/sync behavior.
 
@@ -44,10 +45,11 @@ different interface theme on each device without creating a document change.
 
 ## 5) Design and accessibility
 
-`html[data-theme="dark"]` activates the dark theme. `#222327` is the application base,
-`#332b36` is the elevated surface, `#233132` is the editor and inset surface, `#345f58` is the
-interactive accent, and `#4a4a56` is the structural border. Light text and muted text use
-high-contrast neutrals; semantic status colors remain distinct from neutral controls.
+`html[data-theme="dark"]` activates the dark theme. `#000b2b` is the application base,
+`#77a0a5` is the interactive primary, and `#9377a5` is the accent. Elevated and inset navy
+surfaces are derived from that base for hierarchy, as in the supplied reference. Light text and
+muted text use high-contrast blue-gray neutrals; semantic status colors remain distinct from
+neutral controls.
 
 Theme overrides live after Tailwind utilities and map the utility classes used by shared
 components. This preserves the existing component API while ensuring that existing pages, dialogs,

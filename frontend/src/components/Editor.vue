@@ -352,24 +352,24 @@ function initEditor() {
 function getEditorTheme(theme) {
   if (theme === 'dark') {
     return {
-      name: 'panino-deeply-leafy-dark',
+      name: 'panino-navy-dark',
       colors: {
-        bgPrimary: '#233132',
-        bgSecondary: '#222327',
-        text: '#edf2ef',
-        h1: '#edf2ef',
-        h2: '#dae2df',
-        h3: '#dae2df',
-        strong: '#edf2ef',
-        em: '#edf2ef',
-        link: '#a7d8c9',
-        code: '#edf2ef',
-        codeBg: '#332b36',
-        blockquote: '#b9c2be',
-        hr: '#4a4a56',
-        syntaxMarker: 'rgba(185, 194, 190, 0.65)',
-        cursor: '#a7d8c9',
-        selection: 'rgba(52, 95, 88, 0.7)'
+        bgPrimary: '#071735',
+        bgSecondary: '#000b2b',
+        text: '#f4f7ff',
+        h1: '#f4f7ff',
+        h2: '#dce6f7',
+        h3: '#dce6f7',
+        strong: '#f4f7ff',
+        em: '#f4f7ff',
+        link: '#87d1ff',
+        code: '#f4f7ff',
+        codeBg: '#142647',
+        blockquote: '#b8c5da',
+        hr: '#335273',
+        syntaxMarker: 'rgba(184, 197, 218, 0.7)',
+        cursor: '#77a0a5',
+        selection: 'rgba(147, 119, 165, 0.5)'
       }
     };
   }
