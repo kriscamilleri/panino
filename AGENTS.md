@@ -67,7 +67,12 @@ Backend tests run in the Node 24 Docker image because `better-sqlite3` is a nati
 addon and must match the production ABI. CR-SQLite is a SQLite loadable extension
 compiled from source in the image, so it is not Node-ABI bound — but it is pinned to
 an unmaintained 0.16.3 release, so treat any SQLite version change as a sync risk.
-`.nvmrc` pins the intended major.
+`.nvmrc` pins the exact patch version, not just the major. `actions/setup-node` reads it, and
+npm's lockfile format shifts between minor npm releases — a floating `24` let CI drift onto a
+newer npm that rejected a lockfile written by an older one. Regenerate a lockfile with the
+`.nvmrc` version (`docker run --rm -v "$PWD":/app -w /app node:$(cat .nvmrc) npm install`) if
+`npm ci` fails in CI but passes locally. The `node:24-*` Docker tags are still floating, so the
+backend image carries the same latent risk.
 
 Root `.env` supplies backend settings; `frontend/.env` supplies Vite settings. Vite and the
 backend configure the cross-origin headers required by CR-SQLite WASM.
