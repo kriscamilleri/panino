@@ -45,7 +45,7 @@ different interface theme on each device without creating a document change.
 
 ## 5) Design and accessibility
 
-`html[data-theme="dark"]` activates the dark theme. The off-black application base is `#0b0b0d`,
+`html[data-theme="dark"]` activates the dark theme. The coal application base is `#151515`,
 `#77a0a5` is the interactive primary, and `#9377a5` is the accent. Elevated and inset navy
 surfaces are derived from that base for hierarchy. Light text and
 muted text use high-contrast blue-gray neutrals; semantic status colors remain distinct from

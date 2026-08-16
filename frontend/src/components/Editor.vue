@@ -354,8 +354,8 @@ function getEditorTheme(theme) {
     return {
       name: 'panino-navy-dark',
       colors: {
-        bgPrimary: '#101014',
-        bgSecondary: '#0b0b0d',
+        bgPrimary: '#2c2c2c',
+        bgSecondary: '#151515',
         text: '#f4f7ff',
         h1: '#f4f7ff',
         h2: '#dce6f7',
@@ -364,9 +364,9 @@ function getEditorTheme(theme) {
         em: '#f4f7ff',
         link: '#87d1ff',
         code: '#f4f7ff',
-        codeBg: '#16161a',
+        codeBg: '#242424',
         blockquote: '#b8c5da',
-        hr: '#335273',
+        hr: '#474747',
         syntaxMarker: 'rgba(184, 197, 218, 0.7)',
         cursor: '#77a0a5',
         selection: 'rgba(147, 119, 165, 0.5)'
