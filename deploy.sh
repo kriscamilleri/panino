@@ -295,11 +295,36 @@ if [ "$SKIP_SSL" = false ]; then
 fi
 
 ################################################################################
-# 7. Rebuild and restart Docker containers (async to save CI minutes)
+# 7. Rebuild and restart Docker containers
 ################################################################################
 
+# This used to run in the background "to save CI minutes":
+#
+#   nohup bash -c "... docker compose up --build -d api-service && echo done >> log 2>&1" &
+#
+# Two things were wrong with it. The redirect bound only to the `echo`, so
+# `docker compose` still wrote to the inherited SSH channel — when the deploy
+# session closed, the build died on a broken pipe. And because the deploy job
+# returned as soon as the background process was launched, the workflow reported
+# success whether or not the backend was ever rebuilt.
+#
+# That is exactly what happened on 2026-08-16: `Deploy to VPS` went green, the
+# frontend was published, and the api-service container kept running the previous
+# image for the next half hour. The DX-10 runtime upgrade appeared deployed and
+# was not. A deploy step that can silently not deploy is worse than a slow one,
+# so this now runs synchronously and its exit status is the deploy's exit status.
 echo
-echo "==> Rebuilding and restarting Docker containers in background..."
-nohup bash -c "cd '$PROJECT_ROOT' && docker compose up --build -d api-service && echo 'Docker rebuild complete' >> /tmp/panino-deploy.log 2>&1" &
-echo "Docker rebuild started in background (PID: $!)"
-echo "Check /tmp/panino-deploy.log for status"
+echo "==> Rebuilding and restarting Docker containers ..."
+if ! (cd "$PROJECT_ROOT" && docker compose up --build -d api-service); then
+  echo "ERROR: docker compose up --build failed; the previous container is still running" >&2
+  exit 1
+fi
+
+echo "==> Verifying the container came back up ..."
+for _ in $(seq 1 30); do
+  if [ "$(docker inspect -f '{{.State.Running}}' panino-api-service-1 2>/dev/null)" = "true" ]; then
+    echo "api-service is running Node $(docker exec panino-api-service-1 node --version 2>/dev/null || echo 'unknown')"
+    break
+  fi
+  sleep 2
+done
