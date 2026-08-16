@@ -4,7 +4,64 @@ import WebSocket from 'ws';
 import request from 'supertest';
 import { createTestApp, setupTestUser, cleanupTestUser, getTestToken, generateSiteId } from '../testHelpers.js';
 
-const WS_PORT = 8001; // Use a different port for WebSocket tests
+const WS_PORT = 8001;
+const WEBSOCKET_TIMEOUT = 2000;
+
+function waitForEvent(ws, eventName) {
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            cleanup();
+            reject(new Error(`Timed out waiting for WebSocket ${eventName} event`));
+        }, WEBSOCKET_TIMEOUT);
+
+        const onEvent = (...args) => {
+            cleanup();
+            resolve(args);
+        };
+
+        const onError = (error) => {
+            cleanup();
+            reject(error);
+        };
+
+        const cleanup = () => {
+            clearTimeout(timeout);
+            ws.off(eventName, onEvent);
+            ws.off('error', onError);
+        };
+
+        ws.once(eventName, onEvent);
+        ws.once('error', onError);
+    });
+}
+
+async function openWebSocket(url) {
+    const ws = new WebSocket(url);
+    await waitForEvent(ws, 'open');
+    return ws;
+}
+
+async function closeWebSocket(ws) {
+    if (ws.readyState === WebSocket.CLOSED) return;
+
+    const closed = waitForEvent(ws, 'close');
+    ws.close();
+    await closed;
+}
+
+function getServerSocket(clients, siteId) {
+    const entry = [...clients.entries()].find(([, clientInfo]) => clientInfo.siteId === siteId);
+    expect(entry).toBeDefined();
+    return entry[0];
+}
+
+function postSync(app, token, siteId, changes = []) {
+    return request(app)
+        .post('/sync')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ since: 0, siteId, changes })
+        .expect(200);
+}
 
 describe('WebSocket Connection', () => {
     let server;
@@ -13,12 +70,8 @@ describe('WebSocket Connection', () => {
     beforeAll(() => {
         const result = createTestApp();
         server = result.server;
-
-        // Start server on test port
         return new Promise((resolve) => {
-            server.listen(WS_PORT, () => {
-                resolve();
-            });
+            server.listen(WS_PORT, resolve);
         });
     });
 
@@ -35,7 +88,7 @@ describe('WebSocket Connection', () => {
     afterAll(() => {
         return new Promise((resolve) => {
             if (server) {
-                server.close(() => resolve());
+                server.close(resolve);
             } else {
                 resolve();
             }
@@ -45,141 +98,45 @@ describe('WebSocket Connection', () => {
     it('should accept a connection with a valid token and siteId', async () => {
         const token = getTestToken(testUser.userId);
         const siteId = generateSiteId('a');
+        const ws = await openWebSocket(`ws://localhost:${WS_PORT}?token=${token}&siteId=${siteId}`);
 
-        return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${WS_PORT}?token=${token}&siteId=${siteId}`);
-
-            ws.on('open', () => {
-                ws.close();
-                resolve();
-            });
-
-            ws.on('error', (error) => {
-                reject(error);
-            });
-
-            ws.on('close', (code, reason) => {
-                if (code !== 1000 && code !== 1005) { // 1000 = normal closure, 1005 = no status received
-                    reject(new Error(`Connection closed with code ${code}: ${reason}`));
-                }
-            });
-
-            setTimeout(() => {
-                ws.close();
-                reject(new Error('Connection timeout'));
-            }, 5000);
-        });
+        await closeWebSocket(ws);
     });
 
     it('should reject a connection with an invalid token', async () => {
         const siteId = generateSiteId('a');
+        const ws = new WebSocket(`ws://localhost:${WS_PORT}?token=invalid.token.here&siteId=${siteId}`);
 
-        return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${WS_PORT}?token=invalid.token.here&siteId=${siteId}`);
-
-            let closeCode = null;
-
-            ws.on('open', () => {
-                // Connection may briefly open before server closes it
-                // We'll check if it stays open or gets closed
-            });
-
-            ws.on('close', (code) => {
-                closeCode = code;
-            });
-
-            ws.on('error', () => {
-                // WebSocket errors are expected when connection is rejected
-            });
-
-            // Wait to see if connection is closed by server
-            setTimeout(() => {
-                if (closeCode === 1008 || ws.readyState === WebSocket.CLOSED) {
-                    resolve();
-                } else if (ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                    reject(new Error('WebSocket should have been closed by server with invalid token'));
-                } else {
-                    resolve(); // Connection was rejected
-                }
-            }, 1000);
-        });
+        const [closeCode] = await waitForEvent(ws, 'close');
+        expect(closeCode).toBe(1008);
     });
 
     it('should reject a connection with a missing token or siteId', async () => {
         const token = getTestToken(testUser.userId);
+        const missingSiteId = new WebSocket(`ws://localhost:${WS_PORT}?token=${token}`);
+        const missingToken = new WebSocket(`ws://localhost:${WS_PORT}?siteId=${generateSiteId('a')}`);
 
-        // Missing siteId
-        const promise1 = new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${WS_PORT}?token=${token}`);
+        const [[missingSiteIdCode], [missingTokenCode]] = await Promise.all([
+            waitForEvent(missingSiteId, 'close'),
+            waitForEvent(missingToken, 'close'),
+        ]);
 
-            let closeCode = null;
-
-            ws.on('close', (code) => {
-                closeCode = code;
-            });
-
-            ws.on('error', () => {
-                // Expected
-            });
-
-            setTimeout(() => {
-                if (closeCode === 1008 || ws.readyState === WebSocket.CLOSED) {
-                    resolve();
-                } else if (ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                    reject(new Error('WebSocket should have been closed without siteId'));
-                } else {
-                    resolve();
-                }
-            }, 1000);
-        });
-
-        // Missing token
-        const promise2 = new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${WS_PORT}?siteId=${generateSiteId('a')}`);
-
-            let closeCode = null;
-
-            ws.on('close', (code) => {
-                closeCode = code;
-            });
-
-            ws.on('error', () => {
-                // Expected
-            });
-
-            setTimeout(() => {
-                if (closeCode === 1008 || ws.readyState === WebSocket.CLOSED) {
-                    resolve();
-                } else if (ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                    reject(new Error('WebSocket should have been closed without token'));
-                } else {
-                    resolve();
-                }
-            }, 1000);
-        });
-
-        await promise1;
-        await promise2;
+        expect(missingSiteIdCode).toBe(1008);
+        expect(missingTokenCode).toBe(1008);
     });
 });
 
 describe('Sync Poke Notification', () => {
-    let app, server;
+    let app, server, clients;
     let testUser, otherUser;
 
     beforeAll(() => {
         const result = createTestApp();
         app = result.app;
         server = result.server;
-
-        // Start server on test port
+        clients = result.clients;
         return new Promise((resolve) => {
-            server.listen(WS_PORT + 1, () => {
-                resolve();
-            });
+            server.listen(WS_PORT + 1, resolve);
         });
     });
 
@@ -200,7 +157,7 @@ describe('Sync Poke Notification', () => {
     afterAll(() => {
         return new Promise((resolve) => {
             if (server) {
-                server.close(() => resolve());
+                server.close(resolve);
             } else {
                 resolve();
             }
@@ -211,215 +168,62 @@ describe('Sync Poke Notification', () => {
         const token = getTestToken(testUser.userId);
         const siteIdA = generateSiteId('a');
         const siteIdB = generateSiteId('b');
+        const wsA = await openWebSocket(`ws://localhost:${WS_PORT + 1}?token=${token}&siteId=${siteIdA}`);
+        const wsB = await openWebSocket(`ws://localhost:${WS_PORT + 1}?token=${token}&siteId=${siteIdB}`);
 
-        return new Promise((resolve, reject) => {
-            let clientAOpen = false;
-            let clientBOpen = false;
-            let clientBReceivedMessage = false;
+        try {
+            const notification = waitForEvent(wsB, 'message');
+            await postSync(app, token, siteIdA, [{
+                table: 'notes',
+                pk: JSON.stringify(['test-note-id']),
+                cid: 'title',
+                val: 'Test Note',
+                col_version: 1,
+                db_version: 1,
+                site_id: siteIdA,
+                cl: 1,
+                seq: 0,
+            }]);
 
-            // Connect Client A
-            const wsA = new WebSocket(`ws://localhost:${WS_PORT + 1}?token=${token}&siteId=${siteIdA}`);
-
-            wsA.on('open', () => {
-                clientAOpen = true;
-                checkAndProceed();
-            });
-
-            wsA.on('error', reject);
-
-            // Connect Client B (same user, different siteId)
-            const wsB = new WebSocket(`ws://localhost:${WS_PORT + 1}?token=${token}&siteId=${siteIdB}`);
-
-            wsB.on('open', () => {
-                clientBOpen = true;
-                checkAndProceed();
-            });
-
-            wsB.on('message', (data) => {
-                const message = JSON.parse(data.toString());
-                if (message.type === 'sync') {
-                    clientBReceivedMessage = true;
-                    wsA.close();
-                    wsB.close();
-                    resolve();
-                }
-            });
-
-            wsB.on('error', reject);
-
-            async function checkAndProceed() {
-                if (clientAOpen && clientBOpen) {
-                    // Both clients connected, now push changes from Client A
-                    try {
-                        // Send a dummy change to trigger the notification
-                        await request(app)
-                            .post('/sync')
-                            .set('Authorization', `Bearer ${token}`)
-                            .send({
-                                since: 0,
-                                siteId: siteIdA,
-                                changes: [
-                                    {
-                                        table: 'notes',
-                                        pk: JSON.stringify(['test-note-id']),
-                                        cid: 'title',
-                                        val: 'Test Note',
-                                        col_version: 1,
-                                        db_version: 1,
-                                        site_id: siteIdA,
-                                        cl: 1,
-                                        seq: 0
-                                    }
-                                ]
-                            });
-
-                        // Give some time for WebSocket message to arrive
-                        setTimeout(() => {
-                            if (!clientBReceivedMessage) {
-                                wsA.close();
-                                wsB.close();
-                                reject(new Error('Client B did not receive sync notification'));
-                            }
-                        }, 2000);
-                    } catch (error) {
-                        wsA.close();
-                        wsB.close();
-                        reject(error);
-                    }
-                }
-            }
-
-            setTimeout(() => {
-                wsA.close();
-                wsB.close();
-                reject(new Error('Test timeout'));
-            }, 10000);
-        });
-    }, 15000);
+            const [data] = await notification;
+            expect(JSON.parse(data.toString())).toEqual({ type: 'sync' });
+        } finally {
+            await Promise.all([closeWebSocket(wsA), closeWebSocket(wsB)]);
+        }
+    });
 
     it('should NOT notify the client that initiated the push', async () => {
         const token = getTestToken(testUser.userId);
         const siteIdA = generateSiteId('a');
+        const wsA = await openWebSocket(`ws://localhost:${WS_PORT + 1}?token=${token}&siteId=${siteIdA}`);
+        const serverSocket = getServerSocket(clients, siteIdA);
+        const send = vi.spyOn(serverSocket, 'send');
 
-        return new Promise((resolve, reject) => {
-            let clientAReceivedMessage = false;
-
-            const wsA = new WebSocket(`ws://localhost:${WS_PORT + 1}?token=${token}&siteId=${siteIdA}`);
-
-            wsA.on('open', async () => {
-                // Push changes from Client A
-                try {
-                    await request(app)
-                        .post('/sync')
-                        .set('Authorization', `Bearer ${token}`)
-                        .send({
-                            since: 0,
-                            siteId: siteIdA,
-                            changes: []
-                        });
-
-                    // Wait to ensure no message is received
-                    setTimeout(() => {
-                        if (!clientAReceivedMessage) {
-                            wsA.close();
-                            resolve();
-                        } else {
-                            wsA.close();
-                            reject(new Error('Client A should not have received a sync notification'));
-                        }
-                    }, 2000);
-                } catch (error) {
-                    wsA.close();
-                    reject(error);
-                }
-            });
-
-            wsA.on('message', () => {
-                clientAReceivedMessage = true;
-            });
-
-            wsA.on('error', reject);
-
-            setTimeout(() => {
-                wsA.close();
-                reject(new Error('Test timeout'));
-            }, 10000);
-        });
-    }, 15000);
+        try {
+            await postSync(app, token, siteIdA);
+            expect(send).not.toHaveBeenCalled();
+        } finally {
+            send.mockRestore();
+            await closeWebSocket(wsA);
+        }
+    });
 
     it('should NOT notify clients of other users', async () => {
         const tokenUser = getTestToken(testUser.userId);
         const tokenOther = getTestToken(otherUser.userId);
         const siteIdA = generateSiteId('a');
         const siteIdC = generateSiteId('c');
+        const wsA = await openWebSocket(`ws://localhost:${WS_PORT + 1}?token=${tokenUser}&siteId=${siteIdA}`);
+        const wsC = await openWebSocket(`ws://localhost:${WS_PORT + 1}?token=${tokenOther}&siteId=${siteIdC}`);
+        const otherUserSocket = getServerSocket(clients, siteIdC);
+        const send = vi.spyOn(otherUserSocket, 'send');
 
-        return new Promise((resolve, reject) => {
-            let clientAOpen = false;
-            let clientCOpen = false;
-            let clientCReceivedMessage = false;
-
-            // Connect Client A (testUser)
-            const wsA = new WebSocket(`ws://localhost:${WS_PORT + 1}?token=${tokenUser}&siteId=${siteIdA}`);
-
-            wsA.on('open', () => {
-                clientAOpen = true;
-                checkAndProceed();
-            });
-
-            wsA.on('error', reject);
-
-            // Connect Client C (otherUser)
-            const wsC = new WebSocket(`ws://localhost:${WS_PORT + 1}?token=${tokenOther}&siteId=${siteIdC}`);
-
-            wsC.on('open', () => {
-                clientCOpen = true;
-                checkAndProceed();
-            });
-
-            wsC.on('message', () => {
-                clientCReceivedMessage = true;
-            });
-
-            wsC.on('error', reject);
-
-            async function checkAndProceed() {
-                if (clientAOpen && clientCOpen) {
-                    // Push changes from Client A (testUser)
-                    try {
-                        await request(app)
-                            .post('/sync')
-                            .set('Authorization', `Bearer ${tokenUser}`)
-                            .send({
-                                since: 0,
-                                siteId: siteIdA,
-                                changes: []
-                            });
-
-                        // Wait to ensure Client C doesn't receive a message
-                        setTimeout(() => {
-                            if (!clientCReceivedMessage) {
-                                wsA.close();
-                                wsC.close();
-                                resolve();
-                            } else {
-                                wsA.close();
-                                wsC.close();
-                                reject(new Error('Client C should not have received a sync notification'));
-                            }
-                        }, 2000);
-                    } catch (error) {
-                        wsA.close();
-                        wsC.close();
-                        reject(error);
-                    }
-                }
-            }
-
-            setTimeout(() => {
-                wsA.close();
-                wsC.close();
-                reject(new Error('Test timeout'));
-            }, 10000);
-        });
-    }, 15000);
+        try {
+            await postSync(app, tokenUser, siteIdA);
+            expect(send).not.toHaveBeenCalled();
+        } finally {
+            send.mockRestore();
+            await Promise.all([closeWebSocket(wsA), closeWebSocket(wsC)]);
+        }
+    });
 });
