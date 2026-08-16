@@ -5,7 +5,14 @@ import initWasm from "@/vendor/crsqlite-wasm/index.js";
 import wasmUrl from "@/vendor/crsqlite-wasm/crsqlite.wasm?url";
 import { useAuthStore } from "./authStore";
 import { useDocStore } from "./docStore";
+import { useDraftStore } from "./draftStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore";
+import { parsePkId } from "@/utils/crsqlitePk";
+import {
+  resolveSyncMerge,
+  evaluateWritebackGuard,
+} from "@/utils/syncMerge";
+import { serializeConflictHunks } from "@panino/content-merge";
 import { v4 as uuidv4 } from "uuid";
 
 const isProd = import.meta.env.PROD;
@@ -47,6 +54,27 @@ CREATE TABLE IF NOT EXISTS templates (
 );
 CREATE INDEX IF NOT EXISTS idx_templates_updated ON templates(updated_at DESC);
 SELECT crsql_as_crr('templates');
+
+-- Local-only (non-CRR) client state for content merge (COLLAB-02). Deliberately
+-- not replicated: note_sync_base tracks the last value this client and the
+-- server agreed on, and note_conflicts holds displaced local bodies.
+CREATE TABLE IF NOT EXISTS note_sync_base (
+  note_id                     TEXT PRIMARY KEY NOT NULL,
+  content                     TEXT NOT NULL DEFAULT '',
+  writeback_count             INTEGER NOT NULL DEFAULT 0,
+  writeback_window_started_at TEXT,
+  updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS note_conflicts (
+  note_id TEXT PRIMARY KEY NOT NULL,
+  base_content TEXT NOT NULL DEFAULT '',
+  mine_content TEXT NOT NULL DEFAULT '',
+  theirs_content TEXT NOT NULL DEFAULT '',
+  conflict_hunks TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  merge_attempts INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 function debounce(fn, wait) {
@@ -66,6 +94,12 @@ export const useSyncStore = defineStore("syncStore", () => {
   const ws = ref(null);
   const hasShownAuthWarning = ref(false);
   const isOnline = ref(navigator.onLine);
+
+  // COLLAB-02 sync-merge state. `isApplyingRemote` guards the remote-apply
+  // transaction so `onUpdate` records a follow-up instead of re-entering sync().
+  const isApplyingRemote = ref(false);
+  const syncPending = ref(false);
+  const contentMergeWriteback = ref(false);
 
   const debouncedSync = debounce(() => sync(), 500);
 
@@ -124,6 +158,10 @@ export const useSyncStore = defineStore("syncStore", () => {
 
     db.value.onUpdate(() => {
       console.info("Local DB update detected, triggering sync.");
+      if (isApplyingRemote.value) {
+        syncPending.value = true;
+        return;
+      }
       debouncedSync();
     });
 
@@ -672,6 +710,196 @@ tags:
     return bytes;
   }
 
+  async function applyRemoteRows(remoteChanges) {
+    const insertSQL = `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, seq, cl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    for (const ch of remoteChanges) {
+      await db.value.exec(insertSQL, [
+        ch.table,
+        hexToUint8Array(ch.pk),
+        ch.cid,
+        ch.val,
+        ch.col_version,
+        ch.db_version,
+        hexToUint8Array(ch.site_id),
+        ch.seq,
+        ch.cl,
+      ]);
+    }
+  }
+
+  async function upsertMergeBase(noteId, content) {
+    await db.value.exec(
+      `INSERT INTO note_sync_base (note_id, content, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`,
+      [noteId, content ?? "", new Date().toISOString()],
+    );
+  }
+
+  async function recordConflict(noteId, base, mine, theirs, conflicts) {
+    const now = new Date().toISOString();
+    await db.value.exec(
+      `INSERT INTO note_conflicts
+         (note_id, base_content, mine_content, theirs_content, conflict_hunks, created_at, updated_at, merge_attempts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+       ON CONFLICT(note_id) DO UPDATE SET
+         base_content = excluded.base_content,
+         mine_content = excluded.mine_content,
+         theirs_content = excluded.theirs_content,
+         conflict_hunks = excluded.conflict_hunks,
+         updated_at = excluded.updated_at,
+         merge_attempts = note_conflicts.merge_attempts + 1`,
+      [noteId, base ?? "", mine ?? "", theirs ?? "", serializeConflictHunks(conflicts), now, now],
+    );
+  }
+
+  async function clearConflict(noteId) {
+    await db.value.exec("DELETE FROM note_conflicts WHERE note_id = ?", [noteId]);
+  }
+
+  /**
+   * Applies remote CR-SQLite changes inside one transaction, capturing each
+   * affected document's `mine` before apply and `theirs` after, then resolving
+   * content merges per COLLAB-02 §5.3.
+   *
+   * @returns {Promise<boolean>} true when a local content write needs a follow-up sync
+   */
+  async function applyRemoteChanges(remoteChanges) {
+    let didLocalWrite = false;
+
+    const noteIds = new Set();
+    for (const ch of remoteChanges) {
+      if (ch.table === "notes" && ch.cid === "content") {
+        const noteId = parsePkId(ch.pk);
+        if (noteId) noteIds.add(noteId);
+      }
+    }
+
+    const idList = [...noteIds];
+
+    isApplyingRemote.value = true;
+    try {
+      if (idList.length === 0) {
+        await db.value.exec("BEGIN");
+        try {
+          await applyRemoteRows(remoteChanges);
+          await db.value.exec("COMMIT");
+        } catch (e) {
+          await db.value.exec("ROLLBACK");
+          throw e;
+        }
+        return didLocalWrite;
+      }
+
+      const placeholders = idList.map(() => "?").join(",");
+
+      await db.value.exec("BEGIN");
+      try {
+        const mineMap = new Map();
+        const mineRows = await db.value.execO(
+          `SELECT id, COALESCE(content, '') AS content FROM notes WHERE id IN (${placeholders})`,
+          idList,
+        );
+        for (const row of mineRows) mineMap.set(row.id, row.content);
+
+        await applyRemoteRows(remoteChanges);
+
+        const theirsMap = new Map();
+        const theirsRows = await db.value.execO(
+          `SELECT id, COALESCE(content, '') AS content FROM notes WHERE id IN (${placeholders})`,
+          idList,
+        );
+        for (const row of theirsRows) theirsMap.set(row.id, row.content);
+
+        const draftStore = useDraftStore();
+
+        for (const noteId of idList) {
+          const dbMine = mineMap.get(noteId) ?? "";
+          const theirs = theirsMap.get(noteId) ?? "";
+          const draft = draftStore.getDraft(noteId);
+          const mine = draft !== undefined ? draft : dbMine;
+
+          const baseRows = await db.value.execO(
+            "SELECT content, writeback_count, writeback_window_started_at FROM note_sync_base WHERE note_id = ?",
+            [noteId],
+          );
+          const hasBase = baseRows.length > 0;
+          const base = hasBase ? baseRows[0].content : undefined;
+
+          const resolved = resolveSyncMerge({
+            hasBase,
+            base,
+            mine,
+            theirs,
+            capabilityEnabled: contentMergeWriteback.value,
+          });
+
+          if (resolved.action === "write-merge") {
+            const guard = evaluateWritebackGuard({
+              writebackCount: hasBase ? baseRows[0].writeback_count : 0,
+              windowStartedAt: hasBase ? baseRows[0].writeback_window_started_at : null,
+            });
+
+            if (!guard.allowed) {
+              console.info(
+                `[Sync] Suppressing merge write-back for ${noteId} (oscillation guard).`,
+              );
+              await recordConflict(noteId, base, mine, theirs, resolved.conflicts);
+              continue;
+            }
+
+            await db.value.exec(
+              "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
+              [resolved.content, new Date().toISOString(), noteId],
+            );
+            await db.value.exec(
+              `INSERT INTO note_sync_base (note_id, content, writeback_count, writeback_window_started_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(note_id) DO UPDATE SET
+                 content = excluded.content,
+                 writeback_count = excluded.writeback_count,
+                 writeback_window_started_at = excluded.writeback_window_started_at,
+                 updated_at = excluded.updated_at`,
+              [noteId, resolved.content, guard.writebackCount, guard.windowStartedAt, new Date().toISOString()],
+            );
+            await clearConflict(noteId);
+            didLocalWrite = true;
+          } else if (resolved.action === "restore-mine") {
+            await db.value.exec(
+              "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
+              [resolved.content, new Date().toISOString(), noteId],
+            );
+            await upsertMergeBase(noteId, resolved.content);
+            await clearConflict(noteId);
+            didLocalWrite = true;
+          } else if (resolved.action === "adopt-theirs" || resolved.action === "record-base") {
+            await upsertMergeBase(noteId, resolved.content);
+            await clearConflict(noteId);
+          } else {
+            await recordConflict(noteId, base, mine, theirs, resolved.conflicts);
+          }
+        }
+
+        await db.value.exec("COMMIT");
+      } catch (e) {
+        await db.value.exec("ROLLBACK");
+        throw e;
+      }
+    } finally {
+      isApplyingRemote.value = false;
+    }
+
+    return didLocalWrite;
+  }
+
+  async function seedMissingMergeBases() {
+    if (!db.value) return;
+    await db.value.exec(
+      `INSERT OR IGNORE INTO note_sync_base (note_id, content, updated_at)
+       SELECT id, COALESCE(content, ''), datetime('now') FROM notes`,
+    );
+  }
+
   async function sync() {
     const auth = useAuthStore();
     if (
@@ -748,42 +976,33 @@ tags:
         throw new Error(`Sync failed: ${resp.status}`);
       }
 
-      const { changes: remoteChanges, clock: newClock } = await resp.json();
+      const data = await resp.json();
+      const remoteChanges = data.changes;
+      const newClock = data.clock;
+
+      // Fail closed: an absent or unknown capability means disabled.
+      contentMergeWriteback.value = data.contentMergeWriteback === true;
 
       if (remoteChanges?.length) {
         console.info(`Applying ${remoteChanges.length} remote changes.`);
-        const insertSQL = `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, seq, cl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-
-        await db.value.exec("BEGIN");
-        try {
-          for (const ch of remoteChanges) {
-            await db.value.exec(insertSQL, [
-              ch.table,
-              hexToUint8Array(ch.pk),
-              ch.cid,
-              ch.val,
-              ch.col_version,
-              ch.db_version,
-              hexToUint8Array(ch.site_id),
-              ch.seq,
-              ch.cl,
-            ]);
-          }
-          await db.value.exec("COMMIT");
-        } catch (e) {
-          await db.value.exec("ROLLBACK");
-          throw e;
-        }
+        const didLocalWrite = await applyRemoteChanges(remoteChanges);
+        if (didLocalWrite) syncPending.value = true;
 
         useDocStore().refreshData();
         useGlobalVariablesStore().loadGlobals();
       }
+
+      await seedMissingMergeBases();
 
       setClock(newClock ?? myClock);
     } catch (e) {
       console.error("[syncStore] sync error", e);
     } finally {
       isSyncing.value = false;
+      if (syncPending.value) {
+        syncPending.value = false;
+        void sync();
+      }
     }
   }
 
@@ -852,6 +1071,7 @@ tags:
     syncEnabled,
     isSyncing,
     isOnline,
+    contentMergeWriteback,
     db: {
       get value() {
         return db.value;

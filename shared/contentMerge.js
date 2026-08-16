@@ -1,4 +1,5 @@
 import { diff3Merge } from 'node-diff3';
+/* global TextEncoder, crypto */
 
 /**
  * Canonical content-merge module for Panino (`@panino/content-merge`).

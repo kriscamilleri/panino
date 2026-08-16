@@ -123,6 +123,12 @@ export const useStructureStore = defineStore("structureStore", () => {
       ],
     );
 
+    // New documents seed their merge base atomically with creation (COLLAB-02).
+    await syncStore.db.value.exec(
+      "INSERT OR IGNORE INTO note_sync_base (note_id, content, updated_at) VALUES (?, ?, ?)",
+      [newNote.id, newNote.content, newNote.updated_at],
+    );
+
     if (parentId === null) await loadRootItems();
     markContentChanged();
     return { id: newNote.id, type: "file", name };
@@ -271,6 +277,10 @@ export const useStructureStore = defineStore("structureStore", () => {
         now,
         now,
       ],
+    );
+    await syncStore.db.value.exec(
+      "INSERT OR IGNORE INTO note_sync_base (note_id, content, updated_at) VALUES (?, ?, ?)",
+      [newId, src.content ?? "", now],
     );
     await loadRootItems();
     markContentChanged();

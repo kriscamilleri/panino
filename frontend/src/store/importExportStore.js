@@ -20,6 +20,18 @@ import {
 const API_URL = import.meta.env.VITE_API_SERVICE_URL || '';
 const IS_PRODUCTION = import.meta.env.PROD;
 
+/**
+ * Client-local, non-replicated tables (COLLAB-02 §4). These must never leave
+ * the device through any export and never overwrite another device's recovery
+ * state through any import. The list is exact, not a prefix convention.
+ */
+export const LOCAL_ONLY_TABLES = ['note_sync_base', 'note_conflicts'];
+
+/** Returns true when a raw table/key name is client-local recovery state. */
+export function isLocalOnlyTable(name) {
+    return LOCAL_ONLY_TABLES.includes(name);
+}
+
 /** Build the correct image URL for the current environment. */
 function buildImageUrl(imageId) {
     return IS_PRODUCTION ? `/api/images/${imageId}` : `${API_URL}/images/${imageId}`;
@@ -168,6 +180,9 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
     /** Query all core tables needed for a full export. */
     async function queryAllData() {
+        // Deliberately selects only user-facing tables. `note_sync_base` and
+        // `note_conflicts` (LOCAL_ONLY_TABLES) are client-local recovery state
+        // and must never leave the device through any export.
         const [folders, notes, images, settings, globals] = await Promise.all([
             syncStore.execute('SELECT * FROM folders'),
             syncStore.execute('SELECT * FROM notes'),

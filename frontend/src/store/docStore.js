@@ -201,6 +201,13 @@ ${DOCUMENT_COLUMNS}
       // A local commit is a new agreement point: record it as the base before
       // the optimistic content update re-enters the editor's content watch.
       draftStore.setBase(fileId, newContent);
+      // Durable base for COLLAB-02: committing content writes the base.
+      await syncStore.db.value.exec(
+        `INSERT INTO note_sync_base (note_id, content, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`,
+        [fileId, newContent ?? "", new Date().toISOString()],
+      );
       if (selectedFile.value?.id === fileId) {
         selectedFile.value.content = newContent; // Optimistic update
       }
