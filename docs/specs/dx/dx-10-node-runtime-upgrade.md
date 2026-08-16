@@ -11,8 +11,8 @@
 > Created: 2026-08-08
 > Last updated: 2026-08-16
 > Priority: P0 — the production runtime has been unsupported since 2026-04-30
-> Depends on: [DX-01](dx-01-backend-test-runnability.md) (needs `npm run test:be` to be the verification surface), [DX-02](dx-02-ci-test-gate.md) (soft — CI should be green before and after)
-> Blocks: nothing. Supersedes [DX-01](dx-01-backend-test-runnability.md) §5.2's "revisit later" note and adjusts [DX-09](dx-09-backend-type-checking.md) §5's `@types/node` pin
+> Depends on: [DX-01](../shipped/dx-01-backend-test-runnability.md) (needs `npm run test:be` to be the verification surface), [DX-02](../shipped/dx-02-ci-test-gate.md) (soft — CI should be green before and after)
+> Blocks: nothing. Supersedes [DX-01](../shipped/dx-01-backend-test-runnability.md) §5.2's "revisit later" note and adjusts [DX-09](dx-09-backend-type-checking.md) §5's `@types/node` pin
 
 ---
 

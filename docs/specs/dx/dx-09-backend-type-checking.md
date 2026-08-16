@@ -2,16 +2,29 @@
 
 > Add a TypeScript type-checking gate to the backend without converting a single file to
 > `.ts`, without a build step, and without touching the deploy path.
-> Status: proposed — not started. Confirmed 2026-08-16: no `tsconfig.json` or `jsconfig.json`
-> under `backend/api-service/`, no `typecheck` script in either `package.json`, and no
-> type-check step in `.github/workflows/test.yml`. The only static checking on the backend is
-> still ESLint, adopted under [DX-01](dx-01-backend-test-runnability.md) Phase 5.
+> Status: declined 2026-08-16 by the maintainer — not implemented, and not planned. See the
+> DECIDED block below. Verified before deciding: no `tsconfig.json` or `jsconfig.json` under
+> `backend/api-service/`, no `typecheck` script in either `package.json`, and no type-check
+> step in `.github/workflows/test.yml`. Static checking on the backend remains ESLint alone,
+> adopted under [DX-01](../shipped/dx-01-backend-test-runnability.md) Phase 5.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
 > Priority: P1 — the two files behind both 2026 production incidents (`sync.js`, `db.js`) have no static checking beyond ESLint
-> Depends on: none. [DX-02](dx-02-ci-test-gate.md) provides the CI workflow this extends; if DX-02 has not shipped, Phase 4 creates the step in whatever workflow exists.
+> Depends on: none. [DX-02](../shipped/dx-02-ci-test-gate.md) provides the CI workflow this extends; if DX-02 has not shipped, Phase 4 creates the step in whatever workflow exists.
 
 ---
+
+> **DECIDED 2026-08-16 by the maintainer: declined.** The `checkJs` gate is not being added.
+> The analysis below stands and the spec is kept for it — in particular §8's catalogue of the
+> 21 errors a Phase 2 run surfaces, which is a free list of real defects whether or not the
+> gate ever exists. What is settled is that the repo will not carry a type-checking step.
+>
+> The tension this leaves open, recorded honestly rather than argued away: §2's rationale —
+> `sync.js` and `db.js` sit behind both 2026 production incidents and have no static checking
+> beyond ESLint — is unaffected by the decision. If a third incident originates in those
+> files, this is the first thing to revisit. In the meantime the compensating controls are the
+> backend suite (158 tests, gating deploys via [DX-02](../shipped/dx-02-ci-test-gate.md)) and
+> `docs/architecture/crsqlite-sync.md`.
 
 ## 1) Summary
 

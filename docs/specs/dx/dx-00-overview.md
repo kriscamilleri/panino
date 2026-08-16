@@ -41,14 +41,14 @@ DX-02 have shipped.
 
 | # | Spec | Priority | Effort | Depends on |
 |---|---|---|---|---|
-| 01 | [Backend Test Runnability](dx-01-backend-test-runnability.md) | **P0** | ~½ day | — |
-| 02 | [CI Test Gate](dx-02-ci-test-gate.md) | **P0** | ~2 hrs | 01 |
-| 03 | [Agent Instruction Architecture](dx-03-agent-instruction-architecture.md) | **P0** | ~3 hrs | 05 (for Phase 4 only) |
-| 04 | [Agent Log Lifecycle](dx-04-agent-log-lifecycle.md) | P1 | ~½ day | — |
-| 05 | [Architecture Knowledge Base](dx-05-architecture-knowledge-base.md) | P1 | ~1 day | — |
-| 06 | [Repository Hygiene & Context](dx-06-repo-hygiene-context.md) | P1 | ~3 hrs | — |
-| 07 | [Spec Lifecycle & Status](dx-07-spec-lifecycle.md) | P2 | ~3 hrs | — |
-| 08 | [Agent Permissions](dx-08-agent-permissions.md) | P2 | ~1 hr | — |
+| 01 | [Backend Test Runnability](../shipped/dx-01-backend-test-runnability.md) | **P0** | ~½ day | — |
+| 02 | [CI Test Gate](../shipped/dx-02-ci-test-gate.md) | **P0** | ~2 hrs | 01 |
+| 03 | [Agent Instruction Architecture](../shipped/dx-03-agent-instruction-architecture.md) | **P0** | ~3 hrs | 05 (for Phase 4 only) |
+| 04 | [Agent Log Lifecycle](../shipped/dx-04-agent-log-lifecycle.md) | P1 | ~½ day | — |
+| 05 | [Architecture Knowledge Base](../shipped/dx-05-architecture-knowledge-base.md) | P1 | ~1 day | — |
+| 06 | [Repository Hygiene & Context](../shipped/dx-06-repo-hygiene-context.md) | P1 | ~3 hrs | — |
+| 07 | [Spec Lifecycle & Status](../shipped/dx-07-spec-lifecycle.md) | P2 | ~3 hrs | — |
+| 08 | [Agent Permissions](../shipped/dx-08-agent-permissions.md) | P2 | ~1 hr | — |
 | 09 | [Backend Type Checking](dx-09-backend-type-checking.md) | P1 | ~1 day | 02 (soft — supplies the CI job) |
 | 10 | [Node Runtime Upgrade (20 → 24)](dx-10-node-runtime-upgrade.md) | **P0** | ~1½ days | 01, 02 (soft) |
 
@@ -148,5 +148,7 @@ archive.
   access). Both are marked; ask rather than assume.
 - Every spec's validation checklist is meant to be pasted into the PR description, per
   `.github/skills/feature-development/SKILL.md` Phase 8.
-- These specs live at the top level of `docs/specs/` for now. DX-07 moves them into
-  `docs/specs/dx/` as part of its own restructure.
+- These specs originally lived at the top level of `docs/specs/`. DX-07 moved them into
+  `docs/specs/dx/`; on 2026-08-16 the eight completed ones moved on into
+  `docs/specs/shipped/`, leaving `dx/` to hold this index plus whatever is still open. The
+  links in §2 point at wherever each spec currently is.

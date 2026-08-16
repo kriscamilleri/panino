@@ -223,26 +223,41 @@ describe("Connection Management", () => {
   // Background-job guard: maintenance jobs must never write a CRR table through a
   // connection whose internal sync bit is still set, or their deletes skip the
   // CR-SQLite triggers and leave orphan clock rows.
+  // These two use their own ids rather than testUserId1. afterEach deletes the .db/-wal/-shm
+  // files, and reopening the same path immediately afterwards races the OS releasing the WAL:
+  // under full-suite parallel load `getUserDb` then intermittently throws "Safety level may
+  // not be changed inside a transaction" from its `synchronous = normal` pragma, because the
+  // preceding `journal_mode = wal` left a read transaction open when it could not take the
+  // lock cleanly. A distinct id per test sidesteps the race. See the agent log — the
+  // underlying fragility is in getUserDb, not here.
+  const healthyUserIdClean = `test-health-clean-${Date.now()}`;
+  const healthyUserIdPoisoned = `test-health-poisoned-${Date.now()}`;
+
+  afterEach(() => {
+    deleteTestDb(healthyUserIdClean);
+    deleteTestDb(healthyUserIdPoisoned);
+  });
+
   it("returns the cached connection unchanged when the sync bit is clean", () => {
-    const db = getUserDb(testUserId1);
-    expect(getHealthyUserDb(testUserId1, "test-clean")).toBe(db);
+    const db = getUserDb(healthyUserIdClean);
+    expect(getHealthyUserDb(healthyUserIdClean, "test-clean")).toBe(db);
   });
 
   it("reopens a poisoned connection before handing it to a background job", () => {
-    const poisoned = getUserDb(testUserId1);
+    const poisoned = getUserDb(healthyUserIdPoisoned);
     poisoned.prepare("SELECT crsql_internal_sync_bit(1)").get();
     expect(
       poisoned.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get().sync_bit,
     ).toBe(1);
 
-    const healthy = getHealthyUserDb(testUserId1, "test-image-prune");
+    const healthy = getHealthyUserDb(healthyUserIdPoisoned, "test-image-prune");
 
     expect(healthy).not.toBe(poisoned);
     expect(
       healthy.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get().sync_bit,
     ).toBe(0);
     // The poisoned handle must be gone from the cache, not merely bypassed.
-    expect(getUserDb(testUserId1)).toBe(healthy);
+    expect(getUserDb(healthyUserIdPoisoned)).toBe(healthy);
   });
 });
 

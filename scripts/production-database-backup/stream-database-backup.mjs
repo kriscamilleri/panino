@@ -5,16 +5,32 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
-const require = createRequire(import.meta.url);
+// better-sqlite3 lives with the backend, not with this script. Resolve it from wherever it
+// is actually reachable: next to the script, next to the process (in production this file is
+// piped into `node` inside the api-service container, so cwd carries the dependency), or via
+// the backend package in a repo checkout. Each candidate is tried in turn so the script works
+// unchanged when streamed into the container, run from the repo, or loaded by the test suite.
+const moduleResolvers = [
+  () => createRequire(import.meta.url),
+  () => createRequire(path.join(process.cwd(), "package.json")),
+  () => createRequire(new URL("../../backend/api-service/package.json", import.meta.url)),
+];
+
 let Database;
-try {
-  Database = require("better-sqlite3");
-} catch (error) {
-  if (error.code !== "MODULE_NOT_FOUND") throw error;
-  const backendRequire = createRequire(
-    new URL("../../backend/api-service/package.json", import.meta.url),
-  );
-  Database = backendRequire("better-sqlite3");
+let lastResolveError;
+for (const makeRequire of moduleResolvers) {
+  try {
+    Database = makeRequire()("better-sqlite3");
+    break;
+  } catch (error) {
+    if (error.code !== "MODULE_NOT_FOUND") throw error;
+    lastResolveError = error;
+  }
+}
+if (!Database) {
+  throw new Error("Could not resolve better-sqlite3 for the backup producer", {
+    cause: lastResolveError,
+  });
 }
 
 const TAR_BLOCK_SIZE = 512;

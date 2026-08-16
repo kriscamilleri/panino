@@ -7,6 +7,12 @@
 | `shipped/` | Live in production; `Implementation:` maps intent to code |
 | `dx/` | Developer-experience specs about this repository, not the product |
 
+DX specs follow the same lifecycle as product specs and move into `shipped/` when done —
+they keep their `dx-NN-` prefix so the set stays recognisable. `dx/` holds the ones still
+open. A DX spec that is **declined** rather than implemented stays in `dx/` with the decision
+recorded in its header and a `DECIDED` block in the body; declining is a conclusion, not a
+shipment.
+
 A spec describes what we intend to build. For how the system currently works, read
 [`docs/architecture/`](../architecture/). For what an agent did, read
 [`docs/agent-logs/`](../agent-logs/).

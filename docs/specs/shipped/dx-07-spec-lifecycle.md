@@ -2,7 +2,7 @@
 
 > Every spec in the repo says `Status: Draft`, including the shipped ones. Encode status in
 > the path so it cannot drift.
-> Status: done — verified 2026-08-16. `docs/specs/` is partitioned into `proposed/`,
+> Status: shipped — verified 2026-08-16. `docs/specs/` is partitioned into `proposed/`,
 > `active/`, `shipped/` and `dx/` with a `README.md` stating the lifecycle, and every spec
 > carries the standard header. Concluded on 2026-08-16: Phase 1's two open verifications
 > (`document-templates-extensions.md` and `sync-crsqlite-connection-state-recovery.md`) were
@@ -11,6 +11,10 @@
 > header reconciliation across DX-01…DX-09 recorded on 2026-08-16.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
+> Shipped: 2026-08-08 (see `docs/agent-logs/2026/08/2026-08-08_08-42_dx-audit-gap-closure.md`;
+> re-verified 2026-08-16 in `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `docs/specs/README.md`, `docs/specs/{proposed,active,shipped,dx}/`,
+> `.github/skills/feature-development/SKILL.md` Phase 8
 > Priority: P2 — low risk, removes a recurring source of agent confusion
 > Depends on: nothing
 

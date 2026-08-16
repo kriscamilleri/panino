@@ -12,12 +12,17 @@ Two things:
    promote them to `shipped/` if the claim holds.
 2. Reconcile every DX spec header with actual repo state. All ten still said
    `Status: proposed`, including the ones implemented on 2026-08-08 — which is exactly the
-   drift [DX-07](../../../specs/dx/dx-07-spec-lifecycle.md) exists to prevent. DX-07 was never
+   drift [DX-07](../../../specs/shipped/dx-07-spec-lifecycle.md) exists to prevent. DX-07 was never
    itself implemented as a spec, so this pass does its job by hand.
 
 Three further items (GitHub branch protection, the diverged production checkout, and
-DX-10 §6 Phase 2 step 8) were explicitly scoped as report-only and are not recorded here as
-done. They are in the maintainer report, not this log.
+DX-10 §6 Phase 2 step 8) were scoped as report-only. The first two were then decided by the
+maintainer mid-session and are recorded below; step 8 remains open pending a decision on
+approach.
+
+A second round followed the maintainer's decisions: conclude the DX set by moving the
+completed specs into `shipped/`, declining DX-09, and fixing the CI breakage that would
+otherwise block the promotion those conclusions imply.
 
 ## Progress
 
@@ -31,6 +36,11 @@ done. They are in the maintainer report, not this log.
 - [x] `npm run test:be` — 154 tests pass.
 - [x] `git mv` both specs to `shipped/` with `Shipped:`/`Implementation:` headers.
 - [x] Verify DX-01…DX-10 against their own validation checklists and rewrite each `Status:` line.
+- [x] Read-only production diagnosis; concluded no repair is needed.
+- [x] Record the branch-protection decline (DX-02 §7) and the DX-09 decline.
+- [x] Fix the `stream-database-backup` suite and its 13 lint errors; lint is now 0 errors.
+- [x] Diagnose and fix the flaky test — it was mine, and the cause was not what it looked like.
+- [x] Move DX-01…DX-08 into `shipped/`, rewrite 14 cross-links, verify all 29 spec-tree links.
 
 ## What the verification found
 
@@ -133,37 +143,111 @@ weeks reports history, not state. Fetch first, then read `origin/<branch>`.
 | `docs/specs/active/*` → `docs/specs/shipped/*` | Both specs moved with `Shipped:`/`Implementation:` headers; the sync spec's acceptance criteria are now ticked with the evidence for each |
 | `docs/specs/shipped/document-templates.md` | Added the cross-reference to the extension spec that its own §8 asked for |
 | `docs/specs/dx/dx-00…dx-10` | `Status:` lines rewritten to state reality and what remains |
+| `docs/specs/dx/dx-01…dx-08` → `docs/specs/shipped/` | Moved, `Status: shipped`, `Shipped:`/`Implementation:` added; 14 cross-links rewritten |
+| `docs/specs/dx/dx-09-backend-type-checking.md` | `DECIDED 2026-08-16: declined` block |
+| `docs/specs/README.md` | Records how DX specs move, and that declined ones stay in `dx/` |
+| `scripts/test-backend.sh` | Bind-mounts repo `scripts/` at `/scripts:ro` so the backup test's import resolves |
+| `scripts/production-database-backup/stream-database-backup.mjs` | Ordered `better-sqlite3` resolver list including `process.cwd()` |
+| `eslint.config.mjs` | Node globals block for `scripts/**`; `no-console` off there |
+| `backend/api-service/tests/unit/db.test.js` | Distinct user ids for the two guard tests, killing a fixture race |
 
-`docs/specs/active/` is now empty.
+`docs/specs/active/` is empty. `docs/specs/dx/` holds only DX-00, DX-09 and DX-10.
 
 ## Tests
 
+Final state, all green:
+
 - `npm run test:fe` — 16 files, 250 tests pass (was 220; +30 from the two new files).
-- `npm run test:be` — 154 tests pass (was 152; +2). Run four times; three were clean.
-- `npm run lint` — 13 errors, 41 warnings. All 13 errors are pre-existing and confined to
-  `scripts/production-database-backup/stream-database-backup.mjs`; none are in files touched
-  here.
+- `npm run test:be` — **15 files, 158 tests pass** (was 14 files / 152, with one suite that
+  could not even load). Run four consecutive times after the fixture fix; all clean.
+- `npm run lint` — **0 errors**, 41 advisory warnings (was 13 errors).
+- All 29 markdown files under `docs/specs/` link-check clean, code fences excluded.
 
-### Pre-existing breakage found, not fixed
+The three `test:be` failures seen earlier in the session are all accounted for: the
+unloadable `stream-database-backup` suite (fixed), its 13 lint errors (fixed), and the
+intermittent `db.test.js` failure (fixed — it was a fixture race in a test added earlier this
+same session, see above). Nothing is left known-red, which matters because DX-01's checklist
+warns that a known-red suite trains agents to ignore failures.
 
-`npm run test:be` reports one failed suite that has nothing to do with this work:
+## Concluding the DX set
+
+The maintainer decided three things this session, all recorded in the specs themselves so the
+next agent sees ratified decisions rather than open questions:
+
+- **DX-02 §7 branch protection — declined.** Not needed at this stage. The `lint`/`frontend`/
+  `backend` checks still run on every push and PR; they are advisory by choice, not by
+  oversight. Revisit if more than one person starts pushing to `main`. DX-02 is therefore
+  complete as scoped, not "partially done".
+- **DX-09 — declined.** No `checkJs` gate. The spec is kept for its analysis, particularly
+  §8's catalogue of 21 real defects a Phase 2 run surfaces. Recorded as a `DECIDED` block
+  matching the DX-01 Phase 5 and DX-08 Phase 2 precedent. The block also records the tension
+  the decision leaves open rather than arguing it away: §2's rationale — `sync.js` and `db.js`
+  sit behind both 2026 incidents with no static checking beyond ESLint — is untouched by
+  declining. If a third incident starts there, this is the first thing to revisit.
+- **Completed DX specs move into `shipped/`.** DX-01…DX-08 moved, keeping their `dx-NN-`
+  prefix so the set stays recognisable. DX-00 (index), DX-09 (declined) and DX-10 (open)
+  stay in `dx/`.
+
+The move cost 14 cross-link rewrites, in both directions: moved specs pointing at ones that
+stayed (`../dx/…`), and the three that stayed pointing at moved ones (`../shipped/…`). All 29
+markdown files in the spec tree were then link-checked, skipping fenced code blocks — DX-03
+embeds sample `CLAUDE.md` content whose links are illustrative, not real, and a naive checker
+flags them.
+
+`docs/specs/README.md` gained the rule this implies: DX specs follow the same lifecycle and
+move to `shipped/` when done, but a *declined* spec stays in `dx/` with its decision
+recorded. Declining is a conclusion, not a shipment.
+
+## Fixing the CI breakage (and one flaky test of my own)
+
+The `stream-database-backup` suite from `d1155bd` failed under `scripts/test-backend.sh` and
+carried all 13 lint errors. Both had the same root cause: the file had only ever been
+exercised host-native.
+
+- **Test resolution.** The image's build context is `backend/api-service`, so repo-root
+  `scripts/` is not baked in. The test imports the producer at `../../../../scripts/…`, which
+  is correct from the host but escaped the mount in the container. Rather than widen the build
+  context — DX-01 Phase 1 narrowed it deliberately — the runner now bind-mounts `scripts/` at
+  `/scripts:ro`, which is exactly where that relative path resolves from `/app/tests/unit`.
+  The import now means the same thing in both environments.
+- **Module resolution.** The producer then could not find `better-sqlite3`: it tried its own
+  directory, then a repo-relative backend path that does not exist in the container. Replaced
+  the two-branch fallback with an ordered list of resolvers that also tries `process.cwd()` —
+  which is how it actually runs in production, piped into `node` inside the api-service
+  container where the dependency sits at the working directory.
+- **Lint.** `scripts/**` had no ESLint block, so it fell through to the base config with no
+  globals and `process`, `Buffer`, `URL` and `console` all read as undefined. Added a Node
+  block for it with `no-console` off — console is an ops script's user interface, not debug
+  output. Lint is now **0 errors**, down from 13.
+
+### The flake was mine, and the obvious explanation was wrong
+
+The earlier "one unidentified flake in four runs" turned out to be the `getHealthyUserDb`
+test added earlier in this same session. Reproduced it by looping the full suite, and the
+stack said:
 
 ```
-FAIL tests/unit/stream-database-backup.test.js
-Error: Failed to load url ../../../../scripts/production-database-backup/stream-database-backup.mjs
+SqliteError: Safety level may not be changed inside a transaction
+ ❯ Module.getUserDb db.js:562        db.pragma("synchronous = normal")
+ ❯ tests/unit/db.test.js:232
 ```
 
-`scripts/test-backend.sh` builds with `backend/api-service` as the Docker context, so the
-repo-root `scripts/` directory is not in the image and the test's `../../../../` import
-escapes the mount. The same file also carries all 13 lint errors — `URL`, `Buffer`,
-`process` and `console` flagged as undefined, i.e. ESLint has no Node globals configured for
-it. Both arrive from `d1155bd` and both suggest that file was only ever exercised
-host-native, never through the canonical runners.
+The tempting read is that `crsql_internal_sync_bit(1)` leaves a transaction open. It does
+not — probed directly: after setting the bit, `inTransaction` is `false`, `COMMIT` reports
+"no transaction is active", and the bit stays raised. The real tell was line 232: the *first*
+line of the test, before any poisoning.
 
-Left alone: fixing it means changing the Docker build context or relocating the script,
-which is a decision about the backup tooling's layout rather than part of this task. But it
-means the backend suite and lint are both red on a clean checkout right now, which is
-precisely the condition DX-01's checklist warns trains agents to ignore failures.
+The cause is a race in the fixture, not in the guard. `afterEach` deletes the `.db`/`-wal`/
+`-shm` files, and my two tests both reused `testUserId1`, so the second reopened a path
+deleted microseconds earlier. Under full-suite parallel load `journal_mode = wal` occasionally
+cannot take the lock cleanly, leaves a read transaction open, and the following
+`synchronous = normal` pragma throws. Giving each test its own user id removes the race.
+Four consecutive full runs are now clean at 158/158.
+
+Worth recording because the fragility is real and lives in `getUserDb`, not in the test:
+those two pragmas are unguarded against lock contention on open. No production path opens a
+just-deleted database, so it is a test-only exposure today — but it is the kind of thing that
+becomes a mystery in an incident.
 
 ## Production checkout — read-only diagnosis (no writes)
 
@@ -208,15 +292,20 @@ Two things worth flagging from the connection itself, neither acted on:
 - **Both promoted features are genuinely live.** They are on `origin/main` at `51ffcf1`,
   which is the commit the production server has checked out, deployed successfully on
   2026-08-08. `shipped/` is accurate for both.
-- **`develop` is 10 commits ahead of `origin/main`**, all DX work plus this commit. Promoting
-  it is what remains to get DX-10 and the streaming backup to production — and the streaming
-  backup's broken test would fail the CI gate on that promotion as things stand.
-- One unidentified flake: the second of four `test:be` runs reported `1 failed` without the
-  name surviving in captured output; the three other runs were clean. Recorded rather than
-  dismissed — if it recurs, it is not new.
+- **`develop` is ahead of `origin/main`** by this session's work plus the earlier DX
+  commits. Promoting it is what remains to get DX-10 and the streaming backup to production.
+  The CI gate will now pass it — before this session it would not have.
+- **`getUserDb`'s open-time pragmas are unguarded against lock contention.**
+  `journal_mode = wal` followed by `synchronous = normal` can throw if the first cannot take
+  the lock cleanly. Only reachable today by reopening a just-deleted database, which no
+  production path does. Not fixed — flagged because it would be a confusing failure to meet
+  during an incident.
+- **DX-10 §6 Phase 2 step 8 is the one substantive thing still open** across the whole spec
+  set. Approach undecided as of this log; the maintainer asked whether
+  `scripts/production-database-backup/backup-production-databases.sh` can serve as the
+  snapshot mechanism. It can, with two caveats — it pulls *all* databases including
+  `_users.db`, and a snapshot alone gives no baseline arm for step 8's fourth check ("the
+  same operations on a 9.6.0 build"). Nothing was run against production for this.
 - Committed `2026-08-16_06-50_dx-10-browser-verification.md`, which had been left untracked.
   DX-04's "zero untracked files under `docs/`" is a recurring condition, not a one-time check;
   the `Stop` hook proposed in DX-08 §7 would catch this class of miss automatically.
-- DX-09 is the only DX spec never started. Its stated rationale — that `sync.js` and `db.js`,
-  the two files behind both 2026 production incidents, have no static checking beyond ESLint —
-  still holds.

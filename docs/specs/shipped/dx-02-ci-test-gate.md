@@ -1,7 +1,7 @@
 # DX-02 — CI Test Gate Before Deploy
 
 > Run the test suite in CI and stop unverified code from auto-deploying to production.
-> Status: done — verified 2026-08-16. `.github/workflows/test.yml` runs
+> Status: shipped — verified 2026-08-16. `.github/workflows/test.yml` runs
 > `lint`/`frontend`/`backend`, `deploy.yml` has `needs: test` and the dirty-checkout
 > pre-flight, and `scripts/test-backend.sh` is the only definition of the backend test
 > command. §8's deploy-path items are confirmed by the run history rather than by inspection:
@@ -13,6 +13,10 @@
 > spec is complete as scoped.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
+> Shipped: 2026-08-08 (see `docs/agent-logs/2026/08/2026-08-08_08-42_dx-audit-gap-closure.md`;
+> re-verified 2026-08-16 in `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `.github/workflows/test.yml` (`lint`/`frontend`/`backend` jobs),
+> `.github/workflows/deploy.yml` (`needs: test` + dirty-checkout pre-flight)
 > Priority: P0 — currently nothing runs tests at any point in the path to production
 > Depends on: [DX-01](dx-01-backend-test-runnability.md) (tests must be runnable before they can gate)
 
