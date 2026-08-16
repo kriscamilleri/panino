@@ -1,8 +1,8 @@
 // /frontend/src/store/syncStore.js
 import { defineStore } from "pinia";
 import { markRaw, ref } from "vue";
-import initWasm from "@vlcn.io/crsqlite-wasm";
-import wasmUrl from "@vlcn.io/crsqlite-wasm/crsqlite.wasm?url";
+import initWasm from "@/vendor/crsqlite-wasm/index.js";
+import wasmUrl from "@/vendor/crsqlite-wasm/crsqlite.wasm?url";
 import { useAuthStore } from "./authStore";
 import { useDocStore } from "./docStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore";

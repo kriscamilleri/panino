@@ -2,6 +2,7 @@
   "name": "pn-markdown-notes",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@10.11.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,8 +12,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@vlcn.io/crsqlite-wasm": "^0.16.0",
     "@vueuse/core": "^10.11.0",
+    "async-mutex": "^0.5.0",
     "diff": "^8.0.3",
     "dompurify": "^3.1.5",
     "events": "^3.3.0",
@@ -36,6 +37,6 @@
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "vite": "^5.3.1",
-    "vitest": "^4.1.4"
+    "vitest": "4.0.18"
   }
 }

@@ -1,7 +1,7 @@
 # /backend/api-service/Dockerfile
 FROM node:24-bookworm-slim
 
-# Puppeteer + native build deps (crsqlite) + unzip for crsqlite helper
+# Puppeteer runtime libraries and native build dependencies for better-sqlite3
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -49,16 +49,13 @@ RUN apt-get update \
 WORKDIR /app
 
 ENV PYTHON=/usr/bin/python3
-ENV CRSQLITE_EXT_PATH=/app/node_modules/@vlcn.io/crsqlite/build/Release/crsqlite.node
+ENV CRSQLITE_EXT_PATH=/app/native/crsqlite.so
 
 COPY package*.json .npmrc ./
-COPY patch-crsqlite.sh ./
-RUN sed -i 's/\r$//' patch-crsqlite.sh && chmod +x patch-crsqlite.sh
 
-# .npmrc disables lifecycle scripts so @vlcn.io/crsqlite's own "install" script
-# (Node <22 import-attribute syntax) can't crash npm ci before it's patched.
-# native:setup runs the patch, then rebuilds crsqlite and fetches Puppeteer's
-# Chrome build explicitly, in the right order.
+# .npmrc disables lifecycle scripts so better-sqlite3 is rebuilt and
+# Puppeteer's Chrome is fetched explicitly in a deterministic order.
+# CR-SQLite ships as a vendored prebuilt loadable extension.
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
   && npm run native:setup
 

@@ -8,7 +8,7 @@
         "node": ">=24 <25"
     },
     "scripts": {
-        "native:setup": "./patch-crsqlite.sh && (cd node_modules/better-sqlite3 && npm run install) && (cd node_modules/@vlcn.io/crsqlite && node nodejs-install-helper.js) && node node_modules/puppeteer/install.mjs",
+        "native:setup": "(cd node_modules/better-sqlite3 && npm run install) && node node_modules/puppeteer/install.mjs",
         "start": "node index.js",
         "migrate:globals": "node scripts/migrate-globals.js",
         "test": "vitest run",
@@ -16,7 +16,6 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
-        "@vlcn.io/crsqlite": "^0.16.3",
         "bcryptjs": "^2.4.3",
         "better-sqlite3": "^12.11.1",
         "cors": "^2.8.5",

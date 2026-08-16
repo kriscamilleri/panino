@@ -73,14 +73,10 @@ mkdir -p -- "$WORK_DIR"
 build_arm() {
   local version="$1" tag="$2"
   echo "[dx10] building arm better-sqlite3@$version ..." >&2
-  # patch-crsqlite.sh is copied out of the backend so the arms patch CR-SQLite exactly the
-  # way the real images do, rather than carrying a second copy of that logic.
-  cp "$REPO_ROOT/backend/api-service/patch-crsqlite.sh" "$SCRIPT_DIR/patch-crsqlite.sh"
   docker build -q \
     --build-arg "BETTER_SQLITE3_VERSION=$version" \
     -f "$SCRIPT_DIR/Dockerfile.arm" \
-    -t "$tag" "$SCRIPT_DIR" >/dev/null
-  rm -f "$SCRIPT_DIR/patch-crsqlite.sh"
+    -t "$tag" "$REPO_ROOT" >/dev/null
 }
 
 OLD_TAG="panino-dx10-arm-old"

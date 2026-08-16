@@ -188,7 +188,7 @@ Node-ABI bound). Running them on a host with a different Node major fails with a
 mismatch — that is an environment condition, not a broken test. The repo pins the intended
 version in `.nvmrc`; if you are on Node 24 you can use `npm run test:be:host` to skip Docker,
 after running `npm run native:setup` in `backend/api-service` once to build the native
-dependencies (see `backend/api-service/.npmrc`).
+`better-sqlite3` addon and fetch Puppeteer's browser (see `backend/api-service/.npmrc`).
 
 `npm run lint` must report zero errors. Warnings are advisory.
 

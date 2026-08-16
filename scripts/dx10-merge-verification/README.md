@@ -1,15 +1,15 @@
 # DX-10 step 8 — merge-behaviour verification
 
-Tooling for [`docs/specs/dx/dx-10-node-runtime-upgrade.md`](../../docs/specs/dx/dx-10-node-runtime-upgrade.md)
+Tooling for [`docs/specs/shipped/dx-10-node-runtime-upgrade.md`](../../docs/specs/shipped/dx-10-node-runtime-upgrade.md)
 §6 Phase 2 step 8, the spec's "real gate" before the `better-sqlite3` upgrade ships.
 
 ## What it is for
 
 DX-10 §2.4 identifies the one genuinely risky part of the upgrade: `better-sqlite3` bundles
 the SQLite amalgamation, so moving 9.6.0 → 12.11.1 moves SQLite **3.45.3 → 3.53.2**
-underneath `@vlcn.io/crsqlite@0.16.3` — a release from the 3.45 era whose upstream is dead.
-The failure surface is `crsql_changes` merge semantics, which is exactly where both 2026
-production incidents happened.
+underneath the same vendored CR-SQLite loadable extension. The failure surface is
+`crsql_changes` merge semantics, which is exactly where both 2026 production incidents
+happened.
 
 The spec says a green unit suite is not sufficient evidence. It asks to compare
 `crsql_db_version()` and clock-table row counts across the same operations **on a 9.6.0
@@ -83,6 +83,20 @@ no recorded error**. Two arms that fail identically also produce identical repor
 reporting that as "unchanged" would be exactly backwards — that case exits `4`, not `0`.
 
 ## Results on record
+
+### Vendored extension — 2026-08-16
+
+The same two-arm verification was repeated after replacing the npm package with the vendored
+`backend/api-service/native/crsqlite.so`. Both arms loaded that exact binary.
+
+A fresh 11 MB snapshot of the most informative production user database completed all seven
+steps with no errors on both SQLite 3.45.3 and 3.53.2. Both reports had a six-version clock
+advance, three new visible changes, seven image clock rows on insert, one sentinel and zero
+non-sentinel rows after each delete, and identical totals across all seven clock tables.
+The snapshot and all working copies were deleted immediately after the run.
+
+The reproducible 400-note synthetic fixture also completed all seven steps and produced
+identical reports across both arms.
 
 ### Production data — 2026-08-16 (the run step 8 actually asks for)
 

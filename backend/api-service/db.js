@@ -4,15 +4,11 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
-import { createRequire } from "module";
-import { spawnSync } from "child_process";
 
-const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "data");
 
 const dbConnections = new Map();
-let crsqliteInstallAttempted = false;
 
 const BASE_SCHEMA = `
   PRAGMA foreign_keys = ON;
@@ -240,84 +236,23 @@ export function ensureImagesSchema(db) {
 }
 
 /**
- * Recursively walk a directory and return all files.
- */
-function walk(dir) {
-  const out = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walk(p));
-    else out.push(p);
-  }
-  return out;
-}
-
-/**
- * Try to find the crsqlite shared object/binary.
- * Override with CRSQLITE_EXT_PATH if you know it.
+ * Resolve the vendored crsqlite loadable extension.
  */
 function resolveCrsqlitePath() {
   const env = process.env.CRSQLITE_EXT_PATH;
   if (env && fs.existsSync(env)) return env;
 
-  let pkgDir;
-  try {
-    pkgDir = path.dirname(require.resolve("@vlcn.io/crsqlite/package.json"));
-  } catch (e) {
+  if (process.platform !== "linux" || process.arch !== "x64") {
     throw new Error(
-      "Cannot resolve '@vlcn.io/crsqlite'. Is it installed in this service?",
-      { cause: e },
+      "The vendored crsqlite.so supports Linux x86_64 only. Set CRSQLITE_EXT_PATH to a compatible extension.",
     );
   }
 
-  const findCandidates = () =>
-    walk(pkgDir).filter((p) => /crsqlite\.(node|so|dylib|dll)$/.test(p));
-
-  let candidates = findCandidates();
-
-  if (candidates.length === 0 && !crsqliteInstallAttempted) {
-    crsqliteInstallAttempted = true;
-    try {
-      const installHelperPath = path.join(pkgDir, "nodejs-install-helper.js");
-      if (fs.existsSync(installHelperPath)) {
-        const install = spawnSync(process.execPath, [installHelperPath], {
-          cwd: pkgDir,
-          stdio: "pipe",
-        });
-
-        if (install.status !== 0) {
-          const errorOutput = [
-            install.stdout?.toString(),
-            install.stderr?.toString(),
-          ]
-            .filter(Boolean)
-            .join("\n")
-            .trim();
-          console.warn(
-            "[db] Failed to auto-install crsqlite binary:",
-            errorOutput || "unknown error",
-          );
-        }
-
-        candidates = findCandidates();
-      }
-    } catch (error) {
-      console.warn(
-        "[db] Error while attempting to auto-install crsqlite binary:",
-        error,
-      );
-    }
-  }
-
-  if (candidates.length > 0) {
-    // Prefer Release over Debug if both exist
-    const release = candidates.find((p) => /build\/Release\//.test(p));
-    return release || candidates[0];
-  }
+  const vendored = path.join(__dirname, "native", "crsqlite.so");
+  if (fs.existsSync(vendored)) return vendored;
 
   throw new Error(
-    `Could not locate crsqlite binary. Looked under ${pkgDir}. ` +
-      `Set CRSQLITE_EXT_PATH to the absolute path of crsqlite.(node|so|dylib|dll).`,
+    "Could not locate vendored crsqlite.so. Set CRSQLITE_EXT_PATH to its absolute path.",
   );
 }
 

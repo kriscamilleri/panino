@@ -133,25 +133,29 @@ Two practical consequences:
 Follow [the sync incident runbook](../runbooks/sync-incident-response.md). It covers backup,
 dry-run inspection, repair, and post-repair sentinel checks.
 
-## Runtime note (2026-08-08, DX-10)
+## Runtime and vendoring note (2026-08-16)
 
 `better-sqlite3` moved from 9.6.0 to 12.11.1, which bundles SQLite 3.53.2 — up from 3.45.3.
-`@vlcn.io/crsqlite` is pinned at 0.16.3, last published 2024-01-17 against the SQLite 3.45
-era, and the project is unmaintained: there is no upstream fix if it misbehaves against a
-newer SQLite. This extension is now running eight SQLite minors ahead of its last release.
-The next person to touch sync should treat any further SQLite version change as a real risk
-to `crsql_changes` semantics, not a routine bump.
+Panino no longer installs the unmaintained `@vlcn.io/crsqlite` packages. The backend loads
+`backend/api-service/native/crsqlite.so`, built from the maintained fork against its vendored
+SQLite 3.53.4 headers, and the frontend imports its runtime from `frontend/src/vendor/`.
+The backend binary targets Linux x86_64 and remains a standard SQLite loadable extension
+rather than a Node addon; other platforms must supply a compatible binary with
+`CRSQLITE_EXT_PATH`.
+Treat any future SQLite or CR-SQLite rebuild as a real risk to `crsql_changes` semantics, not
+as a routine dependency bump.
 
-Verification performed for this change: a `loadExtension` + `crsql_db_version()` probe
-succeeded against SQLite 3.53.2 in both the Node 20 (pre-runtime-bump) and Node 24
-(post-runtime-bump) images, and the full `npm run test:be` suite (152 tests, including the
-sync, sync-revision, and image-orphan-merge integration tests) passed with no regressions
-relative to the pre-bump baseline. What was **not** done: the merge-behaviour round trip
-against a restored copy of real production data specified in
-[DX-10](../specs/dx/dx-10-node-runtime-upgrade.md) §6 Phase 2 step 8 — that requires
-production data access and must happen before this change reaches production. See the
-[DX-10 spec](../specs/dx/dx-10-node-runtime-upgrade.md) and the agent log for this session
-for details.
+The required verification for a rebuilt extension is a `loadExtension` +
+`crsql_db_version()` probe, the complete backend suite, and the merge-behaviour round trip
+against a restored production database copy specified in
+[DX-10](../specs/shipped/dx-10-node-runtime-upgrade.md) §6 Phase 2 step 8.
+
+The 2026-08-16 vendoring verification loaded the binary into `better-sqlite3` 12.11.1
+(SQLite 3.53.2), returned `0` from `crsql_db_version()`, and passed all 177 backend tests.
+The two-arm merge harness completed all seven operations with no errors against both a
+synthetic fixture and a fresh 11 MB production snapshot. Clock totals, tombstones, visible
+changes, and the six-version clock advance were identical between SQLite 3.45.3 and 3.53.2.
+The production snapshot and all working copies were deleted immediately after verification.
 
 ## Provenance
 

@@ -74,6 +74,7 @@ describe("User Database Management", () => {
 
   it("should apply CRDT schema to user database", () => {
     const db = getUserDb(testUserId);
+    const dbVersion = db.prepare("SELECT crsql_db_version() AS value").get();
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -89,6 +90,7 @@ describe("User Database Management", () => {
         name === "crsql_tracked_peers",
     );
     expect(hasCRDT).toBe(true);
+    expect(Number(dbVersion.value)).toBeGreaterThanOrEqual(0);
 
     // Check base tables exist
     expect(tableNames).toContain("users");
