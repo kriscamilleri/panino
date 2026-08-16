@@ -4,7 +4,7 @@
 > Status: shipped — verified 2026-08-16. `.dockerignore`, `.nvmrc`, `scripts/test-backend.sh`,
 > `scripts/test-frontend.sh` and `scripts/doctor.sh` are in place; `npm test` runs both suites.
 > Phase 5's lint decision was ratified as Option A (adopt ESLint) on 2026-08-08. §7's
-> `engines` line is superseded by [DX-10](../dx/dx-10-node-runtime-upgrade.md): the pin is now
+> `engines` line is superseded by [DX-10](dx-10-node-runtime-upgrade.md): the pin is now
 > `>=24 <25`, not `>=20 <21`.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
@@ -125,7 +125,7 @@ prebuilds. It would work, but it drifts the host away from the Node 20 productio
 and re-introduces the "works locally, fails in prod" class of bug that DX-05 documents for
 CR-SQLite. Revisit only when the production base image moves to Node 24.
 
-**Revisited by [DX-10](../dx/dx-10-node-runtime-upgrade.md).** Node 20 reached end of life on
+**Revisited by [DX-10](dx-10-node-runtime-upgrade.md).** Node 20 reached end of life on
 2026-04-30, which flips the trade-off above: matching production no longer means matching a
 supported runtime. DX-10 moves `better-sqlite3` to `^12.11.1` and the production base image
 to `node:24-bookworm-slim`, so this section's rejection no longer applies — production itself

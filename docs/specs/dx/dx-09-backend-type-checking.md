@@ -207,7 +207,7 @@ typescript@^5  @types/node@^24  @types/express@^4  @types/cors@^2
 ```
 
 `@types/node@^24` matches `.nvmrc` (Node 24) and `engines.node: ">=24 <25"`, per
-[DX-10](dx-10-node-runtime-upgrade.md), which moved the production runtime off end-of-life
+[DX-10](../shipped/dx-10-node-runtime-upgrade.md), which moved the production runtime off end-of-life
 Node 20. Match whatever `.nvmrc` pins at the time this spec ships — this file predates the
 runtime upgrade and originally specified `^20`.
 
