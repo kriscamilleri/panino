@@ -38,3 +38,10 @@ checking whether that value differs from the persisted note content.
 ## Open Items / Notes
 
 - Browser verification used a fresh development-only account and note.
+
+## Deployment
+
+- 2026-08-16: deployed to `main` at commit `266e20b` through the repository's VPS deployment
+  workflow after its lint, frontend, and backend gates passed.
+- The deployment workflow completed successfully, and `https://panino.sh` responded with the
+  application title after deployment.
