@@ -1,6 +1,6 @@
 FROM node:24-bookworm-slim
 
-# Native build deps (crsqlite) + runtime deps needed by backend test suite (including PDF tests)
+# Native build deps for better-sqlite3 and runtime deps for the backend test suite
 RUN apt-get update -o Acquire::Retries=5 \
 	&& apt-get install -y --no-install-recommends \
 		ca-certificates \
@@ -48,17 +48,16 @@ RUN apt-get update -o Acquire::Retries=5 \
 WORKDIR /app
 
 ENV PYTHON=/usr/bin/python3
+ENV CRSQLITE_EXT_PATH=/app/native/crsqlite.so
 # Headless Shell supports the PDF test suite; avoid downloading full Chrome as well.
 ENV PUPPETEER_CHROME_SKIP_DOWNLOAD=true
 
 # Copy package files
 COPY package*.json .npmrc ./
-COPY patch-crsqlite.sh ./
 
-# .npmrc disables lifecycle scripts so @vlcn.io/crsqlite's own "install" script
-# (Node <22 import-attribute syntax) can't crash npm ci before it's patched.
-# native:setup runs the patch, then rebuilds crsqlite and fetches Puppeteer's
-# Chrome build explicitly, in the right order.
+# .npmrc disables lifecycle scripts so better-sqlite3 is rebuilt and
+# Puppeteer's browser is fetched explicitly in a deterministic order.
+# CR-SQLite ships as a vendored prebuilt loadable extension.
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi \
 	&& npm run native:setup \
 	&& ln -s "$(find /root/.cache/puppeteer/chrome-headless-shell -type f -name chrome-headless-shell -print -quit)" /usr/local/bin/chrome-headless-shell

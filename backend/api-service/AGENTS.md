@@ -58,7 +58,9 @@ Two database types:
 
 Connection caching: `dbConnections` Map keyed by userId (or `'_auth'`). All connections get WAL mode and normal synchronous pragma.
 
-CR-SQLite extension is loaded per-connection. Path resolved via `CRSQLITE_EXT_PATH` env var or auto-discovery under `node_modules/@vlcn.io/crsqlite/`.
+CR-SQLite is a vendored loadable extension at `native/crsqlite.so`. It is loaded
+per-connection. The vendored binary targets Linux x86_64; use `CRSQLITE_EXT_PATH` to supply
+a compatible extension on another platform.
 
 ---
 
@@ -123,8 +125,9 @@ docker run --rm panino-test
 The canonical repository command is `npm run test:be` from the repository root. It builds
 and runs `Dockerfile.test` with Node 24, matching production and avoiding native binding ABI
 mismatches on other host Node versions. Use `npm test` here only on Node 24 — and after
-`npm run native:setup` (patches CR-SQLite's install script, builds `better-sqlite3`, and
-fetches Puppeteer's Chrome build; installs skip these automatically, see `.npmrc`).
+`npm run native:setup` (builds `better-sqlite3` and fetches Puppeteer's Chrome build;
+installs skip these automatically, see `.npmrc`). The vendored CR-SQLite extension has no
+install step.
 
 ### Directory structure
 

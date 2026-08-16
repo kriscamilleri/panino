@@ -42,7 +42,7 @@
                 data-testid="template-variable-submit"
                 @click="handleSubmit"
             >
-                Create Note
+                Create Document
             </BaseButton>
         </template>
     </BaseModal>

@@ -45,6 +45,7 @@ export default [
       "backend/api-service/data/**",
       "backend/api-service/uploads/**",
       "backend/font-service/**",
+      "frontend/src/vendor/**",
       "poc/**",
       ".vscode/**",
     ],

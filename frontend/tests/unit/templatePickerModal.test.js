@@ -30,6 +30,12 @@ function functionBody(fnName) {
 }
 
 describe("TemplatePickerModal – title pattern resolution", () => {
+  it("uses Document in product-facing creation copy", () => {
+    expect(source).toContain("New Document from Template");
+    expect(source).toContain("Create Document");
+    expect(source).toContain("Save a document as a template");
+  });
+
   it("falls back to the template name when title_pattern is empty", () => {
     const body = functionBody("createNoteFromTemplate");
     expect(body).toMatch(/let\s+noteTitle\s*=\s*tpl\.name/);

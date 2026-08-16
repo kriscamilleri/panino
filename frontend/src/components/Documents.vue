@@ -24,7 +24,7 @@
 
                 <BaseButton
                     @click="showCreateFileModal"
-                    title="New File"
+                    title="New Document"
                     data-testid="documents-new-file-button"
                 >
                     <FilePlus class="w-4 h-4" />
@@ -58,7 +58,7 @@
                 <input
                     v-model="searchQuery"
                     type="text"
-                    placeholder="Search files and folders..."
+                    placeholder="Search documents and folders..."
                     class="w-full px-8 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
                     ref="searchInput"
                     data-testid="documents-search-input"
@@ -245,7 +245,7 @@ const showTemplatePicker = ref(false)
 const createType = ref('')
 const newItemName = ref('')
 // PromptModal focuses its own input once mounted.
-function showCreateFileModal() { createType.value = 'File'; showCreateModal.value = true }
+function showCreateFileModal() { createType.value = 'Document'; showCreateModal.value = true }
 function showCreateFolderModal() { createType.value = 'Folder'; showCreateModal.value = true }
 
 async function confirmCreate() {
@@ -253,7 +253,7 @@ async function confirmCreate() {
 
     try {
         let newItem;
-        if (createType.value === 'File') {
+        if (createType.value === 'Document') {
             newItem = await docStore.createFile(newItemName.value)
             if (newItem && newItem.id) {
                 await nextTick() // Wait for DOM updates

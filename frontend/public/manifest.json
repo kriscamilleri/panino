@@ -1,7 +1,7 @@
 {
-  "name": "Panino - Pretty Neat Notes",
+  "name": "Panino - Pretty Neat Documents",
   "short_name": "Panino",
-  "description": "A beautiful markdown note-taking app that works offline",
+  "description": "A beautiful markdown document app that works offline",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

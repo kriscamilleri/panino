@@ -19,7 +19,7 @@
             <section class="mb-6">
                 <h2 class="text-lg font-semibold mb-2">1. Introduction</h2>
                 <p>
-                    Welcome to <strong>panino</strong>, a free and open-source Markdown note-taking
+                    Welcome to <strong>panino</strong>, a free and open-source Markdown document
                     web application. By using this public instance, you agree to the terms and
                     conditions outlined below. If you do not agree, you must discontinue use
                     immediately.
@@ -53,7 +53,7 @@
                 <ul class="list-disc ml-6">
                     <li>
                         <strong>Technology Stack:</strong> This service uses a local-first architecture powered by
-                        <strong>cr-sqlite</strong>. Your notes are stored primarily on your own device in a SQLite
+                        <strong>cr-sqlite</strong>. Your documents are stored primarily on your own device in a SQLite
                         database (via WebAssembly) and securely synchronized with a dedicated, per-user SQLite database
                         on
                         our server.

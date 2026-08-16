@@ -36,14 +36,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createRequire } from "node:module";
 import Database from "better-sqlite3";
 import {
   findOrphanImagesClockRows,
   repairOrphanImagesClocks,
 } from "../db-repair.js";
 
-const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const argv = process.argv.slice(2);
@@ -57,30 +55,9 @@ const dbDir = process.env.DB_DIR || path.join(__dirname, "..", "data");
 // the running api-service. Honestly the repair only touches plain
 // `images__crsql_clock` rows so the extension is optional, but loading it
 // keeps behavior consistent with the live app.
-let crsqliteExtPath = process.env.CRSQLITE_EXT_PATH || null;
-if (!crsqliteExtPath) {
-  try {
-    const pkgDir = path.dirname(
-      require.resolve("@vlcn.io/crsqlite/package.json"),
-    );
-    const walk = (dir) => {
-      const out = [];
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const p = path.join(dir, entry.name);
-        if (entry.isDirectory()) out.push(...walk(p));
-        else out.push(p);
-      }
-      return out;
-    };
-    const candidates = walk(pkgDir).filter((p) =>
-      /crsqlite\.(node|so|dylib|dll)$/.test(p),
-    );
-    const release = candidates.find((p) => /build\/Release\//.test(p));
-    crsqliteExtPath = release || candidates[0] || null;
-  } catch {
-    /* ignore */
-  }
-}
+const crsqliteExtPath =
+  process.env.CRSQLITE_EXT_PATH ||
+  path.join(__dirname, "..", "native", "crsqlite.so");
 
 if (!fs.existsSync(dbDir)) {
   console.error(`DB dir does not exist: ${dbDir}`);

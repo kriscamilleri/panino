@@ -10,7 +10,6 @@
 // `closeAllConnections` afterEach hook installed by tests/setup.js.
 
 import { describe, it, expect } from "vitest";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
@@ -19,24 +18,11 @@ import {
   repairOrphanImagesClocks,
 } from "../../db-repair.js";
 
-const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const EXT_PATH =
   process.env.CRSQLITE_EXT_PATH ||
-  // Fall back to the bundled crsqlite.so shipped in dist/.
-  (() => {
-    try {
-      const pkgDir = path.dirname(
-        require.resolve("@vlcn.io/crsqlite/package.json"),
-      );
-      const so = path.join(pkgDir, "dist", "crsqlite.so");
-      if (require("node:fs").existsSync(so)) return so;
-    } catch (_) {
-      /* ignore */
-    }
-    return null;
-  })();
+  path.join(__dirname, "../../native/crsqlite.so");
 
 const IMAGES_SCHEMA = `
   CREATE TABLE images (

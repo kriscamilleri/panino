@@ -1,8 +1,8 @@
 // /frontend/src/store/syncStore.js
 import { defineStore } from "pinia";
 import { markRaw, ref } from "vue";
-import initWasm from "@vlcn.io/crsqlite-wasm";
-import wasmUrl from "@vlcn.io/crsqlite-wasm/crsqlite.wasm?url";
+import initWasm from "@/vendor/crsqlite-wasm/index.js";
+import wasmUrl from "@/vendor/crsqlite-wasm/crsqlite.wasm?url";
 import { useAuthStore } from "./authStore";
 import { useDocStore } from "./docStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore";
@@ -251,7 +251,7 @@ export const useSyncStore = defineStore("syncStore", () => {
   }
 
   /**
-   * Adds the `pinned` note attribute to databases created before the Recent
+   * Adds the `pinned` document attribute to databases created before the Recent
    * Documents redesign.
    */
   async function ensureNotesSchema() {
@@ -605,7 +605,7 @@ tags:
         // Show toast
         const { useUiStore } = await import("./uiStore");
         const uiStore = useUiStore();
-        uiStore.addToast("Back online! Syncing your notes...", "success", 3000);
+        uiStore.addToast("Back online! Syncing your documents...", "success", 3000);
 
         // Reconnect websocket and sync
         connectWebSocket();
@@ -615,7 +615,7 @@ tags:
         const { useUiStore } = await import("./uiStore");
         const uiStore = useUiStore();
         uiStore.addToast(
-          "Back online! Enable sync to sync your notes.",
+          "Back online! Enable sync to sync your documents.",
           "info",
           5000,
         );

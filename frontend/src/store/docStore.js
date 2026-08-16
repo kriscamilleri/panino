@@ -60,7 +60,7 @@ export const useDocStore = defineStore("docStore", () => {
   }
 
   /**
-   * Recursive folder-path CTE shared by both dashboard queries, so a note's
+   * Recursive folder-path CTE shared by both dashboard queries, so a document's
    * displayed path is built the same way whichever scope loaded it.
    */
   const FOLDER_PATHS_CTE = `
@@ -95,7 +95,7 @@ export const useDocStore = defineStore("docStore", () => {
                 COALESCE(folder_paths.path, 'Root') AS folderPath`;
 
   /**
-   * Most recently modified notes across every folder — the global Recent
+   * Most recently modified documents across every folder — the global Recent
    * Documents scope.
    *
    * @param {number} [limit] bounded result size; the dashboard filters in memory
@@ -122,9 +122,10 @@ ${DOCUMENT_COLUMNS}
   }
 
   /**
-   * Notes assigned directly to one folder. Deliberately `folder_id = ?` rather
-   * than a descendant walk: a folder dashboard shows that folder's own notes,
-   * and a pinned note in a child folder appears only once that child is opened.
+   * Documents assigned directly to one folder. Deliberately `folder_id = ?`
+   * rather than a descendant walk: a folder dashboard shows that folder's own
+   * documents, and a pinned document in a child folder appears only once that
+   * child is opened.
    *
    * @param {string|null} folderId selected folder; `null` means the root scope
    * @param {number} [limit] bounded result size
@@ -152,15 +153,15 @@ ${DOCUMENT_COLUMNS}
   }
 
   /**
-   * Pin or unpin a note. `updated_at` moves with the change so the note orders
-   * consistently in the dashboards and replicates as an ordinary note edit.
+   * Pin or unpin a document. `updated_at` moves with the change so the document
+   * orders consistently in the dashboards and replicates as an ordinary document edit.
    *
    * @param {string} noteId
    * @param {boolean} pinned
    * @returns {Promise<void>} rejects so the caller can revert its optimistic state
    */
   async function setDocumentPinned(noteId, pinned) {
-    if (!noteId) throw new Error("A note id is required to change pin state.");
+    if (!noteId) throw new Error("A document id is required to change pin state.");
 
     await syncStore.db.value.exec(
       "UPDATE notes SET pinned = ?, updated_at = ? WHERE id = ?",

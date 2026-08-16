@@ -44,7 +44,7 @@
                     :data-testid="`tree-item-context-menu-new-file-${item.id}`"
                 >
                     <FilePlus class="h-4 w-4" />
-                    <span>New File</span>
+                    <span>New Document</span>
                 </button>
                 <button
                     @click="handleNewFolder"
@@ -160,7 +160,7 @@
                     />
                 </li>
                 <li v-if="matchingFiles.length === 0 && children.some(c => c.type === 'file')">
-                    <div class="text-xs text-gray-500 pl-2">(Files inside matching folder)</div>
+                    <div class="text-xs text-gray-500 pl-2">(Documents inside matching folder)</div>
                     <TreeItem
                         v-for="child in children.filter(c => c.type === 'file')"
                         :key="child.id"
@@ -368,7 +368,7 @@ const showCreateModal = ref(false)
 const createType = ref('')
 const newItemName = ref('')
 
-function handleNewFile() { openCreate('File') }
+function handleNewFile() { openCreate('Document') }
 function handleNewFolder() { openCreate('Folder') }
 function openCreate(type) {
     createType.value = type
@@ -377,7 +377,7 @@ function openCreate(type) {
 }
 async function confirmCreate() {
     if (!newItemName.value.trim()) return
-    const action = createType.value === 'File'
+    const action = createType.value === 'Document'
         ? docStore.createFile(newItemName.value, props.item.id)
         : docStore.createFolder(newItemName.value, props.item.id)
 
@@ -403,7 +403,7 @@ function handleRename() {
         showContextMenu.value = false
         return
     }
-    renameType.value = props.item.type
+    renameType.value = props.item.type === 'file' ? 'Document' : 'Folder'
     renameItemName.value = props.item.name
     showRenameModal.value = true
     showContextMenu.value = false

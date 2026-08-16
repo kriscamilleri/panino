@@ -8,7 +8,7 @@
     >
         <div class="space-y-5">
             <p class="pn-body">
-                Push a full snapshot of your notes, folders, and images to a private GitHub repository.
+                Push a full snapshot of your documents, folders, and images to a private GitHub repository.
             </p>
 
             <div
