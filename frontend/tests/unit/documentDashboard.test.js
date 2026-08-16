@@ -120,14 +120,14 @@ beforeEach(() => {
 });
 
 describe('DocumentDashboard — global Recent Documents', () => {
-    it('renders the page header, search label, and New Note action', async () => {
+    it('renders the page header, search label, and New action', async () => {
         const wrapper = await mountDashboard();
 
         expect(testid(wrapper, 'folder-preview-recent-heading').text()).toBe('Recent Documents');
         expect(testid(wrapper, 'document-dashboard-search').attributes('placeholder'))
             .toBe('Search recent documents');
-        expect(testid(wrapper, 'document-dashboard-new-note').exists()).toBe(true);
-        expect(testid(wrapper, 'document-dashboard-list-heading').text()).toBe('Recent');
+        expect(testid(wrapper, 'document-dashboard-new-note').text()).toContain('New');
+        expect(testid(wrapper, 'document-dashboard-list-heading').exists()).toBe(false);
     });
 
     it('loads the bounded global query rather than the old ten-item one', async () => {
@@ -136,16 +136,24 @@ describe('DocumentDashboard — global Recent Documents', () => {
         expect(docStoreMock.getFolderDocuments).not.toHaveBeenCalled();
     });
 
-    it('shows exactly the top three results as Continue Writing cards', async () => {
+    it('shows pinned documents as Continue Writing cards, newest first', async () => {
         const wrapper = await mountDashboard();
         const cards = wrapper.findAll('[data-testid^="continue-writing-card-"]');
 
-        expect(cards).toHaveLength(3);
+        expect(cards).toHaveLength(2);
         expect(cards.map((c) => c.attributes('data-testid'))).toEqual([
             'continue-writing-card-alpha',
-            'continue-writing-card-beta',
-            'continue-writing-card-gamma',
+            'continue-writing-card-delta',
         ]);
+    });
+
+    it('keeps Continue Writing newest-first when the list is sorted oldest-first', async () => {
+        const wrapper = await mountDashboard();
+        await testid(wrapper, 'document-dashboard-sort').setValue('oldest');
+
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')
+            .map((card) => card.attributes('data-testid')))
+            .toEqual(['continue-writing-card-alpha', 'continue-writing-card-delta']);
     });
 
     it('keeps the carded documents in the chronological list as well', async () => {
@@ -161,16 +169,18 @@ describe('DocumentDashboard — global Recent Documents', () => {
         ]);
     });
 
-    it('renders two, one, and no cards as the result set shrinks', async () => {
-        for (const size of [2, 1]) {
-            docStoreMock.getRecentDocuments.mockImplementation(
-                async () => GLOBAL_DOCS.slice(0, size).map((d) => ({ ...d }))
-            );
-            const wrapper = await mountDashboard();
-            expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(size);
-        }
+    it('renders at most three pinned cards and no cards without pinned documents', async () => {
+        docStoreMock.getRecentDocuments.mockImplementation(async () => [
+            ...GLOBAL_DOCS,
+            makeDoc('epsilon', { isPinned: true, displayedDate: minutesAgo(300) }),
+            makeDoc('zeta', { isPinned: true, displayedDate: minutesAgo(400) }),
+        ].map((d) => ({ ...d })));
+        const wrapper = await mountDashboard();
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(3);
 
-        docStoreMock.getRecentDocuments.mockImplementation(async () => []);
+        docStoreMock.getRecentDocuments.mockImplementation(
+            async () => GLOBAL_DOCS.filter((doc) => !doc.isPinned).map((d) => ({ ...d }))
+        );
         const empty = await mountDashboard();
         expect(testid(empty, 'continue-writing-section').exists()).toBe(false);
         expect(empty.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(0);
@@ -178,7 +188,7 @@ describe('DocumentDashboard — global Recent Documents', () => {
 
     it('hides the Continue Writing cards while the quick filter is in use', async () => {
         const wrapper = await mountDashboard();
-        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(3);
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(2);
 
         // Searching: the list is the answer, so the rail steps aside even when
         // the query still matches documents.
@@ -188,13 +198,13 @@ describe('DocumentDashboard — global Recent Documents', () => {
         expect(wrapper.findAll('[data-testid^="document-row-title-"]').length).toBeGreaterThan(0);
 
         await testid(wrapper, 'document-dashboard-search-clear').trigger('click');
-        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(3);
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(2);
     });
 
     it('keeps the cards for a whitespace-only query', async () => {
         const wrapper = await mountDashboard();
         await testid(wrapper, 'document-dashboard-search').setValue('   ');
-        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(3);
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(2);
     });
 
     it('keeps the cards under the Pinned filter, which is not a search', async () => {
@@ -470,23 +480,23 @@ describe('DocumentDashboard — folder scope', () => {
         expect(docStoreMock.createFile).toHaveBeenCalledWith('Folder Note', 'folder-1');
     });
 
-    it('shows the folder-specific empty state with a New Note action', async () => {
+    it('shows the folder-specific empty state without a duplicate New action', async () => {
         docStoreMock.getFolderDocuments.mockImplementation(async () => []);
         const wrapper = await mountDashboard('folder-1');
 
         expect(testid(wrapper, 'document-dashboard-empty').text())
             .toContain('No documents in this folder yet.');
-        expect(testid(wrapper, 'document-dashboard-empty-new-note').exists()).toBe(true);
+        expect(testid(wrapper, 'document-dashboard-empty-new-note').exists()).toBe(false);
     });
 });
 
 describe('DocumentDashboard — empty and refresh behavior', () => {
-    it('shows the global empty state with a New Note action', async () => {
+    it('shows the global empty state without a duplicate New action', async () => {
         docStoreMock.getRecentDocuments.mockImplementation(async () => []);
         const wrapper = await mountDashboard();
 
         expect(testid(wrapper, 'document-dashboard-empty').text()).toContain('No documents yet.');
-        expect(testid(wrapper, 'document-dashboard-empty-new-note').exists()).toBe(true);
+        expect(testid(wrapper, 'document-dashboard-empty-new-note').exists()).toBe(false);
         expect(testid(wrapper, 'document-dashboard-no-matches').exists()).toBe(false);
     });
 
@@ -563,7 +573,7 @@ describe('DocumentDashboard — presentation contracts', () => {
 
     it('omits a card excerpt for a note with no content', async () => {
         docStoreMock.getRecentDocuments.mockImplementation(async () => [
-            makeDoc('blank', { excerpt: '' }),
+            makeDoc('blank', { excerpt: '', isPinned: true }),
         ]);
         const wrapper = await mountDashboard();
 
@@ -585,7 +595,7 @@ describe('DocumentDashboard — presentation contracts', () => {
         const wrapper = await mountDashboard();
 
         expect(testid(wrapper, 'document-row-beta').classes()).toContain('focus-visible:ring-gray-500');
-        expect(testid(wrapper, 'continue-writing-card-beta').classes()).toContain('focus-visible:ring-gray-500');
+        expect(testid(wrapper, 'continue-writing-card-alpha').classes()).toContain('focus-visible:ring-gray-500');
 
         const newNoteClasses = testid(wrapper, 'document-dashboard-new-note').classes().join(' ');
         expect(newNoteClasses).toContain('bg-gray-800');
@@ -595,6 +605,6 @@ describe('DocumentDashboard — presentation contracts', () => {
     it('keeps document titles blue, as links', async () => {
         const wrapper = await mountDashboard();
         expect(testid(wrapper, 'document-row-title-beta').classes()).toContain('text-blue-600');
-        expect(testid(wrapper, 'continue-writing-title-beta').classes()).toContain('text-blue-600');
+        expect(testid(wrapper, 'continue-writing-title-alpha').classes()).toContain('text-blue-600');
     });
 });

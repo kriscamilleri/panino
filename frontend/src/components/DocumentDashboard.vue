@@ -50,10 +50,11 @@
         <!-- Toolbar -->
         <div class="mb-3 flex flex-wrap items-center gap-2">
             <h3
+                v-if="!isGlobal"
                 class="mr-auto pn-title-section"
                 data-testid="document-dashboard-list-heading"
             >
-                {{ listTitle }}
+                Documents
             </h3>
 
             <label
@@ -119,19 +120,6 @@
             data-testid="document-dashboard-empty"
         >
             <p class="pn-body">{{ emptyScopeMessage }}</p>
-            <BaseButton
-                variant="primary"
-                size="md"
-                class="mt-3"
-                data-testid="document-dashboard-empty-new-note"
-                @click="openCreateModal"
-            >
-                <Plus
-                    class="h-4 w-4"
-                    aria-hidden="true"
-                />
-                <span>New Note</span>
-            </BaseButton>
         </div>
 
         <!-- Documents exist, but the active filters match none of them. -->
@@ -217,6 +205,7 @@ import {
     SORT_NEWEST_FIRST,
     SORT_OLDEST_FIRST,
     buildDashboardView,
+    sortRecentDocuments,
 } from '@/utils/recentDocuments.js'
 
 const props = defineProps({
@@ -249,7 +238,6 @@ const sortOrder = ref(SORT_NEWEST_FIRST)
 const showPinnedOnly = computed(() => filter.value === FILTER_PINNED)
 
 const pageTitle = computed(() => (isGlobal.value ? 'Recent Documents' : folderName.value))
-const listTitle = computed(() => (isGlobal.value ? 'Recent' : 'Documents'))
 const searchLabel = computed(() => (isGlobal.value ? 'Search recent documents' : 'Search this folder'))
 const emptyScopeMessage = computed(() =>
     isGlobal.value ? 'No documents yet.' : 'No documents in this folder yet.'
@@ -271,10 +259,15 @@ const view = computed(() =>
 
 const groups = computed(() => view.value.groups)
 /**
- * The first three of the active result set. They stay in the list below too —
- * duplication is intentional so a user can resume or scan.
+ * The three most recently modified pinned notes. They stay in the list below
+ * too — duplication is intentional so a user can resume or scan.
  */
-const continueWriting = computed(() => view.value.documents.slice(0, 3))
+const continueWriting = computed(() =>
+    sortRecentDocuments(
+        documents.value.filter((doc) => doc.isPinned),
+        SORT_NEWEST_FIRST
+    ).slice(0, 3)
+)
 
 /**
  * Global scope only, and never while the quick filter is narrowing the list:
@@ -396,7 +389,7 @@ async function togglePin(doc) {
     }
 }
 
-/* New Note — the same prompt and creation action as the Documents pane. */
+/* New document — the same prompt and creation action as the Documents pane. */
 const showCreateModal = ref(false)
 const newNoteName = ref('')
 

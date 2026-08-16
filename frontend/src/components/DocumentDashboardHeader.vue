@@ -69,7 +69,7 @@
                     class="h-4 w-4"
                     aria-hidden="true"
                 />
-                <span>New Note</span>
+                <span>New</span>
             </BaseButton>
         </div>
     </div>

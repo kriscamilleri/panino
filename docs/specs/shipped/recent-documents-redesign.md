@@ -126,8 +126,9 @@ the section rather than showing an empty container.
 > - The rail has no surrounding `pn-panel` and no `CONTINUE WRITING` label. The cards stand on
 >   their own in the grid, which is what renders conditionally.
 > - The rail is hidden entirely while the quick filter has text. During a search the list is
->   the answer, and repeating its first three hits as cards only pushes the results down the
->   page. The Pinned filter is not a search and keeps the cards.
+>   the answer, and repeating cards only pushes the results down the page. The rail contains up
+>   to three pinned notes, ordered by most recently modified, and the Pinned filter is not a
+>   search so it keeps those cards visible.
 
 ### 5.3 Document list and time groups
 
@@ -214,6 +215,12 @@ until the Advanced Search feature exists.
 > **As built (2026-08-16).** The toolbar ships the Pinned toggle button as the *only* type
 > control; the redundant `All` / `Pinned` select was dropped. The underlying filter state is
 > unchanged, so restoring the select later is a template-only change.
+
+> **As built (2026-08-16).** The global list toolbar has no `Recent` heading because the page
+> title already establishes the scope. Folder toolbars retain their `Documents` heading.
+
+> **As built (2026-08-16).** The header creation action is labelled `New`; empty states do not
+> repeat that action.
 
 Do not render a `My notes` filter in this version. It would be a deceptive no-op in Panino's
 per-user local database. Shared-workspace scope, if introduced later, can add it alongside the
