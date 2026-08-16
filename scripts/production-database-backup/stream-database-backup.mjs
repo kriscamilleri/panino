@@ -259,10 +259,28 @@ export async function streamDatabaseBackup(dbDir, output = process.stdout) {
   );
 }
 
+/**
+ * Report the databases present and their sizes, without copying any content.
+ *
+ * `--only` is unusable without a way to discover names, and the alternative — an ad-hoc
+ * `ls` inside the production container — reaches into a directory `AGENTS.md` §3 lists as
+ * do-not-read. This keeps that discovery inside the reviewed tool and returns metadata only.
+ */
+export function describeDatabases(dbDir) {
+  return listDatabaseFiles(dbDir).map((name) => {
+    const { size, mtime } = fs.statSync(path.join(dbDir, name));
+    return { name, sizeBytes: size, modifiedAt: new Date(mtime).toISOString() };
+  });
+}
+
 if (process.env.PANINO_STREAM_BACKUP_RUN === "1") {
   const dbDir = process.env.DB_DIR || "/app/data";
   try {
-    await streamDatabaseBackup(dbDir);
+    if (process.env.PANINO_BACKUP_LIST === "1") {
+      process.stdout.write(`${JSON.stringify(describeDatabases(dbDir), null, 2)}\n`);
+    } else {
+      await streamDatabaseBackup(dbDir);
+    }
   } catch (error) {
     console.error(`[database-backup] ${error.message}`);
     process.exitCode = 1;

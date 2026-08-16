@@ -7,6 +7,7 @@ import {
   createDatabaseTar,
   listDatabaseFiles,
   parseDatabaseSelector,
+  describeDatabases,
 } from "../../../../scripts/production-database-backup/stream-database-backup.mjs";
 
 const TAR_BLOCK_SIZE = 512;
@@ -120,6 +121,25 @@ describe("stream database backup", () => {
       );
       expect(() => parseDatabaseSelector("sub\\dir")).toThrow(/plain filenames/);
       expect(() => parseDatabaseSelector("..")).toThrow(/plain filenames/);
+    });
+
+    it("describes databases with metadata only, no content", () => {
+      const described = describeDatabases(tempDir);
+      expect(described.map((entry) => entry.name)).toEqual([
+        "_users.db",
+        "user-a.db",
+        "user-b.db",
+      ]);
+      for (const entry of described) {
+        expect(entry).toHaveProperty("sizeBytes");
+        expect(entry).toHaveProperty("modifiedAt");
+        // Metadata only — a description must never carry database bytes.
+        expect(Object.keys(entry).sort()).toEqual([
+          "modifiedAt",
+          "name",
+          "sizeBytes",
+        ]);
+      }
     });
 
     it("fails loudly when a requested database does not exist", () => {

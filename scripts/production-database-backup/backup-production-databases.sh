@@ -9,6 +9,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PRODUCER="$SCRIPT_DIR/stream-database-backup.mjs"
 ENV_FILE="${PANINO_PROD_ENV_FILE:-$REPO_ROOT/prd-server.env}"
 OUTPUT_DIR="${PANINO_BACKUP_DIR:-$HOME/backups/panino}"
+LIST_ONLY=0
 INCLUDE_DATABASES="${PANINO_BACKUP_INCLUDE:-}"
 EXCLUDE_DATABASES="${PANINO_BACKUP_EXCLUDE:-}"
 
@@ -22,6 +23,7 @@ Each online snapshot temporarily uses /dev/shm (RAM-backed storage), never remot
 Options:
   --env-file PATH    Credential environment file (default: ./prd-server.env)
   --output-dir PATH  Local backup directory (default: ~/backups/panino)
+  --list             List databases and sizes, copy nothing, then exit
   --only NAMES       Comma-separated database filenames to include (default: all)
   --exclude NAMES    Comma-separated database filenames to skip (default: none)
   -h, --help         Show this help
@@ -53,6 +55,10 @@ while (($# > 0)); do
       [[ $# -ge 2 ]] || { echo "Missing value for --output-dir" >&2; exit 2; }
       OUTPUT_DIR="$2"
       shift 2
+      ;;
+    --list)
+      LIST_ONLY=1
+      shift 1
       ;;
     --only)
       [[ $# -ge 2 ]] || { echo "Missing value for --only" >&2; exit 2; }
@@ -131,6 +137,29 @@ if [[ -n "$SSH_PASSWORD" ]]; then
   ssh_command=(sshpass -e "${ssh_command[@]}")
 else
   ssh_command+=(-o BatchMode=yes)
+fi
+
+printf -v remote_app_dir_list_q "%q" "${PANINO_REMOTE_APP_DIR:-}"
+
+# --list returns metadata only — names, sizes, mtimes — and copies no database content. It
+# exists because --only needs discoverable names, and the alternative is an ad-hoc `ls`
+# inside the production container, which reaches into a directory AGENTS.md §3 marks
+# do-not-read. Short-circuits before any archive machinery is set up.
+if [[ "$LIST_ONLY" -eq 1 ]]; then
+  list_command="cd $remote_app_dir_list_q && \
+container=\$(docker compose ps -q api-service) && \
+if [ -z \"\$container\" ]; then \
+  echo 'Production api-service container is not running' >&2; exit 1; \
+fi && \
+docker exec -i \
+  -e PANINO_STREAM_BACKUP_RUN=1 \
+  -e PANINO_BACKUP_LIST=1 \
+  -e DB_DIR=/app/data \
+  \"\$container\" node --input-type=module -"
+
+  "${ssh_command[@]}" "$SSH_USER@$SSH_HOST" "$list_command" < "$PRODUCER"
+  unset SSHPASS SSH_PASSWORD P PANINO_PROD_PASSWORD
+  exit 0
 fi
 
 # Build into process-specific temporary names. Cleanup removes every incomplete artifact.

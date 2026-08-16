@@ -29,12 +29,15 @@ scripts/dx10-merge-verification/run-two-arm-verification.sh --database /path/to/
 Exit codes: `0` identical, `1` different (investigate before deploying), `3` an arm produced
 no usable report, `4` inconclusive because an arm did not complete every step.
 
-To pull a single production database for the `--database` form, use the backup tool's
-selection flags rather than taking the whole estate:
+To pull a single production database for the `--database` form, discover the names and then
+take just one, rather than the whole estate:
 
 ```bash
+# Metadata only — names, sizes, mtimes. Copies no database content.
+scripts/production-database-backup/backup-production-databases.sh --list
+
 scripts/production-database-backup/backup-production-databases.sh \
-  --only <user-id> --exclude _users.db
+  --only <user-id> --exclude _users.db --output-dir <scratch-dir>
 ```
 
 `_users.db` is the auth database. It is not a CRR database, so it contributes nothing to this
