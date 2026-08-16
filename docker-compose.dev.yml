@@ -31,11 +31,11 @@ services:
       SMTP_FROM: ${SMTP_FROM:-"Panino Dev <noreply@panino.dev>"}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     volumes:
-      - ./backend/api-service:/app
-      - ./shared:/shared:ro
-      - ./backend/api-service/data:/app/data # Persist SQLite DBs
-      - ./backend/api-service/uploads:/app/uploads # Persist uploaded files
-      - /app/node_modules
+      - ./backend/api-service:/app/backend/api-service
+      - ./shared:/app/shared:ro
+      - ./backend/api-service/data:/app/backend/api-service/data # Persist SQLite DBs
+      - ./backend/api-service/uploads:/app/backend/api-service/uploads # Persist uploaded files
+      - /app/backend/api-service/node_modules
 
   # Add MailHog for local email testing
   mailhog:

@@ -28,8 +28,8 @@ services:
       SMTP_FROM: ${SMTP_FROM}
       FRONTEND_URL: ${FRONTEND_URL}
     volumes:
-      - api-data:/app/data # Persist SQLite DBs
-      - uploads-data:/app/uploads # Persist uploaded files
+      - api-data:/app/backend/api-service/data # Persist SQLite DBs
+      - uploads-data:/app/backend/api-service/uploads # Persist uploaded files
     ports:
       - "127.0.0.1:8000:8000"
 
