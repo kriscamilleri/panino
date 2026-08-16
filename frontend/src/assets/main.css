@@ -191,8 +191,8 @@
 html[data-theme='dark'] {
     color-scheme: dark;
     --pn-surface: #000b2b;
-    --pn-surface-elevated: #142647;
-    --pn-surface-inset: #071735;
+    --pn-surface-elevated: #08183a;
+    --pn-surface-inset: #020f2e;
     --pn-primary: #77a0a5;
     --pn-accent: #9377a5;
     --pn-border: #335273;
@@ -221,8 +221,8 @@ html[data-theme='dark'] .bg-gray-600,
 html[data-theme='dark'] .bg-gray-700 { background-color: var(--pn-surface-elevated); }
 html[data-theme='dark'] .bg-gray-800 { background-color: var(--pn-primary); }
 html[data-theme='dark'] .bg-gray-900 { background-color: var(--pn-accent); }
-html[data-theme='dark'] .bg-blue-50 { background-color: #092441; }
-html[data-theme='dark'] .bg-blue-100 { background-color: #17436a; }
+html[data-theme='dark'] .bg-blue-50 { background-color: #061a38; }
+html[data-theme='dark'] .bg-blue-100 { background-color: #102e55; }
 html[data-theme='dark'] .bg-red-50 { background-color: #411c32; }
 html[data-theme='dark'] .bg-green-50,
 html[data-theme='dark'] .bg-emerald-50 { background-color: #173c38; }

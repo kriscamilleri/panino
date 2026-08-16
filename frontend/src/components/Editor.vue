@@ -354,7 +354,7 @@ function getEditorTheme(theme) {
     return {
       name: 'panino-navy-dark',
       colors: {
-        bgPrimary: '#071735',
+        bgPrimary: '#020f2e',
         bgSecondary: '#000b2b',
         text: '#f4f7ff',
         h1: '#f4f7ff',
@@ -364,7 +364,7 @@ function getEditorTheme(theme) {
         em: '#f4f7ff',
         link: '#87d1ff',
         code: '#f4f7ff',
-        codeBg: '#142647',
+        codeBg: '#08183a',
         blockquote: '#b8c5da',
         hr: '#335273',
         syntaxMarker: 'rgba(184, 197, 218, 0.7)',
