@@ -150,6 +150,10 @@ weeks reports history, not state. Fetch first, then read `origin/<branch>`.
 | `scripts/production-database-backup/stream-database-backup.mjs` | Ordered `better-sqlite3` resolver list including `process.cwd()` |
 | `eslint.config.mjs` | Node globals block for `scripts/**`; `no-console` off there |
 | `backend/api-service/tests/unit/db.test.js` | Distinct user ids for the two guard tests, killing a fixture race |
+| `scripts/production-database-backup/*` | `--only`/`--exclude` database selection, path-separator validation, missing-database error |
+| `backend/api-service/tests/unit/stream-database-backup.test.js` | 8 tests for the selector |
+| `scripts/dx10-merge-verification/*` | New — two-arm merge-behaviour harness for DX-10 step 8 |
+| `docs/specs/dx/dx-10-node-runtime-upgrade.md` | Step 8 annotated with the harness, the first result, and what remains |
 
 `docs/specs/active/` is empty. `docs/specs/dx/` holds only DX-00, DX-09 and DX-10.
 
@@ -158,7 +162,7 @@ weeks reports history, not state. Fetch first, then read `origin/<branch>`.
 Final state, all green:
 
 - `npm run test:fe` — 16 files, 250 tests pass (was 220; +30 from the two new files).
-- `npm run test:be` — **15 files, 158 tests pass** (was 14 files / 152, with one suite that
+- `npm run test:be` — **15 files, 166 tests pass** (was 14 files / 152, with one suite that
   could not even load). Run four consecutive times after the fixture fix; all clean.
 - `npm run lint` — **0 errors**, 41 advisory warnings (was 13 errors).
 - All 29 markdown files under `docs/specs/` link-check clean, code fences excluded.
@@ -248,6 +252,75 @@ Worth recording because the fragility is real and lives in `getUserDb`, not in t
 those two pragmas are unguarded against lock contention on open. No production path opens a
 just-deleted database, so it is a test-only exposure today — but it is the kind of thing that
 becomes a mystery in an incident.
+
+## DX-10 step 8 — building the gate (no production data touched)
+
+The maintainer asked whether `backup-production-databases.sh` could serve as the snapshot
+mechanism for step 8. It can, and it is a better mechanism than the ad-hoc approach aborted on
+2026-08-16 — `db.backup()` on a readonly connection, staged in RAM-backed `/dev/shm`, deleted
+immediately, streamed over SSH, checksummed. It never writes to production disk, which the
+earlier attempt did. Two gaps had to be closed first.
+
+**It took everything.** `listDatabaseFiles` returned all 13 user databases plus `_users.db`,
+the auth database. Step 8 needs exactly one user database, and `_users.db` is not even a CRR
+database — it is pure exposure with no diagnostic value. Added `--only` / `--exclude`
+(`PANINO_BACKUP_INCLUDE` / `PANINO_BACKUP_EXCLUDE`) with the default unchanged: a full backup
+still takes everything, because that is what a backup is for. Selector entries are validated
+as plain filenames — `../` is rejected rather than normalised — and an `--only` naming a
+database that does not exist fails loudly instead of silently producing a smaller archive.
+
+**A snapshot has no baseline.** Step 8's fourth bullet asks to compare `crsql_db_version()`
+and clock-table counts "with the same operations on a 9.6.0 build". A single run on the new
+stack produces numbers with nothing to compare them against. So the harness runs *two arms* —
+better-sqlite3 9.6.0 (SQLite 3.45.3) and 12.11.1 (SQLite 3.53.2), Node held at 20 in both so
+the dependency is the only variable, per §5.1 — against copies of the same database, and
+diffs the reports.
+
+`scripts/dx10-merge-verification/` holds the probe, the fixture generator, a
+version-parameterised Dockerfile, and the runner.
+
+**The fixture is generated on the old arm, deliberately.** The risk in §2.4 is CR-SQLite state
+*written by* 3.45.3 being read by 3.53.2. A fixture built on the new stack never exercises
+that and would pass regardless. The generator accumulates deletions so `-1` tombstone
+sentinels exist in the old format before the new arm reads them.
+
+**Result (400-note synthetic fixture): IDENTICAL.** Both arms completed all seven steps with
+no errors, `dbVersionDelta` 6, seven non-sentinel image clock rows on insert, 1 sentinel /
+0 non-sentinel on both deletes. The seven is a nice corroboration: the July incident found
+"seven ordinary image clock rows for key 216", so the probe reproduces the clock shape that
+incident described.
+
+### Three things the harness got wrong first, two of them dangerous
+
+Worth recording, because two were false passes — the failure mode that matters most in a tool
+whose entire job is to say "safe" or "not safe".
+
+1. **Empty reports diffed clean and reported IDENTICAL.** The probes were crashing with
+   SIGILL (exit 132), the runner discarded stderr, and `diff` of two empty files succeeds. A
+   verification harness that reports success when both arms crashed is worse than no harness.
+   Now stderr is captured and an unparseable report exits `3` before any comparison happens.
+2. **Identical failures diffed clean and reported IDENTICAL.** Handed a non-CR-SQLite
+   database, both arms errored the same way and the runner called it a pass. "Both broke
+   identically" is not "behaviour is unchanged". The verdict now requires both arms to have
+   completed all seven named steps with an empty `errors` array; otherwise it exits `4`
+   INCONCLUSIVE with the reason. Verified against an empty database.
+3. **The probe's SQL was wrong in two ways**, which is what caused the crash. `crsql_changes`
+   takes primary keys in CR-SQLite's *packed binary* format, not a quoted SQL literal — the
+   insert aborts otherwise; `sync.js:232-238` packs via `crsql_pack_columns` and the probe now
+   does the same. And clock tables key on an integer indexing `<table>__crsql_pks`, not on the
+   business id, so counting rows for a given id means joining through that table. That
+   indirection is the `key 216` from the July incident notes.
+
+Also verified the diff can actually detect divergence — an unfalsifiable "IDENTICAL" would be
+worthless — by comparing two reports known to differ.
+
+### What this does not do
+
+It does not close step 8. The spec asks for the comparison against real production data, and
+synthetic data cannot cover unknown-unknowns in accumulated user state. **No production
+database was pulled and nothing was run against production for this.** What changed is that a
+production run now has a baseline to be compared against instead of being a one-shot
+observation, and can take one database instead of the whole estate.
 
 ## Production checkout — read-only diagnosis (no writes)
 

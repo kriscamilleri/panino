@@ -72,13 +72,55 @@ export function createTarHeader(name, size, modifiedAtSeconds) {
   return header;
 }
 
-/** Return regular SQLite database files in stable archive order. */
-export function listDatabaseFiles(dbDir) {
-  return fs
+/**
+ * Parse a comma-separated database selector into a Set of bare filenames.
+ *
+ * Entries are matched against the filename only. A `.db` suffix is optional, and any entry
+ * containing a path separator is rejected rather than normalised — a selector is a name, and
+ * silently accepting `../` would let a caller reach outside the database directory.
+ */
+export function parseDatabaseSelector(value) {
+  if (!value) return null;
+  const names = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      if (entry.includes("/") || entry.includes("\\") || entry === "..") {
+        throw new Error(`Database selector entries must be plain filenames: ${entry}`);
+      }
+      return entry.endsWith(".db") ? entry : `${entry}.db`;
+    });
+  return names.length > 0 ? new Set(names) : null;
+}
+
+/**
+ * Return regular SQLite database files in stable archive order.
+ *
+ * A full backup takes everything, which is the default and the point. `include`/`exclude`
+ * exist for the narrower jobs — notably DX-10 §6 Phase 2 step 8, which needs exactly one
+ * user database and has no business pulling `_users.db` (auth data, and not a CRR database,
+ * so it carries risk without evidence).
+ */
+export function listDatabaseFiles(dbDir, { include = null, exclude = null } = {}) {
+  const present = fs
     .readdirSync(dbDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".db"))
     .map((entry) => entry.name)
     .sort();
+
+  // Validate include against what exists on disk, before exclude narrows the list — otherwise
+  // excluding something you also named in include reads as a missing database.
+  if (include) {
+    const missing = [...include].filter((name) => !present.includes(name));
+    if (missing.length > 0) {
+      throw new Error(`Requested database not found: ${missing.join(", ")}`);
+    }
+  }
+
+  return present
+    .filter((name) => (include ? include.has(name) : true))
+    .filter((name) => (exclude ? !exclude.has(name) : true));
 }
 
 function databaseLabel(name, index, total) {
@@ -109,8 +151,9 @@ export async function* createDatabaseTar(
   dbDir,
   snapshotRoot = "/dev/shm",
   reportProgress = () => {},
+  selection = {},
 ) {
-  const databaseFiles = listDatabaseFiles(dbDir);
+  const databaseFiles = listDatabaseFiles(dbDir, selection);
   if (databaseFiles.length === 0) {
     throw new Error(`No database files found in ${dbDir}`);
   }
@@ -205,8 +248,12 @@ export async function streamDatabaseBackup(dbDir, output = process.stdout) {
     process.env.PANINO_BACKUP_PROGRESS === "1"
       ? createProgressReporter()
       : () => {};
+  const selection = {
+    include: parseDatabaseSelector(process.env.PANINO_BACKUP_INCLUDE),
+    exclude: parseDatabaseSelector(process.env.PANINO_BACKUP_EXCLUDE),
+  };
   await pipeline(
-    Readable.from(createDatabaseTar(dbDir, snapshotRoot, reportProgress)),
+    Readable.from(createDatabaseTar(dbDir, snapshotRoot, reportProgress, selection)),
     createGzip({ level: 6 }),
     output,
   );

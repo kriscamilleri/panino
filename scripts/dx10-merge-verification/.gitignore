@@ -1,0 +1,3 @@
+# Copied from backend/api-service at build time so both arms patch CR-SQLite
+# exactly the way the real images do. Not a second copy to maintain.
+patch-crsqlite.sh

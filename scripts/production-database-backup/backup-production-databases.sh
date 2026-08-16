@@ -9,6 +9,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PRODUCER="$SCRIPT_DIR/stream-database-backup.mjs"
 ENV_FILE="${PANINO_PROD_ENV_FILE:-$REPO_ROOT/prd-server.env}"
 OUTPUT_DIR="${PANINO_BACKUP_DIR:-$HOME/backups/panino}"
+INCLUDE_DATABASES="${PANINO_BACKUP_INCLUDE:-}"
+EXCLUDE_DATABASES="${PANINO_BACKUP_EXCLUDE:-}"
 
 usage() {
   cat <<'EOF'
@@ -20,7 +22,16 @@ Each online snapshot temporarily uses /dev/shm (RAM-backed storage), never remot
 Options:
   --env-file PATH    Credential environment file (default: ./prd-server.env)
   --output-dir PATH  Local backup directory (default: ~/backups/panino)
+  --only NAMES       Comma-separated database filenames to include (default: all)
+  --exclude NAMES    Comma-separated database filenames to skip (default: none)
   -h, --help         Show this help
+
+A full backup takes every database and that is the default. --only exists for narrow
+diagnostic pulls that have no business copying the whole estate onto a workstation, e.g.
+
+  --only <user-id> --exclude _users.db
+
+Names may omit the .db suffix. Path separators are rejected.
 
 Environment file variables:
   PANINO_PROD_HOST, PANINO_PROD_USER, PANINO_PROD_PASSWORD,
@@ -41,6 +52,16 @@ while (($# > 0)); do
     --output-dir)
       [[ $# -ge 2 ]] || { echo "Missing value for --output-dir" >&2; exit 2; }
       OUTPUT_DIR="$2"
+      shift 2
+      ;;
+    --only)
+      [[ $# -ge 2 ]] || { echo "Missing value for --only" >&2; exit 2; }
+      INCLUDE_DATABASES="$2"
+      shift 2
+      ;;
+    --exclude)
+      [[ $# -ge 2 ]] || { echo "Missing value for --exclude" >&2; exit 2; }
+      EXCLUDE_DATABASES="$2"
       shift 2
       ;;
     -h|--help)
@@ -143,6 +164,19 @@ trap 'exit 143' TERM
 # The producer is piped to Node over stdin; archive bytes return on stdout while progress
 # remains on stderr. Each temporary SQLite snapshot lives only in RAM-backed /dev/shm.
 printf -v remote_app_dir_q "%q" "$REMOTE_APP_DIR"
+
+# Selection is passed as environment rather than argv: the producer arrives on stdin and has
+# no argument vector of its own. Both values are quoted for the remote shell.
+selection_env=""
+if [[ -n "$INCLUDE_DATABASES" ]]; then
+  printf -v include_q "%q" "$INCLUDE_DATABASES"
+  selection_env+=" -e PANINO_BACKUP_INCLUDE=$include_q"
+fi
+if [[ -n "$EXCLUDE_DATABASES" ]]; then
+  printf -v exclude_q "%q" "$EXCLUDE_DATABASES"
+  selection_env+=" -e PANINO_BACKUP_EXCLUDE=$exclude_q"
+fi
+
 remote_command="cd $remote_app_dir_q && \
 container=\$(docker compose ps -q api-service) && \
 if [ -z \"\$container\" ]; then \
@@ -152,7 +186,7 @@ docker exec -i \
   -e PANINO_STREAM_BACKUP_RUN=1 \
   -e DB_DIR=/app/data \
   -e PANINO_BACKUP_TMP_DIR=/dev/shm \
-  -e PANINO_BACKUP_PROGRESS=1 \
+  -e PANINO_BACKUP_PROGRESS=1$selection_env \
   \"\$container\" node --input-type=module -"
 
 echo "Streaming production databases to $archive_path ..."

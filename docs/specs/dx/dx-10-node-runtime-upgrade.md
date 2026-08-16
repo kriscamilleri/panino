@@ -4,10 +4,14 @@
 > pins it, in two independently reversible steps.
 > Status: partially done — not shipped. The dev-side implementation and browser verification
 > are complete (see `docs/agent-logs/2026/08/2026-08-08_11-30_dx-10-node-runtime-upgrade.md`
-> and `docs/agent-logs/2026/08/2026-08-16_06-50_dx-10-browser-verification.md`). Two things
-> remain: §6 Phase 2 step 8, the production merge-behaviour verification — started and
-> deliberately aborted by the maintainer on 2026-08-16 rather than pull a live user database
-> — and the production deploy itself. Do not mark this shipped until both are done.
+> and `docs/agent-logs/2026/08/2026-08-16_06-50_dx-10-browser-verification.md`).
+> §6 Phase 2 step 8 now has a harness — `scripts/dx10-merge-verification/` — which runs the
+> step's operations on a 9.6.0 arm and a 12.11.1 arm and diffs them, supplying the baseline
+> the step asks for. Its first run (2026-08-16, 400-note synthetic fixture generated on the
+> 9.6.0 arm) reports **IDENTICAL**: both arms completed all seven steps with no errors and
+> matching clock counts. That is evidence, not completion — the step also asks for a run
+> against real production data, and no production database has been pulled. The production
+> deploy is likewise not done. Do not mark this shipped until both are.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
 > Priority: P0 — the production runtime has been unsupported since 2026-04-30
@@ -216,6 +220,27 @@ one and not the other produces a drift that only surfaces at image build time.
      move consistently with the same operations on a 9.6.0 build.
 
    Record the transcript in the agent log. This is the evidence that justifies the change.
+
+   > **Harness added 2026-08-16: `scripts/dx10-merge-verification/`.** It runs all of the
+   > above as a fixed seven-step probe on *both* a 9.6.0 arm and a 12.11.1 arm, with Node held
+   > at 20 in both so the dependency is the only variable, then diffs the reports. The last
+   > bullet — "the same operations on a 9.6.0 build" — is why two arms are needed: a run on
+   > the new stack alone produces numbers with nothing to compare them to.
+   >
+   > A clean diff counts as a pass only when both arms completed every step without error;
+   > two arms failing identically also diff clean, and the runner exits `4` INCONCLUSIVE for
+   > that case rather than reporting a pass.
+   >
+   > **First result (2026-08-16), synthetic fixture, 400 notes, generated on the 9.6.0 arm:
+   > IDENTICAL.** Both arms: `dbVersionDelta` 6, seven non-sentinel image clock rows on
+   > insert, 1 sentinel / 0 non-sentinel on both deletes. The fixture is generated on the old
+   > arm deliberately, so the new arm reads tombstones physically written by SQLite 3.45.3 —
+   > without that, the test proves nothing.
+   >
+   > **Still outstanding:** a run against real production data. Synthetic data cannot cover
+   > unknown-unknowns in accumulated user state. Pull one database with
+   > `backup-production-databases.sh --only <user-id> --exclude _users.db` and pass it to
+   > `--database`. Not done; requires explicit approval per `AGENTS.md` §4.
 
 9. Deploy Phase 2 alone and let it run for a few days before starting Phase 3.
 

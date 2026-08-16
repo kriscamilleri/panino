@@ -6,6 +6,7 @@ import {
   createProgressReporter,
   createDatabaseTar,
   listDatabaseFiles,
+  parseDatabaseSelector,
 } from "../../../../scripts/production-database-backup/stream-database-backup.mjs";
 
 const TAR_BLOCK_SIZE = 512;
@@ -61,6 +62,72 @@ describe("stream database backup", () => {
     fs.mkdirSync(path.join(tempDir, "directory.db"));
 
     expect(listDatabaseFiles(tempDir)).toEqual(["_users.db", "z.db"]);
+  });
+
+  // Selection exists so a narrow diagnostic pull (DX-10 step 8) does not copy the whole
+  // estate — including the auth database — onto a workstation.
+  describe("database selection", () => {
+    beforeEach(() => {
+      for (const name of ["_users.db", "user-a.db", "user-b.db"]) {
+        fs.writeFileSync(path.join(tempDir, name), "");
+      }
+    });
+
+    it("takes every database when no selection is given", () => {
+      expect(listDatabaseFiles(tempDir)).toEqual([
+        "_users.db",
+        "user-a.db",
+        "user-b.db",
+      ]);
+    });
+
+    it("includes only the requested databases", () => {
+      const include = parseDatabaseSelector("user-b");
+      expect(listDatabaseFiles(tempDir, { include })).toEqual(["user-b.db"]);
+    });
+
+    it("excludes the auth database when asked", () => {
+      const exclude = parseDatabaseSelector("_users.db");
+      expect(listDatabaseFiles(tempDir, { exclude })).toEqual([
+        "user-a.db",
+        "user-b.db",
+      ]);
+    });
+
+    it("applies exclude after include", () => {
+      const include = parseDatabaseSelector("user-a,_users.db");
+      const exclude = parseDatabaseSelector("_users.db");
+      expect(listDatabaseFiles(tempDir, { include, exclude })).toEqual([
+        "user-a.db",
+      ]);
+    });
+
+    it("treats the .db suffix as optional and trims whitespace", () => {
+      expect(parseDatabaseSelector(" user-a , user-b.db ")).toEqual(
+        new Set(["user-a.db", "user-b.db"]),
+      );
+    });
+
+    it("returns null for an empty or missing selector", () => {
+      expect(parseDatabaseSelector("")).toBeNull();
+      expect(parseDatabaseSelector(undefined)).toBeNull();
+      expect(parseDatabaseSelector(" , ")).toBeNull();
+    });
+
+    it("rejects selector entries containing path separators", () => {
+      expect(() => parseDatabaseSelector("../../etc/passwd")).toThrow(
+        /plain filenames/,
+      );
+      expect(() => parseDatabaseSelector("sub\\dir")).toThrow(/plain filenames/);
+      expect(() => parseDatabaseSelector("..")).toThrow(/plain filenames/);
+    });
+
+    it("fails loudly when a requested database does not exist", () => {
+      const include = parseDatabaseSelector("no-such-user");
+      expect(() => listDatabaseFiles(tempDir, { include })).toThrow(
+        /Requested database not found: no-such-user\.db/,
+      );
+    });
   });
 
   it("archives valid snapshots including committed WAL changes", async () => {
