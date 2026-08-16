@@ -149,10 +149,21 @@ configuration changed, no volume touched.
 - **A real end-to-end user sync has not been observed on Node 24.** Every layer responds and
   the merge behaviour was proven against this exact database pre-deploy, but no user had
   synced in the monitoring window. Worth opening a client and confirming a round trip.
-- **Disk will fill again.** Pruning was a one-off; nothing schedules it. Each deploy leaves a
-  dangling image. A `docker image prune -f` at the end of `deploy.sh`, or a cron, would stop
-  this recurring — deliberately not added here, since it is a change to production behaviour
-  beyond the scope that was approved.
+- **Disk refill: fixed.** ~~Pruning was a one-off; nothing schedules it.~~ At the maintainer's
+  direction, `deploy.sh` §8 now reclaims old image layers after every successful rebuild,
+  keeping the newest dangling image — the build just replaced, i.e. the rollback artifact —
+  and removing everything older. Cleanup never fails the deploy, since the new container is
+  already serving by that point and a full disk is the *next* deploy's problem.
+
+  Selection logic was dry-run against 225 real dangling images before shipping: it keeps
+  exactly the newest and removes the other 224, including one created a second earlier. On
+  production it first ran as a no-op ("at most one dangling image present"), which is the
+  correct steady state — that deploy's rebuild was fully cached, so no new dangling image
+  was produced.
+
+  Note for rollback: the retained image is one generation deep, so the pre-DX-10 Node 20
+  image will be dropped by the next deploy that actually rebuilds. This does not affect the
+  rollback path, which is git-based (`51ffcf1`) and rebuilds from the Dockerfile anyway.
 - **`[PDF] Falling back to bundled print defaults: ENOENT /poc/print-defaults.json`** appears
   at startup. It is a handled fallback, not an error, and not new to this deploy — but it
   means production PDF styling comes from the bundled defaults rather than `poc/`. Worth

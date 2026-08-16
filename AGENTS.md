@@ -134,7 +134,7 @@ Read these only when working in the relevant area:
 | UI components | `frontend/src/components/`, `frontend/tailwind.config.js` |
 | Frontend routing | `frontend/src/router.js`, `frontend/src/pages/` |
 | Backend routes | `backend/api-service/index.js` and the route module |
-| Styles | `frontend/src/store/markdownStore.js`, `poc/print-defaults.json` |
+| Styles | `frontend/src/store/markdownStore.js`, `backend/api-service/pdf.js` (`PRINT_STYLE_DEFAULTS`) |
 | Global variables | `frontend/src/store/globalVariablesStore.js` |
 | Images | `backend/api-service/image.js`, `frontend/src/components/Editor.vue` |
 | PDF | `backend/api-service/pdf.js` |
