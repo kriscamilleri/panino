@@ -47,9 +47,9 @@ different interface theme on each device without creating a document change.
 
 `html[data-theme="dark"]` activates the dark theme. The coal application base is `#151515`,
 `#77a0a5` is the interactive primary, and `#9377a5` is the accent. Elevated and inset navy
-surfaces are derived from that base for hierarchy. Light text and
-muted text use high-contrast blue-gray neutrals; semantic status colors remain distinct from
-neutral controls.
+surfaces are derived from that base for hierarchy. Foreground and muted text use VS Code-like
+soft gray contrast rather than pure white; semantic status colors remain distinct from neutral
+controls.
 
 Theme overrides live after Tailwind utilities and map the utility classes used by shared
 components. This preserves the existing component API while ensuring that existing pages, dialogs,

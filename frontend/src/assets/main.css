@@ -195,9 +195,9 @@ html[data-theme='dark'] {
     --pn-surface-inset: #2c2c2c;
     --pn-primary: #77a0a5;
     --pn-accent: #9377a5;
-    --pn-border: #474747;
-    --pn-text: #f4f7ff;
-    --pn-text-muted: #b8c5da;
+    --pn-border: #343434;
+    --pn-text: #d4d4d4;
+    --pn-text-muted: #a6a6a6;
     --pn-success: #7dff95;
     --pn-warning: #ffbc5e;
     --pn-danger: #ff8080;
@@ -234,11 +234,11 @@ html[data-theme='dark'] .bg-blue-600 { background-color: #246590; }
 html[data-theme='dark'] .bg-red-600 { background-color: #a7485a; }
 
 html[data-theme='dark'] .text-white { color: var(--pn-text); }
-html[data-theme='dark'] .text-gray-300 { color: #d2ddef; }
+html[data-theme='dark'] .text-gray-300 { color: #c3c3c3; }
 html[data-theme='dark'] .text-gray-400,
 html[data-theme='dark'] .text-gray-500 { color: var(--pn-text-muted); }
 html[data-theme='dark'] .text-gray-600,
-html[data-theme='dark'] .text-gray-700 { color: #dce6f7; }
+html[data-theme='dark'] .text-gray-700 { color: #c6c6c6; }
 html[data-theme='dark'] .text-gray-800,
 html[data-theme='dark'] .text-gray-900 { color: var(--pn-text); }
 html[data-theme='dark'] .text-blue-500,
@@ -269,7 +269,7 @@ html[data-theme='dark'] .hover\:bg-gray-50:hover { background-color: #1c355a; }
 html[data-theme='dark'] .hover\:bg-gray-100:hover,
 html[data-theme='dark'] .hover\:bg-gray-200:hover { background-color: #274568; }
 html[data-theme='dark'] .hover\:bg-gray-900:hover { background-color: #765c87; }
-html[data-theme='dark'] .hover\:text-gray-600:hover { color: var(--pn-text); }
+html[data-theme='dark'] .hover\:text-gray-600:hover { color: #e0e0e0; }
 html[data-theme='dark'] .hover\:text-blue-800:hover { color: #c6e9ff; }
 
 html[data-theme='dark'] input:not([type='checkbox']):not([type='radio']),
@@ -305,7 +305,7 @@ html[data-theme='dark'] [data-testid='preview-content'] {
 html[data-theme='dark'] [data-testid='preview-content'] a { color: var(--pn-info); }
 html[data-theme='dark'] [data-testid='preview-content'] blockquote {
     border-color: var(--pn-border);
-    color: #dce6f7;
+    color: #c6c6c6;
 }
 html[data-theme='dark'] [data-testid='preview-content'] code,
 html[data-theme='dark'] [data-testid='preview-content'] pre {
