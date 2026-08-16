@@ -15,6 +15,7 @@ import {
   invalidateUserDb,
   getHealthyUserDb,
   ensureNoteRevisionsSchema,
+  ensureNotesSchema,
 } from "../../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -421,5 +422,112 @@ describe("ensureNoteRevisionsSchema", () => {
       .all();
     expect(tables).toHaveLength(0);
     db.close();
+  });
+});
+
+describe("ensureNotesSchema", () => {
+  const testUserId = `test-pinned-user-${Date.now()}`;
+
+  afterEach(() => {
+    closeAllConnections();
+    deleteTestDb(testUserId);
+  });
+
+  function noteColumns(db) {
+    return db
+      .prepare("PRAGMA table_info('notes')")
+      .all()
+      .reduce((acc, column) => {
+        acc[column.name] = column;
+        return acc;
+      }, {});
+  }
+
+  it("gives a freshly created user database a pinned column defaulting to 0", () => {
+    const db = getUserDb(testUserId);
+    const pinned = noteColumns(db).pinned;
+
+    expect(pinned).toBeDefined();
+    expect(pinned.type).toBe("INTEGER");
+    expect(pinned.notnull).toBe(1);
+    expect(pinned.dflt_value).toBe("0");
+
+    db.prepare(
+      "INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run("note-default", testUserId, null, "Title", "Body", "now", "now");
+
+    expect(
+      db.prepare("SELECT pinned FROM notes WHERE id = ?").get("note-default")
+        .pinned,
+    ).toBe(0);
+  });
+
+  it("migrates a pre-redesign notes table and leaves existing notes unpinned", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        folder_id TEXT,
+        title TEXT,
+        content TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+      INSERT INTO notes (id, title, content, created_at, updated_at)
+        VALUES ('legacy-note', 'Legacy', 'Body', 'now', 'now');
+    `);
+
+    expect(noteColumns(db).pinned).toBeUndefined();
+
+    ensureNotesSchema(db);
+
+    expect(noteColumns(db).pinned).toBeDefined();
+    expect(
+      db.prepare("SELECT pinned FROM notes WHERE id = ?").get("legacy-note")
+        .pinned,
+    ).toBe(0);
+
+    // Idempotent: a second and third pass must not raise or duplicate columns.
+    ensureNotesSchema(db);
+    ensureNotesSchema(db);
+    expect(
+      db.prepare("PRAGMA table_info('notes')").all().filter((c) => c.name === "pinned"),
+    ).toHaveLength(1);
+
+    db.close();
+  });
+
+  it("is a no-op when the notes table does not exist yet", () => {
+    const db = new Database(":memory:");
+    expect(() => ensureNotesSchema(db)).not.toThrow();
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='notes'",
+        )
+        .all(),
+    ).toHaveLength(0);
+    db.close();
+  });
+
+  it("keeps pinned under CR-SQLite change tracking so it replicates", () => {
+    const db = getUserDb(testUserId);
+
+    db.prepare(
+      "INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run("note-crr", testUserId, null, "Title", "Body", "now", "now");
+    db.prepare("UPDATE notes SET pinned = 1, updated_at = ? WHERE id = ?").run(
+      "later",
+      "note-crr",
+    );
+
+    const pinnedChanges = db
+      .prepare(
+        `SELECT cid FROM crsql_changes WHERE "table" = 'notes' AND cid = 'pinned'`,
+      )
+      .all();
+
+    expect(pinnedChanges.length).toBeGreaterThan(0);
   });
 });

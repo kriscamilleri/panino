@@ -20,7 +20,7 @@ const DB_SCHEMA = `
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY NOT NULL, name TEXT, email TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS folders (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, name TEXT, parent_id TEXT, created_at TEXT);
-CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, folder_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, folder_id TEXT, title TEXT, content TEXT, created_at TEXT, updated_at TEXT, pinned INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, filename TEXT, mime_type TEXT, path TEXT, size_bytes INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', created_at TEXT);
 CREATE TABLE IF NOT EXISTS settings(id TEXT PRIMARY KEY NOT NULL, value TEXT);
 CREATE TABLE IF NOT EXISTS globals (
@@ -103,6 +103,7 @@ export const useSyncStore = defineStore("syncStore", () => {
 
     db.value = markRaw(await sqlite.value.open(dbName));
     db.value.exec(DB_SCHEMA);
+    await ensureNotesSchema();
     await ensureImagesSchema();
     await ensureGlobalsSchema();
     await ensureTemplatesSchema();
@@ -234,6 +235,32 @@ export const useSyncStore = defineStore("syncStore", () => {
       await db.value.exec("SELECT crsql_as_crr('globals')");
     } catch (err) {
       console.error("[syncStore] Failed to ensure globals schema", err);
+    }
+  }
+
+  /**
+   * Adds the `pinned` note attribute to databases created before the Recent
+   * Documents redesign. Pinning is a synced note attribute rather than local UI
+   * state, so the column has to exist on every replica; `crsql_as_crr` is
+   * re-run so CR-SQLite regenerates the clock table and triggers for it (the
+   * same pattern `ensureImagesSchema` uses for `size_bytes`/`sha256`).
+   */
+  async function ensureNotesSchema() {
+    if (!db.value) return;
+    try {
+      const columns = await db.value.execO("PRAGMA table_info('notes')");
+      if (!columns || columns.length === 0) return;
+
+      const names = new Set(columns.map((c) => c.name));
+      if (names.has("pinned")) return;
+
+      await db.value.exec(
+        "ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+      );
+      await db.value.exec("UPDATE notes SET pinned = 0 WHERE pinned IS NULL");
+      await db.value.exec("SELECT crsql_as_crr('notes')");
+    } catch (err) {
+      console.error("[syncStore] Failed to ensure notes schema", err);
     }
   }
 

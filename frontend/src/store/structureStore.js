@@ -15,6 +15,16 @@ export const useStructureStore = defineStore("structureStore", () => {
   const selectedFolderId = ref(null);
   const openFolders = ref(new Set());
   const selectedFile = ref(null);
+  /**
+   * Bumped by every structural or note write. Views that render derived
+   * document lists (the dashboards) watch it so a rename, move, delete, or
+   * edit made elsewhere in the app refreshes them without a manual reload.
+   */
+  const contentVersion = ref(0);
+
+  function markContentChanged() {
+    contentVersion.value++;
+  }
 
   // --- Watchers ---
 
@@ -114,6 +124,7 @@ export const useStructureStore = defineStore("structureStore", () => {
     );
 
     if (parentId === null) await loadRootItems();
+    markContentChanged();
     return { id: newNote.id, type: "file", name };
   }
 
@@ -140,6 +151,7 @@ export const useStructureStore = defineStore("structureStore", () => {
     );
 
     if (parentId === null) await loadRootItems();
+    markContentChanged();
     return { id: newFolder.id, type: "folder", name };
   }
   async function deleteItem(id, type) {
@@ -163,6 +175,7 @@ export const useStructureStore = defineStore("structureStore", () => {
       selectedFolderId.value = null;
     }
     await loadRootItems(); // Simple refresh for now
+    markContentChanged();
   }
 
   async function renameItem(id, newName, type) {
@@ -178,6 +191,7 @@ export const useStructureStore = defineStore("structureStore", () => {
       );
     }
     await loadRootItems(); // Simple refresh
+    markContentChanged();
   }
 
   async function moveItem(itemId, newParentId, type) {
@@ -196,6 +210,7 @@ export const useStructureStore = defineStore("structureStore", () => {
     );
     const oldParentId = oldParentResult[0]?.old_parent_id;
 
+
     if (type === "folder") {
       await syncStore.db.value.exec(
         "UPDATE folders SET parent_id = ? WHERE id = ?",
@@ -207,6 +222,7 @@ export const useStructureStore = defineStore("structureStore", () => {
         [newParentId, new Date().toISOString(), itemId],
       );
     }
+    markContentChanged();
     return { oldParentId };
   }
 
@@ -218,6 +234,7 @@ export const useStructureStore = defineStore("structureStore", () => {
     if (selectedFile.value?.id === fileId) {
       selectedFile.value.content = newContent; // Optimistic update
     }
+    markContentChanged();
   }
 
   // --- UI State Actions ---
@@ -256,6 +273,7 @@ export const useStructureStore = defineStore("structureStore", () => {
       ],
     );
     await loadRootItems();
+    markContentChanged();
     return { id: newId, type: "file", name: newTitle };
   }
 
@@ -275,10 +293,13 @@ export const useStructureStore = defineStore("structureStore", () => {
     selectedFolderId.value = null;
     openFolders.value = new Set();
     selectedFile.value = null;
+    contentVersion.value = 0;
   }
 
   return {
     rootItems,
+    contentVersion,
+    markContentChanged,
     selectedFileId,
     selectedFolderId,
     openFolders,

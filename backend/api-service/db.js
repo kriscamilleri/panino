@@ -39,7 +39,8 @@ const BASE_SCHEMA = `
     title TEXT,
     content TEXT,
     created_at TEXT,
-    updated_at TEXT
+    updated_at TEXT,
+    pinned INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS images (
@@ -128,6 +129,27 @@ const CRR_TABLES = [
   "globals",
   "templates",
 ];
+
+/**
+ * Adds the `pinned` note attribute to per-user databases created before the
+ * Recent Documents redesign. Pinning replicates as an ordinary note column, so
+ * the merge point needs the column too; `ensureCrr` re-runs `crsql_as_crr` for
+ * `notes` afterwards.
+ */
+export function ensureNotesSchema(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info('notes')").all();
+    if (!columns || columns.length === 0) return;
+
+    const names = new Set(columns.map((column) => column.name));
+    if (names.has("pinned")) return;
+
+    db.exec("ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+    db.exec("UPDATE notes SET pinned = 0 WHERE pinned IS NULL");
+  } catch (err) {
+    console.error("[db] Failed to ensure notes schema:", err);
+  }
+}
 
 function ensureImagesSchema(db) {
   try {
@@ -551,6 +573,7 @@ export function getUserDb(userId) {
 
   try {
     db.exec(BASE_SCHEMA);
+    ensureNotesSchema(db);
     ensureImagesSchema(db);
     ensureGlobalsSchema(db);
     ensureBackupConfigSchema(db);
@@ -759,6 +782,7 @@ export function getTestDb(userId, options = {}) {
   }
 
   db.exec(BASE_SCHEMA);
+  ensureNotesSchema(db);
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
   ensureBackupConfigSchema(db);

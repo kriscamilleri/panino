@@ -24,6 +24,7 @@ export const useDocStore = defineStore("docStore", () => {
     rootItems,
     selectedFile,
     selectedFileContent,
+    contentVersion,
   } = storeToRefs(structureStore);
 
   const { styles, printStyles } = storeToRefs(markdownStore);
@@ -58,8 +59,11 @@ export const useDocStore = defineStore("docStore", () => {
     console.log("All stores have been reset.");
   }
 
-  async function getRecentDocuments(limit = 10) {
-    const query = `
+  /**
+   * Recursive folder-path CTE shared by both dashboard queries, so a note's
+   * displayed path is built the same way whichever scope loaded it.
+   */
+  const FOLDER_PATHS_CTE = `
             WITH RECURSIVE folder_paths AS (
                 SELECT
                     id,
@@ -78,15 +82,31 @@ export const useDocStore = defineStore("docStore", () => {
                     folder_paths.path || ' / ' || child.name AS path
                 FROM folders AS child
                 JOIN folder_paths ON folder_paths.id = child.parent_id
-            )
+            )`;
 
-            SELECT
+  const DOCUMENT_COLUMNS = `
                 notes.id,
                 notes.title,
                 notes.content,
                 notes.updated_at,
                 notes.created_at,
-                COALESCE(folder_paths.path, 'Root') AS folderPath
+                notes.folder_id,
+                notes.pinned,
+                COALESCE(folder_paths.path, 'Root') AS folderPath`;
+
+  /**
+   * Most recently modified notes across every folder — the global Recent
+   * Documents scope.
+   *
+   * @param {number} [limit] bounded result size; the dashboard filters in memory
+   * @returns {Promise<object[]>} normalized documents, newest first
+   */
+  async function getRecentDocuments(limit = 50) {
+    const query = `
+            ${FOLDER_PATHS_CTE}
+
+            SELECT
+${DOCUMENT_COLUMNS}
             FROM notes
             LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
             ORDER BY datetime(notes.updated_at) DESC
@@ -101,6 +121,58 @@ export const useDocStore = defineStore("docStore", () => {
     }
   }
 
+  /**
+   * Notes assigned directly to one folder. Deliberately `folder_id = ?` rather
+   * than a descendant walk: a folder dashboard shows that folder's own notes,
+   * and a pinned note in a child folder appears only once that child is opened.
+   *
+   * @param {string|null} folderId selected folder; `null` means the root scope
+   * @param {number} [limit] bounded result size
+   * @returns {Promise<object[]>} normalized documents, newest first
+   */
+  async function getFolderDocuments(folderId, limit = 50) {
+    const query = `
+            ${FOLDER_PATHS_CTE}
+
+            SELECT
+${DOCUMENT_COLUMNS}
+            FROM notes
+            LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
+            WHERE notes.folder_id IS ?
+            ORDER BY datetime(notes.updated_at) DESC
+            LIMIT ?
+        `;
+    try {
+      const results = await syncStore.execute(query, [folderId ?? null, limit]);
+      return (results || []).map(normalizeRecentDocument);
+    } catch (error) {
+      console.error("Failed to get folder documents:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Pin or unpin a note. `updated_at` moves with the change so the note orders
+   * consistently in the dashboards and replicates as an ordinary note edit.
+   *
+   * @param {string} noteId
+   * @param {boolean} pinned
+   * @returns {Promise<void>} rejects so the caller can revert its optimistic state
+   */
+  async function setDocumentPinned(noteId, pinned) {
+    if (!noteId) throw new Error("A note id is required to change pin state.");
+
+    await syncStore.db.value.exec(
+      "UPDATE notes SET pinned = ?, updated_at = ? WHERE id = ?",
+      [pinned ? 1 : 0, new Date().toISOString(), noteId],
+    );
+
+    if (selectedFile.value?.id === noteId) {
+      selectedFile.value.pinned = pinned ? 1 : 0;
+    }
+    structureStore.markContentChanged();
+  }
+
   async function updateFileContent(fileId, newContent) {
     isSaving.value = true; // <--- Set to true
     try {
@@ -111,6 +183,7 @@ export const useDocStore = defineStore("docStore", () => {
       if (selectedFile.value?.id === fileId) {
         selectedFile.value.content = newContent; // Optimistic update
       }
+      structureStore.markContentChanged();
     } finally {
       // Add a small delay so the user can actually see the "Saving" state flicker
       setTimeout(() => {
@@ -129,6 +202,7 @@ export const useDocStore = defineStore("docStore", () => {
     rootItems,
     selectedFile,
     selectedFileContent,
+    contentVersion,
 
     // Expose stores if you still need direct access
     structureStore,
@@ -166,6 +240,8 @@ export const useDocStore = defineStore("docStore", () => {
     updatePrintStyle: markdownStore.updatePrintStyle,
     getPrintMarkdownIt: markdownStore.getPrintMarkdownIt,
     getRecentDocuments,
+    getFolderDocuments,
+    setDocumentPinned,
     refreshData, // Expose the new function
     recentDocVersion,
     isSaving,
