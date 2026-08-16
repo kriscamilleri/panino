@@ -48,6 +48,8 @@ RUN apt-get update -o Acquire::Retries=5 \
 WORKDIR /app
 
 ENV PYTHON=/usr/bin/python3
+# Headless Shell supports the PDF test suite; avoid downloading full Chrome as well.
+ENV PUPPETEER_CHROME_SKIP_DOWNLOAD=true
 
 # Copy package files
 COPY package*.json .npmrc ./
@@ -58,7 +60,10 @@ COPY patch-crsqlite.sh ./
 # native:setup runs the patch, then rebuilds crsqlite and fetches Puppeteer's
 # Chrome build explicitly, in the right order.
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi \
-	&& npm run native:setup
+	&& npm run native:setup \
+	&& ln -s "$(find /root/.cache/puppeteer/chrome-headless-shell -type f -name chrome-headless-shell -print -quit)" /usr/local/bin/chrome-headless-shell
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
 
 # Copy application code
 COPY . .
