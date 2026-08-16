@@ -328,3 +328,44 @@ for _ in $(seq 1 30); do
   fi
   sleep 2
 done
+
+################################################################################
+# 8. Reclaim old image layers, keeping one generation for rollback
+################################################################################
+
+# Every rebuild moves the `panino-api-service:latest` tag to the new image and
+# leaves the old one untagged. Nothing reclaimed those, so they accumulated: by
+# 2026-08-16 the server held 11 dangling images and the disk hit 100% full, which
+# blocked that day's deploy outright and — more seriously — puts a SQLite
+# application at risk of failed writes and WAL checkpoints.
+#
+# The newest dangling image is the build this deploy just replaced, so it is the
+# rollback artifact and is deliberately kept. Everything older is dead weight.
+#
+# Cleanup never fails the deploy: the new container is already up and serving by
+# this point, and a full disk is a problem for the *next* deploy, not this one.
+# `docker rmi` also legitimately refuses images still referenced as a parent
+# layer by another image, which is not an error worth aborting for.
+echo
+echo "==> Reclaiming old image layers (keeping the previous build for rollback) ..."
+stale_images="$(
+  docker images --filter dangling=true --format '{{.CreatedAt}}\t{{.ID}}' \
+    | sort -r \
+    | tail -n +2 \
+    | cut -f2
+)"
+
+if [ -z "$stale_images" ]; then
+  echo "Nothing to reclaim (at most one dangling image present)."
+else
+  echo "$stale_images" | while read -r image_id; do
+    [ -n "$image_id" ] || continue
+    if docker rmi "$image_id" >/dev/null 2>&1; then
+      echo "  removed $image_id"
+    else
+      echo "  skipped $image_id (still referenced)"
+    fi
+  done
+fi
+
+echo "Disk after cleanup: $(df -h / | awk 'NR==2 {print $4 " free (" $5 " used)"}')"
