@@ -29,6 +29,9 @@ delays to observe socket close or non-delivery behavior.
 - `npm run test:be` — 15 files and 170 tests passed.
 - GitHub Actions PR run `31945317641` — lint, frontend, and backend passed; backend completed in
   1 minute 6 seconds.
+- Combined GitHub Actions PR run `31945461613` with the Headless Shell image optimization — all
+  checks passed and backend completed in 57 seconds, an 11-second (16%) reduction from the
+  original 68-second baseline.
 
 ## Open Items / Notes
 
