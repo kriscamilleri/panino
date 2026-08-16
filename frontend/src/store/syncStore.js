@@ -103,6 +103,7 @@ export const useSyncStore = defineStore("syncStore", () => {
 
     db.value = markRaw(await sqlite.value.open(dbName));
     db.value.exec(DB_SCHEMA);
+    await ensureNotesSchema();
     await ensureImagesSchema();
     await ensureGlobalsSchema();
     await ensureTemplatesSchema();
@@ -247,6 +248,44 @@ export const useSyncStore = defineStore("syncStore", () => {
       [`${table}__crsql_utrig`],
     );
     return rows?.[0]?.sql;
+  }
+
+  /**
+   * Adds the `pinned` note attribute to databases created before the Recent
+   * Documents redesign.
+   */
+  async function ensureNotesSchema() {
+    if (!db.value) return;
+    try {
+      const columns = await db.value.execO("PRAGMA table_info('notes')");
+      if (!columns || columns.length === 0) return;
+
+      const names = new Set(columns.map((column) => column.name));
+      const triggerSql = await crrUpdateTriggerSql("notes");
+      const isCrr = Boolean(triggerSql);
+
+      if (!names.has("pinned")) {
+        if (isCrr) await db.value.exec("SELECT crsql_begin_alter('notes')");
+        try {
+          await db.value.exec(
+            "ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+          );
+          await db.value.exec(
+            "UPDATE notes SET pinned = 0 WHERE pinned IS NULL",
+          );
+        } finally {
+          if (isCrr) await db.value.exec("SELECT crsql_commit_alter('notes')");
+        }
+        return;
+      }
+
+      if (isCrr && !triggerSql.includes("pinned")) {
+        await db.value.exec("SELECT crsql_begin_alter('notes')");
+        await db.value.exec("SELECT crsql_commit_alter('notes')");
+      }
+    } catch (err) {
+      console.error("[syncStore] Failed to ensure notes schema", err);
+    }
   }
 
   /**
@@ -824,6 +863,7 @@ tags:
     sync,
     setSyncEnabled,
     ensureGlobalsSchema,
+    ensureNotesSchema,
     ensureImagesSchema,
     ensureTemplatesSchema,
     connectWebSocket,

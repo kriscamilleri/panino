@@ -11,7 +11,7 @@ backend-only operational tables. The backend also has a separate authentication 
 |---|---|---|
 | `users` | CRR | User profile replicated to clients |
 | `folders` | CRR | Folder tree |
-| `notes` | CRR | Markdown documents |
+| `notes` | CRR | Markdown documents, including the `pinned` flag surfaced by the document dashboards |
 | `images` | CRR | Uploaded-image metadata |
 | `settings` | CRR | JSON-encoded user settings |
 | `globals` | CRR | Global template variables |

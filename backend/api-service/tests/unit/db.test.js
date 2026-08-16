@@ -16,6 +16,7 @@ import {
   getHealthyUserDb,
   ensureNoteRevisionsSchema,
   ensureImagesSchema,
+  ensureNotesSchema,
 } from "../../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -576,6 +577,83 @@ describe("ensureImagesSchema", () => {
         )
         .all(),
     ).toHaveLength(0);
+    db.close();
+  });
+});
+
+describe("ensureNotesSchema", () => {
+  const testUserId = `test-pinned-user-${Date.now()}`;
+
+  afterEach(() => {
+    closeAllConnections();
+    deleteTestDb(testUserId);
+  });
+
+  it("adds pinned with the default value to a legacy notes table", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        folder_id TEXT,
+        title TEXT,
+        content TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+      INSERT INTO notes (id, title, content, created_at, updated_at)
+        VALUES ('legacy-note', 'Legacy', 'Body', 'now', 'now');
+    `);
+
+    ensureNotesSchema(db);
+    ensureNotesSchema(db);
+
+    expect(
+      db.prepare("SELECT pinned FROM notes WHERE id = ?").get("legacy-note")
+        .pinned,
+    ).toBe(0);
+    expect(
+      db.prepare("PRAGMA table_info('notes')").all().filter((c) => c.name === "pinned"),
+    ).toHaveLength(1);
+    db.close();
+  });
+
+  it("repairs stale CRR triggers after a bare pinned-column migration", () => {
+    const db = getTestDb(testUserId, { inMemory: true });
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_itrig");
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_utrig");
+    db.exec("DROP TRIGGER IF EXISTS notes__crsql_dtrig");
+    db.exec("DROP TABLE IF EXISTS notes");
+    db.exec("DROP TABLE IF EXISTS notes__crsql_clock");
+    db.exec("DROP TABLE IF EXISTS notes__crsql_pks");
+    db.exec(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        title TEXT,
+        content TEXT,
+        created_at TEXT,
+        updated_at TEXT
+      );
+    `);
+    db.prepare("SELECT crsql_as_crr('notes')").get();
+    db.exec("ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+    db.prepare(
+      "INSERT INTO notes (id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+    ).run("half-migrated", "Half", "Body", "now", "now");
+
+    ensureNotesSchema(db);
+
+    expect(() =>
+      db.prepare("UPDATE notes SET pinned = 1 WHERE id = ?").run("half-migrated"),
+    ).not.toThrow();
+    expect(
+      db
+        .prepare(
+          `SELECT count(*) AS total FROM crsql_changes WHERE "table" = 'notes' AND cid = 'pinned'`,
+        )
+        .get().total,
+    ).toBeGreaterThan(0);
     db.close();
   });
 });

@@ -143,6 +143,41 @@ function crrUpdateTriggerSql(db, table) {
 }
 
 /**
+ * Adds the `pinned` note attribute to per-user databases created before the
+ * Recent Documents redesign.
+ */
+export function ensureNotesSchema(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info('notes')").all();
+    if (!columns || columns.length === 0) return;
+
+    const names = new Set(columns.map((column) => column.name));
+    const triggerSql = crrUpdateTriggerSql(db, "notes");
+    const isCrr = Boolean(triggerSql);
+
+    if (!names.has("pinned")) {
+      if (isCrr) db.prepare("SELECT crsql_begin_alter('notes')").get();
+      try {
+        db.exec(
+          "ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+        );
+        db.exec("UPDATE notes SET pinned = 0 WHERE pinned IS NULL");
+      } finally {
+        if (isCrr) db.prepare("SELECT crsql_commit_alter('notes')").get();
+      }
+      return;
+    }
+
+    if (isCrr && !triggerSql.includes("pinned")) {
+      db.prepare("SELECT crsql_begin_alter('notes')").get();
+      db.prepare("SELECT crsql_commit_alter('notes')").get();
+    }
+  } catch (err) {
+    console.error("[db] Failed to ensure notes schema:", err);
+  }
+}
+
+/**
  * Adds `size_bytes` and `sha256` to per-user databases created before those
  * columns existed.
  *
@@ -599,6 +634,7 @@ export function getUserDb(userId) {
 
   try {
     db.exec(BASE_SCHEMA);
+    ensureNotesSchema(db);
     ensureImagesSchema(db);
     ensureGlobalsSchema(db);
     ensureBackupConfigSchema(db);
@@ -807,6 +843,7 @@ export function getTestDb(userId, options = {}) {
   }
 
   db.exec(BASE_SCHEMA);
+  ensureNotesSchema(db);
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
   ensureBackupConfigSchema(db);

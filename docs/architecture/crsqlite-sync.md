@@ -103,16 +103,16 @@ at the moment the table is registered. Those triggers bind a fixed number of val
 next write to that table fails with:
 
 ```text
-SQLiteError: expected 9 values, got 7
+SQLiteError: expected N values, got M
 ```
 
 Re-running `crsql_as_crr('<table>')` does **not** rebuild them; it reports success and leaves
 the stale triggers in place. The supported sequence is:
 
 ```sql
-SELECT crsql_begin_alter('images');
-ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0;
-SELECT crsql_commit_alter('images');
+SELECT crsql_begin_alter('<table>');
+ALTER TABLE <table> ADD COLUMN <column> <type> NOT NULL DEFAULT <default>;
+SELECT crsql_commit_alter('<table>');
 ```
 
 `crsql_commit_alter` regenerates the clock table and the three triggers, and the new column
@@ -122,9 +122,8 @@ Two practical consequences:
 
 - A database can be left half-migrated — column present, triggers stale — either by an older
   bare-`ALTER` migration or by a process interrupted before the commit. `ensureImagesSchema`
-  in both `frontend/src/store/syncStore.js` and `backend/api-service/db.js` detects that shape
-  by checking whether `images__crsql_utrig`'s SQL mentions the columns, and repairs it with an
-  empty `begin_alter` / `commit_alter` pair.
+  and `ensureNotesSchema` in both layers detect that shape by checking the table's generated
+  update trigger and repair it with an empty `begin_alter` / `commit_alter` pair.
 - Only call `crsql_begin_alter` when the table really is a CRR on that connection. On a fresh
   database `BASE_SCHEMA` creates the columns before `ensureCrr` registers the table, and a
   handle opened without the extension has no CR-SQLite functions at all.
