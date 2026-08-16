@@ -177,7 +177,7 @@ echo "$ENV_CONTENT" > "$ENV_PATH"
 ################################################################################
 
 echo "==> Installing NPM dependencies in ./frontend ..."
-if ! (cd "$FRONTEND_PATH" && npm install); then
+if ! (cd "$FRONTEND_PATH" && npm ci); then
   echo "ERROR during frontend dependencies installation"
   exit 1
 fi
