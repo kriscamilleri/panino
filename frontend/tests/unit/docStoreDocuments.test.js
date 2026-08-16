@@ -212,8 +212,8 @@ describe('docStore.setDocumentPinned', () => {
         expect(markContentChanged).not.toHaveBeenCalled();
     });
 
-    it('rejects when no note id is supplied', async () => {
-        await expect(store.setDocumentPinned('', true)).rejects.toThrow(/note id/i);
+    it('rejects when no document id is supplied', async () => {
+        await expect(store.setDocumentPinned('', true)).rejects.toThrow(/document id/i);
         expect(dbExec).not.toHaveBeenCalled();
     });
 });
