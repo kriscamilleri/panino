@@ -44,7 +44,6 @@
                     :isActive="syncStore.syncEnabled"
                     :disabled="!authStore.isAuthenticated || !syncStore.isOnline"
                     @click="handleToggleSync"
-                    class="space-x-1"
                     :title="!syncStore.isOnline ? 'Offline - Sync unavailable' : syncStore.isSyncing ? 'Syncing...' : 'Toggle Sync'"
                     data-testid="navbar-sync-button"
                 >
@@ -99,7 +98,6 @@
                     <BaseButton
                         v-if="!authStore.isAuthenticated"
                         @click="goToLogin"
-                        class="space-x-1"
                         data-testid="navbar-login-button"
                     >
 
@@ -113,7 +111,6 @@
                     <BaseButton
                         v-else
                         @click="handleLogout"
-                        class="space-x-1"
                         data-testid="navbar-logout-button"
                     >
 

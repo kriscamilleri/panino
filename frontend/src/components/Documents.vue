@@ -119,41 +119,20 @@
             </div>
         </div>
 
-        <div
+        <PromptModal
             v-if="showCreateModal"
-            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            v-model="newItemName"
+            :title="`Create New ${createType}`"
+            :label="`${createType} name`"
+            :placeholder="'Enter ' + createType + ' name'"
+            confirm-label="Create"
             data-testid="documents-create-modal"
-        >
-            <div class="bg-white p-4 rounded-lg shadow-lg w-96">
-                <h3 class="text-lg font-semibold mb-4">
-                    Create New {{ createType }}
-                </h3>
-                <input
-                    v-model="newItemName"
-                    type="text"
-                    class="w-full border rounded p-2 mb-4"
-                    :placeholder="'Enter ' + createType + ' name'"
-                    @keyup.enter="confirmCreate"
-                    data-testid="documents-create-modal-input"
-                />
-                <div class="flex justify-end space-x-2">
-                    <button
-                        @click="cancelCreate"
-                        class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
-                        data-testid="documents-create-modal-cancel"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        @click="confirmCreate"
-                        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                        data-testid="documents-create-modal-confirm"
-                    >
-                        Create
-                    </button>
-                </div>
-            </div>
-        </div>
+            input-testid="documents-create-modal-input"
+            cancel-testid="documents-create-modal-cancel"
+            confirm-testid="documents-create-modal-confirm"
+            @confirm="confirmCreate"
+            @cancel="cancelCreate"
+        />
 
         <TemplatePickerModal
             v-if="showTemplatePicker"
@@ -174,6 +153,7 @@ import TreeItem from './TreeItem.vue'
 import BaseButton from './BaseButton.vue'
 import { Search, X, FilePlus, FolderPlus, FileText } from 'lucide-vue-next'
 import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
+import PromptModal from '@/components/PromptModal.vue'
 import { useStructureStore } from '@/store/structureStore'
 
 const docStore = useDocStore()
@@ -264,9 +244,9 @@ const showCreateModal = ref(false)
 const showTemplatePicker = ref(false)
 const createType = ref('')
 const newItemName = ref('')
-function showCreateFileModal() { createType.value = 'File'; showCreateModal.value = true; nextTick(focusModalInput) }
-function showCreateFolderModal() { createType.value = 'Folder'; showCreateModal.value = true; nextTick(focusModalInput) }
-function focusModalInput() { document.querySelector('[data-testid="documents-create-modal-input"]')?.focus() }
+// PromptModal focuses its own input once mounted.
+function showCreateFileModal() { createType.value = 'File'; showCreateModal.value = true }
+function showCreateFolderModal() { createType.value = 'Folder'; showCreateModal.value = true }
 
 async function confirmCreate() {
     if (!newItemName.value.trim()) return

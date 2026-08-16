@@ -9,7 +9,7 @@
     <div class="flex h-full min-h-0">
       <div class="w-[30rem] max-w-[30rem] shrink-0 border-r border-gray-200 min-h-0 flex flex-col overflow-y-auto">
         <div v-if="revisionStore.isListLoading && revisionStore.revisions.length === 0" class="p-3 space-y-2">
-          <div v-for="idx in 6" :key="idx" class="h-10 bg-gray-100 rounded animate-pulse"></div>
+          <div v-for="idx in 6" :key="idx" class="h-10 animate-pulse rounded-md bg-gray-100"></div>
         </div>
 
         <div v-else-if="revisionStore.listError" class="p-3 text-sm text-red-600">
@@ -44,8 +44,8 @@
 
       <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div v-if="revisionStore.isDetailLoading" class="p-3 space-y-2">
-          <div class="h-5 bg-gray-100 rounded animate-pulse"></div>
-          <div class="h-40 bg-gray-100 rounded animate-pulse"></div>
+          <div class="h-5 animate-pulse rounded-md bg-gray-100"></div>
+          <div class="h-40 animate-pulse rounded-md bg-gray-100"></div>
         </div>
 
         <div v-else-if="revisionStore.detailError" class="p-3 text-sm text-red-600">
@@ -77,7 +77,7 @@
           </div>
 
           <div v-else class="p-2 h-full">
-            <textarea readonly class="w-full h-full text-xs border rounded p-2 resize-none bg-white" :value="revisionStore.selectedRevisionDetail.content"></textarea>
+            <textarea readonly class="pn-textarea h-full resize-none font-mono text-xs" :value="revisionStore.selectedRevisionDetail.content"></textarea>
           </div>
         </template>
 

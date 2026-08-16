@@ -23,7 +23,7 @@
                     :isActive="syncStore.syncEnabled"
                     :disabled="!authStore.isAuthenticated || !syncStore.isOnline"
                     @click="handleToggleSync"
-                    class="w-full space-x-1"
+                    class="w-full"
                     data-testid="mobile-menu-sync-button"
                 >
                     <RefreshCw

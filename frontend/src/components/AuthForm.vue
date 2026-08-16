@@ -13,27 +13,27 @@
             <div class="max-w-md w-full bg-white shadow-lg rounded-lg p-8">
                 <form class="space-y-6" @submit.prevent="handleSubmit">
                     <div class="flex items-center justify-between mb-3">
-                        <h3 class="text-lg font-bold text-gray-800">{{ config.title }}</h3>
+                        <h3 class="pn-title-modal">{{ config.title }}</h3>
                     </div>
 
                     <div v-for="field in config.fields" :key="field.name">
-                        <label :for="field.name" class="block text-sm font-medium text-gray-700">
+                        <label :for="field.name" class="pn-label">
                             {{ field.label }}
                         </label>
                         <div class="mt-1">
                             <input :id="field.name" v-model="formData[field.name]" :name="field.name" :type="field.type"
                                 :required="field.required"
-                                class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                                :disabled="loading" :class="{ 'border-red-300': formErrors[field.name] }"
+                                class="pn-input"
+                                :disabled="loading" :class="{ 'pn-input-error': formErrors[field.name] }"
                                 :data-testid="`${config.type}-${field.name}-input`" />
-                            <p v-if="formErrors[field.name]" class="mt-1 text-sm text-red-600"
+                            <p v-if="formErrors[field.name]" class="pn-field-error"
                                 :data-testid="`${config.type}-${field.name}-error`">
                                 {{ formErrors[field.name] }}
                             </p>
                         </div>
                     </div>
 
-                    <div v-if="config.showPasswordRequirements" class="rounded-md bg-gray-50 p-4">
+                    <div v-if="config.showPasswordRequirements" class="pn-panel-muted p-4">
                         <div class="text-sm text-gray-700">
                             <h4 class="font-medium mb-2">Password Requirements:</h4>
                             <ul class="space-y-1">
@@ -59,22 +59,22 @@
                         </div>
                     </div>
 
-                    <div v-if="error" class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm"
+                    <div v-if="error" class="pn-alert pn-alert-error"
                         :data-testid="`${config.type}-error-message`">
                         {{ error }}
                     </div>
 
                     <div v-if="successMessage"
-                        class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm">
+                        class="pn-alert pn-alert-success">
                         {{ successMessage }}
                     </div>
 
                     <div>
                         <button type="submit"
-                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full inline-flex items-center justify-center gap-2 rounded-md border border-transparent bg-gray-800 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
                             :disabled="loading || !isFormValid" :data-testid="`${config.type}-submit-button`">
                             <template v-if="loading">
-                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                                <svg class="animate-spin h-4 w-4 text-white"
                                     xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
                                         stroke-width="4"></circle>
@@ -91,7 +91,7 @@
 
                 <div v-if="config.showGuestButton" class="mt-3">
                     <button type="button"
-                        class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300"
+                        class="w-full inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50"
                         @click="handleGuest" :data-testid="`${config.type}-guest-button`" :disabled="loading">
                         Continue as guest
                     </button>

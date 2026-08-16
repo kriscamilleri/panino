@@ -2,6 +2,176 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * ─────────────────────────────────────────────────────────────────────────
+ * Panino design primitives
+ *
+ * One source of truth for the surfaces, controls and type that repeat across
+ * modals, pages and panels. Prefer these classes over re-typing the utility
+ * chain; see docs/architecture/ui-design-system.md for the rules behind them.
+ *
+ * Radius contract: controls use `rounded-md`, containers use `rounded-lg`.
+ * Accent contract: gray-800/900. Blue is reserved for links only.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+@layer components {
+
+    /* ── Form controls ───────────────────────────────────────────────── */
+    .pn-label {
+        @apply block text-sm font-medium text-gray-700 mb-1;
+    }
+
+    .pn-label-optional {
+        @apply font-normal text-gray-400;
+    }
+
+    .pn-input,
+    .pn-select,
+    .pn-textarea {
+        @apply block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm transition-colors;
+        @apply placeholder:text-gray-400;
+        @apply focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500;
+        @apply disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500;
+    }
+
+    .pn-textarea {
+        @apply resize-y;
+    }
+
+    .pn-input-error {
+        @apply border-red-300 focus:border-red-500 focus:ring-red-500;
+    }
+
+    /*
+     * No @tailwindcss/forms here, so native checkboxes and radios ignore
+     * `text-*`. `accent-*` is what actually recolours them off the OS blue.
+     */
+    .pn-checkbox,
+    .pn-radio {
+        @apply h-4 w-4 cursor-pointer border-gray-300 accent-gray-800;
+        @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2;
+    }
+
+    .pn-checkbox {
+        @apply rounded;
+    }
+
+    .pn-help {
+        @apply mt-1 text-xs text-gray-500;
+    }
+
+    /*
+     * Editor toolbar controls. Same radius, border and focus as `.pn-input` /
+     * BaseButton `secondary`, one notch tighter so a dense toolbar still fits.
+     */
+    .pn-toolbar-button {
+        @apply inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors;
+        @apply hover:bg-gray-50;
+        @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-2;
+        @apply disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .pn-toolbar-button-tight {
+        @apply px-2;
+    }
+
+    .pn-toolbar-input {
+        @apply rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 transition-colors;
+        @apply placeholder:text-gray-400 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500;
+    }
+
+    .pn-field-error {
+        @apply mt-1 text-sm text-red-600;
+    }
+
+    /* ── Type scale ──────────────────────────────────────────────────── */
+    .pn-title-page {
+        @apply text-xl font-semibold text-gray-900;
+    }
+
+    .pn-title-modal {
+        @apply text-lg font-semibold text-gray-900;
+    }
+
+    .pn-title-section {
+        @apply text-base font-semibold text-gray-900;
+    }
+
+    .pn-title-sub {
+        @apply text-sm font-semibold text-gray-900;
+    }
+
+    .pn-body {
+        @apply text-sm text-gray-600;
+    }
+
+    .pn-meta {
+        @apply text-xs text-gray-500;
+    }
+
+    /* ── Surfaces ────────────────────────────────────────────────────── */
+    .pn-panel {
+        @apply rounded-lg border border-gray-200 bg-white;
+    }
+
+    .pn-panel-muted {
+        @apply rounded-lg border border-gray-200 bg-gray-50;
+    }
+
+    .pn-divider {
+        @apply border-gray-200;
+    }
+
+    /* ── Alerts ──────────────────────────────────────────────────────── */
+    .pn-alert {
+        @apply flex items-start gap-2 rounded-md border px-4 py-3 text-sm;
+    }
+
+    .pn-alert-error {
+        @apply border-red-200 bg-red-50 text-red-700;
+    }
+
+    .pn-alert-warning {
+        @apply border-amber-200 bg-amber-50 text-amber-800;
+    }
+
+    .pn-alert-success {
+        @apply border-emerald-200 bg-emerald-50 text-emerald-800;
+    }
+
+    .pn-alert-info {
+        @apply border-gray-200 bg-gray-50 text-gray-700;
+    }
+
+    /* ── Tables ──────────────────────────────────────────────────────── */
+    .pn-table-wrap {
+        @apply overflow-x-auto rounded-lg border border-gray-200;
+    }
+
+    .pn-table {
+        @apply min-w-full divide-y divide-gray-200 text-sm;
+    }
+
+    .pn-table thead {
+        @apply bg-gray-50;
+    }
+
+    .pn-table th {
+        @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500;
+    }
+
+    .pn-table tbody {
+        @apply divide-y divide-gray-100 bg-white;
+    }
+
+    .pn-table td {
+        @apply px-3 py-2 align-middle text-gray-700;
+    }
+
+    .pn-table-empty {
+        @apply px-3 py-6 text-center text-sm text-gray-500;
+    }
+}
 
 .fade-fast-enter-active,
 .fade-fast-leave-active {

@@ -1,7 +1,7 @@
 <template>
     <AccountLayout title="Account Settings">
-        <div class="border-b pb-6 mb-6">
-            <h2 class="text-lg font-medium text-gray-900 mb-4">Profile Information</h2>
+        <div class="mb-6 border-b border-gray-200 pb-6">
+            <h2 class="pn-title-modal mb-4">Profile Information</h2>
             <div v-if="loadingProfile">Loading...</div>
             <div v-else-if="user" class="space-y-4 text-sm">
                 <div>
@@ -14,7 +14,7 @@
                 </div>
                 <div>
                     <strong class="block text-gray-800">User ID</strong>
-                    <code class="text-xs bg-gray-100 p-1 rounded text-gray-700">{{ user.id }}</code>
+                    <code class="rounded-md bg-gray-100 p-1 text-xs text-gray-700">{{ user.id }}</code>
                 </div>
                 <div>
                     <strong class="block text-gray-800">Member since</strong>
@@ -31,20 +31,22 @@
         </div>
 
         <div>
-            <h2 class="text-lg font-medium text-gray-900">Change Password</h2>
+            <h2 class="pn-title-modal">Change Password</h2>
             <ChangePasswordForm />
         </div>
 
-        <div class="mt-8 border-t pt-6">
-            <h2 class="text-lg font-medium text-gray-900 mb-3">Tools</h2>
-            <BaseButton @click="goToImages" data-testid="settings-images-button">
-                <Image class="w-4 h-4" />
-                <span>Manage Images</span>
-            </BaseButton>
-            <BaseButton @click="goToTemplates" data-testid="settings-templates-button">
-                <FileText class="w-4 h-4" />
-                <span>Manage Templates</span>
-            </BaseButton>
+        <div class="mt-8 border-t border-gray-200 pt-6">
+            <h2 class="pn-title-modal mb-3">Tools</h2>
+            <div class="flex flex-wrap items-center gap-3">
+                <BaseButton variant="secondary" size="md" @click="goToImages" data-testid="settings-images-button">
+                    <Image class="w-4 h-4" />
+                    <span>Manage Images</span>
+                </BaseButton>
+                <BaseButton variant="secondary" size="md" @click="goToTemplates" data-testid="settings-templates-button">
+                    <FileText class="w-4 h-4" />
+                    <span>Manage Templates</span>
+                </BaseButton>
+            </div>
         </div>
     </AccountLayout>
 </template>

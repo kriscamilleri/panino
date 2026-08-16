@@ -1,106 +1,72 @@
 <template>
-    <div
-        v-if="show"
-        class="fixed inset-0 flex items-center justify-center z-50"
-        data-testid="export-modal-container"
+    <BaseModal
+        :show="show"
+        title="Export Data"
+        size="md"
+        close-testid="export-modal-close-button"
+        @close="$emit('close')"
     >
-        <div
-            class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"
-            @click="$emit('close')"
-        ></div>
+        <p class="pn-body mb-5">
+            Choose an export format. All your notes, folders, images, settings, and variables will be
+            included in the export.
+        </p>
 
-        <div class="relative bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
-            <div class="px-6 py-4 border-b">
-                <div class="flex justify-between items-center">
-                    <h3 class="text-xl font-semibold text-gray-800">Export Data</h3>
-                    <button
-                        @click="$emit('close')"
-                        class="text-gray-400 hover:text-gray-600 transition-colors"
-                        data-testid="export-modal-close-button"
-                    >
-                        <X class="w-5 h-5" />
-                    </button>
-                </div>
-            </div>
+        <div class="space-y-3">
+            <OptionCard
+                :icon="FileJson"
+                title="Panino JSON"
+                description="A single JSON file containing all your notes, folders, images, settings, and variables. Ideal for full backups or migrating to another Panino instance."
+                data-testid="export-modal-panino-json"
+                @click="handleExport('json')"
+            />
 
-            <div class="px-6 py-4 flex-1 overflow-y-auto">
-                <p class="text-sm text-gray-600 mb-6">Choose an export format. All your notes, folders, images,
-                    settings, and variables will be included in the export.</p>
+            <OptionCard
+                :icon="FileJson"
+                title="StackEdit JSON"
+                description="A single JSON file compatible with the StackEdit format, allowing you to import your data there."
+                data-testid="export-modal-stackedit-json"
+                @click="handleExport('stackedit')"
+            />
 
-                <div class="space-y-4">
-                    <button
-                        @click="handleExport('json')"
-                        class="w-full text-left flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-panino-json"
-                    >
-                        <FileJson class="w-8 h-8 text-gray-500" />
-                        <div>
-                            <p class="font-semibold text-gray-800">Panino JSON</p>
-                            <p class="text-sm text-gray-500">A single JSON file containing all your notes, folders,
-                                images, settings, and variables. Ideal for full backups or migrating to another Panino instance.</p>
-                        </div>
-                    </button>
-
-                    <button
-                        @click="handleExport('stackedit')"
-                        class="w-full text-left flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-stackedit-json"
-                    >
-                        <FileJson class="w-8 h-8 text-gray-500" />
-                        <div>
-                            <p class="font-semibold text-gray-800">StackEdit JSON</p>
-                            <p class="text-sm text-gray-500">A single JSON file compatible with the StackEdit format,
-                                allowing you to import your data there.</p>
-                        </div>
-                    </button>
-
-                    <button
-                        @click="handleExport('zip')"
-                        class="w-full text-left flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-markdown-zip"
-                    >
-                        <FolderArchive class="w-8 h-8 text-gray-500" />
-                        <div>
-                            <p class="font-semibold text-gray-800">Markdown Files (.zip)</p>
-                            <p class="text-sm text-gray-500">A ZIP archive containing all your notes as individual `.md`
-                                files, organized in their respective folders, plus images and settings.</p>
-                        </div>
-                    </button>
-                </div>
-                <div
-                    v-if="error"
-                    class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md"
-                    data-testid="export-modal-error"
-                >
-                    <div class="flex">
-                        <AlertCircle class="w-5 h-5 text-red-400 mr-2" />
-                        <p class="text-sm text-red-600">{{ error }}</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="px-6 py-4 bg-gray-50 rounded-b-lg border-t">
-                <div class="flex justify-end">
-                    <button
-                        @click="$emit('close')"
-                        class="px-4 py-2 text-sm font-medium text-gray-700
-                                       bg-white border border-gray-300 rounded-md
-                                       hover:bg-gray-50 transition-colors"
-                        data-testid="export-modal-done-button"
-                    >
-                        Done
-                    </button>
-                </div>
-            </div>
+            <OptionCard
+                :icon="FolderArchive"
+                title="Markdown Files (.zip)"
+                description="A ZIP archive containing all your notes as individual `.md` files, organized in their respective folders, plus images and settings."
+                data-testid="export-modal-markdown-zip"
+                @click="handleExport('zip')"
+            />
         </div>
-    </div>
+
+        <div
+            v-if="error"
+            class="pn-alert pn-alert-error mt-4"
+            data-testid="export-modal-error"
+        >
+            <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{{ error }}</p>
+        </div>
+
+        <template #footer>
+            <BaseButton
+                variant="secondary"
+                size="md"
+                data-testid="export-modal-done-button"
+                @click="$emit('close')"
+            >
+                Done
+            </BaseButton>
+        </template>
+    </BaseModal>
 </template>
 
 <script setup>
 import { ref } from 'vue';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
-import { X, FileJson, FolderArchive, AlertCircle } from 'lucide-vue-next';
+import { FileJson, FolderArchive, AlertCircle } from 'lucide-vue-next';
+import BaseModal from '@/components/BaseModal.vue';
+import BaseButton from '@/components/BaseButton.vue';
+import OptionCard from '@/components/OptionCard.vue';
 
 defineProps({
     show: Boolean

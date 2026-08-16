@@ -13,13 +13,13 @@
       <p class="text-sm text-gray-500 mt-2" data-testid="loading-page-status">{{ statusMessage }}</p>
     </div>
 
-    <div v-else class="text-center max-w-md bg-white p-6 rounded shadow-md" data-testid="loading-page-failed">
+    <div v-else class="max-w-md rounded-lg border border-gray-200 bg-white p-6 text-center shadow-md" data-testid="loading-page-failed">
       <h2 class="text-lg font-semibold text-red-600 mb-2">Initialization Failed</h2>
       <p class="mb-4 text-gray-600">
         We couldn't set up the local database. This might be due to an unsupported browser or a critical error.
       </p>
-      <pre class="text-xs text-left bg-gray-100 p-2 rounded overflow-auto mb-4">{{ errorMessage }}</pre>
-      <button @click="retryInitialization" class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900"
+      <pre class="mb-4 overflow-auto rounded-md bg-gray-100 p-2 text-left text-xs">{{ errorMessage }}</pre>
+      <button @click="retryInitialization" class="inline-flex items-center justify-center gap-2 rounded-md border border-transparent bg-gray-800 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-900"
         data-testid="loading-page-retry-button">
         Retry
       </button>

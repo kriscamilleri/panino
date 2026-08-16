@@ -18,13 +18,13 @@
             <template v-if="action.icon">
               <component
                 :is="action.icon"
-                class="w-4 h-4 mr-2"
+                class="w-4 h-4"
               />
             </template>
             <template v-else>
               <component
                 :is="iconForAction(action.id)"
-                class="w-4 h-4 mr-2"
+                class="w-4 h-4"
               />
             </template>
             {{ action.label }}
@@ -55,14 +55,14 @@
         class="w-1/2 p-8 overflow-y-auto"
         :style="{ height: 'calc(100vh - 57px)' }"
       >
-        <div class="bg-white shadow-lg rounded-lg p-8 h-full overflow-y-auto">
+        <div class="h-full overflow-y-auto rounded-lg border border-gray-200 bg-white p-8 shadow-lg">
           <div class="space-y-6">
             <div
               v-for="(styles, category) in categorizedStyles"
               :key="category"
               class="space-y-4"
             >
-              <h2 class="text-lg font-semibold text-gray-700 border-b pb-2">
+              <h2 class="pn-title-modal border-b border-gray-200 pb-2">
                 {{ category }}
               </h2>
               <div
@@ -72,7 +72,7 @@
               >
                 <label
                   :for="key"
-                  class="block text-sm font-medium text-gray-700"
+                  class="pn-label"
                 >
                   {{ key }}
                 </label>
@@ -80,7 +80,7 @@
                   :id="key"
                   v-model="editableStyleMap[key]"
                   @input="handleStyleChange(key, $event.target.value)"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
+                  class="pn-textarea font-mono"
                   rows="3"
                   :placeholder="`CSS styles for ${key} element`"
                 />
@@ -91,7 +91,7 @@
               v-if="config.extraFields?.length"
               class="space-y-4 pt-8 border-t"
             >
-              <h2 class="text-lg font-semibold text-gray-700">
+              <h2 class="pn-title-modal">
                 {{ config.extraFieldsTitle || 'Additional Settings' }}
               </h2>
               <div
@@ -101,7 +101,7 @@
               >
                 <label
                   :for="field.id"
-                  class="block text-sm font-medium text-gray-700"
+                  class="pn-label"
                 >
                   {{ field.label }}
                 </label>
@@ -110,7 +110,7 @@
                   v-if="field.id === 'googleFontFamily'"
                   class="font-selector-container space-y-2"
                 >
-                  <div class="flex flex-wrap gap-2 p-3 border border-gray-300 rounded-md bg-gray-50 min-h-[2.5rem]">
+                  <div class="flex min-h-[2.5rem] flex-wrap gap-2 rounded-md border border-gray-300 bg-gray-50 p-3">
                     <span
                       v-for="font in selectedFonts"
                       :key="font"
@@ -135,13 +135,13 @@
                   </div>
                   <div
                     v-if="showFontDropdown && filteredFonts.length"
-                    class="absolute z-50 w-full max-w-md bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
+                    class="absolute z-50 max-h-60 w-full max-w-md overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg"
                   >
                     <div
                       v-for="font in filteredFonts.slice(0, 50)"
                       :key="font"
                       @click="addFont(font)"
-                      class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm border-b border-gray-100 last:border-b-0"
+                      class="cursor-pointer border-b border-gray-100 px-3 py-2 text-sm text-gray-700 transition-colors last:border-b-0 hover:bg-gray-100"
                     >
                       {{ font }}
                     </div>
@@ -154,7 +154,7 @@
                   :rows="field.rows || 4"
                   v-model="editableStyleMap[field.modelKey]"
                   @input="handleStyleChange(field.modelKey, $event.target.value)"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm font-mono"
+                  class="pn-textarea font-mono"
                   :placeholder="field.placeholder"
                 />
 
@@ -164,8 +164,8 @@
                   :type="field.inputType || 'text'"
                   v-model="editableStyleMap[field.modelKey]"
                   @input="handleStyleChange(field.modelKey, $event.target.value)"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
-                  :class="field.inputType === 'color' ? 'h-10' : ''"
+                  class="pn-input"
+                  :class="field.inputType === 'color' ? 'h-10 p-1' : ''"
                   :placeholder="field.placeholder"
                 />
 
@@ -174,7 +174,7 @@
                   :id="field.id"
                   v-model="editableStyleMap[field.modelKey]"
                   @change="handleStyleChange(field.modelKey, $event.target.value)"
-                  class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                  class="pn-select"
                 >
                   <option
                     v-for="opt in field.options"
@@ -196,28 +196,32 @@
                       editableStyleMap[field.modelKey] === 'true'
                       "
                     @change="handleStyleChange(field.modelKey, $event.target.checked)"
-                    class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500"
+                    class="pn-checkbox"
                   />
                 </div>
               </div>
             </div>
           </div>
 
-          <hr class="my-6" />
-          <BaseButton
-            @click="resetStyles"
-            class="my-2"
-          >
-            <span>Reset to Defaults</span>
-          </BaseButton>
-          <BaseButton
-            v-if="config.getDebugHtml"
-            @click="showDebugHtml"
-            class="my-2"
-          >
-            <Bug class="w-4 h-4" />
-            <span>Debug HTML</span>
-          </BaseButton>
+          <hr class="my-6 border-gray-200" />
+          <div class="flex flex-wrap items-center gap-3">
+            <BaseButton
+              variant="secondary"
+              size="md"
+              @click="resetStyles"
+            >
+              <span>Reset to Defaults</span>
+            </BaseButton>
+            <BaseButton
+              v-if="config.getDebugHtml"
+              variant="secondary"
+              size="md"
+              @click="showDebugHtml"
+            >
+              <Bug class="w-4 h-4" />
+              <span>Debug HTML</span>
+            </BaseButton>
+          </div>
         </div>
       </div>
 
