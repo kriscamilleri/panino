@@ -607,6 +607,7 @@ describe('DocumentDashboard — presentation contracts', () => {
 
         const newNoteClasses = testid(wrapper, 'document-dashboard-new-note').classes().join(' ');
         expect(newNoteClasses).toContain('bg-white');
+        expect(newNoteClasses).toContain('dashboard-new-button');
         expect(newNoteClasses).toContain('text-blue-600');
         expect(newNoteClasses).not.toContain('bg-gray-800');
     });

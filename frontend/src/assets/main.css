@@ -183,6 +183,10 @@
     opacity: 0;
 }
 
+.dashboard-new-button {
+    color: #2563eb;
+}
+
 /*
  * The dark theme remaps the existing Tailwind gray scale at the document
  * boundary so components share one navy surface, primary, accent, and
@@ -245,6 +249,7 @@ html[data-theme='dark'] .text-blue-500,
 html[data-theme='dark'] .text-blue-600,
 html[data-theme='dark'] .text-blue-700,
 html[data-theme='dark'] .text-blue-800 { color: var(--pn-info); }
+html[data-theme='dark'] .dashboard-new-button { color: var(--pn-info); }
 html[data-theme='dark'] .text-emerald-900 { color: var(--pn-success); }
 html[data-theme='dark'] .text-green-700 { color: var(--pn-success); }
 html[data-theme='dark'] .text-amber-600 { color: var(--pn-warning); }

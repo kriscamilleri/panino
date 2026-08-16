@@ -61,7 +61,7 @@
             <BaseButton
                 variant="secondary"
                 size="md"
-                class="shrink-0 whitespace-nowrap text-blue-600 hover:text-blue-800"
+                class="dashboard-new-button shrink-0 whitespace-nowrap text-blue-600 hover:text-blue-800"
                 data-testid="document-dashboard-new-note"
                 @click="$emit('new-note')"
             >
