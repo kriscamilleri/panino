@@ -68,33 +68,48 @@
     </div>
 
     <div
-      v-if="conflict"
+      v-if="persistedConflict || conflict"
       class="pn-alert pn-alert-warning mt-0 rounded-none"
       data-testid="editor-conflict-banner"
     >
       <div class="flex-1">
-        <p class="font-medium">This document was updated elsewhere.</p>
-        <p class="text-sm">Your unsaved changes are being held.</p>
+        <template v-if="persistedConflict">
+          <p class="font-medium">Some document changes need your review.</p>
+          <p class="text-sm">{{ persistedConflictSummary }}</p>
+        </template>
+        <template v-else>
+          <p class="font-medium">This document was updated elsewhere.</p>
+          <p class="text-sm">Your unsaved changes are being held.</p>
+        </template>
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <BaseButton
+          v-if="persistedConflict"
           size="sm"
           variant="secondary"
-          data-testid="editor-conflict-keep-mine"
-          @click="keepMine"
-        >Keep mine</BaseButton>
-        <BaseButton
-          size="sm"
-          variant="secondary"
-          data-testid="editor-conflict-use-theirs"
-          @click="useTheirs"
-        >Use theirs</BaseButton>
-        <BaseButton
-          size="sm"
-          variant="ghost"
-          data-testid="editor-conflict-compare"
-          @click="openCompare"
-        >Compare</BaseButton>
+          data-testid="editor-conflict-resolve"
+          @click="showResolution = true"
+        >Resolve</BaseButton>
+        <template v-else>
+          <BaseButton
+            size="sm"
+            variant="secondary"
+            data-testid="editor-conflict-keep-mine"
+            @click="keepMine"
+          >Keep mine</BaseButton>
+          <BaseButton
+            size="sm"
+            variant="secondary"
+            data-testid="editor-conflict-use-theirs"
+            @click="useTheirs"
+          >Use theirs</BaseButton>
+          <BaseButton
+            size="sm"
+            variant="ghost"
+            data-testid="editor-conflict-compare"
+            @click="openCompare"
+          >Compare</BaseButton>
+        </template>
       </div>
     </div>
 
@@ -124,6 +139,15 @@
         >Close</BaseButton>
       </template>
     </BaseModal>
+
+    <ConflictResolutionModal
+      v-if="persistedConflict"
+      :show="showResolution"
+      :conflict="persistedConflict"
+      :applying="isApplyingResolution"
+      @close="showResolution = false"
+      @apply="applyPersistedResolution"
+    />
 
     <div class="flex-1 flex flex-col min-h-0 mt-0">
       <div
@@ -187,11 +211,14 @@ import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
 import { useHistoryStore } from '@/store/historyStore';
 import { useThemeStore } from '@/store/themeStore';
+import { useConflictStore } from '@/store/conflictStore';
 import { useOverTypePatches } from '@/composables/useOverTypePatches';
 import { hasDocumentContentChanged, classifyEditorConflict } from '@/utils/documentPersistence';
 import BaseButton from '@/components/BaseButton.vue';
 import BaseModal from '@/components/BaseModal.vue';
 import DiffView from '@/components/DiffView.vue';
+import ConflictResolutionModal from '@/components/ConflictResolutionModal.vue';
+import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';
 
 useOverTypePatches();
@@ -220,6 +247,7 @@ const authStore = useAuthStore();
 const editorStore = useEditorStore();
 const historyStore = useHistoryStore(); // <--- INIT STORE
 const themeStore = useThemeStore();
+const conflictStore = useConflictStore();
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
 
@@ -237,6 +265,9 @@ const contentDraft = ref('');
 // `{ theirs: string }` holds the remote body we have not adopted.
 const conflict = ref(null);
 const showCompare = ref(false);
+const persistedConflict = ref(null);
+const showResolution = ref(false);
+const isApplyingResolution = ref(false);
 // Set while the editor value is being changed programmatically (adoption or
 // resolution), so the resulting onChange does not schedule a DB write or
 // re-enter classification.
@@ -384,7 +415,7 @@ function handleInput(value) {
     if (isProgrammaticUpdate.value) return;
 
     // While diverged, local writes are held and never reach the database.
-    if (conflict.value) {
+    if (conflict.value || persistedConflict.value) {
       debouncedSyncToDB.cancel();
       return;
     }
@@ -608,6 +639,8 @@ function classifyRemoteContent(fileId, theirs) {
 
 function handleDocumentSwitch(newId) {
   clearConflict();
+  persistedConflict.value = null;
+  showResolution.value = false;
   debouncedSyncToDB.cancel();
   debouncedRecord.cancel();
 
@@ -637,6 +670,20 @@ function handleDocumentSwitch(newId) {
     }
   }
 }
+
+watch(
+  () => [file.value?.id, conflictStore.conflictedNoteIds],
+  async ([noteId]) => {
+    if (!noteId || !conflictStore.hasConflict(noteId)) {
+      persistedConflict.value = null;
+      showResolution.value = false;
+      return;
+    }
+    const loaded = await conflictStore.loadConflict(noteId);
+    if (file.value?.id === noteId) persistedConflict.value = loaded;
+  },
+  { immediate: true },
+);
 
 watch(
   () => [file.value?.id, file.value?.content],
@@ -675,6 +722,48 @@ const saveStatusLabel = computed(() => {
 const compareBase = computed(() => (file.value ? draftStore.getBase(file.value.id) ?? '' : ''));
 const compareTheirs = computed(() => conflict.value?.theirs ?? '');
 const compareMine = computed(() => contentDraft.value);
+const persistedConflictSummary = computed(() => {
+  if (!persistedConflict.value) return '';
+  const plan = buildConflictResolutionPlan({
+    base: persistedConflict.value.baseContent,
+    mine: persistedConflict.value.mineContent,
+    theirs: persistedConflict.value.theirsContent,
+  });
+  if (plan.status === 'conflict') {
+    const count = plan.regions.filter((region) => region.type === 'conflict').length;
+    return `Some changes merged automatically. ${count} ${count === 1 ? 'region needs' : 'regions need'} a decision.`;
+  }
+  if (plan.status === 'clean') return 'The changes can be combined automatically. Review the result before applying it.';
+  return 'This document is too large for per-region comparison. Choose the complete version to keep.';
+});
+
+async function applyPersistedResolution(content) {
+  const activeConflict = persistedConflict.value;
+  const id = file.value?.id;
+  if (!activeConflict || !id || activeConflict.noteId !== id) return;
+
+  isApplyingResolution.value = true;
+  debouncedSyncToDB.cancel();
+  try {
+    await conflictStore.resolveConflict(activeConflict, content);
+    contentDraft.value = content;
+    draftStore.setDraft(id, content);
+    draftStore.setBase(id, content);
+    file.value.content = content;
+    setEditorValue(content, { preserveCursor: true });
+    docStore.structureStore.markContentChanged();
+    persistedConflict.value = null;
+    showResolution.value = false;
+    ui.addToast('Document changes resolved.', 'success');
+  } catch (error) {
+    if (error?.code === 'CONFLICT_STALE') {
+      persistedConflict.value = await conflictStore.loadConflict(id);
+    }
+    ui.addToast(error?.message || 'Could not apply the document resolution.', 'error');
+  } finally {
+    isApplyingResolution.value = false;
+  }
+}
 
 /* ───── paste-images & upload helper ───── */
 async function handlePaste(event) {

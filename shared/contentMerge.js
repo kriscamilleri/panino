@@ -73,12 +73,43 @@ export function withinContentMergeBudget(value) {
  * @param {{ base: string | null | undefined, mine: string | null | undefined, theirs: string | null | undefined }} parts
  */
 export function mergeContent({ base, mine, theirs }) {
+    const plan = buildConflictResolutionPlan({ base, mine, theirs });
+
+    if (plan.status === 'budget') {
+        return { status: 'budget', content: plan.theirs, conflicts: [] };
+    }
+
+    if (plan.status === 'conflict') {
+        return {
+            status: 'conflict',
+            content: plan.theirs,
+            conflicts: plan.regions
+                .filter((region) => region.type === 'conflict')
+                .map(({ baseLines, mineLines, theirsLines }) => ({
+                    baseLines,
+                    mineLines,
+                    theirsLines,
+                })),
+        };
+    }
+
+    return { status: 'clean', content: plan.content, conflicts: [] };
+}
+
+/**
+ * Builds the ordered region stream used by the manual conflict resolver. Clean
+ * regions are retained alongside conflicts so applying per-hunk decisions can
+ * reconstruct the complete document without searching for duplicated text.
+ *
+ * @param {{ base: string | null | undefined, mine: string | null | undefined, theirs: string | null | undefined }} parts
+ */
+export function buildConflictResolutionPlan({ base, mine, theirs }) {
     const nb = normalizeContent(base);
     const nm = normalizeContent(mine);
     const nt = normalizeContent(theirs);
 
     if (nm === nt) {
-        return { status: 'clean', content: nm, conflicts: [] };
+        return { status: 'clean', content: nm, base: nb, mine: nm, theirs: nt, regions: [] };
     }
 
     if (
@@ -86,44 +117,78 @@ export function mergeContent({ base, mine, theirs }) {
         contentByteLength(nm) > CONTENT_MERGE_LIMITS.maxContentBytes ||
         contentByteLength(nt) > CONTENT_MERGE_LIMITS.maxContentBytes
     ) {
-        return { status: 'budget', content: nt, conflicts: [] };
+        return { status: 'budget', base: nb, mine: nm, theirs: nt, regions: [] };
     }
 
-    const baseLines = nb.split('\n');
-    const mineLines = nm.split('\n');
-    const theirsLines = nt.split('\n');
-
-    const regions = diff3Merge(mineLines, baseLines, theirsLines, {
+    const diffRegions = diff3Merge(nm.split('\n'), nb.split('\n'), nt.split('\n'), {
         excludeFalseConflicts: true,
     });
+    const regions = [];
+    let conflictIndex = 0;
 
-    const merged = [];
-    const conflicts = [];
-
-    for (const region of regions) {
+    for (const region of diffRegions) {
         if (region.ok) {
-            merged.push(...region.ok);
+            regions.push({ type: 'clean', lines: region.ok });
             continue;
         }
 
         const { a, o, b } = region.conflict;
-        // Concurrent insertion at the same point: base contributed no lines, so
-        // both sides added different text in the same place. Concatenate rather
-        // than conflict. A fully empty base is a new-document race, not a merge,
-        // and stays a conflict.
         if (o.length === 0 && nb !== '') {
-            merged.push(...a, ...b);
+            regions.push({ type: 'clean', lines: [...a, ...b] });
             continue;
         }
 
-        conflicts.push({ baseLines: o, mineLines: a, theirsLines: b });
+        regions.push({
+            type: 'conflict',
+            index: conflictIndex,
+            baseLines: o,
+            mineLines: a,
+            theirsLines: b,
+        });
+        conflictIndex += 1;
     }
 
-    if (conflicts.length > 0) {
-        return { status: 'conflict', content: nt, conflicts };
+    if (conflictIndex === 0) {
+        return {
+            status: 'clean',
+            content: regions.flatMap((region) => region.lines).join('\n'),
+            base: nb,
+            mine: nm,
+            theirs: nt,
+            regions,
+        };
     }
 
-    return { status: 'clean', content: merged.join('\n'), conflicts: [] };
+    return { status: 'conflict', base: nb, mine: nm, theirs: nt, regions };
+}
+
+/**
+ * Applies an explicit mine/theirs decision to every conflict in a plan.
+ * Missing or unknown choices throw so no side is selected implicitly.
+ *
+ * @param {ReturnType<typeof buildConflictResolutionPlan>} plan
+ * @param {Record<number, 'mine' | 'theirs'> | Map<number, 'mine' | 'theirs'>} choices
+ */
+export function applyConflictResolution(plan, choices) {
+    if (!plan || plan.status !== 'conflict') {
+        throw new Error('A conflict resolution plan is required.');
+    }
+
+    const resolved = [];
+    for (const region of plan.regions) {
+        if (region.type === 'clean') {
+            resolved.push(...region.lines);
+            continue;
+        }
+
+        const choice = choices instanceof Map ? choices.get(region.index) : choices?.[region.index];
+        if (choice !== 'mine' && choice !== 'theirs') {
+            throw new Error(`Conflict region ${region.index + 1} needs a decision.`);
+        }
+        resolved.push(...(choice === 'mine' ? region.mineLines : region.theirsLines));
+    }
+
+    return resolved.join('\n');
 }
 
 /**

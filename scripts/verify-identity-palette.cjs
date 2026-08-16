@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global console, process */
 /**
  * Verifies the COLLAB-03 identity palette against its WCAG contrast,
  * CIEDE2000 colour-distance, and blue-hue-reservation thresholds.
@@ -16,10 +17,10 @@ async function main() {
 
     const { violations } = verifyIdentityPalette();
 
-    console.log(`Identity palette size: ${IDENTITY_PALETTE.length}`);
+    console.info(`Identity palette size: ${IDENTITY_PALETTE.length}`);
 
     if (violations.length === 0) {
-        console.log('PASS: every identity swatch satisfies contrast, colour-distance and hue constraints.');
+        console.info('PASS: every identity swatch satisfies contrast, colour-distance and hue constraints.');
         return 0;
     }
 

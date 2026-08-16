@@ -106,7 +106,7 @@ describe("Editor.vue conflict wiring (COLLAB-01)", () => {
 
   it("suppresses the debounced DB write while a conflict is active", () => {
     expect(editorSource).toMatch(
-      /if\s*\(conflict\.value\)\s*\{\s*debouncedSyncToDB\.cancel\(\);\s*return;\s*\}/s,
+      /if\s*\(conflict\.value\s*\|\|\s*persistedConflict\.value\)\s*\{\s*debouncedSyncToDB\.cancel\(\);\s*return;\s*\}/s,
     );
   });
 
@@ -125,6 +125,23 @@ describe("Editor.vue conflict wiring (COLLAB-01)", () => {
     expect(editorSource).toMatch(
       /classifyEditorConflict\(\{\s*mine,\s*base,\s*theirs\s*\}\)/,
     );
+  });
+
+  it("wires persisted conflict resolution through the shared banner", () => {
+    expect(editorSource).toContain('data-testid="editor-conflict-resolve"');
+    expect(editorSource).toContain('<ConflictResolutionModal');
+    expect(editorSource).toContain('@apply="applyPersistedResolution"');
+    expect(editorSource).toContain('conflictStore.resolveConflict(activeConflict, content)');
+  });
+
+  it("adopts a persisted resolution only after the transaction succeeds", () => {
+    const applyStart = editorSource.indexOf('async function applyPersistedResolution');
+    const applyEnd = editorSource.indexOf('/* ───── paste-images', applyStart);
+    const applySource = editorSource.slice(applyStart, applyEnd);
+    expect(applySource.indexOf('await conflictStore.resolveConflict')).toBeLessThan(
+      applySource.indexOf('setEditorValue(content'),
+    );
+    expect(applySource).toContain('draftStore.setBase(id, content)');
   });
 });
 

@@ -5,6 +5,8 @@ import {
     mergeContent,
     withinContentMergeBudget,
     serializeConflictHunks,
+    buildConflictResolutionPlan,
+    applyConflictResolution,
     CONTENT_MERGE_LIMITS,
 } from '../contentMerge.js';
 
@@ -147,6 +149,81 @@ describe('mergeContent', () => {
         });
         expect(result.status).toBe('clean');
         expect(result.content).toBe(`${body}\nMINE`);
+    });
+});
+
+describe('manual conflict resolution', () => {
+    it('preserves clean regions and applies a separate decision to each conflict', () => {
+        const plan = buildConflictResolutionPlan({
+            base: 'same\ngap\nsame',
+            mine: 'mine one\ngap\nmine two',
+            theirs: 'theirs one\ngap\ntheirs two',
+        });
+
+        expect(plan.status).toBe('conflict');
+        expect(plan.regions.filter((region) => region.type === 'conflict')).toHaveLength(2);
+        expect(applyConflictResolution(plan, { 0: 'mine', 1: 'theirs' })).toBe(
+            'mine one\ngap\ntheirs two',
+        );
+    });
+
+    it('resolves a delete-versus-edit conflict without inserting placeholder lines', () => {
+        const plan = buildConflictResolutionPlan({
+            base: 'before\nsection\nafter',
+            mine: 'before\nsection edited\nafter',
+            theirs: 'before\nafter',
+        });
+
+        expect(applyConflictResolution(plan, { 0: 'theirs' })).toBe('before\nafter');
+    });
+
+    it('reconstructs duplicate base lines by region order instead of text search', () => {
+        const plan = buildConflictResolutionPlan({
+            base: 'same\ngap\nsame',
+            mine: 'mine one\ngap\nmine two',
+            theirs: 'theirs one\ngap\ntheirs two',
+        });
+
+        expect(applyConflictResolution(plan, { 0: 'theirs', 1: 'mine' })).toBe(
+            'theirs one\ngap\nmine two',
+        );
+    });
+
+    it('preserves trailing newlines in a resolved document', () => {
+        const plan = buildConflictResolutionPlan({
+            base: 'line\n',
+            mine: 'mine\n',
+            theirs: 'theirs\n',
+        });
+
+        expect(applyConflictResolution(plan, { 0: 'mine' })).toBe('mine\n');
+    });
+
+    it('exposes a clean candidate when manual write-back was disabled', () => {
+        const plan = buildConflictResolutionPlan({
+            base: 'p1\n\np2',
+            mine: 'p1 mine\n\np2',
+            theirs: 'p1\n\np2 theirs',
+        });
+
+        expect(plan.status).toBe('clean');
+        expect(plan.content).toBe('p1 mine\n\np2 theirs');
+    });
+
+    it('requires an explicit valid choice for every conflict region', () => {
+        const plan = buildConflictResolutionPlan({ base: 'base', mine: 'mine', theirs: 'theirs' });
+        expect(() => applyConflictResolution(plan, {})).toThrow('needs a decision');
+        expect(() => applyConflictResolution(plan, { 0: 'both' })).toThrow('needs a decision');
+    });
+
+    it('returns a budget plan without invoking per-hunk resolution', () => {
+        const plan = buildConflictResolutionPlan({
+            base: 'base',
+            mine: 'x'.repeat(CONTENT_MERGE_LIMITS.maxContentBytes + 1),
+            theirs: 'theirs',
+        });
+        expect(plan.status).toBe('budget');
+        expect(plan.regions).toEqual([]);
     });
 });
 

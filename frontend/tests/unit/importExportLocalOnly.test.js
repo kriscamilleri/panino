@@ -20,7 +20,7 @@ describe("import/export local-only table exclusion (COLLAB-02 §4)", () => {
   });
 
   it("queryAllData selects only user-facing tables", () => {
-    const queryBlock = source.match(/async function queryAllData\(\)[\s\S]*?\n    \}/);
+    const queryBlock = source.match(/async function queryAllData\(\)[\s\S]*?\n {4}\}/);
     expect(queryBlock).toBeTruthy();
     expect(queryBlock[0]).toContain("FROM folders");
     expect(queryBlock[0]).toContain("FROM notes");
