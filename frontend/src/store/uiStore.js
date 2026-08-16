@@ -17,6 +17,7 @@ export const useUiStore = defineStore("uiStore", () => {
   const editorMenuCollapsed = ref(false);
   const viewMenuCollapsed = ref(false);
   const toolsMenuCollapsed = ref(false);
+  const navbarCollapsed = ref(false);
   const scrollSync = ref(false);
 
   // Menu visibility (transient, not persisted)
@@ -55,6 +56,7 @@ export const useUiStore = defineStore("uiStore", () => {
       editorMenuCollapsed: editorMenuCollapsed.value,
       viewMenuCollapsed: viewMenuCollapsed.value,
       toolsMenuCollapsed: toolsMenuCollapsed.value,
+      navbarCollapsed: navbarCollapsed.value,
       scrollSync: scrollSync.value,
     };
     try {
@@ -85,6 +87,7 @@ export const useUiStore = defineStore("uiStore", () => {
         editorMenuCollapsed.value = settings.editorMenuCollapsed ?? false;
         viewMenuCollapsed.value = settings.viewMenuCollapsed ?? false;
         toolsMenuCollapsed.value = settings.toolsMenuCollapsed ?? false;
+        navbarCollapsed.value = settings.navbarCollapsed ?? false;
         scrollSync.value = settings.scrollSync ?? false;
       } else {
         resetToDefaults();
@@ -106,6 +109,7 @@ export const useUiStore = defineStore("uiStore", () => {
     editorMenuCollapsed.value = false;
     viewMenuCollapsed.value = false;
     toolsMenuCollapsed.value = false;
+    navbarCollapsed.value = false;
     scrollSync.value = false;
   }
 
@@ -177,6 +181,7 @@ export const useUiStore = defineStore("uiStore", () => {
     editorMenuCollapsed,
     viewMenuCollapsed,
     toolsMenuCollapsed,
+    navbarCollapsed,
     scrollSync,
     showViewMenu,
     showActionBar,
@@ -201,6 +206,7 @@ export const useUiStore = defineStore("uiStore", () => {
     toggleEditorMenuCollapsed: () => toggleAndSave(editorMenuCollapsed),
     toggleViewMenuCollapsed: () => toggleAndSave(viewMenuCollapsed),
     toggleToolsMenuCollapsed: () => toggleAndSave(toolsMenuCollapsed),
+    toggleNavbarCollapsed: () => toggleAndSave(navbarCollapsed),
     toggleScrollSync: () => toggleAndSave(scrollSync),
 
     toggleViewMenu: () => toggleMenu(showViewMenu),

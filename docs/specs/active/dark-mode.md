@@ -42,6 +42,7 @@ different interface theme on each device without creating a document change.
 | U2 | Returning writer | Reloads after selecting dark mode. | Dark mode is restored before interaction and no document or sync state changes. |
 | U3 | Mobile writer | Opens the mobile menu and changes the theme. | The mode changes immediately, the menu remains usable, and the selected theme persists after reload. |
 | U4 | Keyboard user | Tabs to and activates the toggle. | The control has a descriptive accessible label, visible focus ring, and correct pressed state. |
+| U5 | Desktop writer | Collapses the navbar labels. | Labels disappear from all desktop navbar controls while icons remain, and the saved preference restores on return. |
 
 ## 5) Design and accessibility
 
@@ -58,9 +59,9 @@ when the preference changes so OverType receives matching foreground, background
 and selection values. The markdown preview inherits the global text colors and has explicit
 code/table/blockquote styles.
 
-The toggle uses Lucide `Sun`/`Moon` icons, `aria-pressed`, a changing title, and the standard
-focus-visible ring. It is an icon-only control on narrow desktop widths and includes a visible
-label where room permits.
+The toggle uses a text-first `Dark mode` / `Light mode` label with a Lucide `Sun`/`Moon` icon,
+`aria-pressed`, a changing title, and the standard focus-visible ring. The desktop-only navbar
+collapse button persists whether labels are shown; labels are always hidden on mobile.
 
 ## 6) Data and interaction behavior
 

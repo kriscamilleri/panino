@@ -9,16 +9,20 @@ const { themeStoreMock } = vi.hoisted(() => ({
     },
 }))
 
+const uiStoreMock = {
+    showViewMenu: false,
+    showActionBar: false,
+    showFileMenu: false,
+    navbarCollapsed: false,
+    toggleViewMenu: vi.fn(),
+    toggleActionBar: vi.fn(),
+    toggleFileMenu: vi.fn(),
+    toggleNavbarCollapsed: vi.fn(),
+    addToast: vi.fn(),
+}
+
 vi.mock('@/store/uiStore', () => ({
-    useUiStore: () => ({
-        showViewMenu: false,
-        showActionBar: false,
-        showFileMenu: false,
-        toggleViewMenu: vi.fn(),
-        toggleActionBar: vi.fn(),
-        toggleFileMenu: vi.fn(),
-        addToast: vi.fn(),
-    }),
+    useUiStore: () => uiStoreMock,
 }))
 
 vi.mock('@/store/authStore', () => ({
@@ -65,5 +69,26 @@ describe('Navbar theme toggle', () => {
         await toggle.trigger('click')
 
         expect(themeStoreMock.toggleTheme).toHaveBeenCalledOnce()
+    })
+
+    it('places the theme label before its icon and toggles navbar label collapse', async () => {
+        themeStoreMock.theme = 'light'
+        uiStoreMock.navbarCollapsed = false
+        uiStoreMock.toggleNavbarCollapsed.mockClear()
+        const wrapper = mount(Navbar, {
+            global: {
+                stubs: {
+                    RouterLink: { template: '<a><slot /></a>' },
+                },
+            },
+        })
+
+        const themeToggle = wrapper.get('[data-testid="navbar-theme-toggle"]')
+        expect(themeToggle.text()).toContain('Dark mode')
+        expect(themeToggle.html().indexOf('Dark mode')).toBeLessThan(themeToggle.html().indexOf('<svg'))
+
+        await wrapper.get('[data-testid="navbar-collapse-button"]').trigger('click')
+
+        expect(uiStoreMock.toggleNavbarCollapsed).toHaveBeenCalledOnce()
     })
 })
