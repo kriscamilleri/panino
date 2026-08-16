@@ -3,6 +3,37 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import request from 'supertest';
 import { createTestApp, setupTestUser, cleanupTestUser, getTestToken } from '../testHelpers.js';
 
+import { readFileSync } from 'node:fs';
+
+// `poc/` is a proof of concept and is not part of the production image. pdf.js used to read
+// `poc/print-defaults.json` two directories up, which always threw ENOENT in production and
+// logged a warning on every boot. Guard against it coming back.
+describe('print style defaults are self-contained', () => {
+    const source = readFileSync(new URL('../../pdf.js', import.meta.url), 'utf8');
+    // Assertions run against code with comments stripped: the removal is explained in a
+    // comment that necessarily names the old path, and that explanation should not trip the
+    // guard it documents.
+    const code = source
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/^\s*\/\/.*$/gm, '');
+
+    it('does not reference the poc directory in code', () => {
+        expect(code).not.toMatch(/poc/);
+    });
+
+    it('defines PRINT_STYLE_DEFAULTS as a literal, not a file read', () => {
+        expect(code).toMatch(/const\s+PRINT_STYLE_DEFAULTS\s*=\s*\{/);
+        expect(code).not.toMatch(/loadDefaultPrintStyles/);
+        expect(code).not.toMatch(/print-defaults\.json/);
+    });
+
+    it('derives DEFAULT_PRINT_STYLES from the constant', () => {
+        expect(code).toMatch(
+            /const\s+DEFAULT_PRINT_STYLES\s*=\s*\{\s*\.\.\.PRINT_STYLE_DEFAULTS\s*\}/,
+        );
+    });
+});
+
 describe('POST /render-pdf', () => {
     let app, server;
     let testUser;

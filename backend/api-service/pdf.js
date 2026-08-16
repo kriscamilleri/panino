@@ -56,9 +56,19 @@ const logError = (message, ...args) => console.error(`[PDF] ${message}`, ...args
 // PRINT STYLE DEFAULTS + HELPERS
 // ============================================================================
 
-const DEFAULTS_PATH = path.join(__dirname, '..', '..', 'poc', 'print-defaults.json');
-
-const FALLBACK_PRINT_STYLES = {
+// The canonical print-style defaults for the service. These used to be a fallback for
+// `poc/print-defaults.json`, read two directories up from here.
+//
+// That read never did anything. `poc/` is a proof of concept and is not part of the
+// production image — the container's build context is `backend/api-service` — so the read
+// always threw ENOENT and every PDF production has ever rendered used these values. In a dev
+// checkout the file loaded, but its contents were byte-identical to this object (36 keys, 0
+// differing), so it changed nothing there either.
+//
+// What it did do was maintain two sources of truth for the same styling, where editing the
+// poc copy would silently change dev output and never reach production, and emit a warning
+// on every production boot for a condition that was normal. Removed 2026-08-16.
+const PRINT_STYLE_DEFAULTS = {
     h1: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 2.25rem; line-height: 1.15; color: #111827; margin-top: 2.5rem; margin-bottom: 1rem; font-weight: 600;',
     h2: 'font-family: "Playfair Display", "Source Sans 3", Georgia, serif; font-size: 1.75rem; line-height: 1.2; color: #1f2937; margin-top: 2rem; margin-bottom: .75rem; font-weight: 600;',
     h3: 'font-size: 1.5rem; line-height: 1.25; color: #1f2937; margin-top: 1.5rem; margin-bottom: .5rem; font-weight: 600;',
@@ -104,17 +114,6 @@ const EXCLUDE_STYLE_KEYS = new Set([
     'footerHeight', 'pageMargin', 'pageSize',
 ]);
 
-function loadDefaultPrintStyles() {
-    try {
-        const raw = fs.readFileSync(DEFAULTS_PATH, 'utf-8');
-        const parsed = JSON.parse(raw);
-        return { ...FALLBACK_PRINT_STYLES, ...parsed };
-    } catch (err) {
-        logWarn('Falling back to bundled print defaults:', err.message);
-        return { ...FALLBACK_PRINT_STYLES };
-    }
-}
-
 function printStylesToCss(styleMap = {}) {
     const s = styleMap;
     let css = '';
@@ -147,7 +146,7 @@ function printStylesToCss(styleMap = {}) {
     return css;
 }
 
-const DEFAULT_PRINT_STYLES = loadDefaultPrintStyles();
+const DEFAULT_PRINT_STYLES = { ...PRINT_STYLE_DEFAULTS };
 
 // ============================================================================
 // IMAGE EMBEDDING

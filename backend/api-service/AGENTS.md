@@ -79,7 +79,9 @@ CR-SQLite extension is loaded per-connection. Path resolved via `CRSQLITE_EXT_PA
 - SSRF protection: DNS lookup + private IP check before fetching external images.
 - Page numbers resolved via draft PDF render + pdf-lib page count.
 - HTML sanitized with DOMPurify before rendering.
-- Print style defaults loaded from `poc/print-defaults.json` with bundled fallbacks.
+- Print style defaults are the `PRINT_STYLE_DEFAULTS` constant in `pdf.js`. Incoming
+  `printStyles` are merged over them. `poc/` is a proof of concept and is not on any
+  production code path — do not reintroduce a dependency on it.
 
 ---
 
