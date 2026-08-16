@@ -5,7 +5,7 @@
     >
         <div
             v-if="ui.isAnyMenuOpen"
-            class="border-y bg-gray-50 px-4 py-2 min-h-14 flex items-center overflow-x-auto"
+            class="workspace-chrome border-y bg-gray-50 px-4 py-2 min-h-14 flex items-center overflow-x-auto"
             data-testid="submenu-bar"
         >
             <div
