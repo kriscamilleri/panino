@@ -265,6 +265,14 @@ html[data-theme='dark'] .border-gray-800 { border-color: var(--pn-primary); }
 html[data-theme='dark'] .border-emerald-200 { border-color: var(--pn-success); }
 html[data-theme='dark'] .workspace-chrome { border-color: #272727; }
 html[data-theme='dark'] [data-testid='submenu-bar'] { background-color: #1d1d1d; }
+html[data-theme='dark'] .pinned-filter-toggle[aria-pressed='true'] {
+    background-color: var(--pn-primary) !important;
+    color: #151515 !important;
+}
+html[data-theme='dark'] .pinned-filter-toggle[aria-pressed='true']:hover {
+    background-color: #a4c3c7 !important;
+    color: #151515 !important;
+}
 html[data-theme='dark'] .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
 html[data-theme='dark'] .divide-gray-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--pn-border); }
 html[data-theme='dark'] .ring-gray-300,

@@ -291,6 +291,8 @@ describe('DocumentDashboard — filters and sorting', () => {
         expect(testid(wrapper, 'document-dashboard-pinned-toggle').attributes('aria-pressed')).toBe('true');
         expect(testid(wrapper, 'document-dashboard-pinned-toggle').classes())
             .toContain('pinned-filter-toggle');
+        expect(testid(wrapper, 'document-dashboard-pinned-toggle').classes())
+            .toContain('bg-gray-100');
         expect(filterSelectValue(wrapper) ?? 'pinned').toBe('pinned');
         expect(wrapper.findAll('[data-testid^="document-row-title-"]').map((r) => r.text()))
             .toEqual(['Alpha Plan', 'Delta Review']);
