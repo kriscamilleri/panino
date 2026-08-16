@@ -63,9 +63,9 @@
                 class="relative flex shrink-0"
             >
                 <BaseButton
-                    variant="primary"
+                    variant="secondary"
                     size="md"
-                    class="whitespace-nowrap rounded-r-none"
+                    class="dashboard-new-button whitespace-nowrap rounded-r-none text-blue-600 hover:text-blue-800"
                     data-testid="document-dashboard-new-note"
                     @click="$emit('new-note')"
                 >
@@ -77,10 +77,10 @@
                 </BaseButton>
 
                 <BaseButton
-                    variant="primary"
+                    variant="secondary"
                     size="md"
                     icon-only
-                    class="rounded-l-none border-l border-gray-700"
+                    class="rounded-l-none border-l border-gray-300"
                     :aria-expanded="isCreateMenuOpen"
                     aria-controls="document-dashboard-create-menu"
                     aria-haspopup="menu"

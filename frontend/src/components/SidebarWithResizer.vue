@@ -4,7 +4,7 @@
         <div
             :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
             :style="!isMobileView ? { width: documentsWidth + 'px' } : {}"
-            class="bg-gray-100 border-r overflow-hidden relative"
+            class="workspace-chrome bg-gray-100 border-r overflow-hidden relative"
             data-testid="sidebar-container"
         >
             <div class="h-full overflow-y-auto p-4 pb-12">
