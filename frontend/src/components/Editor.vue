@@ -126,6 +126,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
 import { useHistoryStore } from '@/store/historyStore';
 import { useOverTypePatches } from '@/composables/useOverTypePatches';
+import { hasDocumentContentChanged } from '@/utils/documentPersistence';
 import OverType from 'overtype';
 
 useOverTypePatches();
@@ -133,10 +134,13 @@ useOverTypePatches();
 /* ───── helpers ───── */
 function debounce(fn, wait) {
   let timeout;
-  return function (...args) {
+  function debounced(...args) {
     clearTimeout(timeout);
     timeout = setTimeout(() => fn(...args), wait);
-  };
+  }
+
+  debounced.cancel = () => clearTimeout(timeout);
+  return debounced;
 }
 
 const isProduction = import.meta.env.PROD;
@@ -298,7 +302,11 @@ function handleInput(value) {
 
   if (file.value) {
     draftStore.setDraft(file.value.id, value);
-    debouncedSyncToDB(file.value.id, value);
+    if (hasDocumentContentChanged(file.value.content, value)) {
+      debouncedSyncToDB(file.value.id, value);
+    } else {
+      debouncedSyncToDB.cancel();
+    }
   }
 }
 
