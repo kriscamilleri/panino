@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")/.."
 
 echo "== Runtime =="
-echo "node:   $(node -v 2>/dev/null || echo 'NOT FOUND')  (expected: v20.x — see .nvmrc)"
+echo "node:   $(node -v 2>/dev/null || echo 'NOT FOUND')  (expected: v24.x — see .nvmrc)"
 echo "npm:    $(npm -v 2>/dev/null || echo 'NOT FOUND')"
 echo "docker: $(docker --version 2>/dev/null || echo 'NOT FOUND — required for npm run test:be')"
 

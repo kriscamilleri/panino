@@ -38,5 +38,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Run backend suite in the Node 20 test image
+      - name: Run backend suite in the Node 24 test image
         run: ./scripts/test-backend.sh

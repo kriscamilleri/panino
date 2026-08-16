@@ -1,9 +1,15 @@
 # Template Extensions — Dynamic Titles & Default Folders
 
 > Extends `docs/specs/shipped/document-templates.md` (v2).
-> Status: active
+> Status: shipped
 > Created: 2026-05-03
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
+> Shipped: 2026-08-16 (see `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `frontend/src/utils/templateVariables.js`, `frontend/src/store/templateStore.js`,
+> `frontend/src/store/syncStore.js`, `frontend/src/components/TemplatePickerModal.vue`,
+> `frontend/src/pages/TemplateManagerPage.vue`, `backend/api-service/db.js`,
+> `frontend/tests/unit/templateVariables.test.js`, `frontend/tests/unit/templateStore.test.js`,
+> `frontend/tests/unit/templatePickerModal.test.js`, `frontend/tests/unit/templateManagerPage.test.js`
 > Target: v1.1 (post initial template manager implementation)
 
 ---

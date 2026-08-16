@@ -21,6 +21,43 @@ The production compose file mounts `api-data` at `/app/data` and `uploads-data` 
 `/app/uploads`. Those directories are runtime volumes and must not be copied into image
 layers.
 
+## Stream a production database backup
+
+Run the backup from a trusted local checkout:
+
+```bash
+./scripts/production-database-backup/backup-production-databases.sh
+```
+
+By default, the script reads the ignored `prd-server.env` file and writes
+`~/backups/panino/panino-databases-<UTC timestamp>.tar.gz` plus a SHA-256 checksum.
+Use `--env-file` or `--output-dir` to override either path. The preferred credential names
+are `PANINO_PROD_HOST`, `PANINO_PROD_USER`, and `PANINO_PROD_PASSWORD`; the existing `IP`,
+`UN`, and `P` names remain supported.
+
+The API stays online. Inside the running container, SQLite's online backup API creates one
+transactionally consistent database snapshot at a time in `/dev/shm`, streams it into the
+gzip-compressed tar archive, and removes it immediately. No snapshot is written to remote
+disk. The container's RAM-backed `/dev/shm` must have enough free capacity for the largest
+database. If it does not, the command fails, removes the local `.part` archive, and reports
+the required and available byte counts.
+
+During the run, stderr shows each database's snapshot stage, snapshot size, transfer progress
+in 10% increments, and completion. Per-user filenames are deliberately replaced with labels
+such as `user database 2/12`; the authentication database is identified separately.
+
+Before relying on an archive, verify it locally:
+
+```bash
+cd ~/backups/panino
+sha256sum -c panino-databases-<UTC timestamp>.tar.gz.sha256
+tar -tzf panino-databases-<UTC timestamp>.tar.gz
+```
+
+Do not extract an archive over the production volume. Restore into a separate directory,
+validate the databases, and follow the production change approval and backup rules before
+replacing any live data.
+
 ## Routing
 
 - `/` serves the built frontend from Nginx.

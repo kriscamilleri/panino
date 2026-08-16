@@ -2,9 +2,18 @@
 
 > Raise the logging threshold, partition the directory, redact production data, and make
 > findings get promoted instead of accumulating.
-> Status: proposed
+> Status: shipped — verified 2026-08-16. Logs live under `YYYY/MM/` with `archive/` for the
+> superseded ones, `docs/agent-logs/README.md` resolves, redaction landed as its own commit
+> (`8601c5f`, split out of `0c523b8`), and `AGENTS.md` §1 carries the threshold, commit,
+> redaction and promotion rules. Standing caveat: the "zero untracked files under `docs/`"
+> item is a recurring condition, not a one-time check — it was violated again by an
+> uncommitted DX-10 log picked up on 2026-08-16.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
+> Shipped: 2026-08-08 (see `docs/agent-logs/2026/08/2026-08-08_08-42_dx-audit-gap-closure.md`;
+> re-verified 2026-08-16 in `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `docs/agent-logs/README.md`, `docs/agent-logs/YYYY/MM/` layout,
+> `docs/agent-logs/archive/`, `AGENTS.md` §1
 > Priority: P1 — the directory is currently a write-cost with little read-value
 > Depends on: nothing (but §6 Phase 4 pairs with [DX-05](dx-05-architecture-knowledge-base.md))
 

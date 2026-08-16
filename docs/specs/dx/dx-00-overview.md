@@ -1,9 +1,12 @@
 # DX-00 — Agent Developer Experience: Overview & Sequencing
 
 > Index for the DX spec set. Read this before picking up any individual DX spec.
-> Status: proposed
+> Status: mostly done — index, reconciled 2026-08-16. DX-01…DX-08 are done (DX-02's
+> branch-protection rule was declined by the maintainer as unnecessary at this stage);
+> DX-09 has not been started; DX-10 is done on the dev side with production merge-behaviour
+> verification and the deploy itself outstanding. Each spec's own header carries the evidence.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Source: repository and implementation-log analysis, 2026-08-08
 
 ---
@@ -26,20 +29,28 @@ updated so shipped features still read as `Draft`; two well-written skills sit i
 directory Claude does not load; and the incident-response tooling written in July was never
 committed.
 
+**DX-10 was added after the fact.** Tracing the ABI blocker to its source showed the pin is
+one npm package, and that the Node 20 runtime it protects reached end of life on
+2026-04-30. That makes it a production security item rather than a DX one, but it belongs
+here because it shares a root cause with DX-01 and is only safe to attempt once DX-01 and
+DX-02 have shipped.
+
 ---
 
 ## 2) The specs
 
 | # | Spec | Priority | Effort | Depends on |
 |---|---|---|---|---|
-| 01 | [Backend Test Runnability](dx-01-backend-test-runnability.md) | **P0** | ~½ day | — |
-| 02 | [CI Test Gate](dx-02-ci-test-gate.md) | **P0** | ~2 hrs | 01 |
-| 03 | [Agent Instruction Architecture](dx-03-agent-instruction-architecture.md) | **P0** | ~3 hrs | 05 (for Phase 4 only) |
-| 04 | [Agent Log Lifecycle](dx-04-agent-log-lifecycle.md) | P1 | ~½ day | — |
-| 05 | [Architecture Knowledge Base](dx-05-architecture-knowledge-base.md) | P1 | ~1 day | — |
-| 06 | [Repository Hygiene & Context](dx-06-repo-hygiene-context.md) | P1 | ~3 hrs | — |
-| 07 | [Spec Lifecycle & Status](dx-07-spec-lifecycle.md) | P2 | ~3 hrs | — |
-| 08 | [Agent Permissions](dx-08-agent-permissions.md) | P2 | ~1 hr | — |
+| 01 | [Backend Test Runnability](../shipped/dx-01-backend-test-runnability.md) | **P0** | ~½ day | — |
+| 02 | [CI Test Gate](../shipped/dx-02-ci-test-gate.md) | **P0** | ~2 hrs | 01 |
+| 03 | [Agent Instruction Architecture](../shipped/dx-03-agent-instruction-architecture.md) | **P0** | ~3 hrs | 05 (for Phase 4 only) |
+| 04 | [Agent Log Lifecycle](../shipped/dx-04-agent-log-lifecycle.md) | P1 | ~½ day | — |
+| 05 | [Architecture Knowledge Base](../shipped/dx-05-architecture-knowledge-base.md) | P1 | ~1 day | — |
+| 06 | [Repository Hygiene & Context](../shipped/dx-06-repo-hygiene-context.md) | P1 | ~3 hrs | — |
+| 07 | [Spec Lifecycle & Status](../shipped/dx-07-spec-lifecycle.md) | P2 | ~3 hrs | — |
+| 08 | [Agent Permissions](../shipped/dx-08-agent-permissions.md) | P2 | ~1 hr | — |
+| 09 | [Backend Type Checking](dx-09-backend-type-checking.md) | P1 | ~1 day | 02 (soft — supplies the CI job) |
+| 10 | [Node Runtime Upgrade (20 → 24)](dx-10-node-runtime-upgrade.md) | **P0** | ~1½ days | 01, 02 (soft) |
 
 Effort estimates assume an agent with repo context, and include the validation checklist.
 
@@ -48,8 +59,8 @@ Effort estimates assume an agent with repo context, and include the validation c
 ## 3) Suggested sequence
 
 ```
-DX-01 ──────────────► DX-02
-(tests runnable)      (CI gate)
+DX-01 ──────────────► DX-02 ──────────────► DX-10
+(tests runnable)      (CI gate)             (Node 20 → 24)
 
 DX-03 Phase 1 ──► DX-05 ──► DX-03 Phases 2-5
 (fix broken refs)  (arch docs)  (entry points, trim AGENTS.md)
@@ -60,13 +71,15 @@ DX-06 Phase 1 ──► DX-04 ──► DX-07
 DX-08 (independent, any time)
 ```
 
-Three ordering constraints are real; the rest is preference:
+Four ordering constraints are real; the rest is preference:
 
 1. **DX-02 after DX-01.** A CI gate on tests nobody can run locally is a wall, not a gate.
 2. **DX-03 Phase 4 after DX-05.** Do not delete sections from `AGENTS.md` until
    `docs/architecture/` exists to receive them.
 3. **DX-05 Phase 3 after DX-06 Phase 1.** The incident runbook references
    `db-repair.js` and `repair-orphan-image-clocks.mjs`, which are currently untracked.
+4. **DX-10 after DX-01, ideally after DX-02.** The runtime upgrade lands on the sync path;
+   do not start it until a verified test run is one command and CI is gating it.
 
 **DX-03 Phase 1** (fix the lowercase `AGENTS.md` references, remove the nonexistent
 delegation-call instruction) is fifteen minutes and has no dependencies. Ship it first
@@ -135,5 +148,7 @@ archive.
   access). Both are marked; ask rather than assume.
 - Every spec's validation checklist is meant to be pasted into the PR description, per
   `.github/skills/feature-development/SKILL.md` Phase 8.
-- These specs live at the top level of `docs/specs/` for now. DX-07 moves them into
-  `docs/specs/dx/` as part of its own restructure.
+- These specs originally lived at the top level of `docs/specs/`. DX-07 moved them into
+  `docs/specs/dx/`; on 2026-08-16 the eight completed ones moved on into
+  `docs/specs/shipped/`, leaving `dx/` to hold this index plus whatever is still open. The
+  links in §2 point at wherever each spec currently is.

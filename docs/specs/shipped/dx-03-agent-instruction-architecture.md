@@ -2,9 +2,16 @@
 
 > Give Claude and GitHub Copilot each a native entry point, fix the broken cross-references,
 > and split instructions by how often they need to be read.
-> Status: proposed
+> Status: shipped — verified 2026-08-16. `CLAUDE.md` and `.github/copilot-instructions.md` both
+> exist, `.claude/skills` is committed as mode `120000`, `AGENTS.md` is 143 lines with every
+> named path resolving, and the `agents.md` grep is clean outside `docs/agent-logs/` (the one
+> remaining hit is prose inside this spec describing the rename).
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
+> Shipped: 2026-08-08 (see `docs/agent-logs/2026/08/2026-08-08_08-42_dx-audit-gap-closure.md`;
+> re-verified 2026-08-16 in `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `CLAUDE.md`, `AGENTS.md`, `frontend/AGENTS.md`, `backend/api-service/AGENTS.md`,
+> `.github/copilot-instructions.md`, `.claude/skills` (symlink to `.github/skills`)
 > Priority: P0 — cheap, mechanical, and currently wasting work that is already written
 > Depends on: nothing
 > Related: [DX-05](dx-05-architecture-knowledge-base.md) receives the reference material trimmed out of `AGENTS.md`

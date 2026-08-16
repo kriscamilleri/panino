@@ -1,0 +1,49 @@
+# One arm of the DX-10 step 8 comparison.
+#
+# BETTER_SQLITE3_VERSION selects the arm: 9.6.0 is the current production dependency
+# (SQLite 3.45.3), 12.11.1 is the DX-10 Phase 2 target (SQLite 3.53.2). CR-SQLite is pinned
+# at 0.16.3 in both and compiled from source against whichever amalgamation better-sqlite3
+# brings, which is exactly the coupling the step exists to test.
+#
+# NODE_IMAGE stays on Node 20 for both arms by default: Phase 2 isolates the dependency
+# change from the runtime change, so the runtime must be held constant here.
+ARG NODE_IMAGE=node:20-bookworm-slim
+FROM ${NODE_IMAGE}
+
+ARG BETTER_SQLITE3_VERSION=12.11.1
+
+RUN apt-get update -o Acquire::Retries=5 \
+	&& apt-get install -y --no-install-recommends \
+		build-essential \
+		python3 \
+		pkg-config \
+		libsqlite3-dev \
+		ca-certificates \
+		unzip \
+	&& rm -rf /var/lib/apt/lists/*
+
+ENV PYTHON=/usr/bin/python3
+WORKDIR /probe
+
+# .npmrc disables lifecycle scripts so @vlcn.io/crsqlite's own install script (which uses
+# Node <22 import-attribute syntax) cannot crash the install before patch-crsqlite.sh runs.
+COPY patch-crsqlite.sh ./
+RUN printf 'ignore-scripts=true\n' > .npmrc \
+	&& npm init -y > /dev/null \
+	&& npm install --no-audit --no-fund \
+		better-sqlite3@${BETTER_SQLITE3_VERSION} \
+		@vlcn.io/crsqlite@0.16.3 \
+	&& ./patch-crsqlite.sh \
+	&& (cd node_modules/better-sqlite3 && npm run install) \
+	&& npm rebuild @vlcn.io/crsqlite --build-from-source \
+	&& (cd node_modules/@vlcn.io/crsqlite && node nodejs-install-helper.js)
+
+# Resolve the built extension once, at image build time, so the probe does not have to.
+RUN CRSQLITE_PATH="$(find /probe/node_modules/@vlcn.io/crsqlite \
+		-name 'crsqlite.node' -o -name 'crsqlite.so' | head -n1)" \
+	&& test -n "$CRSQLITE_PATH" \
+	&& printf '%s\n' "$CRSQLITE_PATH" > /probe/crsqlite-path
+
+COPY merge-behaviour-probe.mjs make-synthetic-fixture.mjs ./
+
+ENTRYPOINT ["/bin/sh", "-c", "CRSQLITE_EXT_PATH=$(cat /probe/crsqlite-path) exec node \"$@\"", "--"]

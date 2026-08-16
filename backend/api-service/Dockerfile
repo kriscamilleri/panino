@@ -1,5 +1,5 @@
 # /backend/api-service/Dockerfile
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 
 # Puppeteer + native build deps (crsqlite) + unzip for crsqlite helper
 RUN apt-get update \
@@ -51,13 +51,16 @@ WORKDIR /app
 ENV PYTHON=/usr/bin/python3
 ENV CRSQLITE_EXT_PATH=/app/node_modules/@vlcn.io/crsqlite/build/Release/crsqlite.node
 
-COPY package*.json ./
+COPY package*.json .npmrc ./
 COPY patch-crsqlite.sh ./
 RUN sed -i 's/\r$//' patch-crsqlite.sh && chmod +x patch-crsqlite.sh
 
-# Prefer npm ci when lockfile exists
+# .npmrc disables lifecycle scripts so @vlcn.io/crsqlite's own "install" script
+# (Node <22 import-attribute syntax) can't crash npm ci before it's patched.
+# native:setup runs the patch, then rebuilds crsqlite and fetches Puppeteer's
+# Chrome build explicitly, in the right order.
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
-  && npm rebuild @vlcn.io/crsqlite --build-from-source
+  && npm run native:setup
 
 COPY . .
 

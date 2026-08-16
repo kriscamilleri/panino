@@ -156,6 +156,7 @@
 import { ref, computed, onMounted, reactive } from 'vue';
 import { useTemplateStore } from '@/store/templateStore';
 import { useStructureStore } from '@/store/structureStore';
+import { useSyncStore } from '@/store/syncStore';
 import { resolveTemplateVariables, extractInputLabels } from '@/utils/templateVariables';
 import { X } from 'lucide-vue-next';
 
@@ -170,6 +171,7 @@ const emit = defineEmits(['close', 'created']);
 
 const templateStore = useTemplateStore();
 const structureStore = useStructureStore();
+const syncStore = useSyncStore();
 
 const selectedTemplateId = ref('__blank__');
 const showVariables = ref(false);
@@ -224,7 +226,7 @@ async function handleUseTemplate() {
 
   if (inputLabels.length === 0) {
     // No input variables — resolve and create immediately
-    const folderId = resolveTargetFolder(tpl);
+    const folderId = await resolveTargetFolder(tpl);
     await createNoteFromTemplate(tpl, {}, folderId);
   } else {
     // Has input variables — show inline variable form
@@ -261,7 +263,7 @@ async function handleCreateWithVariables() {
     delete variableValues[key];
   }
 
-  const folderId = resolveTargetFolder(tpl);
+  const folderId = await resolveTargetFolder(tpl);
   await createNoteFromTemplate(tpl, inputValues, folderId);
 }
 
@@ -281,26 +283,20 @@ async function createNoteFromTemplate(tpl, inputValues, folderId) {
   emit('created', result.id);
 }
 
-function resolveTargetFolder(tpl) {
+async function resolveTargetFolder(tpl) {
   if (tpl.defaultFolderId) {
-    // Walk the tree to check if the folder still exists
-    const exists = folderExists(tpl.defaultFolderId);
+    // A template can outlive its default folder — fall back when it is gone
+    const exists = await folderExists(tpl.defaultFolderId);
     if (exists) return tpl.defaultFolderId;
   }
   return props.currentFolderId;
 }
 
-function folderExists(targetId) {
-  function search(items) {
-    for (const item of items) {
-      if (item.id === targetId && item.type === 'folder') return true;
-      if (item.type === 'folder') {
-        const children = structureStore.getChildren(item.id);
-        if (search(children)) return true;
-      }
-    }
-    return false;
-  }
-  return search(structureStore.rootItems);
+async function folderExists(targetId) {
+  const rows = await syncStore.execute(
+    'SELECT COUNT(*) AS count FROM folders WHERE id = ?',
+    [targetId],
+  );
+  return (rows?.[0]?.count ?? 0) > 0;
 }
 </script>

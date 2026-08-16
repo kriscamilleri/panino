@@ -1,9 +1,22 @@
 # DX-02 — CI Test Gate Before Deploy
 
 > Run the test suite in CI and stop unverified code from auto-deploying to production.
-> Status: proposed
+> Status: shipped — verified 2026-08-16. `.github/workflows/test.yml` runs
+> `lint`/`frontend`/`backend`, `deploy.yml` has `needs: test` and the dirty-checkout
+> pre-flight, and `scripts/test-backend.sh` is the only definition of the backend test
+> command. §8's deploy-path items are confirmed by the run history rather than by inspection:
+> on 2026-08-08, `51ffcf1` on `main` shows `Tests` **success** followed by `Deploy to VPS`
+> **success**, and the preceding `Deploy to VPS` failure at 07:06 is the diverged-checkout
+> pre-flight doing its job before the server was repaired. The four SSH secrets are valid —
+> that deploy used them. §7's branch-protection rule was **declined by the maintainer on
+> 2026-08-16** as unnecessary at this stage; the checks remain advisory by choice, so this
+> spec is complete as scoped.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
+> Shipped: 2026-08-08 (see `docs/agent-logs/2026/08/2026-08-08_08-42_dx-audit-gap-closure.md`;
+> re-verified 2026-08-16 in `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `.github/workflows/test.yml` (`lint`/`frontend`/`backend` jobs),
+> `.github/workflows/deploy.yml` (`needs: test` + dirty-checkout pre-flight)
 > Priority: P0 — currently nothing runs tests at any point in the path to production
 > Depends on: [DX-01](dx-01-backend-test-runnability.md) (tests must be runnable before they can gate)
 
@@ -204,10 +217,13 @@ to `main` with failing tests does not reach the VPS.
 
 These require repo admin and cannot be done by an agent editing files:
 
-- [ ] In GitHub → Settings → Branches, add a protection rule for `main` (and optionally
-      `develop`) requiring the `frontend` and `backend` checks to pass.
-- [ ] Confirm `SSH_PRIVATE_KEY`, `SSH_USER`, `SSH_HOST`, `PROJECT_PATH` secrets still
-      exist and are valid.
+- **Branch protection — declined 2026-08-16 by the maintainer.** Not needed at this stage.
+  A protection rule on `main` requiring the `lint`/`frontend`/`backend` checks was the
+  original proposal; the checks still run on every push and PR, they are simply advisory
+  rather than enforced. Revisit if more than one person starts pushing to `main`.
+- [x] Confirm `SSH_PRIVATE_KEY`, `SSH_USER`, `SSH_HOST`, `PROJECT_PATH` secrets still
+      exist and are valid. Verified 2026-08-16: the 2026-08-08 `Deploy to VPS [main]` run
+      for `51ffcf1` succeeded using all four.
 - [ ] Decide whether deploy failures should notify (GitHub already emails on workflow
       failure for the actor; a Slack/email step is optional).
 

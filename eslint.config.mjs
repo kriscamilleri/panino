@@ -129,6 +129,20 @@ export default [
     },
   },
 
+  // Repo-level operational scripts (production backup and friends). Node runtime, ES
+  // modules. console is these scripts' user interface, not stray debug output.
+  {
+    files: ["scripts/**/*.{js,mjs}"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: { ...globals.node },
+    },
+    rules: {
+      "no-console": "off",
+    },
+  },
+
   // Root CommonJS tooling.
   {
     files: ["*.cjs"],

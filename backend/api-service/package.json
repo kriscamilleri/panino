@@ -5,10 +5,10 @@
     "type": "module",
     "main": "index.js",
     "engines": {
-        "node": ">=20 <21"
+        "node": ">=24 <25"
     },
     "scripts": {
-        "postinstall": "./patch-crsqlite.sh",
+        "native:setup": "./patch-crsqlite.sh && (cd node_modules/better-sqlite3 && npm run install) && (cd node_modules/@vlcn.io/crsqlite && node nodejs-install-helper.js) && node node_modules/puppeteer/install.mjs",
         "start": "node index.js",
         "migrate:globals": "node scripts/migrate-globals.js",
         "test": "vitest run",
@@ -18,7 +18,7 @@
     "dependencies": {
         "@vlcn.io/crsqlite": "^0.16.3",
         "bcryptjs": "^2.4.3",
-        "better-sqlite3": "^9.6.0",
+        "better-sqlite3": "^12.11.1",
         "cors": "^2.8.5",
         "dompurify": "^3.0.11",
         "express": "^4.19.2",
@@ -28,7 +28,7 @@
         "node-fetch": "^3.3.2",
         "nodemailer": "^6.9.14",
         "pdf-lib": "^1.17.1",
-        "puppeteer": "^22.12.1",
+        "puppeteer": "^25.5.0",
         "uuid": "^9.0.1",
         "ws": "^8.17.0"
     },

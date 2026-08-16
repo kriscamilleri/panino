@@ -177,16 +177,18 @@ All commands run from the repository root:
 npm run doctor      # check your environment before anything else
 npm run lint        # ESLint across frontend and backend
 npm run test:fe     # frontend tests (runs on the host, fast)
-npm run test:be     # backend tests (runs in Docker on Node 20)
+npm run test:be     # backend tests (runs in Docker on Node 24)
 npm test            # both suites (does not run lint)
 ```
 
-Backend tests run inside the Node 20 image defined by
-`backend/api-service/Dockerfile.test`, because `better-sqlite3` and the CR-SQLite extension
-are native modules built against a specific Node ABI. Running them directly on a Node 21+
-host fails with an ABI mismatch — that is an environment condition, not a broken test. The
-repo pins the intended version in `.nvmrc`; if you are on Node 20 you can use
-`npm run test:be:host` to skip Docker.
+Backend tests run inside the Node 24 image defined by
+`backend/api-service/Dockerfile.test`, because `better-sqlite3` is a native module built
+against a specific Node ABI (the CR-SQLite extension is a SQLite loadable extension, not
+Node-ABI bound). Running them on a host with a different Node major fails with an ABI
+mismatch — that is an environment condition, not a broken test. The repo pins the intended
+version in `.nvmrc`; if you are on Node 24 you can use `npm run test:be:host` to skip Docker,
+after running `npm run native:setup` in `backend/api-service` once to build the native
+dependencies (see `backend/api-service/.npmrc`).
 
 `npm run lint` must report zero errors. Warnings are advisory.
 

@@ -1,9 +1,17 @@
 # DX-01 — Make Backend Tests Runnable in One Command
 
 > Remove the Node ABI blocker that prevents agents from verifying changes to sync/db code.
-> Status: proposed
+> Status: shipped — verified 2026-08-16. `.dockerignore`, `.nvmrc`, `scripts/test-backend.sh`,
+> `scripts/test-frontend.sh` and `scripts/doctor.sh` are in place; `npm test` runs both suites.
+> Phase 5's lint decision was ratified as Option A (adopt ESLint) on 2026-08-08. §7's
+> `engines` line is superseded by [DX-10](../dx/dx-10-node-runtime-upgrade.md): the pin is now
+> `>=24 <25`, not `>=20 <21`.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
+> Shipped: 2026-08-08 (see `docs/agent-logs/2026/08/2026-08-08_08-42_dx-audit-gap-closure.md`;
+> re-verified 2026-08-16 in `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `scripts/test-backend.sh`, `scripts/test-frontend.sh`, `scripts/doctor.sh`, `.nvmrc`,
+> `backend/api-service/.dockerignore`, `eslint.config.mjs`, root `package.json` scripts
 > Priority: P0 — blocks correctness verification on the most incident-prone code in the repo
 > Depends on: nothing
 > Blocks: [DX-02](dx-02-ci-test-gate.md)
@@ -116,6 +124,12 @@ remains canonical.
 prebuilds. It would work, but it drifts the host away from the Node 20 production runtime
 and re-introduces the "works locally, fails in prod" class of bug that DX-05 documents for
 CR-SQLite. Revisit only when the production base image moves to Node 24.
+
+**Revisited by [DX-10](../dx/dx-10-node-runtime-upgrade.md).** Node 20 reached end of life on
+2026-04-30, which flips the trade-off above: matching production no longer means matching a
+supported runtime. DX-10 moves `better-sqlite3` to `^12.11.1` and the production base image
+to `node:24-bookworm-slim`, so this section's rejection no longer applies — production itself
+is now Node 24, and `npm run test:be:host` works on a Node 24 host.
 
 ### 5.3 A `doctor` script
 

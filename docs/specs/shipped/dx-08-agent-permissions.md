@@ -2,9 +2,17 @@
 
 > Share the safe permissions so a fresh checkout does not re-prompt through the whole set,
 > and make production SSH access a deliberate choice rather than an inherited default.
-> Status: proposed
+> Status: shipped — verified 2026-08-16. `.claude/settings.json` is committed with the shared
+> safe set and a `deny` list, `.claude/settings.local.json` is gitignored and holds the
+> machine-specific entries, and no production-reaching permission appears in the committed
+> file. Phase 2 was ratified as Option A (production SSH stays local-only) on 2026-08-08.
+> The production-access decision now lives in `AGENTS.md` §4 rather than §7 — the checklist's
+> section number predates the DX-03 rewrite.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
+> Shipped: 2026-08-08 (see `docs/agent-logs/2026/08/2026-08-08_08-42_dx-audit-gap-closure.md`;
+> re-verified 2026-08-16 in `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `.claude/settings.json`, `.gitignore` (`.claude/settings.local.json`), `AGENTS.md` §4
 > Priority: P2 — small friction fix with a security decision attached
 > Depends on: nothing
 

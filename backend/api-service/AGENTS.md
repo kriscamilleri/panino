@@ -119,8 +119,10 @@ docker run --rm panino-test
 ```
 
 The canonical repository command is `npm run test:be` from the repository root. It builds
-and runs `Dockerfile.test` with Node 20, matching production and avoiding native binding ABI
-mismatches on newer host Node versions. Use `npm test` here only on Node 20.
+and runs `Dockerfile.test` with Node 24, matching production and avoiding native binding ABI
+mismatches on other host Node versions. Use `npm test` here only on Node 24 — and after
+`npm run native:setup` (patches CR-SQLite's install script, builds `better-sqlite3`, and
+fetches Puppeteer's Chrome build; installs skip these automatically, see `.npmrc`).
 
 ### Directory structure
 
