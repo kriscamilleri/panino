@@ -2,9 +2,13 @@
 
 > Distil four re-derived investigations into durable reference docs, so agents stop paying
 > the same discovery cost repeatedly.
-> Status: proposed
+> Status: done — verified 2026-08-16. `docs/architecture/` holds `README.md`,
+> `crsqlite-sync.md`, `data-model.md`, `auth-and-jwt.md` and `pdf-pipeline.md`;
+> `docs/runbooks/` holds `deployment.md` and `sync-incident-response.md`. `data-model.md`
+> lists every table including `templates`, `note_revisions` and `note_revision_meta`, each
+> marked CRR or backend-local, and `AGENTS.md` §5 routes to all of them.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Priority: P1 — highest-value single document in the set is `crsqlite-sync.md`
 > Depends on: nothing
 > Blocks: [DX-03](dx-03-agent-instruction-architecture.md) Phase 4 (needs these files to exist before trimming `AGENTS.md`)

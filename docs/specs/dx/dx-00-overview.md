@@ -1,9 +1,12 @@
 # DX-00 — Agent Developer Experience: Overview & Sequencing
 
 > Index for the DX spec set. Read this before picking up any individual DX spec.
-> Status: proposed
+> Status: mostly done — index, reconciled 2026-08-16. DX-01…DX-08 are done (DX-02's
+> branch-protection rule was declined by the maintainer as unnecessary at this stage);
+> DX-09 has not been started; DX-10 is done on the dev side with production merge-behaviour
+> verification and the deploy itself outstanding. Each spec's own header carries the evidence.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Source: repository and implementation-log analysis, 2026-08-08
 
 ---

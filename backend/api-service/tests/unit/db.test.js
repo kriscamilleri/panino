@@ -13,6 +13,7 @@ import {
   closeAllConnections,
   clearConnectionCache,
   invalidateUserDb,
+  getHealthyUserDb,
   ensureNoteRevisionsSchema,
 } from "../../db.js";
 
@@ -217,6 +218,31 @@ describe("Connection Management", () => {
     const db = getUserDb(testUserId1);
     expect(invalidateUserDb(testUserId1, db, "test-first-close")).toBe(true);
     expect(invalidateUserDb(testUserId1, db, "test-repeat-close")).toBe(false);
+  });
+
+  // Background-job guard: maintenance jobs must never write a CRR table through a
+  // connection whose internal sync bit is still set, or their deletes skip the
+  // CR-SQLite triggers and leave orphan clock rows.
+  it("returns the cached connection unchanged when the sync bit is clean", () => {
+    const db = getUserDb(testUserId1);
+    expect(getHealthyUserDb(testUserId1, "test-clean")).toBe(db);
+  });
+
+  it("reopens a poisoned connection before handing it to a background job", () => {
+    const poisoned = getUserDb(testUserId1);
+    poisoned.prepare("SELECT crsql_internal_sync_bit(1)").get();
+    expect(
+      poisoned.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get().sync_bit,
+    ).toBe(1);
+
+    const healthy = getHealthyUserDb(testUserId1, "test-image-prune");
+
+    expect(healthy).not.toBe(poisoned);
+    expect(
+      healthy.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get().sync_bit,
+    ).toBe(0);
+    // The poisoned handle must be gone from the cache, not merely bypassed.
+    expect(getUserDb(testUserId1)).toBe(healthy);
   });
 });
 

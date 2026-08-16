@@ -1,9 +1,13 @@
 # DX-01 — Make Backend Tests Runnable in One Command
 
 > Remove the Node ABI blocker that prevents agents from verifying changes to sync/db code.
-> Status: proposed
+> Status: done — verified 2026-08-16. `.dockerignore`, `.nvmrc`, `scripts/test-backend.sh`,
+> `scripts/test-frontend.sh` and `scripts/doctor.sh` are in place; `npm test` runs both suites.
+> Phase 5's lint decision was ratified as Option A (adopt ESLint) on 2026-08-08. §7's
+> `engines` line is superseded by [DX-10](dx-10-node-runtime-upgrade.md): the pin is now
+> `>=24 <25`, not `>=20 <21`.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Priority: P0 — blocks correctness verification on the most incident-prone code in the repo
 > Depends on: nothing
 > Blocks: [DX-02](dx-02-ci-test-gate.md)

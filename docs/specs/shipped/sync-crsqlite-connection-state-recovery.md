@@ -1,8 +1,13 @@
 # CR-SQLite Connection-State Recovery After Failed Sync
 
-> Status: active
+> Status: shipped
 > Created: 2026-07-11
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
+> Shipped: 2026-08-16 (see `docs/agent-logs/2026/08/2026-08-16_09-20_spec-conclusion.md`)
+> Implementation: `backend/api-service/db.js` (`invalidateUserDb`, `getHealthyUserDb`),
+> `backend/api-service/sync.js` (fail-closed merge handling, `SYNC_CONNECTION_RESET`),
+> `backend/api-service/image.js`, `backend/api-service/backup.js`,
+> `backend/api-service/tests/unit/db.test.js`, `backend/api-service/tests/integration/sync.test.js`
 
 ## Summary
 
@@ -306,16 +311,34 @@ The initial release should fail closed on a CR-SQLite merge error rather than at
 
 ## Acceptance Criteria
 
-- [ ] A failed CR-SQLite merge never leaves its connection in `dbConnections`.
-- [ ] A fresh connection reports `crsql_internal_sync_bit() = 0`.
-- [ ] An image delete after a failed merge creates a normal `-1` tombstone.
-- [ ] No code path returns HTTP 200 for a batch containing a skipped/failed CR-SQLite change.
-- [ ] A failed batch does not advance the server clock or silently lose changes.
-- [ ] The note-delete FK regression remains fixed with `ON DELETE CASCADE`.
-- [ ] Background image prune and backup cleanup validate connection health before CRR writes.
-- [ ] Existing orphan repair remains backup-gated, dry-run capable, and tested.
-- [ ] Production logs identify merge failures, connection invalidation, and maintenance deletes without exposing sensitive data.
-- [ ] Backend tests pass in the production-compatible Node/SQLite environment.
+Verified 2026-08-16 against the implementation and `npm run test:be` (Node 24 Docker image).
+
+- [x] A failed CR-SQLite merge never leaves its connection in `dbConnections`.
+      `sync.js` calls `invalidateUserDb(userId, db, 'crsqlite-merge-failure')`; asserted by
+      `tests/integration/sync.test.js` "fails closed and resets the connection".
+- [x] A fresh connection reports `crsql_internal_sync_bit() = 0`.
+      Asserted in both `tests/unit/db.test.js` and `tests/integration/sync.test.js`.
+- [x] An image delete after a failed merge creates a normal `-1` tombstone.
+      Sentinel behavior covered by `tests/integration/sync.test.js` and
+      `tests/unit/db-repair.test.js`.
+- [x] No code path returns HTTP 200 for a batch containing a skipped/failed CR-SQLite change.
+      The route returns 503 `SYNC_CONNECTION_RESET`; `skipped` is retained only as a
+      constant `0` for wire compatibility.
+- [x] A failed batch does not advance the server clock or silently lose changes.
+      Asserted by "should roll back good changes after an orphan merge failure".
+- [x] The note-delete FK regression remains fixed with `ON DELETE CASCADE`.
+      `db.js` `BASE_SCHEMA` plus `ensureNoteRevisionsSchema()` migration, with tests.
+- [x] Background image prune and backup cleanup validate connection health before CRR writes.
+      `getHealthyUserDb()` is called from `image.js` (upload, delete, bulk delete, prune) and
+      `backup.js` (image cleanup); asserted by `tests/unit/db.test.js`
+      "reopens a poisoned connection before handing it to a background job".
+- [x] Existing orphan repair remains backup-gated, dry-run capable, and tested.
+- [x] Production logs identify merge failures, connection invalidation, and maintenance deletes
+      without exposing sensitive data. All four structured events emit masked user IDs.
+- [x] Backend tests pass in the production-compatible Node/SQLite environment.
+      154 tests pass. One unrelated suite, `tests/unit/stream-database-backup.test.js`, cannot
+      resolve its import under the canonical Docker runner — see the agent log; it is a defect
+      of `d1155bd`, not of this spec's implementation.
 
 ## Related Files
 

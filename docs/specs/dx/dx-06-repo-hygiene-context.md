@@ -2,9 +2,14 @@
 
 > Remove dead files, quarantine vendored blobs, commit the orphaned incident tooling, and
 > make `.llmignore` reflect what agents should actually skip.
-> Status: proposed
+> Status: done — verified 2026-08-16. `pdf.backup.js`, `combined_content.txt` and `prompt.md`
+> are gone with no remaining code references; `paged.polyfill.js` sits under
+> `backend/api-service/vendor/` with a README; `.llmignore` excludes `data/`, `uploads/`,
+> `vendor/` and `docs/agent-logs/archive/`; `.dockerignore` excludes `data/` and `uploads/`;
+> `db-repair.js`, `scripts/repair-orphan-image-clocks.mjs` and `tests/unit/db-repair.test.js`
+> are committed and passing.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Priority: P1 — low risk, immediate reduction in wasted context
 > Depends on: nothing. Overlaps [DX-01](dx-01-backend-test-runnability.md) Phase 1 (`.dockerignore`)
 

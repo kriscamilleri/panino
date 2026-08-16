@@ -2,9 +2,14 @@
 
 > Move production and tooling off end-of-life Node 20 by upgrading the one package that
 > pins it, in two independently reversible steps.
-> Status: proposed
+> Status: partially done — not shipped. The dev-side implementation and browser verification
+> are complete (see `docs/agent-logs/2026/08/2026-08-08_11-30_dx-10-node-runtime-upgrade.md`
+> and `docs/agent-logs/2026/08/2026-08-16_06-50_dx-10-browser-verification.md`). Two things
+> remain: §6 Phase 2 step 8, the production merge-behaviour verification — started and
+> deliberately aborted by the maintainer on 2026-08-16 rather than pull a live user database
+> — and the production deploy itself. Do not mark this shipped until both are done.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Priority: P0 — the production runtime has been unsupported since 2026-04-30
 > Depends on: [DX-01](dx-01-backend-test-runnability.md) (needs `npm run test:be` to be the verification surface), [DX-02](dx-02-ci-test-gate.md) (soft — CI should be green before and after)
 > Blocks: nothing. Supersedes [DX-01](dx-01-backend-test-runnability.md) §5.2's "revisit later" note and adjusts [DX-09](dx-09-backend-type-checking.md) §5's `@types/node` pin

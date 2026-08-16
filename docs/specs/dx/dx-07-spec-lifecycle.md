@@ -2,9 +2,15 @@
 
 > Every spec in the repo says `Status: Draft`, including the shipped ones. Encode status in
 > the path so it cannot drift.
-> Status: proposed
+> Status: done — verified 2026-08-16. `docs/specs/` is partitioned into `proposed/`,
+> `active/`, `shipped/` and `dx/` with a `README.md` stating the lifecycle, and every spec
+> carries the standard header. Concluded on 2026-08-16: Phase 1's two open verifications
+> (`document-templates-extensions.md` and `sync-crsqlite-connection-state-recovery.md`) were
+> checked against code and tests and both moved to `shipped/`, emptying `active/`. This spec
+> was itself never implemented as a spec — its intent was carried out by hand, including the
+> header reconciliation across DX-01…DX-09 recorded on 2026-08-16.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Priority: P2 — low risk, removes a recurring source of agent confusion
 > Depends on: nothing
 

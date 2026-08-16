@@ -2,9 +2,12 @@
 
 > Add a TypeScript type-checking gate to the backend without converting a single file to
 > `.ts`, without a build step, and without touching the deploy path.
-> Status: proposed
+> Status: proposed — not started. Confirmed 2026-08-16: no `tsconfig.json` or `jsconfig.json`
+> under `backend/api-service/`, no `typecheck` script in either `package.json`, and no
+> type-check step in `.github/workflows/test.yml`. The only static checking on the backend is
+> still ESLint, adopted under [DX-01](dx-01-backend-test-runnability.md) Phase 5.
 > Created: 2026-08-08
-> Last updated: 2026-08-08
+> Last updated: 2026-08-16
 > Priority: P1 — the two files behind both 2026 production incidents (`sync.js`, `db.js`) have no static checking beyond ESLint
 > Depends on: none. [DX-02](dx-02-ci-test-gate.md) provides the CI workflow this extends; if DX-02 has not shipped, Phase 4 creates the step in whatever workflow exists.
 

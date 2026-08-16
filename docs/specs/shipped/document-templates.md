@@ -55,6 +55,10 @@ Current gaps:
 - No default values in template variables (e.g. `{{input:Label:default}}`). Deferred to v1.1.
 - No Ctrl+Shift+N keyboard shortcut for "New from Template". Deferred to v1.1.
 
+Two of these deferrals were taken up separately and have shipped: dynamic title patterns and
+per-template default folders. See
+[`document-templates-extensions.md`](document-templates-extensions.md).
+
 ---
 
 ## 4) UX & UI
