@@ -2,16 +2,19 @@
 
 > Move production and tooling off end-of-life Node 20 by upgrading the one package that
 > pins it, in two independently reversible steps.
-> Status: partially done — not shipped. The dev-side implementation and browser verification
-> are complete (see `docs/agent-logs/2026/08/2026-08-08_11-30_dx-10-node-runtime-upgrade.md`
-> and `docs/agent-logs/2026/08/2026-08-16_06-50_dx-10-browser-verification.md`).
-> §6 Phase 2 step 8 now has a harness — `scripts/dx10-merge-verification/` — which runs the
-> step's operations on a 9.6.0 arm and a 12.11.1 arm and diffs them, supplying the baseline
-> the step asks for. Its first run (2026-08-16, 400-note synthetic fixture generated on the
-> 9.6.0 arm) reports **IDENTICAL**: both arms completed all seven steps with no errors and
-> matching clock counts. That is evidence, not completion — the step also asks for a run
-> against real production data, and no production database has been pulled. The production
-> deploy is likewise not done. Do not mark this shipped until both are.
+> Status: verified, not yet deployed. The dev-side implementation and browser verification are
+> complete (see `docs/agent-logs/2026/08/2026-08-08_11-30_dx-10-node-runtime-upgrade.md` and
+> `docs/agent-logs/2026/08/2026-08-16_06-50_dx-10-browser-verification.md`).
+> **§6 Phase 2 step 8 — the spec's "real gate" — is done as of 2026-08-16.**
+> `scripts/dx10-merge-verification/` runs the step's operations on a 9.6.0 arm (SQLite 3.45.3)
+> and a 12.11.1 arm (SQLite 3.53.2) and diffs them, supplying the baseline the step asks for.
+> Run against one real production database — 11 MB, `crsql_db_version` 47875, 3,630 change
+> rows, the account that suffered and was repaired after the July orphan-clock incident — both
+> arms completed all seven steps with no errors and produced identical `dbVersionDelta`,
+> change-row counts and clock totals across all seven clock tables: **IDENTICAL**. The
+> snapshot was deleted immediately after the run.
+> What remains is Phase 2's deployment (step 9) and then Phase 3. Do not mark this shipped
+> until the deploy has happened and baked.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
 > Priority: P0 — the production runtime has been unsupported since 2026-04-30
@@ -237,10 +240,24 @@ one and not the other produces a drift that only surfaces at image build time.
    > arm deliberately, so the new arm reads tombstones physically written by SQLite 3.45.3 —
    > without that, the test proves nothing.
    >
-   > **Still outstanding:** a run against real production data. Synthetic data cannot cover
-   > unknown-unknowns in accumulated user state. Pull one database with
-   > `backup-production-databases.sh --only <user-id> --exclude _users.db` and pass it to
-   > `--database`. Not done; requires explicit approval per `AGENTS.md` §4.
+   > **Production run — DONE 2026-08-16, with the maintainer's explicit approval.** One real
+   > user database, selected by size and pulled with `--only <id> --exclude _users.db` (the
+   > auth database is not a CRR database and was never copied). 11 MB, `crsql_db_version`
+   > **47875**, 3,630 change rows, 52 image deletion sentinels — and it is the account that
+   > suffered the July orphan-clock incident and was repaired, so its clock tables carry
+   > exactly the historical state this step is meant to stress.
+   >
+   > **IDENTICAL.** Both arms: `dbVersion` 47875 → 47881 (delta 6), `changeRows` 3630 → 3633,
+   > seven non-sentinel image clock rows on insert, 1 sentinel / 0 non-sentinel on both
+   > deletes, and matching totals across all seven clock tables. Full numbers in
+   > `scripts/dx10-merge-verification/README.md`.
+   >
+   > The snapshot and both working copies were deleted immediately after the run. No
+   > production write occurred at any point — the pull uses `db.backup()` on a readonly
+   > connection staged in RAM-backed `/dev/shm`.
+   >
+   > **Step 8 is satisfied.** The remaining risk in §2.4 is addressed by evidence rather than
+   > by a green unit suite, which is what the step asked for.
 
 9. Deploy Phase 2 alone and let it run for a few days before starting Phase 3.
 

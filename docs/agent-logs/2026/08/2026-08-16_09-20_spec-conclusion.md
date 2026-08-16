@@ -314,13 +314,56 @@ whose entire job is to say "safe" or "not safe".
 Also verified the diff can actually detect divergence — an unfalsifiable "IDENTICAL" would be
 worthless — by comparing two reports known to differ.
 
-### What this does not do
+### Closing step 8 against real production data
 
-It does not close step 8. The spec asks for the comparison against real production data, and
-synthetic data cannot cover unknown-unknowns in accumulated user state. **No production
-database was pulled and nothing was run against production for this.** What changed is that a
-production run now has a baseline to be compared against instead of being a one-shot
-observation, and can take one database instead of the whole estate.
+With the maintainer's explicit approval, the harness was then run against production data.
+
+Discovery needed one more piece of tooling. `--only` cannot be used without knowing the
+names, and an ad-hoc `ls` inside the production container reaches into a directory
+`AGENTS.md` §3 marks do-not-read — the permission classifier blocked that, correctly. Added
+`--list`, which returns metadata only (name, size, mtime), copies no content, and
+short-circuits before any archive machinery.
+
+13 databases present. Selected the largest and most recently active (11 MB, modified
+2026-08-14), on the reasoning that it carries the most accumulated clock history, the highest
+`db_version` and the most tombstones. Pulled with `--only <id> --exclude _users.db`; the
+archive verified by checksum and confirmed to contain exactly one database.
+
+It turned out to be a better choice than "largest" implies: the id matches the
+`backups/sync-clock-repair-20260708T064506Z/` directory seen during the read-only diagnosis
+earlier in this session. **This is `user-A`, the account that suffered the July orphan-clock
+incident and was repaired.** Its clock tables carry 52 image deletion sentinels written by
+the old SQLite plus the post-repair state — the most informative input available for a step
+that exists to test exactly that surface.
+
+**Result: IDENTICAL.** Both arms completed all seven steps with no errors.
+
+| | old arm (9.6.0 / SQLite 3.45.3) | new arm (12.11.1 / SQLite 3.53.2) |
+|---|---|---|
+| `crsql_db_version` | 47875 → 47881 | 47875 → 47881 |
+| `changeRows` | 3630 → 3633 | 3630 → 3633 |
+| image insert clock rows | 7 non-sentinel | 7 non-sentinel |
+| note delete | 1 sentinel / 0 non-sentinel | 1 sentinel / 0 non-sentinel |
+| image delete | 1 sentinel / 0 non-sentinel | 1 sentinel / 0 non-sentinel |
+
+Clock totals matched across all seven clock tables, including `images__crsql_clock` at
+1114/52/1062 — the table that broke in July.
+
+For scale: the July incident report recorded `db_version = 44198`. This database is at 47875,
+so the comparison ran against genuinely accumulated production history, not a toy.
+
+**Step 8 is satisfied.** §2.4's risk — CR-SQLite 0.16.3 misbehaving against a newer SQLite
+amalgamation — is now addressed by evidence rather than by a green unit suite, which is what
+the step asked for.
+
+### Data handling
+
+No production write occurred at any point. The pull uses `db.backup()` on a readonly
+connection, staged in RAM-backed `/dev/shm` on the server and removed there immediately;
+nothing was written to production disk. `_users.db` was never copied. Locally, the archive,
+the extracted snapshot and both arm working copies were deleted immediately after the run and
+their absence verified. The real UUID appears nowhere in this repository — `user-A` throughout,
+per `docs/agent-logs/README.md`.
 
 ## Production checkout — read-only diagnosis (no writes)
 

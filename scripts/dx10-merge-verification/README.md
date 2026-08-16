@@ -82,9 +82,42 @@ A clean comparison is only reported as a pass when **both arms completed all sev
 no recorded error**. Two arms that fail identically also produce identical reports, and
 reporting that as "unchanged" would be exactly backwards — that case exits `4`, not `0`.
 
-## Result on record
+## Results on record
 
-Run 2026-08-16 against a 400-note synthetic fixture generated on the 9.6.0 arm:
+### Production data — 2026-08-16 (the run step 8 actually asks for)
+
+One real user database, pulled with `--only` and `_users.db` excluded, 11 MB,
+`crsql_db_version` **47875**, 3,630 change rows. This is the account that suffered the July
+orphan-clock incident and was repaired, which makes it the most informative input available:
+its clock tables carry 52 image deletion sentinels written by the old SQLite, plus the
+post-repair state.
+
+```
+old arm: better-sqlite3 9.6.0   / SQLite 3.45.3
+new arm: better-sqlite3 12.11.1 / SQLite 3.53.2
+both arms completed all 7 steps with no errors.
+IDENTICAL — CR-SQLite merge behaviour is unchanged across the SQLite versions.
+```
+
+Both arms: `dbVersion` 47875 → 47881 (delta 6), `changeRows` 3630 → 3633, seven non-sentinel
+image clock rows on insert, 1 sentinel / 0 non-sentinel on both deletes, and byte-identical
+clock totals across all seven clock tables:
+
+| Clock table | total | sentinels | non-sentinels |
+|---|---|---|---|
+| `folders__crsql_clock` | 371 | 2 | 369 |
+| `globals__crsql_clock` | 7 | 2 | 5 |
+| `images__crsql_clock` | 1114 | 52 | 1062 |
+| `notes__crsql_clock` | 2033 | 3 | 2030 |
+| `settings__crsql_clock` | 3 | 0 | 3 |
+| `templates__crsql_clock` | 102 | 6 | 96 |
+| `users__crsql_clock` | 3 | 0 | 3 |
+
+The snapshot and both working copies were deleted immediately after the run.
+
+### Synthetic fixture — 2026-08-16
+
+Run against a 400-note synthetic fixture generated on the 9.6.0 arm:
 
 ```
 old arm: better-sqlite3 9.6.0   / SQLite 3.45.3
@@ -98,7 +131,7 @@ Both arms produced `dbVersionDelta: 6`, seven non-sentinel image clock rows on i
 incident found "seven ordinary image clock rows for key 216", so the probe is reproducing the
 same clock shape that incident described.
 
-**This does not close step 8 on its own.** The spec asks for the comparison against real
-production data, and a synthetic fixture cannot cover unknown-unknowns in accumulated user
-state. It does mean the harness is ready, and that a production run has a baseline to be
-compared against rather than being a one-shot observation.
+The synthetic run does not close step 8 on its own — synthetic data cannot cover
+unknown-unknowns in accumulated user state. It is kept because it is reproducible from a seed
+and needs no production access, so it can be re-run by anyone at any time. The production run
+above is the one that satisfies the spec.
