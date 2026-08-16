@@ -153,6 +153,22 @@ Doing both at once is the failure mode to avoid: a sync regression would leave y
 tell whether SQLite 3.53 or Node 24 caused it, on the code path with the worst blast radius
 in the repo.
 
+> **DEVIATION, decided 2026-08-16 by the maintainer: both phases shipped in one deploy.**
+> The commits stayed split as this section intends (`4b2b1c0` Phase 2, `c6a0334` Phase 3), but
+> both were promoted to `main` together rather than deployed days apart.
+>
+> The argument for it: step 8's production run came back IDENTICAL against the real database
+> from the July incident, so the SQLite half — the half this section is most worried about —
+> is no longer an open question in the way it was when this was written.
+>
+> The argument this does **not** answer, recorded so nobody later mistakes the decision for
+> the analysis: §5.1's concern is *attribution*, not probability. If sync misbehaves after
+> this deploy there are two new variables, and step 8 does not narrow that down. The rollback
+> is correspondingly coarser — reverting means reverting both.
+>
+> If a sync regression appears, revert to `51ffcf1` (the last pre-DX-10 production commit)
+> rather than trying to bisect the two phases in production.
+
 ### 5.2 Target `better-sqlite3@^12.11.1`, target `node:24-bookworm-slim`
 
 Node 24 is Active LTS with support until 2028-04-30. `bookworm-slim` keeps the base
