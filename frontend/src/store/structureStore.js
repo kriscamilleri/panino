@@ -60,7 +60,7 @@ export const useStructureStore = defineStore("structureStore", () => {
   // --- New Action for Refreshing ---
   async function reFetchSelectedFile() {
     if (selectedFileId.value) {
-      console.log(
+      console.info(
         `[StructureStore] Re-fetching content for file ID: ${selectedFileId.value}`,
       );
       const result = await syncStore.execute(

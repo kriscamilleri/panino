@@ -115,10 +115,12 @@ function filterSelectValue(wrapper) {
 
 afterEach(() => {
     while (mounted.length) mounted.pop().unmount();
+    vi.restoreAllMocks();
 });
 
 beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     docStoreMock.recentDocVersion = 0;
     docStoreMock.contentVersion = 0;
     docStoreMock.syncStore.isInitialized = true;

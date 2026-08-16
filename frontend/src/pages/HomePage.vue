@@ -67,7 +67,7 @@ watch(() => route.params.fileId, applyRouteSelection)
 watch(() => route.params.folderId, applyRouteSelection)
 
 function handleImportSuccess() {
-    console.log('Import successful')
+    console.info('Import successful')
     ui.addToast('Data imported successfully!', 'success');
     docStore.loadInitialData();
 }
