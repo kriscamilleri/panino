@@ -8,6 +8,8 @@
 /** Sort orders offered by the dashboard toolbar. */
 export const SORT_NEWEST_FIRST = 'newest';
 export const SORT_OLDEST_FIRST = 'oldest';
+export const SORT_CREATED_NEWEST_FIRST = 'created-newest';
+export const SORT_CREATED_OLDEST_FIRST = 'created-oldest';
 
 /** Type-filter values offered by the dashboard toolbar. */
 export const FILTER_ALL = 'all';
@@ -70,7 +72,7 @@ export function normalizePinned(value) {
  *
  * @param {object} row document row joined with its recursive folder path
  * @returns {{id: string, type: 'file', name: string, folderName: string,
- *   folderId: string|null, displayedDate: string, excerpt: string,
+ *   folderId: string|null, displayedDate: string, createdDate: string, excerpt: string,
  *   wordCount: number, isPinned: boolean}}
  */
 export function normalizeRecentDocument(row = {}) {
@@ -81,6 +83,7 @@ export function normalizeRecentDocument(row = {}) {
         folderName: normalizeFolderName(row.folderPath || row.folderName),
         folderId: row.folder_id ?? null,
         displayedDate: row.updated_at || row.created_at || '',
+        createdDate: row.created_at || '',
         excerpt: extractExcerpt(row.content),
         wordCount: countWords(row.content),
         isPinned: normalizePinned(row.pinned),
@@ -185,18 +188,24 @@ export function filterRecentDocuments(documents, options = {}) {
 }
 
 /**
- * Sort by edit time. Documents without a usable timestamp always sort last, in
- * both directions, so they stay visible in `Earlier` instead of leading the list.
+ * Sort by the selected date. Documents without a usable timestamp always sort
+ * last, in both directions, so they stay visible in `Earlier` instead of
+ * leading the list.
  *
  * @param {object[]} documents normalized documents
- * @param {string} [sortOrder] {@link SORT_NEWEST_FIRST} or {@link SORT_OLDEST_FIRST}
+ * @param {string} [sortOrder] one of the exported dashboard sort orders
  * @returns {object[]} a new array; the input is not mutated
  */
 export function sortRecentDocuments(documents, sortOrder = SORT_NEWEST_FIRST) {
-    const direction = sortOrder === SORT_OLDEST_FIRST ? 1 : -1;
+    const sortByCreated = sortOrder === SORT_CREATED_NEWEST_FIRST
+        || sortOrder === SORT_CREATED_OLDEST_FIRST;
+    const direction = sortOrder === SORT_OLDEST_FIRST || sortOrder === SORT_CREATED_OLDEST_FIRST
+        ? 1
+        : -1;
+    const dateField = sortByCreated ? 'createdDate' : 'displayedDate';
 
     return (documents || [])
-        .map((doc, index) => ({ doc, index, time: parseTimestamp(doc?.displayedDate)?.getTime() ?? null }))
+        .map((doc, index) => ({ doc, index, time: parseTimestamp(doc?.[dateField])?.getTime() ?? null }))
         .sort((a, b) => {
             if (a.time === null && b.time === null) return a.index - b.index;
             if (a.time === null) return 1;
@@ -262,11 +271,11 @@ export function resolveTimeGroup(value, now = Date.now()) {
  * @param {number|Date} [now] reference instant, injectable for tests
  * @returns {{key: string, label: string, documents: object[]}[]}
  */
-export function groupRecentDocuments(documents, now = Date.now()) {
+export function groupRecentDocuments(documents, now = Date.now(), dateField = 'displayedDate') {
     const buckets = new Map(TIME_GROUPS.map((group) => [group.key, []]));
 
     for (const doc of documents || []) {
-        buckets.get(resolveTimeGroup(doc?.displayedDate, now)).push(doc);
+        buckets.get(resolveTimeGroup(doc?.[dateField], now)).push(doc);
     }
 
     return TIME_GROUPS
@@ -286,6 +295,9 @@ export function groupRecentDocuments(documents, now = Date.now()) {
 export function buildDashboardView(documents, options = {}) {
     const { query = '', filter = FILTER_ALL, sortOrder = SORT_NEWEST_FIRST, now = Date.now() } = options;
     const visible = sortRecentDocuments(filterRecentDocuments(documents, { query, filter }), sortOrder);
+    const dateField = sortOrder === SORT_CREATED_NEWEST_FIRST || sortOrder === SORT_CREATED_OLDEST_FIRST
+        ? 'createdDate'
+        : 'displayedDate';
 
-    return { documents: visible, groups: groupRecentDocuments(visible, now) };
+    return { documents: visible, groups: groupRecentDocuments(visible, now, dateField) };
 }

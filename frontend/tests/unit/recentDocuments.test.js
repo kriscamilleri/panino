@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     FILTER_ALL,
     FILTER_PINNED,
+    SORT_CREATED_NEWEST_FIRST,
+    SORT_CREATED_OLDEST_FIRST,
     SORT_NEWEST_FIRST,
     SORT_OLDEST_FIRST,
     UNKNOWN_TIME_LABEL,
@@ -28,6 +30,7 @@ function doc(overrides = {}) {
         folderName: 'Root',
         folderId: null,
         displayedDate: '2026-08-16T09:00:00.000Z',
+        createdDate: '2026-08-16T09:00:00.000Z',
         excerpt: '',
         wordCount: 0,
         isPinned: false,
@@ -65,6 +68,7 @@ describe('normalizeRecentDocument', () => {
             folderName: 'Work / Planning',
             folderId: 'folder-1',
             displayedDate: '2026-02-15T10:00:00.000Z',
+            createdDate: '2026-02-14T10:00:00.000Z',
             excerpt: 'First paragraph with several words.',
             wordCount: 5,
             isPinned: true,
@@ -86,6 +90,7 @@ describe('normalizeRecentDocument', () => {
         expect(result.folderName).toBe('Root');
         expect(result.folderId).toBe(null);
         expect(result.displayedDate).toBe('2026-02-14T10:00:00.000Z');
+        expect(result.createdDate).toBe('2026-02-14T10:00:00.000Z');
         expect(result.excerpt).toBe('');
         expect(result.wordCount).toBe(0);
         expect(result.isPinned).toBe(false);
@@ -203,6 +208,32 @@ describe('sortRecentDocuments', () => {
     it('sorts oldest first, still keeping undated last', () => {
         expect(sortRecentDocuments(documents, SORT_OLDEST_FIRST).map((d) => d.id))
             .toEqual(['oldest', 'middle', 'newest', 'undated', 'invalid']);
+    });
+
+    it('sorts by creation date in either direction, independently of modification date', () => {
+        const created = [
+            doc({
+                id: 'created-middle',
+                displayedDate: '2026-08-12T10:00:00.000Z',
+                createdDate: '2026-08-10T10:00:00.000Z',
+            }),
+            doc({
+                id: 'created-newest',
+                displayedDate: '2026-08-01T10:00:00.000Z',
+                createdDate: '2026-08-12T10:00:00.000Z',
+            }),
+            doc({
+                id: 'created-oldest',
+                displayedDate: '2026-08-10T10:00:00.000Z',
+                createdDate: '2026-08-01T10:00:00.000Z',
+            }),
+            doc({ id: 'missing-created', createdDate: '' }),
+        ];
+
+        expect(sortRecentDocuments(created, SORT_CREATED_NEWEST_FIRST).map((d) => d.id))
+            .toEqual(['created-newest', 'created-middle', 'created-oldest', 'missing-created']);
+        expect(sortRecentDocuments(created, SORT_CREATED_OLDEST_FIRST).map((d) => d.id))
+            .toEqual(['created-oldest', 'created-middle', 'created-newest', 'missing-created']);
     });
 
     it('is stable for equal timestamps', () => {
