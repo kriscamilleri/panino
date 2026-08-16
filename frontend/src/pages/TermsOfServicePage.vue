@@ -4,7 +4,7 @@
             <div class="px-4 py-2 flex items-center justify-between">
                 <h1 class="text-xl font-semibold text-gray-800">Terms of Service (ToS)</h1>
                 <router-link to="/login"
-                    class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 text-sm font-medium">
+                    class="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
                     Back
                 </router-link>
             </div>

@@ -5,33 +5,34 @@
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p class="text-sm text-gray-600">Templates: {{ templateStore.templates.length }}</p>
         <BaseButton
+          variant="primary"
+          size="md"
           @click="openCreate"
           data-testid="templates-new-button"
-          class="!text-white !bg-gray-800 !hover:bg-gray-900 !px-4 !py-2"
         >
           <Plus class="w-4 h-4" />
           <span>New</span>
         </BaseButton>
       </div>
 
-      <div class="overflow-x-auto border rounded">
-        <table class="min-w-full divide-y divide-gray-200 text-sm">
-          <thead class="bg-gray-50">
+      <div class="pn-table-wrap">
+        <table class="pn-table">
+          <thead>
             <tr>
-              <th class="px-3 py-2 text-left">Name</th>
-              <th class="px-3 py-2 text-left hidden sm:table-cell">Title Pattern</th>
-              <th class="px-3 py-2 text-left hidden md:table-cell">Folder</th>
-              <th class="px-3 py-2 text-left hidden lg:table-cell">Excerpt</th>
-              <th class="px-3 py-2 text-left">Updated</th>
-              <th class="px-3 py-2 text-left">Actions</th>
+              <th>Name</th>
+              <th class="hidden sm:table-cell">Title Pattern</th>
+              <th class="hidden md:table-cell">Folder</th>
+              <th class="hidden lg:table-cell">Excerpt</th>
+              <th>Updated</th>
+              <th>Actions</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100 bg-white">
+          <tbody>
             <tr v-if="templateStore.isLoading">
-              <td colspan="6" class="px-3 py-4 text-center text-gray-500">Loading templates...</td>
+              <td colspan="6" class="pn-table-empty">Loading templates...</td>
             </tr>
             <tr v-else-if="templateStore.templates.length === 0">
-              <td colspan="6" class="px-3 py-4 text-center text-gray-500">
+              <td colspan="6" class="pn-table-empty">
                 No templates yet. Create one to get started.
               </td>
             </tr>
@@ -40,18 +41,18 @@
               v-for="tpl in templateStore.templates"
               :key="tpl.id"
             >
-              <td class="px-3 py-2 align-middle font-medium">{{ tpl.name }}</td>
-              <td class="px-3 py-2 align-middle text-gray-500 hidden sm:table-cell">
+              <td class="font-medium text-gray-900">{{ tpl.name }}</td>
+              <td class="hidden text-gray-500 sm:table-cell">
                 <span v-if="tpl.titlePattern" class="truncate block max-w-[180px]" :title="tpl.titlePattern">{{ tpl.titlePattern }}</span>
                 <span v-else class="text-gray-400">—</span>
               </td>
-              <td class="px-3 py-2 align-middle text-gray-500 hidden md:table-cell">
+              <td class="hidden text-gray-500 md:table-cell">
                 <span v-if="tpl.defaultFolderId">{{ getFolderPath(tpl.defaultFolderId) || '—' }}</span>
                 <span v-else class="text-gray-400">—</span>
               </td>
-              <td class="px-3 py-2 align-middle text-gray-500 hidden lg:table-cell">{{ excerpt(tpl.content) }}</td>
-              <td class="px-3 py-2 align-middle text-gray-500">{{ formatDate(tpl.updatedAt) }}</td>
-              <td class="px-3 py-2 align-middle">
+              <td class="hidden text-gray-500 lg:table-cell">{{ excerpt(tpl.content) }}</td>
+              <td class="text-gray-500">{{ formatDate(tpl.updatedAt) }}</td>
+              <td>
                 <div class="flex items-center gap-1">
                   <BaseButton
                     @click="openEdit(tpl)"
@@ -68,6 +69,7 @@
                     <span>Duplicate</span>
                   </BaseButton>
                   <BaseButton
+                    variant="danger"
                     @click="handleDelete(tpl)"
                     :data-testid="`templates-delete-${tpl.id}`"
                   >
@@ -85,59 +87,56 @@
     <!-- ===== Editor View ===== -->
     <div v-else class="space-y-6">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold">
+        <h2 class="pn-title-modal">
           {{ editingTemplate ? 'Edit Template' : 'New Template' }}
         </h2>
-        <BaseButton
-          @click="handleCancel"
-          data-testid="template-editor-cancel"
-        >
-          <span>Cancel</span>
-        </BaseButton>
       </div>
 
       <div class="space-y-4">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+          <label class="pn-label" for="template-editor-name">Name</label>
           <input
+            id="template-editor-name"
             v-model="form.name"
             type="text"
             maxlength="200"
             required
             placeholder="Template name"
-            class="w-full rounded border px-3 py-2 text-sm"
+            class="pn-input"
             data-testid="template-editor-name"
           />
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
+          <label class="pn-label" for="template-editor-title-pattern">
             Title Pattern
-            <span class="text-gray-400 font-normal">(optional)</span>
+            <span class="pn-label-optional">(optional)</span>
           </label>
           <input
+            id="template-editor-title-pattern"
             v-model="form.titlePattern"
             type="text"
             maxlength="500"
             placeholder="Defaults to template name"
-            class="w-full rounded border px-3 py-2 text-sm"
+            class="pn-input"
             data-testid="template-editor-title-pattern"
           />
-          <p class="mt-1 text-xs text-gray-400">
+          <p class="pn-help">
             Available: <code class="text-gray-500">&#123;&#123;today&#125;&#125;</code>, <code class="text-gray-500">&#123;&#123;today:format&#125;&#125;</code>, <code class="text-gray-500">&#123;&#123;now&#125;&#125;</code>, <code class="text-gray-500">&#123;&#123;now:format&#125;&#125;</code>, <code class="text-gray-500">&#123;&#123;input:Label&#125;&#125;</code>
             &nbsp;·&nbsp; Format tokens: <code class="text-gray-500">dd</code> <code class="text-gray-500">MM</code> <code class="text-gray-500">yyyy</code> <code class="text-gray-500">yy</code> <code class="text-gray-500">HH</code> <code class="text-gray-500">mm</code> <code class="text-gray-500">ss</code>
           </p>
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">
+          <label class="pn-label" for="template-editor-default-folder">
             Default Folder
-            <span class="text-gray-400 font-normal">(optional)</span>
+            <span class="pn-label-optional">(optional)</span>
           </label>
           <div class="flex items-center gap-2">
             <select
+              id="template-editor-default-folder"
               v-model="form.defaultFolderId"
-              class="w-full rounded border px-3 py-2 text-sm"
+              class="pn-select"
               data-testid="template-editor-default-folder"
             >
               <option
@@ -146,41 +145,48 @@
                 :value="opt.id || ''"
               >{{ opt.name }}</option>
             </select>
-            <button
+            <BaseButton
               v-if="form.defaultFolderId"
-              @click="form.defaultFolderId = ''"
-              class="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
+              icon-only
+              class="shrink-0 text-gray-400 hover:text-gray-600"
               title="Clear folder selection"
+              aria-label="Clear folder selection"
+              @click="form.defaultFolderId = ''"
             >
               <X class="w-4 h-4" />
-            </button>
+            </BaseButton>
           </div>
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Content</label>
+          <label class="pn-label" for="template-editor-content">Content</label>
           <textarea
+            id="template-editor-content"
             v-model="form.content"
             placeholder="Markdown content..."
-            class="w-full rounded border px-3 py-2 text-sm font-mono"
+            class="pn-textarea font-mono"
             style="min-height: 20rem;"
             data-testid="template-editor-content"
           ></textarea>
         </div>
       </div>
 
-      <div class="flex items-center gap-3">
+      <div class="flex items-center justify-end gap-3 border-t border-gray-200 pt-5">
         <BaseButton
-          @click="handleSave"
-          data-testid="template-editor-save"
-        >
-          <span>Save</span>
-        </BaseButton>
-        <BaseButton
+          variant="secondary"
+          size="md"
           @click="handleCancel"
           data-testid="template-editor-cancel"
         >
           <span>Cancel</span>
+        </BaseButton>
+        <BaseButton
+          variant="primary"
+          size="md"
+          @click="handleSave"
+          data-testid="template-editor-save"
+        >
+          <span>Save</span>
         </BaseButton>
       </div>
     </div>

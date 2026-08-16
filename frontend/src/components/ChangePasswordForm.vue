@@ -6,7 +6,7 @@
         <div>
             <label
                 for="currentPassword"
-                class="block text-sm font-medium text-gray-700"
+                class="pn-label"
             >Current Password</label>
             <div class="mt-1">
                 <input
@@ -14,7 +14,7 @@
                     v-model="formData.currentPassword"
                     type="password"
                     required
-                    class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                    class="pn-input"
                     :disabled="loading"
                 />
             </div>
@@ -23,7 +23,7 @@
         <div>
             <label
                 for="newPassword"
-                class="block text-sm font-medium text-gray-700"
+                class="pn-label"
             >New Password</label>
             <div class="mt-1">
                 <input
@@ -31,13 +31,13 @@
                     v-model="formData.newPassword"
                     type="password"
                     required
-                    class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                    class="pn-input"
                     :disabled="loading"
-                    :class="{ 'border-red-300': formErrors.newPassword }"
+                    :class="{ 'pn-input-error': formErrors.newPassword }"
                 />
                 <p
                     v-if="formErrors.newPassword"
-                    class="mt-1 text-sm text-red-600"
+                    class="pn-field-error"
                 >
                     {{ formErrors.newPassword }}
                 </p>
@@ -47,7 +47,7 @@
         <div>
             <label
                 for="confirmNewPassword"
-                class="block text-sm font-medium text-gray-700"
+                class="pn-label"
             >Confirm New Password</label>
             <div class="mt-1">
                 <input
@@ -55,20 +55,20 @@
                     v-model="formData.confirmNewPassword"
                     type="password"
                     required
-                    class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm"
+                    class="pn-input"
                     :disabled="loading"
-                    :class="{ 'border-red-300': formErrors.confirmNewPassword }"
+                    :class="{ 'pn-input-error': formErrors.confirmNewPassword }"
                 />
                 <p
                     v-if="formErrors.confirmNewPassword"
-                    class="mt-1 text-sm text-red-600"
+                    class="pn-field-error"
                 >
                     {{ formErrors.confirmNewPassword }}
                 </p>
             </div>
         </div>
 
-        <div class="rounded-md bg-gray-50 p-4">
+        <div class="pn-panel-muted p-4">
             <div class="text-sm text-gray-700">
                 <h4 class="font-medium mb-2">Password Requirements:</h4>
                 <ul class="space-y-1">
@@ -85,14 +85,14 @@
 
         <div
             v-if="error"
-            class="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md text-sm"
+            class="pn-alert pn-alert-error"
         >
             {{ error }}
         </div>
 
         <div
             v-if="successMessage"
-            class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm"
+            class="pn-alert pn-alert-success"
         >
             {{ successMessage }}
         </div>

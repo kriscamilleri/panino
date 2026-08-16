@@ -1,341 +1,305 @@
-# In src/components/ImportModal.vue
-
 <template>
-    <div
-        v-if="show"
-        class="fixed inset-0 flex items-center justify-center z-50"
-        data-testid="import-modal-container"
+    <BaseModal
+        :show="show"
+        :title="activeMode ? modeTitles[activeMode] : 'Import Data'"
+        size="md"
+        close-testid="import-modal-close-button"
+        @close="handleClose"
     >
-        <div class="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm"></div>
+        <!-- ── Format selector (main view) ── -->
+        <div
+            v-if="!activeMode"
+            class="space-y-3"
+        >
+            <OptionCard
+                :icon="FileText"
+                title="Markdown Files (.md)"
+                description="Import one or more markdown files and update matching notes in place."
+                data-testid="import-mode-markdown"
+                @click="selectMode('markdown')"
+            />
 
-        <div class="relative bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
-            <!-- Header -->
-            <div class="px-6 py-4 border-b">
-                <div class="flex justify-between items-center">
-                    <h3 class="text-xl font-semibold text-gray-800">
-                        {{ activeMode ? modeTitles[activeMode] : 'Import Data' }}
-                    </h3>
-                    <button
-                        @click="handleClose"
-                        class="text-gray-400 hover:text-gray-600 transition-colors"
-                        data-testid="import-modal-close-button"
-                    >
-                        <X class="w-5 h-5" />
-                    </button>
-                </div>
-            </div>
+            <OptionCard
+                :icon="FolderOpen"
+                title="Markdown Folder"
+                description="Import a directory of .md files, preserving folder structure and updating matching notes."
+                data-testid="import-mode-directory"
+                @click="selectMode('directory')"
+            />
 
-            <!-- Body -->
-            <div class="px-6 py-4 flex-1 overflow-y-auto">
+            <OptionCard
+                :icon="Archive"
+                title="ZIP Archive (.zip)"
+                description="Import folders and .md files from a .zip archive, update matching notes, and restore bundled images from Panino exports."
+                data-testid="import-mode-zip"
+                @click="selectMode('zip')"
+            />
 
-                <!-- ── Format selector (main view) ── -->
-                <div v-if="!activeMode" class="space-y-3">
-                    <button
-                        @click="selectMode('markdown')"
-                        class="w-full text-left border rounded-lg p-4 hover:bg-gray-50 transition-colors group"
-                        data-testid="import-mode-markdown"
-                    >
-                        <div class="flex items-start gap-3">
-                            <FileText class="w-5 h-5 text-gray-500 mt-0.5 shrink-0" />
-                            <div>
-                                <p class="font-medium text-gray-800 group-hover:text-gray-900">Markdown Files (.md)</p>
-                                <p class="text-sm text-gray-500 mt-0.5">Import one or more markdown files and update matching notes in place.</p>
-                            </div>
-                        </div>
-                    </button>
+            <OptionCard
+                :icon="Braces"
+                title="Panino / StackEdit JSON"
+                data-testid="import-mode-json"
+                @click="selectMode('json')"
+            >
+                Import folders and markdown notes from a Panino or StackEdit JSON export.
+                <span class="font-medium text-amber-600">Images, settings, and variables are skipped.</span>
+            </OptionCard>
+        </div>
 
-                    <button
-                        @click="selectMode('directory')"
-                        class="w-full text-left border rounded-lg p-4 hover:bg-gray-50 transition-colors group"
-                        data-testid="import-mode-directory"
-                    >
-                        <div class="flex items-start gap-3">
-                            <FolderOpen class="w-5 h-5 text-gray-500 mt-0.5 shrink-0" />
-                            <div>
-                                <p class="font-medium text-gray-800 group-hover:text-gray-900">Markdown Folder</p>
-                                <p class="text-sm text-gray-500 mt-0.5">Import a directory of .md files, preserving folder structure and updating matching notes.</p>
-                            </div>
-                        </div>
-                    </button>
-
-                    <button
-                        @click="selectMode('zip')"
-                        class="w-full text-left border rounded-lg p-4 hover:bg-gray-50 transition-colors group"
-                        data-testid="import-mode-zip"
-                    >
-                        <div class="flex items-start gap-3">
-                            <Archive class="w-5 h-5 text-gray-500 mt-0.5 shrink-0" />
-                            <div>
-                                <p class="font-medium text-gray-800 group-hover:text-gray-900">ZIP Archive (.zip)</p>
-                                <p class="text-sm text-gray-500 mt-0.5">Import folders and .md files from a .zip archive, update matching notes, and restore bundled images from Panino exports.</p>
-                            </div>
-                        </div>
-                    </button>
-
-                    <button
-                        @click="selectMode('json')"
-                        class="w-full text-left border rounded-lg p-4 hover:bg-gray-50 transition-colors group"
-                        data-testid="import-mode-json"
-                    >
-                        <div class="flex items-start gap-3">
-                            <Braces class="w-5 h-5 text-gray-500 mt-0.5 shrink-0" />
-                            <div>
-                                <p class="font-medium text-gray-800 group-hover:text-gray-900">Panino / StackEdit JSON</p>
-                                <p class="text-sm text-gray-500 mt-0.5">
-                                    Import folders and markdown notes from a Panino or StackEdit JSON export.
-                                    <span class="text-amber-600 font-medium">Images, settings, and variables are skipped.</span>
-                                </p>
-                            </div>
-                        </div>
-                    </button>
-                </div>
-
-                <!-- ── Markdown files mode ── -->
-                <div v-else-if="activeMode === 'markdown'">
-                    <div
-                        class="border-2 border-dashed rounded-lg p-8 text-center transition-colors"
-                        :class="isDragging ? 'border-gray-800 bg-gray-50' : 'border-gray-300 hover:border-gray-400'"
-                        @dragenter.prevent="isDragging = true"
-                        @dragleave.prevent="isDragging = false"
-                        @dragover.prevent
-                        @drop.prevent="handleMarkdownDrop"
-                        data-testid="import-modal-dropzone"
-                    >
-                        <div v-if="isDragging" class="text-gray-800 font-medium">Drop your .md files here</div>
-                        <div v-else class="space-y-2">
-                            <Upload class="w-12 h-12 mx-auto text-gray-400" />
-                            <p class="text-gray-600 font-medium">Drag and drop .md files here</p>
-                            <p class="text-sm text-gray-500">or</p>
-                            <input
-                                type="file"
-                                accept=".md"
-                                multiple
-                                @change="handleMarkdownFileSelect"
-                                class="hidden"
-                                ref="mdFileInput"
-                            />
-                            <button
-                                @click="$refs.mdFileInput.click()"
-                                class="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-900
-                                       text-white text-sm font-medium rounded-md shadow-sm transition-colors"
-                                data-testid="import-modal-choose-md-button"
-                            >
-                                Choose Files
-                            </button>
-                        </div>
-                    </div>
-                    <div v-if="selectedFiles.length" class="mt-4">
-                        <p class="text-sm text-gray-600">
-                            {{ selectedFiles.length }} file{{ selectedFiles.length !== 1 ? 's' : '' }} selected
-                        </p>
-                    </div>
-                </div>
-
-                <!-- ── Directory mode ── -->
-                <div v-else-if="activeMode === 'directory'">
-                    <div class="text-center space-y-3">
-                        <FolderOpen class="w-12 h-12 mx-auto text-gray-400" />
-                        <p class="text-gray-600 font-medium">Select a folder to import</p>
-                        <p class="text-sm text-gray-500">All .md files and folder structure will be preserved.</p>
-                        <input
-                            type="file"
-                            webkitdirectory
-                            @change="handleDirectorySelect"
-                            class="hidden"
-                            ref="dirInput"
-                        />
-                        <button
-                            @click="$refs.dirInput.click()"
-                            class="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-900
-                                   text-white text-sm font-medium rounded-md shadow-sm transition-colors"
-                            data-testid="import-modal-choose-dir-button"
-                        >
-                            Choose Folder
-                        </button>
-                    </div>
-                    <div v-if="selectedFiles.length" class="mt-4">
-                        <p class="text-sm text-gray-600">
-                            {{ selectedFiles.length }} file{{ selectedFiles.length !== 1 ? 's' : '' }} found in directory
-                        </p>
-                    </div>
-                </div>
-
-                <!-- ── ZIP mode ── -->
-                <div v-else-if="activeMode === 'zip'">
-                    <div
-                        class="border-2 border-dashed rounded-lg p-8 text-center transition-colors"
-                        :class="isDragging ? 'border-gray-800 bg-gray-50' : 'border-gray-300 hover:border-gray-400'"
-                        @dragenter.prevent="isDragging = true"
-                        @dragleave.prevent="isDragging = false"
-                        @dragover.prevent
-                        @drop.prevent="handleZipDrop"
-                        data-testid="import-modal-zip-dropzone"
-                    >
-                        <div v-if="isDragging" class="text-gray-800 font-medium">Drop your .zip file here</div>
-                        <div v-else class="space-y-2">
-                            <Archive class="w-12 h-12 mx-auto text-gray-400" />
-                            <p class="text-gray-600 font-medium">Drag and drop a .zip file here</p>
-                            <p class="text-sm text-gray-500">or</p>
-                            <input
-                                type="file"
-                                accept=".zip"
-                                @change="handleZipFileSelect"
-                                class="hidden"
-                                ref="zipFileInput"
-                            />
-                            <button
-                                @click="$refs.zipFileInput.click()"
-                                class="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-900
-                                       text-white text-sm font-medium rounded-md shadow-sm transition-colors"
-                                data-testid="import-modal-choose-zip-button"
-                            >
-                                Choose ZIP File
-                            </button>
-                        </div>
-                    </div>
-                    <div v-if="selectedZipFile" class="mt-4">
-                        <p class="text-sm text-gray-600">Selected: {{ selectedZipFile.name }}</p>
-                    </div>
-                </div>
-
-                <!-- ── JSON mode (existing behavior) ── -->
-                <div v-else-if="activeMode === 'json'">
-                    <div class="mb-4">
-                        <div
-                            class="border-2 border-dashed rounded-lg p-8 text-center transition-colors"
-                            :class="isDragging ? 'border-gray-800 bg-gray-50' : 'border-gray-300 hover:border-gray-400'"
-                            @dragenter.prevent="isDragging = true"
-                            @dragleave.prevent="isDragging = false"
-                            @dragover.prevent
-                            @drop.prevent="handleJsonDrop"
-                        >
-                            <div v-if="isDragging" class="text-gray-800 font-medium">Drop your JSON file here</div>
-                            <div v-else class="space-y-2">
-                                <Upload class="w-12 h-12 mx-auto text-gray-400" />
-                                <p class="text-gray-600 font-medium">Drag and drop your JSON file here</p>
-                                <p class="text-sm text-gray-500">or</p>
-                                <input
-                                    type="file"
-                                    accept=".json"
-                                    @change="handleJsonFileSelect"
-                                    class="hidden"
-                                    ref="jsonFileInput"
-                                />
-                                <button
-                                    @click="$refs.jsonFileInput.click()"
-                                    class="inline-flex items-center px-4 py-2 bg-gray-800 hover:bg-gray-900
-                                           text-white text-sm font-medium rounded-md shadow-sm transition-colors"
-                                    data-testid="import-modal-choose-file-button"
-                                >
-                                    Choose File
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="space-y-2">
-                        <label class="block text-sm font-medium text-gray-700">
-                            Or paste your JSON data here:
-                        </label>
-                        <textarea
-                            v-model="jsonData"
-                            rows="8"
-                            placeholder="Paste your JSON data here..."
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg
-                                   font-mono text-sm resize-none focus:ring-1 focus:ring-blue-500
-                                   focus:border-blue-500"
-                            data-testid="import-modal-json-textarea"
-                        ></textarea>
-                    </div>
-
-                    <div class="mt-4">
-                        <div class="flex items-center">
-                            <input
-                                id="stackedit-format"
-                                type="checkbox"
-                                v-model="isStackEditFormat"
-                                class="h-4 w-4 text-gray-600 border-gray-300 rounded focus:ring-gray-500"
-                                data-testid="import-modal-stackedit-toggle"
-                            >
-                            <label for="stackedit-format" class="ml-2 block text-sm text-gray-900">
-                                Import from StackEdit format
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ── Progress bar ── -->
-                <div v-if="isImporting" class="mt-4">
-                    <div class="flex justify-between text-sm text-gray-600 mb-1">
-                        <span>Importing...</span>
-                        <span>{{ progressCurrent }} / {{ progressTotal }}</span>
-                    </div>
-                    <div class="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                            class="bg-gray-800 h-2 rounded-full transition-all duration-150"
-                            :style="{ width: progressPercent + '%' }"
-                        ></div>
-                    </div>
-                </div>
-
-                <!-- ── Error ── -->
+        <!-- ── Markdown files mode ── -->
+        <div v-else-if="activeMode === 'markdown'">
+            <div
+                class="rounded-lg border-2 border-dashed p-8 text-center transition-colors"
+                :class="isDragging ? 'border-gray-800 bg-gray-50' : 'border-gray-300 hover:border-gray-400'"
+                @dragenter.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                @dragover.prevent
+                @drop.prevent="handleMarkdownDrop"
+                data-testid="import-modal-dropzone"
+            >
                 <div
-                    v-if="error"
-                    class="mt-4 p-4 bg-red-50 border border-red-200 rounded-md"
-                    data-testid="import-modal-error"
+                    v-if="isDragging"
+                    class="font-medium text-gray-800"
+                >Drop your .md files here</div>
+                <div
+                    v-else
+                    class="space-y-2"
                 >
-                    <div class="flex">
-                        <AlertCircle class="w-5 h-5 text-red-400 mr-2 shrink-0" />
-                        <p class="text-sm text-red-600">{{ error }}</p>
-                    </div>
+                    <Upload class="mx-auto h-10 w-10 text-gray-400" />
+                    <p class="font-medium text-gray-700">Drag and drop .md files here</p>
+                    <p class="pn-body">or</p>
+                    <input
+                        type="file"
+                        accept=".md"
+                        multiple
+                        @change="handleMarkdownFileSelect"
+                        class="hidden"
+                        ref="mdFileInput"
+                    />
+                    <BaseButton
+                        variant="primary"
+                        size="md"
+                        data-testid="import-modal-choose-md-button"
+                        @click="$refs.mdFileInput.click()"
+                    >
+                        Choose Files
+                    </BaseButton>
+                </div>
+            </div>
+            <p
+                v-if="selectedFiles.length"
+                class="mt-4 pn-body"
+            >
+                {{ selectedFiles.length }} file{{ selectedFiles.length !== 1 ? 's' : '' }} selected
+            </p>
+        </div>
+
+        <!-- ── Directory mode ── -->
+        <div v-else-if="activeMode === 'directory'">
+            <div class="rounded-lg border-2 border-dashed border-gray-300 p-8 text-center">
+                <div class="space-y-2">
+                    <FolderOpen class="mx-auto h-10 w-10 text-gray-400" />
+                    <p class="font-medium text-gray-700">Select a folder to import</p>
+                    <p class="pn-body">All .md files and folder structure will be preserved.</p>
+                    <input
+                        type="file"
+                        webkitdirectory
+                        @change="handleDirectorySelect"
+                        class="hidden"
+                        ref="dirInput"
+                    />
+                    <BaseButton
+                        variant="primary"
+                        size="md"
+                        data-testid="import-modal-choose-dir-button"
+                        @click="$refs.dirInput.click()"
+                    >
+                        Choose Folder
+                    </BaseButton>
+                </div>
+            </div>
+            <p
+                v-if="selectedFiles.length"
+                class="mt-4 pn-body"
+            >
+                {{ selectedFiles.length }} file{{ selectedFiles.length !== 1 ? 's' : '' }} found in directory
+            </p>
+        </div>
+
+        <!-- ── ZIP mode ── -->
+        <div v-else-if="activeMode === 'zip'">
+            <div
+                class="rounded-lg border-2 border-dashed p-8 text-center transition-colors"
+                :class="isDragging ? 'border-gray-800 bg-gray-50' : 'border-gray-300 hover:border-gray-400'"
+                @dragenter.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                @dragover.prevent
+                @drop.prevent="handleZipDrop"
+                data-testid="import-modal-zip-dropzone"
+            >
+                <div
+                    v-if="isDragging"
+                    class="font-medium text-gray-800"
+                >Drop your .zip file here</div>
+                <div
+                    v-else
+                    class="space-y-2"
+                >
+                    <Archive class="mx-auto h-10 w-10 text-gray-400" />
+                    <p class="font-medium text-gray-700">Drag and drop a .zip file here</p>
+                    <p class="pn-body">or</p>
+                    <input
+                        type="file"
+                        accept=".zip"
+                        @change="handleZipFileSelect"
+                        class="hidden"
+                        ref="zipFileInput"
+                    />
+                    <BaseButton
+                        variant="primary"
+                        size="md"
+                        data-testid="import-modal-choose-zip-button"
+                        @click="$refs.zipFileInput.click()"
+                    >
+                        Choose ZIP File
+                    </BaseButton>
+                </div>
+            </div>
+            <p
+                v-if="selectedZipFile"
+                class="mt-4 pn-body"
+            >Selected: {{ selectedZipFile.name }}</p>
+        </div>
+
+        <!-- ── JSON mode ── -->
+        <div v-else-if="activeMode === 'json'">
+            <div
+                class="rounded-lg border-2 border-dashed p-8 text-center transition-colors"
+                :class="isDragging ? 'border-gray-800 bg-gray-50' : 'border-gray-300 hover:border-gray-400'"
+                @dragenter.prevent="isDragging = true"
+                @dragleave.prevent="isDragging = false"
+                @dragover.prevent
+                @drop.prevent="handleJsonDrop"
+            >
+                <div
+                    v-if="isDragging"
+                    class="font-medium text-gray-800"
+                >Drop your JSON file here</div>
+                <div
+                    v-else
+                    class="space-y-2"
+                >
+                    <Upload class="mx-auto h-10 w-10 text-gray-400" />
+                    <p class="font-medium text-gray-700">Drag and drop your JSON file here</p>
+                    <p class="pn-body">or</p>
+                    <input
+                        type="file"
+                        accept=".json"
+                        @change="handleJsonFileSelect"
+                        class="hidden"
+                        ref="jsonFileInput"
+                    />
+                    <BaseButton
+                        variant="primary"
+                        size="md"
+                        data-testid="import-modal-choose-file-button"
+                        @click="$refs.jsonFileInput.click()"
+                    >
+                        Choose File
+                    </BaseButton>
                 </div>
             </div>
 
-            <!-- Footer -->
-            <div class="px-6 py-4 bg-gray-50 rounded-b-lg border-t">
-                <div class="flex justify-between">
-                    <button
-                        v-if="activeMode"
-                        @click="goBack"
-                        :disabled="isImporting"
-                        class="px-4 py-2 text-sm font-medium text-gray-700
-                               bg-white border border-gray-300 rounded-md
-                               hover:bg-gray-50 transition-colors disabled:opacity-50"
-                        data-testid="import-modal-back-button"
-                    >
-                        Back
-                    </button>
-                    <div v-else></div>
-                    <div class="flex space-x-3">
-                        <button
-                            @click="handleClose"
-                            :disabled="isImporting"
-                            class="px-4 py-2 text-sm font-medium text-gray-700
-                                   bg-white border border-gray-300 rounded-md
-                                   hover:bg-gray-50 transition-colors disabled:opacity-50"
-                            data-testid="import-modal-cancel-button"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            v-if="activeMode"
-                            @click="doImport"
-                            :disabled="!canImport || isImporting"
-                            class="px-4 py-2 text-sm font-medium text-white
-                                   bg-gray-800 rounded-md hover:bg-gray-900
-                                   disabled:opacity-50 disabled:cursor-not-allowed
-                                   transition-colors focus:outline-none focus:ring-2
-                                   focus:ring-offset-2 focus:ring-gray-500"
-                            data-testid="import-modal-import-button"
-                        >
-                            <span v-if="isImporting">Importing...</span>
-                            <span v-else>Import</span>
-                        </button>
-                    </div>
-                </div>
+            <div class="mt-4">
+                <label
+                    class="pn-label"
+                    for="import-json-textarea"
+                >Or paste your JSON data here</label>
+                <textarea
+                    id="import-json-textarea"
+                    v-model="jsonData"
+                    rows="8"
+                    placeholder="Paste your JSON data here..."
+                    class="pn-textarea font-mono"
+                    data-testid="import-modal-json-textarea"
+                ></textarea>
+            </div>
+
+            <div class="mt-4 flex items-center gap-2">
+                <input
+                    id="stackedit-format"
+                    type="checkbox"
+                    v-model="isStackEditFormat"
+                    class="pn-checkbox"
+                    data-testid="import-modal-stackedit-toggle"
+                >
+                <label
+                    for="stackedit-format"
+                    class="text-sm text-gray-700"
+                >Import from StackEdit format</label>
             </div>
         </div>
-    </div>
+
+        <!-- ── Progress bar ── -->
+        <div
+            v-if="isImporting"
+            class="mt-4"
+        >
+            <div class="mb-1 flex justify-between pn-body">
+                <span>Importing...</span>
+                <span>{{ progressCurrent }} / {{ progressTotal }}</span>
+            </div>
+            <div class="h-2 w-full rounded-full bg-gray-200">
+                <div
+                    class="h-2 rounded-full bg-gray-800 transition-all duration-150"
+                    :style="{ width: progressPercent + '%' }"
+                ></div>
+            </div>
+        </div>
+
+        <!-- ── Error ── -->
+        <div
+            v-if="error"
+            class="pn-alert pn-alert-error mt-4"
+            data-testid="import-modal-error"
+        >
+            <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{{ error }}</p>
+        </div>
+
+        <template #footer>
+            <BaseButton
+                v-if="activeMode"
+                variant="secondary"
+                size="md"
+                class="mr-auto"
+                :disabled="isImporting"
+                data-testid="import-modal-back-button"
+                @click="goBack"
+            >
+                Back
+            </BaseButton>
+            <BaseButton
+                variant="secondary"
+                size="md"
+                :disabled="isImporting"
+                data-testid="import-modal-cancel-button"
+                @click="handleClose"
+            >
+                Cancel
+            </BaseButton>
+            <BaseButton
+                v-if="activeMode"
+                variant="primary"
+                size="md"
+                :disabled="!canImport || isImporting"
+                data-testid="import-modal-import-button"
+                @click="doImport()"
+            >
+                {{ isImporting ? 'Importing...' : 'Import' }}
+            </BaseButton>
+        </template>
+    </BaseModal>
 </template>
 
 <script setup>
@@ -343,7 +307,10 @@ import { ref, computed } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { isMarkdownFile } from '@/utils/importUtils'
-import { X, Upload, AlertCircle, FileText, FolderOpen, Archive, Braces } from 'lucide-vue-next'
+import { Upload, AlertCircle, FileText, FolderOpen, Archive, Braces } from 'lucide-vue-next'
+import BaseModal from '@/components/BaseModal.vue'
+import BaseButton from '@/components/BaseButton.vue'
+import OptionCard from '@/components/OptionCard.vue'
 
 defineProps({
     show: Boolean

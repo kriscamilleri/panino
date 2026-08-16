@@ -29,7 +29,8 @@ export function buildBackupProgressSteps(currentStage) {
             stateClass: isComplete
                 ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
                 : isActive
-                    ? 'border-blue-300 bg-blue-50 text-blue-800 shadow-sm'
+                    // Accent is gray-800; blue stays reserved for links.
+                    ? 'border-gray-400 bg-gray-100 text-gray-900 shadow-sm'
                     : 'border-gray-200 bg-white text-gray-500',
         };
     });
