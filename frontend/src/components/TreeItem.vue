@@ -130,6 +130,14 @@
                 :data-testid="`tree-item-file-name-${item.id}`"
             >{{ item.name }}</span>
 
+            <span
+                v-if="hasConflict"
+                class="h-2 w-2 flex-shrink-0 rounded-full bg-amber-500"
+                :title="'Unresolved changes'"
+                :aria-label="'Unresolved changes'"
+                :data-testid="`tree-item-conflict-${item.id}`"
+            ></span>
+
             <button
                 v-if="!isFiltered"
                 class="transition-opacity px-2 rounded flex-shrink-0"
@@ -220,6 +228,7 @@ import { provide, computed, ref, onMounted, onUnmounted, watch, inject } from 'v
 import { useRouter } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useStructureStore } from '@/store/structureStore'
+import { useConflictStore } from '@/store/conflictStore'
 import PromptModal from '@/components/PromptModal.vue'
 
 import {
@@ -235,6 +244,7 @@ const props = defineProps({
 
 const docStore = useDocStore()
 const structureStore = useStructureStore()
+const conflictStore = useConflictStore()
 const router = useRouter()
 
 const children = ref([]);
@@ -274,6 +284,9 @@ const isParentOfSelectedFile = computed(() => {
 
 const isSelectedFolder = computed(() =>
     isFolder.value && docStore.selectedFolderId === props.item.id)
+
+const hasConflict = computed(() =>
+    !isFolder.value && conflictStore.hasConflict(props.item.id))
 
 const shouldShowContextButton = computed(() =>
     isSelectedFolder.value || isParentOfSelectedFile.value || isSelectedFile.value)

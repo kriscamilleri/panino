@@ -7,6 +7,7 @@ import { useMarkdownStore } from "./markdownStore";
 import { useSyncStore } from "./syncStore";
 import { useDraftStore } from "./draftStore";
 import { useImportExportStore } from "./importExportStore";
+import { useConflictStore } from "./conflictStore";
 import { normalizeRecentDocument } from "../utils/recentDocuments.js";
 import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 
@@ -16,6 +17,7 @@ export const useDocStore = defineStore("docStore", () => {
   const syncStore = useSyncStore();
   const draftStore = useDraftStore();
   const importExportStore = useImportExportStore();
+  const conflictStore = useConflictStore();
   const isSaving = ref(false);
   const recentDocVersion = ref(0);
 
@@ -65,6 +67,7 @@ export const useDocStore = defineStore("docStore", () => {
       // This is the key change: explicitly re-fetch the current file's data
       await structureStore.reFetchSelectedFile();
     }
+    await conflictStore.loadConflicts();
     recentDocVersion.value++;
   }
 

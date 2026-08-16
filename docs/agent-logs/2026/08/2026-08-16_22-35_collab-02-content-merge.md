@@ -44,7 +44,7 @@ schema change; the merge is client-local and fail-closed behind the server
 
 - `contentMergeWriteback` remains false until the server advertises it, so automatic write-back is
   fail-closed as required; divergence is preserved in `note_conflicts`.
-- The unresolved-conflict marker on `TreeItem`/`RecentDocumentRow` and the per-hunk resolution UI
-  in `Editor.vue` (COLLAB-02 §6.2) are deferred; the conflict records are already persisted and
-  recoverable.
+- Unresolved-conflict markers now render on `TreeItem` and `RecentDocumentRow` via `conflictStore`,
+  and `docStore.refreshData` reloads the set after sync. Per-hunk Keep-mine/Use-theirs resolution
+  UI (COLLAB-02 §6.2) is still deferred; the conflict records are persisted and recoverable.
 - Docker context changes from the previous commit remain unverified in this sandbox.

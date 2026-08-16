@@ -28,6 +28,12 @@
                     :data-testid="`document-row-title-${document.id}`"
                 >
                     {{ document.name }}
+                    <span
+                        v-if="hasConflict"
+                        class="ml-1 inline-block h-2 w-2 rounded-full bg-amber-500 align-middle"
+                        :aria-label="'Unresolved changes'"
+                        :data-testid="`document-row-conflict-${document.id}`"
+                    ></span>
                 </span>
 
                 <span
@@ -80,6 +86,7 @@
 import { computed } from 'vue'
 import { FileText } from 'lucide-vue-next'
 import DocumentPinButton from '@/components/DocumentPinButton.vue'
+import { useConflictStore } from '@/store/conflictStore'
 import { formatAbsoluteTime, formatRelativeTime, formatWordCount } from '@/utils/recentDocuments.js'
 
 const props = defineProps({
@@ -89,6 +96,9 @@ const props = defineProps({
 })
 
 defineEmits(['open', 'toggle-pin'])
+
+const conflictStore = useConflictStore()
+const hasConflict = computed(() => conflictStore.hasConflict(props.document.id))
 
 const wordCountLabel = computed(() => formatWordCount(props.document.wordCount))
 const relativeDate = computed(() => formatRelativeTime(props.document.displayedDate, props.now))

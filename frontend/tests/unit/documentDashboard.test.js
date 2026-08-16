@@ -32,6 +32,9 @@ vi.mock('vue-router', () => ({ useRouter: () => routerMock }));
 vi.mock('@/store/docStore', () => ({ useDocStore: () => docStoreMock }));
 vi.mock('@/store/draftStore', () => ({ useDraftStore: () => draftStoreMock }));
 vi.mock('@/store/uiStore', () => ({ useUiStore: () => uiStoreMock }));
+vi.mock('@/store/conflictStore', () => ({
+    useConflictStore: () => ({ hasConflict: () => false, count: 0, loadConflicts: vi.fn() }),
+}));
 
 const DocumentDashboard = (await import('@/components/DocumentDashboard.vue')).default;
 
