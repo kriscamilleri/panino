@@ -316,8 +316,12 @@ html[data-theme='dark'] [data-testid='preview-content'] blockquote {
 }
 html[data-theme='dark'] [data-testid='preview-content'] code,
 html[data-theme='dark'] [data-testid='preview-content'] pre {
-    background-color: var(--pn-surface-elevated);
-    color: var(--pn-text);
+    background-color: var(--pn-surface-elevated) !important;
+    color: var(--pn-text) !important;
+}
+html[data-theme='dark'] [data-testid='preview-content'] pre > code {
+    background-color: transparent !important;
+    color: inherit !important;
 }
 html[data-theme='dark'] [data-testid='preview-content'] hr,
 html[data-theme='dark'] [data-testid='preview-content'] th,
