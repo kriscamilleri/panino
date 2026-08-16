@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 IMAGE=panino-api-test
-docker build -q -f backend/api-service/Dockerfile.test -t "$IMAGE" backend/api-service
+docker build -q -f backend/api-service/Dockerfile.test -t "$IMAGE" .
 
 # The image's build context is backend/api-service, so repo-level scripts/ is not baked in.
 # tests/unit/stream-database-backup.test.js imports the producer by a path relative to the

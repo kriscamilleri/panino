@@ -11,6 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@panino/content-merge": "file:../shared",
     "@vueuse/core": "^10.11.0",
     "async-mutex": "^0.5.0",
     "diff": "^8.0.3",

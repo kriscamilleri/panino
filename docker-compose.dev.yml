@@ -4,7 +4,9 @@ version: '3.8'
 services:
   # The unified backend service for auth, sync, and images
   api-service:
-    build: ./backend/api-service
+    build:
+      context: .
+      dockerfile: backend/api-service/Dockerfile
     ports:
       - "127.0.0.1:8000:8000"
       - "127.0.0.1:9229:9229" # Node.js debugger
@@ -30,6 +32,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     volumes:
       - ./backend/api-service:/app
+      - ./shared:/shared:ro
       - ./backend/api-service/data:/app/data # Persist SQLite DBs
       - ./backend/api-service/uploads:/app/uploads # Persist uploaded files
       - /app/node_modules
@@ -43,8 +46,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: frontend/Dockerfile.dev
     ports:
       - "127.0.0.1:5173:5173"
     environment:
@@ -53,6 +56,7 @@ services:
       VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY}
     volumes:
       - ./frontend:/app
+      - ./shared:/shared:ro
       - /app/node_modules
     command: npm run dev -- --host
     depends_on:

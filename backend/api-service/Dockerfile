@@ -51,7 +51,16 @@ WORKDIR /app
 ENV PYTHON=/usr/bin/python3
 ENV CRSQLITE_EXT_PATH=/app/native/crsqlite.so
 
-COPY package*.json .npmrc ./
+# Build context is the repository root (see docker-compose.yml), so paths are
+# repo-relative. The shared content-merge package lives at /shared and is linked
+# in via the `file:../../shared` dependency declared in package.json.
+COPY backend/api-service/package*.json backend/api-service/.npmrc ./
+COPY shared/package*.json /shared/
+COPY shared/contentMerge.js /shared/
+
+# Install the shared package's runtime dependency first so the app's `file:`
+# link resolves node-diff3 from /shared/node_modules.
+RUN cd /shared && npm ci --omit=dev
 
 # .npmrc disables lifecycle scripts so better-sqlite3 is rebuilt and
 # Puppeteer's Chrome is fetched explicitly in a deterministic order.
@@ -59,7 +68,8 @@ COPY package*.json .npmrc ./
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
   && npm run native:setup
 
-COPY . .
+COPY shared/ /shared/
+COPY backend/api-service/ ./
 
 EXPOSE 8000
 CMD ["npm", "start"]

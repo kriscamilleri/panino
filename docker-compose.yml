@@ -3,7 +3,9 @@ version: '3.8'
 
 services:
   api-service:
-    build: ./backend/api-service
+    build:
+      context: .
+      dockerfile: backend/api-service/Dockerfile
     restart: always
     dns:
       - 8.8.8.8

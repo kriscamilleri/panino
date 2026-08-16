@@ -16,6 +16,7 @@
         "test:coverage": "vitest run --coverage"
     },
     "dependencies": {
+        "@panino/content-merge": "file:../../shared",
         "bcryptjs": "^2.4.3",
         "better-sqlite3": "^12.11.1",
         "cors": "^2.8.5",

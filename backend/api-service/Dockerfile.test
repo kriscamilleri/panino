@@ -52,8 +52,11 @@ ENV CRSQLITE_EXT_PATH=/app/native/crsqlite.so
 # Headless Shell supports the PDF test suite; avoid downloading full Chrome as well.
 ENV PUPPETEER_CHROME_SKIP_DOWNLOAD=true
 
-# Copy package files
-COPY package*.json .npmrc ./
+# Build context is the repository root (see scripts/test-backend.sh).
+COPY backend/api-service/package*.json backend/api-service/.npmrc ./
+COPY shared/package*.json /shared/
+COPY shared/contentMerge.js /shared/
+RUN cd /shared && npm ci --omit=dev
 
 # .npmrc disables lifecycle scripts so better-sqlite3 is rebuilt and
 # Puppeteer's browser is fetched explicitly in a deterministic order.
@@ -65,7 +68,8 @@ RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi \
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
 
 # Copy application code
-COPY . .
+COPY shared/ /shared/
+COPY backend/api-service/ ./
 
 # Set test environment
 ENV NODE_ENV=test
