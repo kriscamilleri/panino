@@ -21,4 +21,16 @@ describe('dark preview code blocks', () => {
         expect(stylesheet).toContain('background-color: transparent !important;')
         expect(stylesheet).toContain('color: inherit !important;')
     })
+
+    it('uses the primary palette for the active pinned dashboard filter', async () => {
+        const stylesheet = await readFile(stylesheetPath, 'utf8')
+
+        expect(stylesheet).toContain(
+            "html[data-theme='dark'] .pinned-filter-toggle[aria-pressed='true']"
+        )
+        expect(stylesheet).toContain(
+            'background-color: var(--pn-primary) !important;'
+        )
+        expect(stylesheet).toContain('color: #151515 !important;')
+    })
 })
