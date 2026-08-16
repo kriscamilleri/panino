@@ -65,6 +65,24 @@
             </div>
 
             <div class="flex items-center space-x-4">
+                <BaseButton
+                    icon-only
+                    :aria-pressed="themeStore.theme === 'dark'"
+                    :title="themeStore.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+                    @click="themeStore.toggleTheme()"
+                    data-testid="navbar-theme-toggle"
+                >
+                    <Sun
+                        v-if="themeStore.theme === 'dark'"
+                        class="w-4 h-4"
+                    />
+                    <Moon
+                        v-else
+                        class="w-4 h-4"
+                    />
+                    <span class="sr-only">{{ themeStore.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode' }}</span>
+                </BaseButton>
+
                 <div class="hidden md:flex items-center space-x-4">
                     <router-link
                         v-if="authStore.isAuthenticated"
@@ -156,6 +174,7 @@ import { ref } from 'vue'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
+import { useThemeStore } from '@/store/themeStore'
 import { useRouter } from 'vue-router'
 
 import BaseButton from '@/components/BaseButton.vue'
@@ -170,12 +189,15 @@ import {
     LogIn,
     LogOut,
     Menu,
-    User
+    User,
+    Moon,
+    Sun
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
 const authStore = useAuthStore()
 const syncStore = useSyncStore()
+const themeStore = useThemeStore()
 const router = useRouter()
 
 const isMobileMenuOpen = ref(false)
