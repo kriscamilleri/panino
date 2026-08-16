@@ -17,6 +17,7 @@
             :title-testid="isGlobal ? 'folder-preview-recent-heading' : `folder-preview-name-${folderId}`"
             :scope-key="isGlobal ? 'recent' : folderId"
             @new-note="openCreateModal"
+            @new-from-template="showTemplatePicker = true"
         />
 
         <!--
@@ -66,8 +67,10 @@
                 class="pn-select w-auto"
                 data-testid="document-dashboard-sort"
             >
-                <option :value="SORT_NEWEST_FIRST">Modified</option>
+                <option :value="SORT_NEWEST_FIRST">Modified, newest first</option>
                 <option :value="SORT_OLDEST_FIRST">Modified, oldest first</option>
+                <option :value="SORT_CREATED_NEWEST_FIRST">Created, newest first</option>
+                <option :value="SORT_CREATED_OLDEST_FIRST">Created, oldest first</option>
             </select>
 
             <!-- A pressed-state shortcut for the same filter; the two stay in sync. -->
@@ -181,6 +184,13 @@
             @confirm="confirmCreate"
             @cancel="cancelCreate"
         />
+
+        <TemplatePickerModal
+            v-if="showTemplatePicker"
+            :current-folder-id="isGlobal ? null : folderId"
+            @close="showTemplatePicker = false"
+            @created="openDocument"
+        />
     </div>
 </template>
 
@@ -195,6 +205,7 @@ import FolderNavigationList from '@/components/FolderNavigationList.vue'
 import PromptModal from '@/components/PromptModal.vue'
 import RecentDocumentCard from '@/components/RecentDocumentCard.vue'
 import RecentDocumentRow from '@/components/RecentDocumentRow.vue'
+import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
 
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
@@ -204,6 +215,8 @@ import {
     FILTER_PINNED,
     SORT_NEWEST_FIRST,
     SORT_OLDEST_FIRST,
+    SORT_CREATED_NEWEST_FIRST,
+    SORT_CREATED_OLDEST_FIRST,
     buildDashboardView,
     sortRecentDocuments,
 } from '@/utils/recentDocuments.js'
@@ -391,6 +404,7 @@ async function togglePin(doc) {
 
 /* New document — the same prompt and creation action as the Documents pane. */
 const showCreateModal = ref(false)
+const showTemplatePicker = ref(false)
 const newNoteName = ref('')
 
 function openCreateModal() {
