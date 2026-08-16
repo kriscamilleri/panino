@@ -74,7 +74,7 @@
             >
                 <button
                     @click="triggerUndo"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    class="pn-toolbar-button"
                     title="Undo (Ctrl+Z)"
                     data-testid="submenu-editor-undo"
                 >
@@ -84,7 +84,7 @@
 
                 <button
                     @click="triggerRedo"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    class="pn-toolbar-button"
                     title="Redo (Ctrl+Y)"
                     data-testid="submenu-editor-redo"
                 >
@@ -97,7 +97,7 @@
                     v-for="format in textFormats"
                     :key="format.label"
                     @click="insertFormat(format)"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    class="pn-toolbar-button"
                     :title="format.label"
                     :data-testid="`submenu-editor-${format.label.toLowerCase()}`"
                 >
@@ -114,7 +114,7 @@
                     v-for="list in listFormats"
                     :key="list.label"
                     @click="insertList(list)"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    class="pn-toolbar-button"
                     :title="list.label"
                     :data-testid="`submenu-editor-${list.label.toLowerCase().replace(' ', '-')}`"
                 >
@@ -127,7 +127,7 @@
 
                 <button
                     @click="insertLink"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    class="pn-toolbar-button"
                     title="Insert Link"
                     data-testid="submenu-editor-link"
                 >
@@ -137,7 +137,7 @@
 
                 <button
                     @click="insertPageBreak"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 cursor-pointer"
+                    class="pn-toolbar-button"
                     title="Insert Page Break"
                     data-testid="submenu-editor-pagebreak"
                 >
@@ -149,7 +149,7 @@
 
                 <button
                     @click="insertTable"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                    class="pn-toolbar-button"
                     title="Insert Table"
                     data-testid="submenu-editor-table"
                 >
@@ -159,7 +159,7 @@
 
                 <button
                     @click="insertCodeBlock"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                    class="pn-toolbar-button"
                     title="Insert Code Block"
                     data-testid="submenu-editor-code"
                 >
@@ -171,7 +171,7 @@
 
                 <button
                     @click="insertImagePlaceholder"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                    class="pn-toolbar-button"
                     title="Insert Image Markdown"
                     data-testid="submenu-editor-image-placeholder"
                 >
@@ -181,7 +181,7 @@
 
                 <button
                     @click="openImageDialog"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                    class="pn-toolbar-button"
                     title="Upload and Insert Image"
                     data-testid="submenu-editor-image-upload"
                 >
@@ -199,7 +199,7 @@
                 <button
                     @click="ui.openImageLibraryModal()"
                     :disabled="imageLibraryDisabled"
-                    class="px-3 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="pn-toolbar-button"
                     :title="imageLibraryDisabled ? 'Select a document to insert images' : 'Insert Image from Library'"
                     data-testid="submenu-editor-image-library"
                 >
@@ -211,19 +211,19 @@
 
                 <div class="flex items-center gap-2">
                     <div class="relative">
-                        <Search class="absolute left-2 top-1.5 w-4 h-4 text-gray-400" />
+                        <Search class="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <input
                             type="text"
                             placeholder="Find..."
                             v-model="searchTerm"
-                            class="border pl-7 pr-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500"
+                            class="pn-toolbar-input w-36 pl-7"
                             data-testid="submenu-editor-search-input"
                             @keyup.enter="findNext(searchTerm)"
                         />
                     </div>
                     <button
                         @click="findNext(searchTerm)"
-                        class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                        class="pn-toolbar-button pn-toolbar-button-tight"
                         title="Find Next"
                         data-testid="submenu-editor-search-next"
                     >
@@ -232,11 +232,11 @@
                     </button>
 
                     <BaseButton
+                        variant="secondary"
                         :isActive="replaceEnabled"
                         @click="replaceEnabled = !replaceEnabled"
                         data-testid="submenu-editor-replace-toggle"
                         title="Toggle Replace"
-                        class="text-sm"
                     >
                         <ToggleLeft
                             v-if="!replaceEnabled"
@@ -254,14 +254,14 @@
                             type="text"
                             placeholder="Replacement…"
                             v-model="replaceTerm"
-                            class="border px-2 py-1 rounded text-sm w-36 focus:outline-none focus:border-gray-500"
+                            class="pn-toolbar-input w-36"
                             data-testid="submenu-editor-replace-input"
                             @keyup.enter="replaceNext(searchTerm, replaceTerm)"
                         />
 
                         <button
                             @click="replaceNext(searchTerm, replaceTerm)"
-                            class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                            class="pn-toolbar-button pn-toolbar-button-tight"
                             title="Replace Next"
                             data-testid="submenu-editor-replace-next"
                         >
@@ -271,7 +271,7 @@
 
                         <button
                             @click="replaceAll(searchTerm, replaceTerm)"
-                            class="px-2 py-1 bg-white border rounded hover:bg-gray-50 text-sm flex items-center gap-1.5"
+                            class="pn-toolbar-button pn-toolbar-button-tight"
                             title="Replace All"
                             data-testid="submenu-editor-replace-all"
                         >

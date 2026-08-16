@@ -2,34 +2,37 @@
   <transition name="fade">
     <div
       v-if="showInstallPrompt"
-      class="fixed bottom-10 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-white rounded-lg shadow-xl p-4 z-40"
+      class="fixed bottom-10 left-4 right-4 z-40 rounded-lg border border-gray-200 bg-white p-4 shadow-xl md:left-auto md:right-4 md:w-96"
     >
       <div class="flex items-start justify-between">
         <div class="flex-1">
-          <h3 class="font-bold text-lg mb-2">Install Panino</h3>
-          <p class="text-sm text-gray-600 mb-3">
+          <h3 class="pn-title-modal mb-2">Install Panino</h3>
+          <p class="pn-body mb-3">
             Install this app on your device for quick access and offline use.
           </p>
-          <div class="flex space-x-2">
-            <button
+          <div class="flex gap-3">
+            <BaseButton
+              variant="primary"
+              size="md"
               @click="handleInstall"
-              class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700 transition"
             >
               Install
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
+              variant="secondary"
+              size="md"
               @click="dismissPrompt"
-              class="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition"
             >
               Not now
-            </button>
+            </BaseButton>
           </div>
         </div>
         <button
           @click="dismissPrompt"
-          class="text-gray-400 hover:text-gray-600 ml-2"
+          class="-m-1.5 ml-2 shrink-0 rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          aria-label="Dismiss install prompt"
         >
-          ×
+          <X class="h-5 w-5" />
         </button>
       </div>
     </div>
@@ -38,6 +41,8 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { X } from 'lucide-vue-next';
+import BaseButton from '@/components/BaseButton.vue';
 
 const showInstallPrompt = ref(false);
 const deferredPrompt = ref(null);

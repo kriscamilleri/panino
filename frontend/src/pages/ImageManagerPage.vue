@@ -2,11 +2,13 @@
     <AccountLayout title="Images" max-width-class="max-w-7xl">
         <div class="space-y-6">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div class="text-sm text-gray-600">
+                <div class="pn-body">
                     <p>Images: {{ imageManager.stats.imageCount }}</p>
                     <p>Total storage: {{ formatBytes(imageManager.stats.totalImageBytes) }}</p>
                 </div>
                 <BaseButton
+                    variant="danger"
+                    size="md"
                     :disabled="selectedIds.length === 0 || imageManager.isDeleting"
                     @click="handleBulkDelete"
                     data-testid="images-bulk-delete"
@@ -21,13 +23,13 @@
                     v-model="search"
                     type="text"
                     placeholder="Search filename"
-                    class="w-full rounded border px-3 py-2 text-sm"
+                    class="pn-input"
                     @keyup.enter="applyFilters"
                     data-testid="images-search"
                 />
                 <select
                     v-model="sort"
-                    class="w-full rounded border px-3 py-2 text-sm"
+                    class="pn-select"
                     @change="applyFilters"
                     data-testid="images-sort"
                 >
@@ -37,6 +39,8 @@
                     <option value="size_asc">Smallest</option>
                 </select>
                 <BaseButton
+                    variant="secondary"
+                    size="md"
                     @click="applyFilters"
                     data-testid="images-refresh"
                 >
@@ -45,65 +49,68 @@
                 </BaseButton>
             </div>
 
-            <div v-if="imageManager.error" class="text-sm text-red-600">
+            <p v-if="imageManager.error" class="pn-alert pn-alert-error">
                 {{ imageManager.error }}
-            </div>
+            </p>
 
-            <div class="overflow-x-auto border rounded">
-                <table class="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead class="bg-gray-50">
+            <div class="pn-table-wrap">
+                <table class="pn-table">
+                    <thead>
                         <tr>
-                            <th class="px-3 py-2 text-left">
+                            <th>
                                 <input
                                     type="checkbox"
+                                    class="pn-checkbox"
                                     :checked="allSelected"
                                     @change="toggleAll"
                                     data-testid="images-select-all"
                                 />
                             </th>
-                            <th class="px-3 py-2 text-left">Preview</th>
-                            <th class="px-3 py-2 text-left">Filename</th>
-                            <th class="px-3 py-2 text-left">MIME</th>
-                            <th class="px-3 py-2 text-left">Size</th>
-                            <th class="px-3 py-2 text-left">Created</th>
-                            <th class="px-3 py-2 text-left">Usage</th>
-                            <th class="px-3 py-2 text-left">Actions</th>
+                            <th>Preview</th>
+                            <th>Filename</th>
+                            <th>MIME</th>
+                            <th>Size</th>
+                            <th>Created</th>
+                            <th>Usage</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100 bg-white">
+                    <tbody>
                         <tr v-if="imageManager.isLoading">
-                            <td colspan="8" class="px-3 py-4 text-center text-gray-500">Loading images...</td>
+                            <td colspan="8" class="pn-table-empty">Loading images...</td>
                         </tr>
                         <tr v-else-if="imageManager.images.length === 0">
-                            <td colspan="8" class="px-3 py-4 text-center text-gray-500">No images found.</td>
+                            <td colspan="8" class="pn-table-empty">No images found.</td>
                         </tr>
                         <tr
                             v-else
                             v-for="image in imageManager.images"
                             :key="image.id"
                         >
-                            <td class="px-3 py-2 align-middle">
+                            <td>
                                 <input
                                     type="checkbox"
+                                    class="pn-checkbox"
                                     :checked="selectedSet.has(image.id)"
                                     @change="toggleSelected(image.id)"
                                     :data-testid="`images-select-${image.id}`"
                                 />
                             </td>
-                            <td class="px-3 py-2 align-middle">
+                            <td>
                                 <img
                                     :src="imagePreviewUrl(image.imageUrl)"
                                     :alt="image.filename"
-                                    class="h-10 w-10 rounded object-cover border"
+                                    class="h-10 w-10 rounded-md border border-gray-200 object-cover"
                                 />
                             </td>
-                            <td class="px-3 py-2 align-middle">{{ image.filename }}</td>
-                            <td class="px-3 py-2 align-middle">{{ image.mimeType }}</td>
-                            <td class="px-3 py-2 align-middle">{{ formatBytes(image.sizeBytes) }}</td>
-                            <td class="px-3 py-2 align-middle">{{ formatDate(image.createdAt) }}</td>
-                            <td class="px-3 py-2 align-middle">{{ image.usageCount }}</td>
-                            <td class="px-3 py-2 align-middle">
+                            <td>{{ image.filename }}</td>
+                            <td>{{ image.mimeType }}</td>
+                            <td>{{ formatBytes(image.sizeBytes) }}</td>
+                            <td>{{ formatDate(image.createdAt) }}</td>
+                            <td>{{ image.usageCount }}</td>
+                            <td>
                                 <BaseButton
+                                    variant="danger"
                                     :disabled="imageManager.isDeleting"
                                     @click="handleSingleDelete(image)"
                                     :data-testid="`images-delete-${image.id}`"
@@ -119,6 +126,7 @@
 
             <div class="flex items-center justify-between">
                 <BaseButton
+                    variant="secondary"
                     :disabled="cursorStack.length === 0 || imageManager.isLoading"
                     @click="goPrevious"
                     data-testid="images-prev"
@@ -127,6 +135,7 @@
                     <span>Previous</span>
                 </BaseButton>
                 <BaseButton
+                    variant="secondary"
                     :disabled="!imageManager.nextCursor || imageManager.isLoading"
                     @click="goNext"
                     data-testid="images-next"

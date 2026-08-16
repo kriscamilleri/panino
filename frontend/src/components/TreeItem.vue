@@ -2,59 +2,59 @@
     <div>
         <div
             v-if="showContextMenu"
-            class="fixed bg-white shadow-lg rounded-lg border p-2 z-50"
+            class="fixed z-50 min-w-[10rem] rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg"
             :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }"
             :data-testid="`tree-item-context-menu-${item.id}`"
         >
             <button
                 @click="handleRename"
-                class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1"
+                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
                 :data-testid="`tree-item-context-menu-rename-${item.id}`"
             >
-                <Edit class="w-4 h-4" />
+                <Edit class="h-4 w-4" />
                 <span>Rename</span>
             </button>
 
-            <div class="border-t my-1" />
+            <div class="my-1 border-t border-gray-200" />
 
             <button
                 @click="handleDuplicate"
-                class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1"
+                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
                 :data-testid="`tree-item-context-menu-duplicate-${item.id}`"
             >
-                <Copy class="w-4 h-4" />
+                <Copy class="h-4 w-4" />
                 <span>Duplicate</span>
             </button>
 
             <button
                 @click="handleDelete"
-                class="w-full text-left px-3 py-1 hover:bg-red-100 text-red-600 rounded flex items-center space-x-1"
+                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
                 :data-testid="`tree-item-context-menu-delete-${item.id}`"
             >
-                <Trash2 class="w-4 h-4" />
+                <Trash2 class="h-4 w-4" />
                 <span>Delete</span>
             </button>
 
-            <div class="border-t my-1" />
+            <template v-if="isFolder">
+                <div class="my-1 border-t border-gray-200" />
 
-            <button
-                v-if="isFolder"
-                @click="handleNewFile"
-                class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1"
-                :data-testid="`tree-item-context-menu-new-file-${item.id}`"
-            >
-                <FilePlus class="w-4 h-4" />
-                <span>New File</span>
-            </button>
-            <button
-                v-if="isFolder"
-                @click="handleNewFolder"
-                class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded flex items-center space-x-1"
-                :data-testid="`tree-item-context-menu-new-folder-${item.id}`"
-            >
-                <FolderPlus class="w-4 h-4" />
-                <span>New Folder</span>
-            </button>
+                <button
+                    @click="handleNewFile"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                    :data-testid="`tree-item-context-menu-new-file-${item.id}`"
+                >
+                    <FilePlus class="h-4 w-4" />
+                    <span>New File</span>
+                </button>
+                <button
+                    @click="handleNewFolder"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                    :data-testid="`tree-item-context-menu-new-folder-${item.id}`"
+                >
+                    <FolderPlus class="h-4 w-4" />
+                    <span>New Folder</span>
+                </button>
+            </template>
         </div>
 
         <div
@@ -183,85 +183,44 @@
             </template>
         </ul>
 
-        <div
+        <PromptModal
             v-if="showCreateModal"
-            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            v-model="newItemName"
+            :title="`Create New ${createType} in &quot;${item.name}&quot;`"
+            :label="`${createType} name`"
+            :placeholder="'Enter ' + createType + ' name'"
+            confirm-label="Create"
             :data-testid="`tree-item-create-modal-${item.id}`"
-        >
-            <div class="bg-white p-4 rounded-lg shadow-lg w-96">
-                <h3 class="text-lg font-semibold mb-4">
-                    Create New {{ createType }} in "{{ item.name }}"
-                </h3>
-                <input
-                    v-model="newItemName"
-                    type="text"
-                    class="w-full border rounded p-2 mb-4"
-                    :placeholder="'Enter ' + createType + ' name'"
-                    @keyup.enter="confirmCreate"
-                    :data-testid="`tree-item-create-modal-input-${item.id}`"
-                    ref="createInputRef"
-                />
-                <div class="flex justify-end space-x-2">
-                    <button
-                        @click="cancelCreate"
-                        class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
-                        :data-testid="`tree-item-create-modal-cancel-${item.id}`"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        @click="confirmCreate"
-                        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                        :data-testid="`tree-item-create-modal-confirm-${item.id}`"
-                    >
-                        Create
-                    </button>
-                </div>
-            </div>
-        </div>
+            :input-testid="`tree-item-create-modal-input-${item.id}`"
+            :cancel-testid="`tree-item-create-modal-cancel-${item.id}`"
+            :confirm-testid="`tree-item-create-modal-confirm-${item.id}`"
+            @confirm="confirmCreate"
+            @cancel="cancelCreate"
+        />
 
-        <div
+        <PromptModal
             v-if="showRenameModal"
-            class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            v-model="renameItemName"
+            :title="`Rename ${renameType}`"
+            :label="`New ${renameType} name`"
+            :placeholder="'Enter new ' + renameType + ' name'"
+            confirm-label="Rename"
             :data-testid="`tree-item-rename-modal-${item.id}`"
-        >
-            <div class="bg-white p-4 rounded-lg shadow-lg w-96">
-                <h3 class="text-lg font-semibold mb-4">Rename {{ renameType }}</h3>
-                <input
-                    v-model="renameItemName"
-                    type="text"
-                    class="w-full border rounded p-2 mb-4"
-                    @keyup.enter="confirmRename"
-                    :placeholder="'Enter new ' + renameType + ' name'"
-                    :data-testid="`tree-item-rename-modal-input-${item.id}`"
-                    ref="renameInputRef"
-                />
-                <div class="flex justify-end space-x-2">
-                    <button
-                        @click="cancelRename"
-                        class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
-                        :data-testid="`tree-item-rename-modal-cancel-${item.id}`"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        @click="confirmRename"
-                        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                        :data-testid="`tree-item-rename-modal-confirm-${item.id}`"
-                    >
-                        Rename
-                    </button>
-                </div>
-            </div>
-        </div>
+            :input-testid="`tree-item-rename-modal-input-${item.id}`"
+            :cancel-testid="`tree-item-rename-modal-cancel-${item.id}`"
+            :confirm-testid="`tree-item-rename-modal-confirm-${item.id}`"
+            @confirm="confirmRename"
+            @cancel="cancelRename"
+        />
     </div>
 </template>
 
 <script setup>
-import { provide, computed, ref, onMounted, onUnmounted, nextTick, watch, inject } from 'vue'
+import { provide, computed, ref, onMounted, onUnmounted, watch, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useStructureStore } from '@/store/structureStore'
+import PromptModal from '@/components/PromptModal.vue'
 
 import {
     Trash2, FilePlus, FolderPlus, MoreHorizontal,
@@ -408,7 +367,6 @@ async function handleDelete() {
 const showCreateModal = ref(false)
 const createType = ref('')
 const newItemName = ref('')
-const createInputRef = ref(null)
 
 function handleNewFile() { openCreate('File') }
 function handleNewFolder() { openCreate('Folder') }
@@ -416,7 +374,6 @@ function openCreate(type) {
     createType.value = type
     showCreateModal.value = true
     showContextMenu.value = false
-    nextTick(() => createInputRef.value?.focus())
 }
 async function confirmCreate() {
     if (!newItemName.value.trim()) return
@@ -439,7 +396,6 @@ function cancelCreate() {
 const showRenameModal = ref(false)
 const renameType = ref('')
 const renameItemName = ref('')
-const renameInputRef = ref(null)
 
 function handleRename() {
     if (props.item.id === 'welcome' || props.item.id.startsWith('welcome-')) {
@@ -451,7 +407,6 @@ function handleRename() {
     renameItemName.value = props.item.name
     showRenameModal.value = true
     showContextMenu.value = false
-    nextTick(() => renameInputRef.value?.focus())
 }
 async function confirmRename() {
     const trimmed = renameItemName.value.trim()
