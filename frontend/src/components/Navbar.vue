@@ -75,7 +75,7 @@
                     data-testid="navbar-theme-toggle"
                 >
                     <span class="navbar-button-text hidden md:inline">
-                        {{ themeStore.theme === 'dark' ? 'Light mode' : 'Dark mode' }}
+                        {{ themeStore.theme === 'dark' ? 'Light' : 'Dark' }}
                     </span>
                     <Sun
                         v-if="themeStore.theme === 'dark'"

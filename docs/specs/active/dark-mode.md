@@ -59,7 +59,7 @@ when the preference changes so OverType receives matching foreground, background
 and selection values. The markdown preview inherits the global text colors and has explicit
 code/table/blockquote styles.
 
-The toggle uses a text-first `Dark mode` / `Light mode` label with a Lucide `Sun`/`Moon` icon,
+The toggle uses a text-first `Dark` / `Light` label with a Lucide `Sun`/`Moon` icon,
 `aria-pressed`, a changing title, and the standard focus-visible ring. The desktop-only navbar
 collapse button persists whether labels are shown; labels are always hidden on mobile.
 

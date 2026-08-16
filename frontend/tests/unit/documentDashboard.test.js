@@ -127,6 +127,7 @@ describe('DocumentDashboard — global Recent Documents', () => {
         expect(testid(wrapper, 'document-dashboard-search').attributes('placeholder'))
             .toBe('Search recent documents');
         expect(testid(wrapper, 'document-dashboard-new-note').text()).toContain('New');
+        expect(testid(wrapper, 'document-dashboard-new-note').classes()).toContain('text-blue-600');
         expect(testid(wrapper, 'document-dashboard-list-heading').exists()).toBe(false);
     });
 
@@ -598,15 +599,16 @@ describe('DocumentDashboard — presentation contracts', () => {
         expect(testid(wrapper, 'document-group-earlier').exists()).toBe(true);
     });
 
-    it('uses gray focus rings and no blue primary button', async () => {
+    it('uses gray focus rings and a neutral New button with link-blue text', async () => {
         const wrapper = await mountDashboard();
 
         expect(testid(wrapper, 'document-row-beta').classes()).toContain('focus-visible:ring-gray-500');
         expect(testid(wrapper, 'continue-writing-card-alpha').classes()).toContain('focus-visible:ring-gray-500');
 
         const newNoteClasses = testid(wrapper, 'document-dashboard-new-note').classes().join(' ');
-        expect(newNoteClasses).toContain('bg-gray-800');
-        expect(newNoteClasses).not.toMatch(/bg-blue/);
+        expect(newNoteClasses).toContain('bg-white');
+        expect(newNoteClasses).toContain('text-blue-600');
+        expect(newNoteClasses).not.toContain('bg-gray-800');
     });
 
     it('keeps document titles blue, as links', async () => {

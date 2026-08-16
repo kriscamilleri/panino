@@ -84,8 +84,9 @@ describe('Navbar theme toggle', () => {
         })
 
         const themeToggle = wrapper.get('[data-testid="navbar-theme-toggle"]')
-        expect(themeToggle.text()).toContain('Dark mode')
-        expect(themeToggle.html().indexOf('Dark mode')).toBeLessThan(themeToggle.html().indexOf('<svg'))
+        expect(themeToggle.text()).toContain('Dark')
+        expect(themeToggle.text()).not.toContain('mode')
+        expect(themeToggle.html().indexOf('Dark')).toBeLessThan(themeToggle.html().indexOf('<svg'))
 
         await wrapper.get('[data-testid="navbar-collapse-button"]').trigger('click')
 
