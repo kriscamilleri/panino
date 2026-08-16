@@ -1,10 +1,11 @@
 # DX-00 — Agent Developer Experience: Overview & Sequencing
 
 > Index for the DX spec set. Read this before picking up any individual DX spec.
-> Status: mostly done — index, reconciled 2026-08-16. DX-01…DX-08 are done (DX-02's
-> branch-protection rule was declined by the maintainer as unnecessary at this stage);
-> DX-09 has not been started; DX-10 is done on the dev side with production merge-behaviour
-> verification and the deploy itself outstanding. Each spec's own header carries the evidence.
+> Status: complete — index, concluded 2026-08-16. **DX-01…DX-08 and DX-10 are shipped**;
+> DX-02's branch-protection rule was declined by the maintainer as unnecessary at this stage.
+> **DX-09 was declined** and is the only spec in the set never implemented. DX-10 shipped last
+> and is live in production: Node v24.19.0, better-sqlite3 12.11.1, SQLite 3.53.2. Each
+> spec's own header carries the evidence. Nothing in this set is outstanding.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
 > Source: repository and implementation-log analysis, 2026-08-08
@@ -50,7 +51,7 @@ DX-02 have shipped.
 | 07 | [Spec Lifecycle & Status](../shipped/dx-07-spec-lifecycle.md) | P2 | ~3 hrs | — |
 | 08 | [Agent Permissions](../shipped/dx-08-agent-permissions.md) | P2 | ~1 hr | — |
 | 09 | [Backend Type Checking](dx-09-backend-type-checking.md) | P1 | ~1 day | 02 (soft — supplies the CI job) |
-| 10 | [Node Runtime Upgrade (20 → 24)](dx-10-node-runtime-upgrade.md) | **P0** | ~1½ days | 01, 02 (soft) |
+| 10 | [Node Runtime Upgrade (20 → 24)](../shipped/dx-10-node-runtime-upgrade.md) | **P0** | ~1½ days | 01, 02 (soft) |
 
 Effort estimates assume an agent with repo context, and include the validation checklist.
 

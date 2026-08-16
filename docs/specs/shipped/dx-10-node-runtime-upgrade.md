@@ -2,24 +2,27 @@
 
 > Move production and tooling off end-of-life Node 20 by upgrading the one package that
 > pins it, in two independently reversible steps.
-> Status: verified, not yet deployed. The dev-side implementation and browser verification are
-> complete (see `docs/agent-logs/2026/08/2026-08-08_11-30_dx-10-node-runtime-upgrade.md` and
-> `docs/agent-logs/2026/08/2026-08-16_06-50_dx-10-browser-verification.md`).
-> **§6 Phase 2 step 8 — the spec's "real gate" — is done as of 2026-08-16.**
-> `scripts/dx10-merge-verification/` runs the step's operations on a 9.6.0 arm (SQLite 3.45.3)
-> and a 12.11.1 arm (SQLite 3.53.2) and diffs them, supplying the baseline the step asks for.
-> Run against one real production database — 11 MB, `crsql_db_version` 47875, 3,630 change
-> rows, the account that suffered and was repaired after the July orphan-clock incident — both
-> arms completed all seven steps with no errors and produced identical `dbVersionDelta`,
-> change-row counts and clock totals across all seven clock tables: **IDENTICAL**. The
-> snapshot was deleted immediately after the run.
-> What remains is Phase 2's deployment (step 9) and then Phase 3. Do not mark this shipped
-> until the deploy has happened and baked.
+> Status: shipped 2026-08-16. Production runs **Node v24.19.0**, **better-sqlite3 12.11.1**,
+> **SQLite 3.53.2**, verified in the live container after deploy. `crsql_changes` merge
+> behaviour was proven unchanged beforehand by §6 Phase 2 step 8's two-arm comparison against
+> a real production database (the July-incident account): IDENTICAL across `db_version`
+> movement, change-row counts and all seven clock tables.
+> Both phases shipped in one deploy rather than days apart — a deliberate deviation from §5.1,
+> recorded there with what step 8 does and does not cover. Rollback target: `51ffcf1`.
+> The deploy itself surfaced two production defects, both fixed: `deploy.sh` reported success
+> without ever rebuilding the backend, and the server disk was 100% full. See
+> `docs/agent-logs/2026/08/2026-08-16_11-15_dx-10-production-deploy.md`.
 > Created: 2026-08-08
 > Last updated: 2026-08-16
+> Shipped: 2026-08-16, commit `b1fd41d` (see
+> `docs/agent-logs/2026/08/2026-08-16_11-15_dx-10-production-deploy.md`)
+> Implementation: `backend/api-service/package.json` (`better-sqlite3` ^12.11.1,
+> `engines` >=24 <25), `backend/api-service/Dockerfile`, `backend/api-service/Dockerfile.test`,
+> `backend/api-service/patch-crsqlite.sh`, `.nvmrc`, `deploy.sh`,
+> `scripts/dx10-merge-verification/` (step 8 gate)
 > Priority: P0 — the production runtime has been unsupported since 2026-04-30
-> Depends on: [DX-01](../shipped/dx-01-backend-test-runnability.md) (needs `npm run test:be` to be the verification surface), [DX-02](../shipped/dx-02-ci-test-gate.md) (soft — CI should be green before and after)
-> Blocks: nothing. Supersedes [DX-01](../shipped/dx-01-backend-test-runnability.md) §5.2's "revisit later" note and adjusts [DX-09](dx-09-backend-type-checking.md) §5's `@types/node` pin
+> Depends on: [DX-01](dx-01-backend-test-runnability.md) (needs `npm run test:be` to be the verification surface), [DX-02](dx-02-ci-test-gate.md) (soft — CI should be green before and after)
+> Blocks: nothing. Supersedes [DX-01](dx-01-backend-test-runnability.md) §5.2's "revisit later" note and adjusts [DX-09](../dx/dx-09-backend-type-checking.md) §5's `@types/node` pin
 
 ---
 
