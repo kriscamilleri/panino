@@ -43,10 +43,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: ".nvmrc"
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
         working-directory: frontend
-      - run: pnpm test
+      - run: npm test
         working-directory: frontend
 
   backend:

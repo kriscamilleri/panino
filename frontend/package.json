@@ -2,7 +2,6 @@
   "name": "pn-markdown-notes",
   "private": true,
   "version": "0.1.0",
-  "packageManager": "pnpm@10.11.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -19,7 +19,6 @@ backend/api-service/uploads
 backend/api-service/vendor
 combined_content.txt
 package-lock.json
-pnpm-lock.yaml
 frontend/dist
 .vscode/.chrome-debug-profile
 
