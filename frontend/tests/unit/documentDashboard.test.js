@@ -270,14 +270,21 @@ describe('DocumentDashboard — filters and sorting', () => {
     it('limits to pinned documents and keeps the select and toggle in sync', async () => {
         const wrapper = await mountDashboard();
 
+        expect(testid(wrapper, 'document-dashboard-pinned-toggle').classes())
+            .toContain('pinned-filter-toggle');
+
         await setPinnedFilter(wrapper, true);
         expect(testid(wrapper, 'document-dashboard-pinned-toggle').attributes('aria-pressed')).toBe('true');
+        expect(testid(wrapper, 'document-dashboard-pinned-toggle').classes())
+            .toContain('pinned-filter-toggle');
         expect(filterSelectValue(wrapper) ?? 'pinned').toBe('pinned');
         expect(wrapper.findAll('[data-testid^="document-row-title-"]').map((r) => r.text()))
             .toEqual(['Alpha Plan', 'Delta Review']);
 
         await setPinnedFilter(wrapper, false);
         expect(testid(wrapper, 'document-dashboard-pinned-toggle').attributes('aria-pressed')).toBe('false');
+        expect(testid(wrapper, 'document-dashboard-pinned-toggle').classes())
+            .toContain('pinned-filter-toggle');
         expect(filterSelectValue(wrapper) ?? 'all').toBe('all');
         expect(wrapper.findAll('[data-testid^="document-row-title-"]')).toHaveLength(4);
     });
@@ -428,15 +435,15 @@ describe('DocumentDashboard — folder scope', () => {
         expect(testid(wrapper, 'document-dashboard-list-heading').text()).toBe('Documents');
     });
 
-    it('queries only the selected folder and omits the Continue Writing rail', async () => {
+    it('queries only the selected folder and shows its pinned card', async () => {
         const wrapper = await mountDashboard('folder-1');
 
         expect(docStoreMock.getFolderDocuments).toHaveBeenCalledWith('folder-1', 50);
         expect(docStoreMock.getRecentDocuments).not.toHaveBeenCalled();
-        expect(testid(wrapper, 'continue-writing-section').exists()).toBe(false);
-        // Asserted on the cards too: the rail's absence must not depend on a
-        // wrapper element that could be removed while the cards stay behind.
-        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(0);
+        expect(testid(wrapper, 'continue-writing-section').exists()).toBe(true);
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')
+            .map((card) => card.attributes('data-testid')))
+            .toEqual(['continue-writing-card-folder-pinned']);
     });
 
     it('lists immediate child folders only, sorted by name, and opens them by route', async () => {

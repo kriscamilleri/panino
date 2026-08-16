@@ -2,9 +2,9 @@
 <template>
     <!--
         One dashboard for two scopes. `folderId === '__recent__'` is the global
-        Recent Documents view; anything else is a folder view. The only
-        global-only element is the Continue Writing rail — header, toolbar,
-        rows, grouping, and empty states are shared so the two cannot drift.
+        Recent Documents view; anything else is a folder view. Header, pinned
+        Continue Writing cards, toolbar, rows, grouping, and empty states are
+        shared so the two cannot drift.
     -->
     <div
         class="flex-1 overflow-hidden px-4 py-4 lg:px-6"
@@ -20,11 +20,10 @@
         />
 
         <!--
-            Continue Writing: the first three documents of the active result
-            set, global scope only. The cards carry the section on their own —
-            no panel chrome or heading around them — so the grid itself is what
-            renders conditionally, and nothing is left behind on a folder view
-            or when the active filters match nothing.
+            Continue Writing: the three most recently modified pinned documents
+            in the current scope. The cards carry the section on their own — no
+            panel chrome or heading around them — so the grid itself is what
+            renders conditionally when the scope has no pinned notes.
 
             The rail also steps aside while the quick filter is in use: when the
             user is searching, the answer is the list, and repeating its first
@@ -75,6 +74,7 @@
             <BaseButton
                 variant="secondary"
                 :is-active="showPinnedOnly"
+                class="pinned-filter-toggle"
                 :aria-pressed="showPinnedOnly"
                 aria-label="Show pinned documents only"
                 title="Show pinned documents only"
@@ -270,12 +270,12 @@ const continueWriting = computed(() =>
 )
 
 /**
- * Global scope only, and never while the quick filter is narrowing the list:
- * during a search the list is the answer, so the rail would only repeat its
- * first three hits and push the results down.
+ * Never render while the quick filter is narrowing the list: during a search
+ * the list is the answer, so the rail would only repeat its first three hits
+ * and push the results down.
  */
 const showContinueWriting = computed(
-    () => isGlobal.value && !query.value.trim() && continueWriting.value.length > 0
+    () => !query.value.trim() && continueWriting.value.length > 0
 )
 
 const resultCountLabel = computed(() => {
@@ -423,3 +423,17 @@ async function confirmCreate() {
     }
 }
 </script>
+
+<style scoped>
+.pinned-filter-toggle:not([aria-pressed='true']):hover {
+    background-color: #f3f4f6;
+}
+
+.pinned-filter-toggle[aria-pressed='true'] {
+    background-color: #e5e7eb;
+}
+
+.pinned-filter-toggle[aria-pressed='true']:hover {
+    background-color: #d1d5db;
+}
+</style>

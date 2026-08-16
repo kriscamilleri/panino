@@ -1,6 +1,6 @@
 # Recent Documents Redesign — Spec
 
-> Redesign Recent Documents and folder document views into searchable writing dashboards with a Continue Writing rail on the global view and persistent pinned notes.
+> Redesign Recent Documents and folder document views into searchable writing dashboards with scoped pinned Continue Writing cards and persistent pinned notes.
 > Status: shipped
 > Created: 2026-08-16
 > Last updated: 2026-08-16
@@ -221,6 +221,9 @@ until the Advanced Search feature exists.
 
 > **As built (2026-08-16).** The header creation action is labelled `New`; empty states do not
 > repeat that action.
+
+> **As built (2026-08-16).** Continue Writing cards render for pinned documents in the current
+> global or direct-folder scope, rather than only on Recent Documents.
 
 Do not render a `My notes` filter in this version. It would be a deceptive no-op in Panino's
 per-user local database. Shared-workspace scope, if introduced later, can add it alongside the
