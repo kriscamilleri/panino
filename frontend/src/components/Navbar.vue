@@ -1,5 +1,8 @@
 <template>
-    <nav class="bg-gray-100 border-b">
+    <nav
+        class="workspace-chrome bg-gray-100 border-b"
+        :class="{ 'navbar-collapsed': ui.navbarCollapsed }"
+    >
         <div class="flex items-center justify-between px-4 py-2">
             <div class="flex items-center space-x-4">
 
@@ -11,7 +14,7 @@
                 >
 
                     <Layout class="md:w-4 md:h-4 w-5 h-5" />
-                    <span class="hidden md:inline">View</span>
+                    <span class="navbar-button-text hidden md:inline">View</span>
 
                 </BaseButton>
 
@@ -23,7 +26,7 @@
                 >
 
                     <FilePenLine class="md:w-4 md:h-4 w-5 h-5" />
-                    <span class="hidden md:inline">Editor</span>
+                    <span class="navbar-button-text hidden md:inline">Editor</span>
 
                 </BaseButton>
 
@@ -35,7 +38,7 @@
                 >
 
                     <Hammer class="md:w-4 md:h-4 w-5 h-5" />
-                    <span class="hidden md:inline">Tools</span>
+                    <span class="navbar-button-text hidden md:inline">Tools</span>
 
                 </BaseButton>
 
@@ -55,7 +58,7 @@
                         ]"
                         class="w-4 h-4"
                     />
-                    <span class="hidden md:inline">
+                    <span class="navbar-button-text hidden md:inline">
                         <span v-if="!syncStore.isOnline">Offline</span>
                         <span v-else-if="syncStore.isSyncing">Syncing...</span>
                         <span v-else>Sync {{ syncStore.syncEnabled ? 'On' : 'Off' }}</span>
@@ -65,6 +68,25 @@
             </div>
 
             <div class="flex items-center space-x-4">
+                <BaseButton
+                    :aria-pressed="themeStore.theme === 'dark'"
+                    :title="themeStore.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+                    @click="themeStore.toggleTheme()"
+                    data-testid="navbar-theme-toggle"
+                >
+                    <span class="navbar-button-text hidden md:inline">
+                        {{ themeStore.theme === 'dark' ? 'Light' : 'Dark' }}
+                    </span>
+                    <Sun
+                        v-if="themeStore.theme === 'dark'"
+                        class="w-4 h-4"
+                    />
+                    <Moon
+                        v-else
+                        class="w-4 h-4"
+                    />
+                </BaseButton>
+
                 <div class="hidden md:flex items-center space-x-4">
                     <router-link
                         v-if="authStore.isAuthenticated"
@@ -77,7 +99,7 @@
                             data-testid="navbar-username-display"
                         >
                             <User class="w-4 h-4" />
-                            <span>{{ authStore.user?.name || authStore.user?.email ||
+                            <span class="navbar-button-text">{{ authStore.user?.name || authStore.user?.email ||
                                 authStore.user?.id }}</span>
                         </BaseButton>
                     </router-link>
@@ -92,7 +114,7 @@
                             class="w-4 h-4"
                             title="About"
                         />
-                        <span>About</span>
+                        <span class="navbar-button-text">About</span>
                     </BaseButton>
 
                     <BaseButton
@@ -105,7 +127,7 @@
                             class="w-4 h-4"
                             title="Login"
                         />
-                        <span>Login</span>
+                        <span class="navbar-button-text">Login</span>
 
                     </BaseButton>
                     <BaseButton
@@ -118,10 +140,32 @@
                             class="w-4 h-4"
                             title="Logout"
                         />
-                        <span>Logout</span>
+                        <span class="navbar-button-text">Logout</span>
 
                     </BaseButton>
                 </div>
+
+                <BaseButton
+                    class="hidden md:inline-flex"
+                    :is-active="ui.navbarCollapsed"
+                    :icon-only="ui.navbarCollapsed"
+                    :title="ui.navbarCollapsed ? 'Expand navigation labels' : 'Collapse navigation labels'"
+                    @click="ui.toggleNavbarCollapsed()"
+                    data-testid="navbar-collapse-button"
+                >
+                    <PanelLeftOpen
+                        v-if="ui.navbarCollapsed"
+                        class="w-4 h-4"
+                    />
+                    <PanelLeftClose
+                        v-else
+                        class="w-4 h-4"
+                    />
+                    <span
+                        v-if="!ui.navbarCollapsed"
+                        class="navbar-button-text"
+                    >Collapse</span>
+                </BaseButton>
 
                 <div class="md:hidden">
                     <BaseButton
@@ -156,6 +200,7 @@ import { ref } from 'vue'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
+import { useThemeStore } from '@/store/themeStore'
 import { useRouter } from 'vue-router'
 
 import BaseButton from '@/components/BaseButton.vue'
@@ -170,12 +215,17 @@ import {
     LogIn,
     LogOut,
     Menu,
-    User
+    User,
+    Moon,
+    Sun,
+    PanelLeftClose,
+    PanelLeftOpen
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
 const authStore = useAuthStore()
 const syncStore = useSyncStore()
+const themeStore = useThemeStore()
 const router = useRouter()
 
 const isMobileMenuOpen = ref(false)
@@ -238,5 +288,11 @@ function goToLogin() {
 a[data-testid="navbar-about-link"] {
     display: inline-flex;
     align-items: center;
+}
+
+@media (min-width: 768px) {
+    .navbar-collapsed .navbar-button-text {
+        display: none;
+    }
 }
 </style>

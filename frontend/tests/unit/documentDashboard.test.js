@@ -70,7 +70,18 @@ const GLOBAL_DOCS = [
 const mounted = [];
 
 function mountDashboardSync(folderId) {
-    const wrapper = mount(DocumentDashboard, { props: { folderId } });
+    const wrapper = mount(DocumentDashboard, {
+        props: { folderId },
+        global: {
+            stubs: {
+                TemplatePickerModal: {
+                    props: ['currentFolderId'],
+                    emits: ['close', 'created'],
+                    template: '<div data-testid="template-picker-modal" :data-current-folder-id="currentFolderId" />',
+                },
+            },
+        },
+    });
     mounted.push(wrapper);
     return wrapper;
 }
@@ -127,6 +138,9 @@ describe('DocumentDashboard — global Recent Documents', () => {
         expect(testid(wrapper, 'document-dashboard-search').attributes('placeholder'))
             .toBe('Search recent documents');
         expect(testid(wrapper, 'document-dashboard-new-note').text()).toContain('New');
+        expect(testid(wrapper, 'document-dashboard-sort').text())
+            .toContain('Created, newest first');
+        expect(testid(wrapper, 'document-dashboard-new-note').classes()).toContain('text-blue-600');
         expect(testid(wrapper, 'document-dashboard-list-heading').exists()).toBe(false);
     });
 
@@ -305,6 +319,24 @@ describe('DocumentDashboard — filters and sorting', () => {
             .toEqual(['Delta Review', 'Gamma Draft', 'Beta Notes', 'Alpha Plan']);
     });
 
+    it('sorts documents by creation date', async () => {
+        docStoreMock.getRecentDocuments.mockImplementation(async () => [
+            makeDoc('newest-created', {
+                displayedDate: minutesAgo(240),
+                createdDate: minutesAgo(5),
+            }),
+            makeDoc('oldest-created', {
+                displayedDate: minutesAgo(5),
+                createdDate: minutesAgo(480),
+            }),
+        ]);
+        const wrapper = await mountDashboard();
+        await testid(wrapper, 'document-dashboard-sort').setValue('created-newest');
+
+        const rows = wrapper.findAll('[data-testid^="document-row-title-"]').map((row) => row.text());
+        expect(rows).toEqual(['newest-created', 'oldest-created']);
+    });
+
     it('groups by local time and omits empty groups', async () => {
         docStoreMock.getRecentDocuments.mockImplementation(async () => [
             makeDoc('today-note'),
@@ -352,6 +384,19 @@ describe('DocumentDashboard — opening and creating documents', () => {
 
         expect(docStoreMock.createFile).toHaveBeenCalledWith('Fresh Note', null);
         expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'new-note' } });
+    });
+
+    it('opens the template picker from the New button menu in the current scope', async () => {
+        const wrapper = await mountDashboard('folder-1');
+
+        await testid(wrapper, 'document-dashboard-create-menu-toggle').trigger('click');
+        expect(testid(wrapper, 'document-dashboard-create-menu').exists()).toBe(true);
+
+        await testid(wrapper, 'document-dashboard-new-from-template').trigger('click');
+
+        expect(testid(wrapper, 'template-picker-modal').exists()).toBe(true);
+        expect(testid(wrapper, 'template-picker-modal').attributes('data-current-folder-id')).toBe('folder-1');
+        expect(testid(wrapper, 'document-dashboard-create-menu').exists()).toBe(false);
     });
 
     it('reports a failed creation through the toast system', async () => {
@@ -578,6 +623,17 @@ describe('DocumentDashboard — presentation contracts', () => {
         expect(header.className).not.toContain('sm:flex-row');
     });
 
+    it('allows the search control group to shrink without displacing the New action', async () => {
+        const wrapper = await mountDashboard();
+        const search = testid(wrapper, 'document-dashboard-search');
+        const controls = search.element.parentElement.parentElement;
+
+        expect(controls.className).toContain('min-w-0');
+        expect(search.element.parentElement.className).toContain('min-w-0');
+        expect(testid(wrapper, 'document-dashboard-new-note').element.parentElement.className)
+            .toContain('shrink-0');
+    });
+
     it('omits a card excerpt for a document with no content', async () => {
         docStoreMock.getRecentDocuments.mockImplementation(async () => [
             makeDoc('blank', { excerpt: '', isPinned: true }),
@@ -598,15 +654,17 @@ describe('DocumentDashboard — presentation contracts', () => {
         expect(testid(wrapper, 'document-group-earlier').exists()).toBe(true);
     });
 
-    it('uses gray focus rings and no blue primary button', async () => {
+    it('uses gray focus rings and a neutral New button with link-blue text', async () => {
         const wrapper = await mountDashboard();
 
         expect(testid(wrapper, 'document-row-beta').classes()).toContain('focus-visible:ring-gray-500');
         expect(testid(wrapper, 'continue-writing-card-alpha').classes()).toContain('focus-visible:ring-gray-500');
 
         const newNoteClasses = testid(wrapper, 'document-dashboard-new-note').classes().join(' ');
-        expect(newNoteClasses).toContain('bg-gray-800');
-        expect(newNoteClasses).not.toMatch(/bg-blue/);
+        expect(newNoteClasses).toContain('bg-white');
+        expect(newNoteClasses).toContain('dashboard-new-button');
+        expect(newNoteClasses).toContain('text-blue-600');
+        expect(newNoteClasses).not.toContain('bg-gray-800');
     });
 
     it('keeps document titles blue, as links', async () => {

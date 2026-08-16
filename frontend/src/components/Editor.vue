@@ -78,10 +78,6 @@
 </template>
 
 <style scoped>
-.bg-white {
-  background-color: white !important;
-}
-
 /* Remove all padding and margin from editor container */
 [data-testid="editor-container"] {
   padding: 0 !important;
@@ -125,6 +121,7 @@ import { useDraftStore } from '@/store/draftStore';
 import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
 import { useHistoryStore } from '@/store/historyStore';
+import { useThemeStore } from '@/store/themeStore';
 import { useOverTypePatches } from '@/composables/useOverTypePatches';
 import { hasDocumentContentChanged } from '@/utils/documentPersistence';
 import OverType from 'overtype';
@@ -154,6 +151,7 @@ const draftStore = useDraftStore();
 const authStore = useAuthStore();
 const editorStore = useEditorStore();
 const historyStore = useHistoryStore(); // <--- INIT STORE
+const themeStore = useThemeStore();
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
 
@@ -315,44 +313,7 @@ function initEditor() {
   if (!editorContainerRef.value || editorInstance.value) return;
 
   const [editor] = OverType.init(editorContainerRef.value, {
-    theme: {
-      name: 'panino-theme',
-      colors: {
-        // Base colors - white background
-        bgPrimary: '#ffffff',
-        bgSecondary: '#ffffff',
-        text: '#111827',
-
-        // Headings - matching your preview defaults
-        h1: '#111827',
-        h2: '#1f2937',
-        h3: '#1f2937',
-
-        // Text formatting
-        strong: '#111827',
-        em: '#111827',
-
-        // Links - darker blue
-        link: '#1d4ed8',
-
-        // Code - matching your preview gray background
-        code: '#111827',
-        codeBg: '#f3f4f6',
-
-        // Blockquote - darker gray
-        blockquote: '#4b5563',
-
-        // HR - matching your preview border
-        hr: '#d1d5db',
-
-        // Syntax markers - darker for better visibility
-        syntaxMarker: 'rgba(75, 85, 99, 0.5)',
-
-        // Cursor and selection
-        cursor: '#2563eb',
-        selection: 'rgba(37, 99, 235, 0.15)'
-      }
-    },
+    theme: getEditorTheme(themeStore.theme),
     toolbar: false,  // Disable Overtype's toolbar - we use our own SubMenuBar
     showStats: false,  // Disable OverType's built-in stats - we use our own external display
     placeholder: 'Start writing...',
@@ -368,6 +329,7 @@ function initEditor() {
       if ((event.ctrlKey || event.metaKey) && event.key === 'v') {
         // Paste will be handled by the native paste event
       }
+
     },
     autoResize: true,
     minHeight: '200px'
@@ -385,6 +347,54 @@ function initEditor() {
       // textarea.addEventListener('keydown', handleKeydown);
     }
   });
+}
+
+function getEditorTheme(theme) {
+  if (theme === 'dark') {
+    return {
+      name: 'panino-navy-dark',
+      colors: {
+        bgPrimary: '#2c2c2c',
+        bgSecondary: '#151515',
+        text: '#d4d4d4',
+        h1: '#d4d4d4',
+        h2: '#c6c6c6',
+        h3: '#c6c6c6',
+        strong: '#d4d4d4',
+        em: '#d4d4d4',
+        link: '#87d1ff',
+        code: '#d4d4d4',
+        codeBg: '#242424',
+        blockquote: '#a6a6a6',
+        hr: '#343434',
+        syntaxMarker: 'rgba(166, 166, 166, 0.7)',
+        cursor: '#77a0a5',
+        selection: 'rgba(147, 119, 165, 0.5)'
+      }
+    };
+  }
+
+  return {
+    name: 'panino-theme',
+    colors: {
+      bgPrimary: '#ffffff',
+      bgSecondary: '#ffffff',
+      text: '#111827',
+      h1: '#111827',
+      h2: '#1f2937',
+      h3: '#1f2937',
+      strong: '#111827',
+      em: '#111827',
+      link: '#1d4ed8',
+      code: '#111827',
+      codeBg: '#f3f4f6',
+      blockquote: '#4b5563',
+      hr: '#d1d5db',
+      syntaxMarker: 'rgba(75, 85, 99, 0.5)',
+      cursor: '#2563eb',
+      selection: 'rgba(37, 99, 235, 0.15)'
+    }
+  };
 }
 
 function destroyEditor() {
@@ -443,6 +453,12 @@ watch(() => file.value?.id, (newId) => {
     }
   }
 }, { immediate: true });
+
+watch(() => themeStore.theme, () => {
+  if (!editorInstance.value) return;
+  destroyEditor();
+  nextTick(initEditor);
+});
 
 /* ───── stats ───── */
 const wordCount = computed(() => (contentDraft.value ? contentDraft.value.trim().split(/\s+/).filter(Boolean).length : 0));

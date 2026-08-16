@@ -7,6 +7,12 @@ should be assembled from these pieces, not styled from scratch.
 Primitives live in `frontend/src/components/` (Vue) and
 `frontend/src/assets/main.css` (`@layer components` classes prefixed `pn-`).
 
+Dark mode is activated at `html[data-theme="dark"]`. Its shared mappings also live in
+`frontend/src/assets/main.css` after Tailwind utilities so existing `bg-gray-*`, `text-gray-*`,
+and border utilities remain theme-aware. New UI should continue using the documented primitives
+and Tailwind gray scale rather than adding light-only hex colors. Browser-local preference state is
+owned by `frontend/src/store/themeStore.js`; it does not sync with user documents.
+
 ---
 
 ## 1) Contracts

@@ -4,6 +4,7 @@ import { router } from './router'
 import AppShell from './AppShell.vue'
 import './assets/main.css'
 import { useUiStore } from '@/store/uiStore'
+import { useThemeStore } from '@/store/themeStore'
 import { pinia } from './pinia'
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || 'dev'
@@ -64,6 +65,9 @@ const app = createApp(AppShell)
 
 app.use(pinia)
 app.use(router)
+
+// Apply the browser-local preference before rendering the application shell.
+useThemeStore(pinia).initializeTheme()
 
 // grab your UI store
 const ui = useUiStore(pinia)
