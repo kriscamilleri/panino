@@ -14,7 +14,7 @@
             <OptionCard
                 :icon="FileText"
                 title="Markdown Files (.md)"
-                description="Import one or more markdown files and update matching notes in place."
+                description="Import one or more markdown files and update matching documents in place."
                 data-testid="import-mode-markdown"
                 @click="selectMode('markdown')"
             />
@@ -22,7 +22,7 @@
             <OptionCard
                 :icon="FolderOpen"
                 title="Markdown Folder"
-                description="Import a directory of .md files, preserving folder structure and updating matching notes."
+                description="Import a directory of .md files, preserving folder structure and updating matching documents."
                 data-testid="import-mode-directory"
                 @click="selectMode('directory')"
             />
@@ -30,7 +30,7 @@
             <OptionCard
                 :icon="Archive"
                 title="ZIP Archive (.zip)"
-                description="Import folders and .md files from a .zip archive, update matching notes, and restore bundled images from Panino exports."
+                description="Import folders and .md files from a .zip archive, update matching documents, and restore bundled images from Panino exports."
                 data-testid="import-mode-zip"
                 @click="selectMode('zip')"
             />
@@ -41,7 +41,7 @@
                 data-testid="import-mode-json"
                 @click="selectMode('json')"
             >
-                Import folders and markdown notes from a Panino or StackEdit JSON export.
+                Import folders and markdown documents from a Panino or StackEdit JSON export.
                 <span class="font-medium text-amber-600">Images, settings, and variables are skipped.</span>
             </OptionCard>
         </div>

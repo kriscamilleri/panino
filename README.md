@@ -1,6 +1,6 @@
-# Panino ~ Pretty Neat Notes
+# Panino ~ Pretty Neat Documents
 
-A browser based, local-first markdown note-taking Progressive Web App (PWA) with optional cloud sync.
+A browser based, local-first markdown document Progressive Web App (PWA) with optional cloud sync.
 
 ## User Guide
 
@@ -15,7 +15,7 @@ A browser based, local-first markdown note-taking Progressive Web App (PWA) with
 - 📦 Import/export in multiple formats
 - ☁️ GitHub backup with per-user repository connection
 - 🔍 Full-text search
-- 📁 Files and folders 
+- 📁 Documents and folders
 - 📱 Responsive web interface
 - 🧩 Front‑matter metadata variables for preview & PDF
 
@@ -26,7 +26,7 @@ Open `Tools -> Dictate` with a document selected to speak directly into the acti
 Dictation includes:
 - One-click start and stop from the Tools menu.
 - Live recording feedback with an elapsed timer and waveform.
-- Direct insertion into the current note without leaving the editor.
+- Direct insertion into the current document without leaving the editor.
 - Browser-level microphone permission handling and unsupported-browser feedback.
 
 ### Print
@@ -41,7 +41,7 @@ Print customization includes:
 
 ### Import
 
-Open `Tools -> Import` to bring existing notes and document data into Panino. The import dialog is designed for both quick migrations and raw data recovery, so you can either drop in a file or paste content directly.
+Open `Tools -> Import` to bring existing documents and document data into Panino. The import dialog is designed for both quick migrations and raw data recovery, so you can either drop in a file or paste content directly.
 
 Import supports:
 - Drag-and-drop JSON uploads.
@@ -53,19 +53,19 @@ This makes it practical both to restore a previous export and to migrate content
 
 ### Export
 
-Open `Tools -> Export` to download your workspace in the format that fits your goal. Exports are intended for backup, migration, sharing with other tools, or keeping a markdown copy of your notes outside the app.
+Open `Tools -> Export` to download your workspace in the format that fits your goal. Exports are intended for backup, migration, sharing with other tools, or keeping a markdown copy of your documents outside the app.
 
-Each export includes your note structure and supporting data in a different shape:
+Each export includes your document structure and supporting data in a different shape:
 
 - `Panino JSON` for a full Panino backup or migration.
 - `StackEdit JSON` for compatibility with StackEdit.
-- `Markdown ZIP` for notes as `.md` files in their folder structure, including exported images and metadata.
+- `Markdown ZIP` for documents as `.md` files in their folder structure, including exported images and metadata.
 
-Panino exports more than note bodies alone. Depending on the format, exports can also include folders, images, settings, and variables so the result is useful for restoring or moving a full workspace.
+Panino exports more than document bodies alone. Depending on the format, exports can also include folders, images, settings, and variables so the result is useful for restoring or moving a full workspace.
 
 ### Backup
 
-Open `Tools -> Backup` to push a full snapshot of your notes, folders, and images to GitHub. The backup flow is built around a one-time GitHub connection, after which you can select an existing repository or create a new private repository directly from the modal.
+Open `Tools -> Backup` to push a full snapshot of your documents, folders, and images to GitHub. The backup flow is built around a one-time GitHub connection, after which you can select an existing repository or create a new private repository directly from the modal.
 
 The backup workflow includes:
 - Connecting or disconnecting your GitHub account.
@@ -78,7 +78,7 @@ Automatic backups are checked after sync activity rather than by a standalone cr
 
 ### Images
 
-Open `Tools -> Images` to manage the image library attached to your account. This view is useful when you want to understand storage usage, clean up unused assets, or inspect what images are already available for notes.
+Open `Tools -> Images` to manage the image library attached to your account. This view is useful when you want to understand storage usage, clean up unused assets, or inspect what images are already available for documents.
 
 The image manager provides:
 - Thumbnail previews alongside filename, MIME type, size, created date, and usage count.
@@ -91,14 +91,14 @@ Because image management is backed by the server-side image library, this tool i
 
 ### Revisions
 
-Open `Tools -> Revisions` with a document selected to inspect that note's saved history over time. Panino shows a list of stored revisions and lets you compare an older revision against the note's current content before deciding what to keep.
+Open `Tools -> Revisions` with a document selected to inspect that document's saved history over time. Panino shows a list of stored revisions and lets you compare an older revision against the document's current content before deciding what to keep.
 
 Revision history is designed for:
-- Reviewing older saved states of the current note.
+- Reviewing older saved states of the current document.
 - Comparing past content against the latest version with a line-based diff view.
 - Saving a manual version when you want to preserve a milestone explicitly.
-- Restoring a selected revision back into the current note.
-- Loading older revisions when the note has a longer history than the first page shows.
+- Restoring a selected revision back into the current document.
+- Loading older revisions when the document has a longer history than the first page shows.
 
 This makes revision history useful both for recovery and for intentional versioning during larger edits.
 
@@ -106,7 +106,7 @@ Panino keeps dense short-term history and gradually thins older automatic snapsh
 - Revisions from the most recent 48 hours are kept in full.
 - After 48 hours, automatic revisions are pruned down to at most one retained revision per calendar day.
 - Manual saved versions are not thinned by the daily pruning rule.
-- An overall cap of 200 revisions per note still applies, so very old revisions can be removed once that limit is exceeded.
+- An overall cap of 200 revisions per document still applies, so very old revisions can be removed once that limit is exceeded.
 
 ### Variables
 
@@ -115,12 +115,12 @@ Open `Tools -> Variables` to manage global placeholders that can be reused acros
 Variables support:
 - Adding named values that become available across the workspace.
 - Editing or deleting existing entries from a single list.
-- Reusing the same placeholder in multiple notes.
+- Reusing the same placeholder in multiple documents.
 - Overriding a global value inside a specific document by defining the same key in front matter.
 
 This allows you to combine workspace-wide defaults with per-document customization.
 
-Panino also supports document-level variables defined in a YAML-style front-matter block at the very top of a note. The block is not rendered in the preview or PDF, and you can reference any variable in the document using `{{ Variable Name }}`.
+Panino also supports document-level variables defined in a YAML-style front-matter block at the very top of a document. The block is not rendered in the preview or PDF, and you can reference any variable in the document using `{{ Variable Name }}`.
 
 Example:
 
@@ -332,7 +332,7 @@ After configuration:
 
 ### Architecture
 
-Notes are stored locally in SQLite using WebAssembly. The app functions completely offline. When backend sync is enabled, changes are replicated using CR-SQLite's conflict-free replication to a per-user database on the server. WebSocket connections provide real-time sync notifications.
+Documents are stored locally in SQLite using WebAssembly. The app functions completely offline. When backend sync is enabled, changes are replicated using CR-SQLite's conflict-free replication to a per-user database on the server. WebSocket connections provide real-time sync notifications.
 
 Deeper reference lives under `docs/`:
 

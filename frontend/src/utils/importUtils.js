@@ -58,7 +58,7 @@ export function extractTitleFromFrontMatter(content) {
 }
 
 /**
- * Derive a note title from a filename.
+ * Derive a document title from a filename.
  * Strips .md/.markdown extension. Returns "Untitled" for empty results.
  *
  * @param {string} filename - The filename (e.g. "my-note.md")

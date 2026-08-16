@@ -34,7 +34,7 @@ available. Leave a verifiable trail of commands, browser checks, and blockers.
 
 ## 2) Project overview
 
-Panino is a local-first Vue 3 markdown-note PWA with optional CR-SQLite cloud sync.
+Panino is a local-first Vue 3 markdown document PWA with optional CR-SQLite cloud sync.
 
 ```text
 Frontend (Vue SPA + SQLite WASM) :5173
@@ -90,6 +90,9 @@ backend configure the cross-origin headers required by CR-SQLite WASM.
 
 ## 4) Code and security rules
 
+- Use **Document** in product-facing UI and documentation. Reserve “file” for actual filesystem
+  files and technical identifiers; preserve compatibility-critical names such as the `notes`
+  database table and `/notes` API routes.
 - Use ES modules, plain JavaScript, UUIDs, and ISO 8601 timestamps.
 - Use parameterized SQL. Never interpolate user input into queries.
 - Schema changes go in both frontend `DB_SCHEMA` and backend `BASE_SCHEMA`; new CRR tables

@@ -1,5 +1,5 @@
 // Alternative approach: Store the editor reference in a global store
-// Create a new file: /src/store/editorStore.js
+// Create a new document: /src/store/editorStore.js
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'

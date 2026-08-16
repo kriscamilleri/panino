@@ -78,7 +78,7 @@ state for toolbar toggles.
 
 ### `PromptModal.vue`
 
-Single-field name prompt (create file, create folder, rename). Owns its own focus.
+Single-field name prompt (create document, create folder, rename). Owns its own focus.
 
 ### `OptionCard.vue`
 

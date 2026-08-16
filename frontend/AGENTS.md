@@ -29,12 +29,12 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 |-------|---------|-----------------|
 | `syncStore` | Core DB engine, sync protocol, WebSocket, online/offline tracking | — (root) |
 | `authStore` | JWT auth, login/logout/signup, token refresh scheduling | syncStore |
-| `structureStore` | File/folder tree, selection, CRUD operations | syncStore, authStore |
+| `structureStore` | Document/folder tree, selection, CRUD operations | syncStore, authStore |
 | `docStore` | **Facade** — re-exports from structureStore + markdownStore, orchestrates coordinated operations | structureStore, markdownStore, syncStore, importExportStore |
 | `markdownStore` | MarkdownIt rendering, preview/print style management, front-matter parsing, variable substitution | syncStore, authStore, globalVariablesStore |
 | `draftStore` | Ephemeral in-memory draft content (keystroke-speed, not persisted to DB) | — (independent) |
 | `editorStore` | Bridge/proxy to Editor component's exposed methods for toolbar actions | — (independent) |
-| `historyStore` | Per-file undo/redo stack (max 100 entries per file) | — (independent) |
+| `historyStore` | Per-document undo/redo stack (max 100 entries per document) | — (independent) |
 | `uiStore` | Panel visibility (persisted to DB), menus, modals, toast notifications | syncStore |
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |

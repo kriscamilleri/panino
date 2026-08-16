@@ -258,7 +258,7 @@ function toggleAll() {
 function summarizeUsage(usageMap) {
     const referenced = Object.values(usageMap).filter((usage) => usage.count > 0);
     if (referenced.length === 0) {
-        return 'No notes reference the selected images. This is a safe delete.';
+        return 'No documents reference the selected images. This is a safe delete.';
     }
 
     const totalReferences = referenced.reduce((acc, usage) => acc + usage.count, 0);
@@ -272,7 +272,7 @@ function summarizeUsage(usageMap) {
     });
 
     const noteList = notes.map((note) => `- ${note.title}`).join('\n');
-    return `Warning: ${totalReferences} note reference(s) found. Markdown links will break if deleted.\n\nAffected notes (up to 5):\n${noteList}`;
+    return `Warning: ${totalReferences} document reference(s) found. Markdown links will break if deleted.\n\nAffected documents (up to 5):\n${noteList}`;
 }
 
 async function collectUsage(imageIds) {

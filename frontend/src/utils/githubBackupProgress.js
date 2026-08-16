@@ -2,7 +2,7 @@ export const BACKUP_STAGE_ORDER = ['queued', 'exporting_notes', 'building_tree',
 
 export const BACKUP_STAGE_LABELS = {
     queued: 'Queued',
-    exporting_notes: 'Exporting notes and assets',
+    exporting_notes: 'Exporting documents and assets',
     building_tree: 'Building Git tree',
     creating_commit: 'Creating commit',
     pushing_to_github: 'Updating GitHub branch',

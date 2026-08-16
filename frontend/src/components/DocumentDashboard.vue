@@ -23,7 +23,7 @@
             Continue Writing: the three most recently modified pinned documents
             in the current scope. The cards carry the section on their own — no
             panel chrome or heading around them — so the grid itself is what
-            renders conditionally when the scope has no pinned notes.
+            renders conditionally when the scope has no pinned documents.
 
             The rail also steps aside while the quick filter is in use: when the
             user is searching, the answer is the list, and repeating its first
@@ -170,9 +170,9 @@
         <PromptModal
             v-if="showCreateModal"
             v-model="newNoteName"
-            title="Create New File"
-            label="File name"
-            placeholder="Enter file name"
+            title="Create New Document"
+            label="Document name"
+            placeholder="Enter document name"
             confirm-label="Create"
             data-testid="document-dashboard-create-modal"
             input-testid="document-dashboard-create-modal-input"
@@ -187,7 +187,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Star } from 'lucide-vue-next'
+import { Star } from 'lucide-vue-next'
 
 import BaseButton from '@/components/BaseButton.vue'
 import DocumentDashboardHeader from '@/components/DocumentDashboardHeader.vue'
@@ -259,7 +259,7 @@ const view = computed(() =>
 
 const groups = computed(() => view.value.groups)
 /**
- * The three most recently modified pinned notes. They stay in the list below
+ * The three most recently modified pinned documents. They stay in the list below
  * too — duplication is intentional so a user can resume or scan.
  */
 const continueWriting = computed(() =>
@@ -416,8 +416,8 @@ async function confirmCreate() {
             router.push({ name: 'doc', params: { fileId: created.id } })
         }
     } catch (error) {
-        console.error('Failed to create note:', error)
-        ui.addToast('Failed to create file', 'error')
+        console.error('Failed to create document:', error)
+        ui.addToast('Failed to create document', 'error')
     } finally {
         cancelCreate()
     }

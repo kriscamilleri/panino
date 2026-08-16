@@ -289,7 +289,7 @@ describe('DocumentDashboard — filters and sorting', () => {
         expect(wrapper.findAll('[data-testid^="document-row-title-"]')).toHaveLength(4);
     });
 
-    it('includes pinned notes from every folder in the global scope', async () => {
+    it('includes pinned documents from every folder in the global scope', async () => {
         const wrapper = await mountDashboard();
         await setPinnedFilter(wrapper, true);
 
@@ -341,7 +341,7 @@ describe('DocumentDashboard — opening and creating documents', () => {
         expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'alpha' } });
     });
 
-    it('creates a root note from Recent Documents and navigates to it', async () => {
+    it('creates a root document from Recent Documents and navigates to it', async () => {
         const wrapper = await mountDashboard();
         await testid(wrapper, 'document-dashboard-new-note').trigger('click');
         await flushPromises();
@@ -364,7 +364,7 @@ describe('DocumentDashboard — opening and creating documents', () => {
         await testid(wrapper, 'document-dashboard-create-modal-confirm').trigger('click');
         await flushPromises();
 
-        expect(uiStoreMock.addToast).toHaveBeenCalledWith('Failed to create file', 'error');
+        expect(uiStoreMock.addToast).toHaveBeenCalledWith('Failed to create document', 'error');
     });
 });
 
@@ -467,7 +467,7 @@ describe('DocumentDashboard — folder scope', () => {
             .toContain('No documents in this folder match these filters.');
     });
 
-    it('limits the Pinned filter to notes assigned to the selected folder', async () => {
+    it('limits the Pinned filter to documents assigned to the selected folder', async () => {
         const wrapper = await mountDashboard('folder-1');
         await setPinnedFilter(wrapper, true);
 
@@ -475,7 +475,7 @@ describe('DocumentDashboard — folder scope', () => {
             .toEqual(['Folder Pinned']);
     });
 
-    it('creates a new note inside the selected folder', async () => {
+    it('creates a new document inside the selected folder', async () => {
         const wrapper = await mountDashboard('folder-1');
         await testid(wrapper, 'document-dashboard-new-note').trigger('click');
         await flushPromises();
@@ -528,7 +528,7 @@ describe('DocumentDashboard — empty and refresh behavior', () => {
         expect(docStoreMock.getRecentDocuments).toHaveBeenCalledTimes(2);
     });
 
-    it('reloads after a local note write bumps contentVersion', async () => {
+    it('reloads after a local document write bumps contentVersion', async () => {
         await mountDashboard();
         docStoreMock.contentVersion += 1;
         await flushPromises();
@@ -578,7 +578,7 @@ describe('DocumentDashboard — presentation contracts', () => {
         expect(header.className).not.toContain('sm:flex-row');
     });
 
-    it('omits a card excerpt for a note with no content', async () => {
+    it('omits a card excerpt for a document with no content', async () => {
         docStoreMock.getRecentDocuments.mockImplementation(async () => [
             makeDoc('blank', { excerpt: '', isPinned: true }),
         ]);

@@ -6,7 +6,7 @@
             <p class="flex text-center text-gray-600 mb-4">a &nbsp;
                 <a target="_blank" class="text-blue-500 underline" href="https://prettyneat.io">pretty
                     neat</a> &nbsp;
-                note taking app
+                document app
             </p>
         </div>
         <div class="flex items-center justify-center px-4 sm:px-6 lg:px-8 mb-4">

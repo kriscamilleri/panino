@@ -16,7 +16,7 @@ export const useStructureStore = defineStore("structureStore", () => {
   const openFolders = ref(new Set());
   const selectedFile = ref(null);
   /**
-   * Bumped by every structural or note write. Views that render derived
+   * Bumped by every structural or document write. Views that render derived
    * document lists (the dashboards) watch it so a rename, move, delete, or
    * edit made elsewhere in the app refreshes them without a manual reload.
    */

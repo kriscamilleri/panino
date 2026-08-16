@@ -428,7 +428,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
         if (requiresGuaranteedRevisions && !canGuaranteeRevisions && !allowUnsafeOverwrite) {
             const error = new Error(
-                `This import will overwrite ${overwriteCandidates.length} existing note(s). You are offline or revision capture is unavailable, so continuing may permanently replace the current content without a guaranteed restore path.`
+                `This import will overwrite ${overwriteCandidates.length} existing document(s). You are offline or revision capture is unavailable, so continuing may permanently replace the current content without a guaranteed restore path.`
             );
             error.code = 'UNSAFE_OVERWRITE';
             error.overwriteCount = overwriteCandidates.length;
@@ -850,7 +850,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
     // ─── JSON import ─────────────────────────────────────────
 
     /**
-     * Imports folders and markdown notes from a Panino JSON object.
+     * Imports folders and markdown documents from a Panino JSON object.
      * Images, settings, and globals are not imported.
      */
     async function importData(data, options = {}) {
@@ -889,7 +889,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
     // ─── StackEdit import ────────────────────────────────────
 
     /**
-     * Imports folders and markdown notes from a StackEdit JSON object.
+     * Imports folders and markdown documents from a StackEdit JSON object.
      */
     async function importStackEditData(data, options = {}) {
         if (!syncStore.isInitialized) throw new Error('Sync not ready.');
@@ -941,7 +941,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
     /**
      * Import one or more markdown files into the root folder.
-     * Matching notes are updated in place.
+     * Matching documents are updated in place.
      */
     async function importMarkdownFiles(files, targetFolderId = null, onProgress = null, options = {}) {
         if (targetFolderId) {
@@ -954,7 +954,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
     /**
      * Import a directory of markdown files, preserving folder structure.
-     * Matching notes are updated in place.
+     * Matching documents are updated in place.
      */
     async function importMarkdownDirectory(files, onProgress = null, options = {}) {
         const tree = await buildMarkdownFileTree(files, { useRelativePath: true });
@@ -963,7 +963,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
     /**
      * Import a ZIP archive containing folders and .md files.
-     * Matching notes are updated in place.
+     * Matching documents are updated in place.
      */
     async function importZipArchive(file, onProgress = null, options = {}) {
         const tree = await buildZipImportTree(file);

@@ -1,6 +1,6 @@
 <template>
   <BaseModal
-    :title="showVariables ? activeTemplate?.name || 'Fill Variables' : 'New Note from Template'"
+    :title="showVariables ? activeTemplate?.name || 'Fill Variables' : 'New Document from Template'"
     size="sm"
     data-testid="template-picker-modal"
     close-testid="template-picker-close"
@@ -67,7 +67,7 @@
           <p
             v-if="templates.length === 0"
             class="py-6 text-center pn-body"
-          >No templates yet. Save a note as a template to see it here.</p>
+          >No templates yet. Save a document as a template to see it here.</p>
 
           <label
             v-for="tpl in templates"
@@ -97,7 +97,7 @@
     </template>
 
     <template #footer>
-      <!-- Variable mode: Back + Create Note -->
+      <!-- Variable mode: Back + Create Document -->
       <template v-if="showVariables">
         <BaseButton
           variant="secondary"
@@ -113,7 +113,7 @@
           data-testid="template-picker-variable-create"
           @click="handleCreateWithVariables"
         >
-          Create Note
+          Create Document
         </BaseButton>
       </template>
 

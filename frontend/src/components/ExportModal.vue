@@ -7,7 +7,7 @@
         @close="$emit('close')"
     >
         <p class="pn-body mb-5">
-            Choose an export format. All your notes, folders, images, settings, and variables will be
+            Choose an export format. All your documents, folders, images, settings, and variables will be
             included in the export.
         </p>
 
@@ -15,7 +15,7 @@
             <OptionCard
                 :icon="FileJson"
                 title="Panino JSON"
-                description="A single JSON file containing all your notes, folders, images, settings, and variables. Ideal for full backups or migrating to another Panino instance."
+                description="A single JSON file containing all your documents, folders, images, settings, and variables. Ideal for full backups or migrating to another Panino instance."
                 data-testid="export-modal-panino-json"
                 @click="handleExport('json')"
             />
@@ -31,7 +31,7 @@
             <OptionCard
                 :icon="FolderArchive"
                 title="Markdown Files (.zip)"
-                description="A ZIP archive containing all your notes as individual `.md` files, organized in their respective folders, plus images and settings."
+                description="A ZIP archive containing all your documents as individual `.md` files, organized in their respective folders, plus images and settings."
                 data-testid="export-modal-markdown-zip"
                 @click="handleExport('zip')"
             />

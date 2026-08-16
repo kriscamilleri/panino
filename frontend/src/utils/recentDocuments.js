@@ -66,9 +66,9 @@ export function normalizePinned(value) {
 }
 
 /**
- * Map a raw note row onto the model every dashboard card and row consumes.
+ * Map a raw document row onto the model every dashboard card and row consumes.
  *
- * @param {object} row note row joined with its recursive folder path
+ * @param {object} row document row joined with its recursive folder path
  * @returns {{id: string, type: 'file', name: string, folderName: string,
  *   folderId: string|null, displayedDate: string, excerpt: string,
  *   wordCount: number, isPinned: boolean}}
@@ -151,7 +151,7 @@ export function formatRelativeTime(value, now = Date.now()) {
 
 /**
  * Case-insensitive substring match over the fields the quick filter advertises:
- * title, folder path, and excerpt. Deliberately not tags or full note content —
+ * title, folder path, and excerpt. Deliberately not tags or full document content —
  * that is the separate Advanced Search feature.
  *
  * @param {object} doc normalized document

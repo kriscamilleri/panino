@@ -144,7 +144,7 @@ async function handleToggleSync() {
 
         // Enable sync and show success message
         syncStore.setSyncEnabled(true);
-        uiStore.addToast('Sync enabled. Your notes will sync automatically.', 'success', 3000);
+        uiStore.addToast('Sync enabled. Your documents will sync automatically.', 'success', 3000);
     } else {
         // Disable sync
         syncStore.setSyncEnabled(false);
