@@ -18,6 +18,31 @@ A browser based, local-first markdown document Progressive Web App (PWA) with op
 - 📁 Documents and folders
 - 📱 Responsive web interface
 - 🧩 Front‑matter metadata variables for preview & PDF
+- 🌗 Persistent light and dark appearance
+
+### Documents
+
+Open `Recent Documents` or a folder to browse and resume your work from Panino's document
+dashboard. The same dashboard is available across the workspace, so you can create, find, sort,
+and organize documents without leaving the current scope.
+
+The document dashboard includes:
+- Quick filtering by document title, folder path, or document excerpt.
+- Sorting by modified or created date, with newest- and oldest-first options.
+- Pinned documents and a `Pinned` filter to focus on them.
+- A `Continue Writing` rail with up to three recently modified pinned documents.
+- Creating a blank document or choosing `New from Template`, with new documents placed in the
+  currently open folder when applicable.
+
+### Appearance
+
+Use the `Dark` or `Light` control in the navigation bar to choose the workspace appearance.
+Panino remembers the preference in the current browser, so it is restored on your next visit
+without changing your documents or sync data.
+
+The selected appearance applies across the workspace, including navigation, dialogs, controls,
+the markdown editor, and rendered preview. On desktop, the navigation labels can also be
+collapsed to keep more room for your workspace; mobile navigation keeps the controls compact.
 
 ### Dictate
 
@@ -321,14 +346,29 @@ After configuration:
 
 **Frontend:**
 - Vue 3, Vite, Tailwind CSS, Pinia
-- CR-SQLite WASM for local database
+- Vendored CR-SQLite WASM runtime with `wa-sqlite` and `xplat-api` support modules for the local
+  database
 - MarkdownIt for rendering
 
 **Backend (optional):**
-- Node.js, Express, SQLite
+- Node.js, Express, better-sqlite3 12.11.1 (SQLite 3.53.2)
+- Vendored CR-SQLite loadable extension built from the maintained fork
 - WebSocket for sync notifications
 - JWT authentication
 - Puppeteer for PDF generation
+
+### CR-SQLite Runtime
+
+Panino vendors its CR-SQLite runtimes instead of installing the unmaintained
+`@vlcn.io/crsqlite` packages. The browser uses the committed CR-SQLite, `wa-sqlite`, and
+`xplat-api` modules from `frontend/src/vendor/`; the server loads the committed
+`backend/api-service/native/crsqlite.so` extension, built against the fork's SQLite 3.53.4
+headers. The backend extension is built for Linux x86_64. On another platform, provide a
+compatible build through `CRSQLITE_EXT_PATH`.
+
+The frontend's integration dependency `async-mutex` remains installed from npm. Treat a
+CR-SQLite or SQLite rebuild as a sync compatibility change and run the frontend and backend test
+suites before deploying it.
 
 ### Architecture
 
