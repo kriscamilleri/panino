@@ -42,7 +42,7 @@ export const useDocStore = defineStore("docStore", () => {
     }
   }
   async function refreshData() {
-    console.log("[DocStore] Refreshing data after sync.");
+    console.info("[DocStore] Refreshing data after sync.");
     await structureStore.loadRootItems();
     if (structureStore.selectedFileId) {
       // This is the key change: explicitly re-fetch the current file's data
@@ -56,7 +56,7 @@ export const useDocStore = defineStore("docStore", () => {
     structureStore.resetStore();
     markdownStore.resetStyles();
     markdownStore.resetPrintStyles();
-    console.log("All stores have been reset.");
+    console.info("All stores have been reset.");
   }
 
   /**

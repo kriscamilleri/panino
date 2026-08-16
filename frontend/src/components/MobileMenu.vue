@@ -135,7 +135,7 @@ async function handleToggleSync() {
     // If trying to enable sync (currently disabled)
     if (!syncStore.syncEnabled) {
         // Try refreshing the token if sync was disabled due to auth failure
-        console.log('[MobileMenu] Attempting to refresh token before enabling sync...');
+        console.info('[MobileMenu] Attempting to refresh token before enabling sync...');
         const refreshed = await authStore.refreshToken();
         if (!refreshed) {
             uiStore.addToast('Session expired. Please log in again to enable sync.', 'warning');

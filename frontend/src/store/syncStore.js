@@ -93,7 +93,7 @@ export const useSyncStore = defineStore("syncStore", () => {
   async function initializeDB() {
     if (isInitialized.value) return;
 
-    console.log("[syncStore] Initializing crsqlite wasm…");
+    console.info("[syncStore] Initializing crsqlite wasm…");
     sqlite.value = markRaw(await initWasm(() => wasmUrl));
 
     const auth = useAuthStore();
@@ -123,7 +123,7 @@ export const useSyncStore = defineStore("syncStore", () => {
     }
 
     db.value.onUpdate(() => {
-      console.log("Local DB update detected, triggering sync.");
+      console.info("Local DB update detected, triggering sync.");
       debouncedSync();
     });
 
@@ -594,7 +594,7 @@ tags:
 
   function setupOnlineOfflineListeners() {
     const handleOnline = async () => {
-      console.log("[Sync] Network connection restored");
+      console.info("[Sync] Network connection restored");
       isOnline.value = true;
 
       const auth = useAuthStore();
@@ -623,7 +623,7 @@ tags:
     };
 
     const handleOffline = async () => {
-      console.log("[Sync] Network connection lost");
+      console.info("[Sync] Network connection lost");
       isOnline.value = false;
 
       const { useUiStore } = await import("./uiStore");
@@ -684,7 +684,7 @@ tags:
 
     // Skip sync if offline
     if (!isOnline.value) {
-      console.log("[Sync] Skipping sync - offline");
+      console.info("[Sync] Skipping sync - offline");
       return;
     }
 
@@ -714,7 +714,7 @@ tags:
       if (!resp.ok) {
         // Check if it's an authentication error (401 or 403)
         if (resp.status === 401 || resp.status === 403) {
-          console.log(
+          console.info(
             "[Sync] Authentication failed, attempting token refresh...",
           );
 
@@ -722,7 +722,7 @@ tags:
           const refreshed = await auth.refreshToken();
 
           if (refreshed) {
-            console.log(
+            console.info(
               "[Sync] Token refreshed successfully, retrying sync...",
             );
             hasShownAuthWarning.value = false;
@@ -751,7 +751,7 @@ tags:
       const { changes: remoteChanges, clock: newClock } = await resp.json();
 
       if (remoteChanges?.length) {
-        console.log(`Applying ${remoteChanges.length} remote changes.`);
+        console.info(`Applying ${remoteChanges.length} remote changes.`);
         const insertSQL = `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, seq, cl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
         await db.value.exec("BEGIN");
@@ -793,19 +793,19 @@ tags:
     const siteId = getSiteId();
     if (!auth.token || !siteId) return;
 
-    console.log("[Sync] Connecting WebSocket...");
+    console.info("[Sync] Connecting WebSocket...");
     ws.value = new WebSocket(`${WS_URL}?token=${auth.token}&siteId=${siteId}`);
 
-    ws.value.onopen = () => console.log("[Sync] WebSocket connected.");
+    ws.value.onopen = () => console.info("[Sync] WebSocket connected.");
     ws.value.onclose = () => {
       ws.value = null;
-      console.log("[Sync] WebSocket disconnected.");
+      console.info("[Sync] WebSocket disconnected.");
     };
     ws.value.onerror = (err) => console.error("[Sync] WebSocket error:", err);
     ws.value.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === "sync") {
-        console.log('[Sync] Received "sync" poke from server.');
+        console.info('[Sync] Received "sync" poke from server.');
         sync();
       }
     };
@@ -836,11 +836,11 @@ tags:
 
     if (v) {
       hasShownAuthWarning.value = false; // Reset warning flag when re-enabling sync
-      console.log("[Sync] Sync enabled, connecting...");
+      console.info("[Sync] Sync enabled, connecting...");
       connectWebSocket();
       sync();
     } else {
-      console.log("[Sync] Sync disabled, disconnecting...");
+      console.info("[Sync] Sync disabled, disconnecting...");
       disconnectWebSocket();
     }
 
