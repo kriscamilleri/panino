@@ -162,6 +162,32 @@ branch itself was exercised; the narrower widths rely on the same branch plus `m
 `Dashboard QA`, child folder `Deep Notes`, notes `Sprint Retro` and `Nested Secret`, and pins on
 `Nested Secret` and the pre-existing `DX Test Note`.
 
+### Finding: the frontend lockfile is npm-version sensitive
+
+Adding `@vue/test-utils` and `jsdom` turned the `frontend` CI job red twice on `npm ci`, never
+on the tests themselves.
+
+`npm install` locally (Node 24.11.1 / npm 11.6.2) wrote a lockfile that CI (Node 24.19.0 /
+npm 11.17.0) rejected: `Missing: @emnapi/core@1.11.3 from lock file`. Regenerating with the
+local npm produced a lock that passed `npm ci` locally and still failed on CI, because the two
+npm versions disagree about optional dependency trees in two ways:
+
+- npm 11.17 prunes foreign-platform optionals (the `@esbuild/*` set) from the lock; npm 11.6.2
+  requires them all to be listed.
+- They resolve `@napi-rs/wasm-runtime`'s `@emnapi/*` peer range to different versions.
+
+A lock written by either version is rejected by the other, so "passes locally" proves nothing
+here. The fix was to regenerate from `origin/main`'s lockfile inside the `node:24.19.0` image
+and verify the literal CI steps there — `npm ci` then `npm test`.
+
+**Consequence:** `npm ci` in `frontend/` now needs Node >= 24.19. `npm install`, `npm test` and
+`npm run build` still work on older 24.x, and the Docker dev stack is unaffected.
+
+**Recommendation:** `.nvmrc` contains `24`, so `actions/setup-node` tracks the latest 24.x and
+the lockfile's validity can change without anyone touching the repo. Pinning `.nvmrc` to a full
+version would make this reproducible. Left alone here — it affects the backend image and the
+whole repo, so it is not this PR's call.
+
 ## Open Items / Notes
 
 - `ensureImagesSchema` still uses the bare-`ALTER` pattern on a CRR table (see the finding
