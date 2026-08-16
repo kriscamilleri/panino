@@ -2,7 +2,7 @@
 
 Agent: Copilot CLI
 Started: 2026-08-16 20:09 +02:00
-Status: in progress
+Status: complete
 
 ## Objective
 
@@ -31,7 +31,12 @@ installation from creating tracked lockfile drift.
 
 - `bash -n deploy.sh` — passed.
 - `npm ci --dry-run --prefix frontend` — passed.
+- GitHub Actions deployment `31963798196` — all lint, frontend, backend, and deployment jobs
+  passed.
+- Production checkout reached commit `383992e` with no tracked drift; the `api-service`
+  container remained up.
 
 ## Open Items / Notes
 
-- Push the prevention fix and verify the resulting GitHub Actions deployment completes.
+- The unauthenticated backend health request returns HTTP 401, which confirms the auth guard is
+  active; container health was verified through Docker Compose.
