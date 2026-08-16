@@ -237,6 +237,30 @@ export const useSyncStore = defineStore("syncStore", () => {
     }
   }
 
+  /**
+   * CR-SQLite's generated update trigger for a table, or `undefined` when the
+   * table is not a CRR on this connection.
+   */
+  async function crrUpdateTriggerSql(table) {
+    const rows = await db.value.execO(
+      "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?",
+      [`${table}__crsql_utrig`],
+    );
+    return rows?.[0]?.sql;
+  }
+
+  /**
+   * Adds `size_bytes` and `sha256` to databases created before those columns
+   * existed.
+   *
+   * `images` is a CRR, and CR-SQLite generates its insert/update/delete
+   * triggers from the column list at registration time. A bare `ALTER TABLE`
+   * leaves triggers bound to the old column count, so the next write fails with
+   * `expected N values, got M` — and re-running `crsql_as_crr` does not rebuild
+   * them, it reports success and leaves the stale triggers in place.
+   * `crsql_begin_alter` / `crsql_commit_alter` is the supported way to change a
+   * CRR's shape.
+   */
   async function ensureImagesSchema() {
     if (!db.value) return;
     try {
@@ -246,26 +270,47 @@ export const useSyncStore = defineStore("syncStore", () => {
       }
 
       const names = new Set((columns || []).map((c) => c.name));
+      const triggerSql = await crrUpdateTriggerSql("images");
+      const isCrr = Boolean(triggerSql);
+      const missing = ["size_bytes", "sha256"].filter((c) => !names.has(c));
 
-      if (!names.has("size_bytes")) {
-        await db.value.exec(
-          "ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0",
-        );
-        await db.value.exec(
-          "UPDATE images SET size_bytes = 0 WHERE size_bytes IS NULL",
-        );
+      if (missing.length > 0) {
+        if (isCrr) await db.value.exec("SELECT crsql_begin_alter('images')");
+        try {
+          if (!names.has("size_bytes")) {
+            await db.value.exec(
+              "ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0",
+            );
+            await db.value.exec(
+              "UPDATE images SET size_bytes = 0 WHERE size_bytes IS NULL",
+            );
+          }
+
+          if (!names.has("sha256")) {
+            await db.value.exec(
+              "ALTER TABLE images ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''",
+            );
+            await db.value.exec(
+              "UPDATE images SET sha256 = '' WHERE sha256 IS NULL",
+            );
+          }
+        } finally {
+          if (isCrr) await db.value.exec("SELECT crsql_commit_alter('images')");
+        }
+
+        if (!isCrr) await db.value.exec("SELECT crsql_as_crr('images')");
+        return;
       }
 
-      if (!names.has("sha256")) {
-        await db.value.exec(
-          "ALTER TABLE images ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''",
-        );
-        await db.value.exec(
-          "UPDATE images SET sha256 = '' WHERE sha256 IS NULL",
-        );
+      // Self-heal a database whose columns were added by the old bare-ALTER
+      // migration, or by a run interrupted before the commit.
+      if (isCrr && !["size_bytes", "sha256"].every((c) => triggerSql.includes(c))) {
+        await db.value.exec("SELECT crsql_begin_alter('images')");
+        await db.value.exec("SELECT crsql_commit_alter('images')");
+        return;
       }
 
-      await db.value.exec("SELECT crsql_as_crr('images')");
+      if (!isCrr) await db.value.exec("SELECT crsql_as_crr('images')");
     } catch (err) {
       console.error("[syncStore] Failed to ensure images schema", err);
     }

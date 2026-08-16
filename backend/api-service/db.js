@@ -129,7 +129,32 @@ const CRR_TABLES = [
   "templates",
 ];
 
-function ensureImagesSchema(db) {
+/**
+ * CR-SQLite's generated update trigger for a table, or `undefined` when the
+ * table is not a CRR on this connection (a fresh database before `ensureCrr`,
+ * or a handle opened without the extension).
+ */
+function crrUpdateTriggerSql(db, table) {
+  return db
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?",
+    )
+    .get(`${table}__crsql_utrig`)?.sql;
+}
+
+/**
+ * Adds `size_bytes` and `sha256` to per-user databases created before those
+ * columns existed.
+ *
+ * `images` is a CRR, and CR-SQLite generates its insert/update/delete triggers
+ * from the column list at registration time. A bare `ALTER TABLE` leaves
+ * triggers bound to the old column count, so the next write fails with
+ * `expected N values, got M` — and re-running `crsql_as_crr` does not rebuild
+ * them, it reports success and leaves the stale triggers in place.
+ * `crsql_begin_alter` / `crsql_commit_alter` is the supported way to change a
+ * CRR's shape.
+ */
+export function ensureImagesSchema(db) {
   try {
     const columns = db.prepare("PRAGMA table_info('images')").all();
     if (!columns || columns.length === 0) {
@@ -137,20 +162,43 @@ function ensureImagesSchema(db) {
     }
 
     const names = new Set(columns.map((column) => column.name));
+    const triggerSql = crrUpdateTriggerSql(db, "images");
+    const isCrr = Boolean(triggerSql);
+    const required = ["size_bytes", "sha256"];
 
-    if (!names.has("size_bytes")) {
-      db.exec(
-        "ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0",
-      );
-      db.exec("UPDATE images SET size_bytes = 0 WHERE size_bytes IS NULL");
+    if (required.some((column) => !names.has(column))) {
+      if (isCrr) db.prepare("SELECT crsql_begin_alter('images')").get();
+      try {
+        if (!names.has("size_bytes")) {
+          db.exec(
+            "ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0",
+          );
+          db.exec("UPDATE images SET size_bytes = 0 WHERE size_bytes IS NULL");
+        }
+
+        if (!names.has("sha256")) {
+          db.exec(
+            "ALTER TABLE images ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''",
+          );
+          db.exec("UPDATE images SET sha256 = '' WHERE sha256 IS NULL");
+        }
+      } finally {
+        if (isCrr) db.prepare("SELECT crsql_commit_alter('images')").get();
+      }
+
+      if (!isCrr) db.exec("SELECT crsql_as_crr('images')");
+      return;
     }
 
-    if (!names.has("sha256")) {
-      db.exec("ALTER TABLE images ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''");
-      db.exec("UPDATE images SET sha256 = '' WHERE sha256 IS NULL");
+    // Self-heal a database whose columns were added by the old bare-ALTER
+    // migration, or by a run interrupted before the commit.
+    if (isCrr && !required.every((column) => triggerSql.includes(column))) {
+      db.prepare("SELECT crsql_begin_alter('images')").get();
+      db.prepare("SELECT crsql_commit_alter('images')").get();
+      return;
     }
 
-    db.exec("SELECT crsql_as_crr('images')");
+    if (!isCrr) db.exec("SELECT crsql_as_crr('images')");
   } catch (err) {
     console.error("[db] Failed to ensure images schema:", err);
   }

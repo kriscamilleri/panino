@@ -15,6 +15,7 @@ import {
   invalidateUserDb,
   getHealthyUserDb,
   ensureNoteRevisionsSchema,
+  ensureImagesSchema,
 } from "../../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -420,6 +421,161 @@ describe("ensureNoteRevisionsSchema", () => {
       )
       .all();
     expect(tables).toHaveLength(0);
+    db.close();
+  });
+});
+
+describe("ensureImagesSchema", () => {
+  const testUserId = `test-images-user-${Date.now()}`;
+
+  afterEach(() => {
+    closeAllConnections();
+    deleteTestDb(testUserId);
+  });
+
+  function imageColumns(db) {
+    return new Set(
+      db
+        .prepare("PRAGMA table_info('images')")
+        .all()
+        .map((column) => column.name),
+    );
+  }
+
+  /** Rebuild `images` in its pre-migration shape, still registered as a CRR. */
+  function makeLegacyCrrImages(db) {
+    db.exec("DROP TRIGGER IF EXISTS images__crsql_itrig");
+    db.exec("DROP TRIGGER IF EXISTS images__crsql_utrig");
+    db.exec("DROP TRIGGER IF EXISTS images__crsql_dtrig");
+    db.exec("DROP TABLE IF EXISTS images");
+    db.exec("DROP TABLE IF EXISTS images__crsql_clock");
+    db.exec("DROP TABLE IF EXISTS images__crsql_pks");
+    db.exec(`
+      CREATE TABLE images (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT,
+        filename TEXT,
+        mime_type TEXT,
+        path TEXT,
+        created_at TEXT
+      );
+    `);
+    db.prepare("SELECT crsql_as_crr('images')").get();
+  }
+
+  it("leaves a freshly created user database with both columns and a working CRR", () => {
+    const db = getUserDb(testUserId);
+    const names = imageColumns(db);
+
+    expect(names.has("size_bytes")).toBe(true);
+    expect(names.has("sha256")).toBe(true);
+
+    db.prepare(
+      "INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run("img-1", testUserId, "a.png", "image/png", "a.png", 10, "abc", "now");
+
+    expect(() =>
+      db
+        .prepare("UPDATE images SET size_bytes = ? WHERE id = ?")
+        .run(20, "img-1"),
+    ).not.toThrow();
+  });
+
+  // The production case: `images` is already a CRR, so its generated triggers
+  // bind the old column count until the alter goes through
+  // crsql_begin_alter / crsql_commit_alter.
+  it("migrates an existing CRR images table so writes and replication still work", () => {
+    const db = getTestDb(testUserId, { inMemory: true });
+    makeLegacyCrrImages(db);
+    db.prepare(
+      "INSERT INTO images (id, user_id, filename, mime_type, path, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("legacy-img", testUserId, "a.png", "image/png", "a.png", "now");
+
+    ensureImagesSchema(db);
+
+    const names = imageColumns(db);
+    expect(names.has("size_bytes")).toBe(true);
+    expect(names.has("sha256")).toBe(true);
+
+    expect(() =>
+      db
+        .prepare("UPDATE images SET size_bytes = ?, sha256 = ? WHERE id = ?")
+        .run(42, "deadbeef", "legacy-img"),
+    ).not.toThrow();
+    expect(
+      db.prepare("SELECT size_bytes FROM images WHERE id = ?").get("legacy-img")
+        .size_bytes,
+    ).toBe(42);
+    expect(
+      db
+        .prepare(
+          `SELECT count(*) AS total FROM crsql_changes WHERE "table" = 'images' AND cid = 'size_bytes'`,
+        )
+        .get().total,
+    ).toBeGreaterThan(0);
+
+    db.close();
+  });
+
+  // Regression test for databases already broken in the field: the old
+  // migration added the columns with a bare ALTER, leaving stale triggers.
+  it("repairs a database whose columns were added without regenerating the triggers", () => {
+    const db = getTestDb(testUserId, { inMemory: true });
+    makeLegacyCrrImages(db);
+    db.exec(
+      "ALTER TABLE images ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0",
+    );
+    db.exec("ALTER TABLE images ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''");
+    db.exec("SELECT crsql_as_crr('images')");
+    db.prepare(
+      "INSERT INTO images (id, user_id, filename, mime_type, path, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run("half-img", testUserId, "a.png", "image/png", "a.png", "now");
+
+    // Prove the pre-fix state really is broken, so the repair below means something.
+    expect(() =>
+      db.prepare("UPDATE images SET size_bytes = ? WHERE id = ?").run(1, "half-img"),
+    ).toThrow(/expected \d+ values/);
+
+    ensureImagesSchema(db);
+
+    expect(() =>
+      db.prepare("UPDATE images SET size_bytes = ? WHERE id = ?").run(7, "half-img"),
+    ).not.toThrow();
+    expect(
+      db.prepare("SELECT size_bytes FROM images WHERE id = ?").get("half-img")
+        .size_bytes,
+    ).toBe(7);
+
+    db.close();
+  });
+
+  it("is idempotent", () => {
+    const db = getTestDb(testUserId, { inMemory: true });
+    makeLegacyCrrImages(db);
+
+    ensureImagesSchema(db);
+    ensureImagesSchema(db);
+    ensureImagesSchema(db);
+
+    expect(
+      db
+        .prepare("PRAGMA table_info('images')")
+        .all()
+        .filter((c) => c.name === "size_bytes"),
+    ).toHaveLength(1);
+    db.close();
+  });
+
+  it("is a no-op when the images table does not exist yet", () => {
+    const db = new Database(":memory:");
+    expect(() => ensureImagesSchema(db)).not.toThrow();
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='images'",
+        )
+        .all(),
+    ).toHaveLength(0);
     db.close();
   });
 });
