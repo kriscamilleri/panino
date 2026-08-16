@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { getHealthyUserDb, getUserDb, listUserDbIds } from './db.js';
+import { getHealthyDb, getHealthyUserDb, getUserDb, listUserDbIds } from './db.js';
 
 export const imageRoutes = express.Router();
 
@@ -544,17 +544,29 @@ export function pruneOrphanImagesForUser(userId, options = {}) {
 }
 
 export function runDailyImageOrphanPrune() {
-    const userDbIds = listUserDbIds();
     let totalDeleted = 0;
 
-    for (const userId of userDbIds) {
+    for (const dbKey of listUserDbIds()) {
         try {
+            if (dbKey.startsWith('space:')) {
+                // Phase 1 creates the shared content schema, but no route can yet
+                // write qualified space images. Fail visibly if that invariant is
+                // broken rather than deleting through the personal upload path.
+                const db = getHealthyDb(dbKey, 'image-orphan-prune-invariant');
+                const count = db.prepare('SELECT COUNT(*) AS count FROM images').get()?.count ?? 0;
+                if (count > 0) {
+                    throw new Error('Space images require qualified image maintenance before admission.');
+                }
+                continue;
+            }
+
+            const userId = dbKey.slice('user:'.length);
             totalDeleted += pruneOrphanImagesForUser(userId, {
                 maxDeletes: IMAGE_PRUNE_BATCH_SIZE,
                 olderThanDays: IMAGE_PRUNE_MIN_AGE_DAYS,
             });
         } catch (error) {
-            console.error(`[images] Daily prune failed for user ${userId}:`, error);
+            console.error(`[images] Daily prune failed for ${dbKey}:`, error);
         }
     }
 

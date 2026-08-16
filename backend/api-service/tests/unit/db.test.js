@@ -4,9 +4,17 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
+import { v4 as uuidv4 } from "uuid";
 import {
   initDb,
   getAuthDb,
+  getSpacesDb,
+  getDb,
+  parseDbKey,
+  resolveDbPath,
+  listUserDbIds,
+  initializeContentDb,
+  initializeSpacesDb,
   getUserDb,
   getTestDb,
   deleteTestDb,
@@ -21,6 +29,117 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "../../data");
+const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
+
+describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
+  const userId = uuidv4();
+  const spaceId = uuidv4();
+  const sharedId = uuidv4();
+
+  afterEach(() => {
+    closeAllConnections();
+    deleteTestDb(`user:${userId}`);
+    deleteTestDb(`space:${spaceId}`);
+    deleteTestDb(`user:${sharedId}`);
+    deleteTestDb(`space:${sharedId}`);
+  });
+
+  it("parses only canonical user and space UUID keys", () => {
+    expect(parseDbKey(`user:${userId}`)).toEqual({
+      kind: "user",
+      id: userId,
+      dbKey: `user:${userId}`,
+    });
+    expect(parseDbKey(`space:${spaceId}`).kind).toBe("space");
+
+    for (const invalid of [
+      userId,
+      "user:not-a-uuid",
+      "user:../../_users",
+      "space:/tmp/escape",
+      `unknown:${userId}`,
+      `user:${userId}:extra`,
+    ]) {
+      expect(() => parseDbKey(invalid)).toThrow();
+    }
+  });
+
+  it("resolves user and space paths inside their dedicated roots", () => {
+    const userPath = resolveDbPath(`user:${userId}`);
+    const spacePath = resolveDbPath(`space:${spaceId}`);
+    expect(userPath.dbPath).toBe(path.join(DB_DIR, `${userId}.db`));
+    expect(spacePath.dbPath).toBe(path.join(SPACES_DB_DIR, `${spaceId}.db`));
+    expect(path.relative(DB_DIR, userPath.dbPath).startsWith("..")).toBe(false);
+    expect(path.relative(SPACES_DB_DIR, spacePath.dbPath).startsWith("..")).toBe(false);
+  });
+
+  it("shares one canonical user connection while keeping equal user/space UUIDs distinct", () => {
+    const userDb = getDb(`user:${sharedId}`);
+    expect(getUserDb(sharedId)).toBe(userDb);
+    expect(getDb(`space:${sharedId}`)).not.toBe(userDb);
+  });
+
+  it("records the versioned initializer kind and keeps backup config user-only", () => {
+    const userDb = getDb(`user:${userId}`);
+    const spaceDb = getDb(`space:${spaceId}`);
+    expect(userDb.prepare("SELECT kind, version FROM application_schema").get()).toEqual({
+      kind: "user",
+      version: 1,
+    });
+    expect(spaceDb.prepare("SELECT kind, version FROM application_schema").get()).toEqual({
+      kind: "space",
+      version: 1,
+    });
+    expect(userDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backup_config'").get()).toBeDefined();
+    expect(spaceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backup_config'").get()).toBeUndefined();
+  });
+
+  it("upgrades an unversioned content database idempotently without losing rows", () => {
+    const db = getDb(`user:${userId}`);
+    db.prepare(
+      `INSERT INTO notes (id, title, content, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run("legacy-note", "Legacy", "preserved", "now", "now");
+    db.prepare("DELETE FROM application_schema").run();
+
+    initializeContentDb(db, "user");
+    initializeContentDb(db, "user");
+
+    expect(db.prepare("SELECT content FROM notes WHERE id = ?").get("legacy-note")).toEqual({
+      content: "preserved",
+    });
+    expect(db.prepare("SELECT kind, version FROM application_schema").get()).toEqual({
+      kind: "user",
+      version: 1,
+    });
+  });
+
+  it("does not record a content schema version when CRR initialization fails", () => {
+    const db = new Database(":memory:");
+    expect(() => initializeContentDb(db, "space")).toThrow();
+    expect(db.prepare("SELECT version FROM application_schema").get()).toBeUndefined();
+    db.close();
+  });
+
+  it("runs the shared-space metadata migration once and records it atomically", () => {
+    const db = new Database(":memory:");
+    initializeSpacesDb(db);
+    initializeSpacesDb(db);
+    expect(db.prepare("SELECT version FROM spaces_schema_migrations").all()).toEqual([
+      { version: 1 },
+    ]);
+    db.close();
+  });
+
+  it("enumerates both user and space databases as canonical keys", () => {
+    getDb(`user:${userId}`);
+    getDb(`space:${spaceId}`);
+    expect(listUserDbIds()).toEqual(expect.arrayContaining([
+      `user:${userId}`,
+      `space:${spaceId}`,
+    ]));
+  });
+});
 
 describe("Database Initialization", () => {
   afterEach(() => {
@@ -40,6 +159,19 @@ describe("Database Initialization", () => {
 
     expect(tableNames).toContain("users");
     expect(tableNames).toContain("password_resets");
+
+    const spacesDb = getSpacesDb();
+    const spaceTables = spacesDb
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((row) => row.name);
+    expect(spaceTables).toEqual(expect.arrayContaining([
+      "spaces",
+      "space_members",
+      "space_invites",
+      "space_user_versions",
+      "spaces_schema_migrations",
+    ]));
   });
 
   it("should return the same auth database instance on multiple calls", () => {
@@ -51,7 +183,7 @@ describe("Database Initialization", () => {
 });
 
 describe("User Database Management", () => {
-  const testUserId = `test-user-${Date.now()}`;
+  const testUserId = uuidv4();
 
   afterEach(() => {
     closeAllConnections();
@@ -109,7 +241,7 @@ describe("User Database Management", () => {
 });
 
 describe("Test Database Utilities", () => {
-  const testUserId = `test-util-user-${Date.now()}`;
+  const testUserId = uuidv4();
 
   afterEach(() => {
     closeAllConnections();
@@ -168,8 +300,8 @@ describe("Test Database Utilities", () => {
 });
 
 describe("Connection Management", () => {
-  const testUserId1 = `test-conn-user-1-${Date.now()}`;
-  const testUserId2 = `test-conn-user-2-${Date.now()}`;
+  const testUserId1 = uuidv4();
+  const testUserId2 = uuidv4();
 
   afterEach(() => {
     closeAllConnections();
@@ -234,8 +366,8 @@ describe("Connection Management", () => {
   // preceding `journal_mode = wal` left a read transaction open when it could not take the
   // lock cleanly. A distinct id per test sidesteps the race. See the agent log — the
   // underlying fragility is in getUserDb, not here.
-  const healthyUserIdClean = `test-health-clean-${Date.now()}`;
-  const healthyUserIdPoisoned = `test-health-poisoned-${Date.now()}`;
+  const healthyUserIdClean = uuidv4();
+  const healthyUserIdPoisoned = uuidv4();
 
   afterEach(() => {
     deleteTestDb(healthyUserIdClean);
@@ -266,7 +398,7 @@ describe("Connection Management", () => {
 });
 
 describe("CRDT Tables", () => {
-  const testUserId = `test-crr-user-${Date.now()}`;
+  const testUserId = uuidv4();
 
   afterEach(() => {
     closeAllConnections();
@@ -429,7 +561,7 @@ describe("ensureNoteRevisionsSchema", () => {
 });
 
 describe("ensureImagesSchema", () => {
-  const testUserId = `test-images-user-${Date.now()}`;
+  const testUserId = uuidv4();
 
   afterEach(() => {
     closeAllConnections();
@@ -584,7 +716,7 @@ describe("ensureImagesSchema", () => {
 });
 
 describe("ensureNotesSchema", () => {
-  const testUserId = `test-pinned-user-${Date.now()}`;
+  const testUserId = uuidv4();
 
   afterEach(() => {
     closeAllConnections();

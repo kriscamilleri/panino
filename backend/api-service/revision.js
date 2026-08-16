@@ -2,7 +2,7 @@ import express from 'express';
 import { createHash } from 'crypto';
 import { gzipSync, gunzipSync } from 'zlib';
 import { v4 as uuidv4 } from 'uuid';
-import { getUserDb, listUserDbIds } from './db.js';
+import { getDb, getUserDb, listUserDbIds } from './db.js';
 
 export const revisionRoutes = express.Router();
 
@@ -471,14 +471,14 @@ revisionRoutes.post('/notes/:id/revisions/:revisionId/restore', (req, res) => {
   }
 });
 
-function runMaintenancePassForUser(userId) {
-  if (maintenanceLocks.has(userId)) return;
-  maintenanceLocks.add(userId);
+function runMaintenancePassForDb(dbKey) {
+  if (maintenanceLocks.has(dbKey)) return;
+  maintenanceLocks.add(dbKey);
 
   try {
-    const db = getUserDb(userId);
+    const db = getDb(dbKey);
     const startedAt = Date.now();
-    let lastNoteId = maintenanceCheckpoints.get(userId) || null;
+    let lastNoteId = maintenanceCheckpoints.get(dbKey) || null;
     let hasMore = true;
 
     while (hasMore && Date.now() - startedAt < MAINTENANCE_TIME_BUDGET_MS) {
@@ -508,21 +508,20 @@ function runMaintenancePassForUser(userId) {
     cleanupOrphanRevisionRows(db);
 
     if (hasMore) {
-      maintenanceCheckpoints.set(userId, lastNoteId);
+      maintenanceCheckpoints.set(dbKey, lastNoteId);
     } else {
-      maintenanceCheckpoints.delete(userId);
+      maintenanceCheckpoints.delete(dbKey);
     }
   } catch (error) {
-    console.error(`[revision] Maintenance pass failed for user ${userId}:`, error);
+    console.error(`[revision] Maintenance pass failed for ${dbKey}:`, error);
   } finally {
-    maintenanceLocks.delete(userId);
+    maintenanceLocks.delete(dbKey);
   }
 }
 
 function runGlobalMaintenancePass() {
-  const userIds = listUserDbIds();
-  for (const userId of userIds) {
-    runMaintenancePassForUser(userId);
+  for (const dbKey of listUserDbIds()) {
+    runMaintenancePassForDb(dbKey);
   }
 }
 

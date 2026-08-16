@@ -22,7 +22,16 @@ backend-only operational tables. The backend also has a separate authentication 
 
 The backend schema is declared in `backend/api-service/db.js`; the browser schema is declared
 in `frontend/src/store/syncStore.js`. Keep those two schema definitions aligned for every CRR
-table.
+table. Backend-only `application_schema`, `_spaces.db` tables, revision tables, and personal backup
+configuration are deliberate non-CRR exceptions.
+
+### Shared-space content databases
+
+Shared spaces use `data/spaces/{spaceId}.db` and the same CRR content tables as personal databases. Backend content connections use canonical `space:<uuid>` keys; personal databases use `user:<uuid>`. `application_schema` is a local, non-CRR table that records the content database kind and ordered schema version. Personal-only `backup_config` is not created in a space database.
+
+### Shared-space metadata database
+
+`data/_spaces.db` is backend-only and not synced. It contains `spaces`, `space_members`, `space_invites`, `space_user_versions`, and its own ordered `spaces_schema_migrations` table. Owner/editor membership operations are internal and fail closed unless `SHARED_SPACES_ENABLED=true`; Phase 1 exposes no public space routes.
 
 ### Authentication database
 

@@ -20,7 +20,8 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
 | `backup.js` | GitHub OAuth, repository selection, snapshot commits, auto-backup scheduling | Mixed |
 | `revision.js` | Note revision capture, listing, detail, restore, and pruning | Authenticated |
-| `db.js` | `getUserDb(userId)`, `getHealthyUserDb(userId, op)`, `invalidateUserDb(...)`, `getAuthDb()`, `initDb()`, DB connection caching, CR-SQLite extension loading | — |
+| `db.js` | Canonical `getDb(dbKey)` content connections, user compatibility wrappers, versioned content initialization, auth/space metadata DBs, connection caching, CR-SQLite extension loading | — |
+| `spaces.js` | Flag-gated internal shared-space and owner/editor membership repository (Phase 1; no public routes yet) | Trusted server callers |
 | `db-repair.js` | Orphan-clock detection and repair helpers used by the incident tooling | — |
 | `mailer.js` | Nodemailer transport, `sendPasswordResetEmail()` | — |
 
@@ -52,11 +53,12 @@ first — it defaults to a dry run and requires `--apply` to mutate anything.
 
 ## Database Architecture
 
-Two database types:
-1. **Auth DB** (`data/_users.db`) — single shared DB for `users` and `password_resets` tables. Access via `getAuthDb()`.
-2. **Per-user DBs** (`data/{userId}.db`) — one DB per user with synced content tables. Access via `getUserDb(userId)`.
+Three database classes:
+1. **Auth DB** (`data/_users.db`) — single shared DB for `users` and `password_resets`. Access via `getAuthDb()`.
+2. **Space metadata DB** (`data/_spaces.db`) — backend-only spaces, memberships, invites, and membership versions. Access via `getSpacesDb()`.
+3. **Content DBs** — personal `data/{uuid}.db` and shared `data/spaces/{uuid}.db`, addressed by canonical keys `user:<uuid>` and `space:<uuid>` through `getDb(dbKey)`. `getUserDb(userId)` remains a thin compatibility wrapper.
 
-Connection caching: `dbConnections` Map keyed by userId (or `'_auth'`). All connections get WAL mode and normal synchronous pragma.
+`initializeContentDb(db, kind)` applies the shared content schema and records its ordered application version; personal-only backup configuration is omitted from space DBs. Connection caching uses canonical dbKeys (plus `'_auth'`/`'_spaces'`). Content connections get WAL mode and normal synchronous pragma.
 
 CR-SQLite is a vendored loadable extension at `native/crsqlite.so`. It is loaded
 per-connection. The vendored binary targets Linux x86_64; use `CRSQLITE_EXT_PATH` to supply
@@ -91,7 +93,7 @@ a compatible extension on another platform.
 
 - Express Router for each feature module, exported as named const (e.g., `export const authRoutes = express.Router()`).
 - Route handlers use `try/catch` with `res.status(500).json({ error: '...' })` for error responses.
-- `getUserDb(userId)` for per-user DB access; `getAuthDb()` for auth DB. Both cache connections.
+- `getDb('user:<uuid>' | 'space:<uuid>')` for content DB access; use `getUserDb(userId)` only at legacy personal call sites. `getAuthDb()` and `getSpacesDb()` own backend metadata.
 - Password hashing: `bcryptjs` with 10 salt rounds.
 - JSON body limit: `50mb` (for sync payloads with large content).
 - Image upload limit: `10MB` via multer.

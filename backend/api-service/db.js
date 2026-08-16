@@ -7,6 +7,9 @@ import fs from "fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "data");
+const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
+const CONTENT_SCHEMA_VERSION = 1;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const dbConnections = new Map();
 
@@ -62,20 +65,6 @@ const BASE_SCHEMA = `
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     display_key TEXT NOT NULL DEFAULT ''
   );
-  CREATE TABLE IF NOT EXISTS backup_config (
-    id TEXT PRIMARY KEY NOT NULL,
-    provider TEXT NOT NULL UNIQUE,
-    access_token_enc TEXT,
-    username TEXT,
-    avatar_url TEXT,
-    repo_full_name TEXT,
-    auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
-    last_backup_at TEXT,
-    last_backup_sha TEXT,
-    last_warning TEXT,
-    last_error TEXT,
-    created_at TEXT NOT NULL
-  );
 
   CREATE TABLE IF NOT EXISTS note_revisions (
     id TEXT PRIMARY KEY NOT NULL,
@@ -115,6 +104,32 @@ const BASE_SCHEMA = `
     ON templates(updated_at DESC);
 `;
 
+const USER_LOCAL_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS backup_config (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL UNIQUE,
+    access_token_enc TEXT,
+    username TEXT,
+    avatar_url TEXT,
+    repo_full_name TEXT,
+    auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
+    last_backup_at TEXT,
+    last_backup_sha TEXT,
+    last_warning TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL
+  );
+`;
+
+const CONTENT_SCHEMA_METADATA = `
+  CREATE TABLE IF NOT EXISTS application_schema (
+    singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+    kind TEXT NOT NULL CHECK (kind IN ('user', 'space')),
+    version INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`;
+
 const CRR_TABLES = [
   "users",
   "folders",
@@ -124,6 +139,34 @@ const CRR_TABLES = [
   "globals",
   "templates",
 ];
+
+export function parseDbKey(dbKey) {
+  if (typeof dbKey !== "string") {
+    throw new TypeError("Database key must be a string.");
+  }
+  const match = /^(user|space):(.+)$/.exec(dbKey);
+  if (!match || !UUID_PATTERN.test(match[2])) {
+    throw new Error("Database key must be user:<uuid> or space:<uuid>.");
+  }
+  const kind = match[1];
+  const id = match[2].toLowerCase();
+  return { kind, id, dbKey: `${kind}:${id}` };
+}
+
+function assertContainedPath(root, candidate) {
+  const relative = path.relative(root, candidate);
+  if (relative === "" || relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
+    throw new Error("Resolved database path escapes its database root.");
+  }
+}
+
+export function resolveDbPath(dbKey) {
+  const parsed = parseDbKey(dbKey);
+  const root = path.resolve(parsed.kind === "space" ? SPACES_DB_DIR : DB_DIR);
+  const dbPath = path.resolve(root, `${parsed.id}.db`);
+  assertContainedPath(root, dbPath);
+  return { ...parsed, root, dbPath };
+}
 
 /**
  * CR-SQLite's generated update trigger for a table, or `undefined` when the
@@ -170,6 +213,7 @@ export function ensureNotesSchema(db) {
     }
   } catch (err) {
     console.error("[db] Failed to ensure notes schema:", err);
+    throw err;
   }
 }
 
@@ -232,6 +276,7 @@ export function ensureImagesSchema(db) {
     if (!isCrr) db.exec("SELECT crsql_as_crr('images')");
   } catch (err) {
     console.error("[db] Failed to ensure images schema:", err);
+    throw err;
   }
 }
 
@@ -257,12 +302,10 @@ function resolveCrsqlitePath() {
 }
 
 function ensureCrr(db) {
-  for (const t of CRR_TABLES) {
-    try {
-      db.prepare("SELECT crsql_as_crr(?)").get(t);
-    } catch {
-      // ignore if already a CRR or extension issue
-    }
+  for (const table of CRR_TABLES) {
+    db.prepare("SELECT crsql_as_crr(?)").get(table);
+    const trigger = crrUpdateTriggerSql(db, table);
+    if (!trigger) throw new Error(`Failed to register ${table} as a CRR.`);
   }
 }
 
@@ -362,6 +405,7 @@ function ensureGlobalsSchema(db) {
     db.exec("SELECT crsql_as_crr('globals')");
   } catch (err) {
     console.error("[db] Failed to ensure globals schema:", err);
+    throw err;
   }
 }
 
@@ -440,6 +484,7 @@ function ensureBackupConfigSchema(db) {
     }
   } catch (err) {
     console.error("[db] Failed to ensure backup config schema:", err);
+    throw err;
   }
 }
 
@@ -482,6 +527,7 @@ function ensureTemplatesSchema(db) {
     }
   } catch (err) {
     console.error("[db] Failed to ensure templates schema:", err);
+    throw err;
   }
 }
 
@@ -536,47 +582,62 @@ export function ensureNoteRevisionsSchema(db) {
     `);
   } catch (err) {
     console.error("[db] Failed to ensure note_revisions schema:", err);
+    throw err;
   }
 }
 
-function maskUserId(userId) {
-  const value = String(userId ?? "");
+export function initializeContentDb(db, kind) {
+  if (kind !== "user" && kind !== "space") {
+    throw new Error("Content database kind must be user or space.");
+  }
+
+  db.exec(CONTENT_SCHEMA_METADATA);
+  const recorded = db.prepare(
+    "SELECT kind, version FROM application_schema WHERE singleton = 1",
+  ).get();
+  if (recorded && recorded.kind !== kind) {
+    throw new Error(`Content database kind mismatch: expected ${kind}, found ${recorded.kind}.`);
+  }
+  if (Number(recorded?.version ?? 0) > CONTENT_SCHEMA_VERSION) {
+    throw new Error("Content database schema is newer than this server supports.");
+  }
+
+  db.exec(BASE_SCHEMA);
+  if (kind === "user") db.exec(USER_LOCAL_SCHEMA);
+  ensureNotesSchema(db);
+  ensureImagesSchema(db);
+  ensureGlobalsSchema(db);
+  if (kind === "user") ensureBackupConfigSchema(db);
+  ensureTemplatesSchema(db);
+  ensureNoteRevisionsSchema(db);
+  ensureCrr(db);
+
+  db.prepare(
+    `INSERT INTO application_schema (singleton, kind, version, updated_at)
+     VALUES (1, ?, ?, ?)
+     ON CONFLICT(singleton) DO UPDATE SET
+       kind = excluded.kind,
+       version = excluded.version,
+       updated_at = excluded.updated_at`,
+  ).run(kind, CONTENT_SCHEMA_VERSION, new Date().toISOString());
+}
+
+function maskDbKey(dbKey) {
+  const value = String(dbKey ?? "");
   if (value.length <= 4) return "****";
   return `${value.slice(0, 2)}…${value.slice(-2)}`;
 }
 
-export function getUserDb(userId) {
-  if (dbConnections.has(userId)) return dbConnections.get(userId);
+export function getDb(dbKey) {
+  const resolved = resolveDbPath(dbKey);
+  if (dbConnections.has(resolved.dbKey)) return dbConnections.get(resolved.dbKey);
 
-  if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
-
-  const dbPath = path.join(DB_DIR, `${userId}.db`);
-  const db = new Database(dbPath);
-
-  // Load CR-SQLite
-  try {
-    const extPath = resolveCrsqlitePath();
-    db.loadExtension(extPath);
-  } catch (e) {
-    console.error("Failed to load crsqlite extension:", e);
-    try {
-      db.close();
-    } catch (closeError) {
-      console.error("[db] Failed to close database after extension load failure:", closeError);
-    }
-    throw e;
-  }
+  fs.mkdirSync(resolved.root, { recursive: true });
+  const db = new Database(resolved.dbPath);
 
   try {
-    db.exec(BASE_SCHEMA);
-    ensureNotesSchema(db);
-    ensureImagesSchema(db);
-    ensureGlobalsSchema(db);
-    ensureBackupConfigSchema(db);
-    ensureTemplatesSchema(db);
-    ensureNoteRevisionsSchema(db);
-    ensureCrr(db);
-
+    db.loadExtension(resolveCrsqlitePath());
+    initializeContentDb(db, resolved.kind);
     db.pragma("journal_mode = wal");
     db.pragma("synchronous = normal");
   } catch (error) {
@@ -588,17 +649,22 @@ export function getUserDb(userId) {
     throw error;
   }
 
-  dbConnections.set(userId, db);
+  dbConnections.set(resolved.dbKey, db);
   return db;
 }
 
-/** Remove and close one user's cached connection without affecting other users. */
-export function invalidateUserDb(userId, expectedDb = null, reason = "unknown") {
-  const cachedDb = dbConnections.get(userId);
+export function getUserDb(userId) {
+  return getDb(`user:${userId}`);
+}
+
+/** Remove and close one cached content connection without affecting other databases. */
+export function invalidateDb(dbKey, expectedDb = null, reason = "unknown") {
+  const { dbKey: canonicalKey } = parseDbKey(dbKey);
+  const cachedDb = dbConnections.get(canonicalKey);
   if (!cachedDb || (expectedDb && cachedDb !== expectedDb)) {
     console.info("[db]", JSON.stringify({
       event: "sync_db_connection_invalidated",
-      userId: maskUserId(userId),
+      dbKey: maskDbKey(canonicalKey),
       reason,
       cached: false,
       closed: false,
@@ -606,7 +672,7 @@ export function invalidateUserDb(userId, expectedDb = null, reason = "unknown") 
     return false;
   }
 
-  dbConnections.delete(userId);
+  dbConnections.delete(canonicalKey);
   let closed = false;
   try {
     cachedDb.close();
@@ -616,7 +682,7 @@ export function invalidateUserDb(userId, expectedDb = null, reason = "unknown") 
   }
   console.warn("[db]", JSON.stringify({
     event: "sync_db_connection_invalidated",
-    userId: maskUserId(userId),
+    dbKey: maskDbKey(canonicalKey),
     reason,
     cached: true,
     closed,
@@ -624,15 +690,19 @@ export function invalidateUserDb(userId, expectedDb = null, reason = "unknown") 
   return true;
 }
 
-/** Reopen a user database if CR-SQLite reports a non-zero internal sync bit. */
-export function getHealthyUserDb(userId, operation = "unknown") {
-  let db = getUserDb(userId);
+export function invalidateUserDb(userId, expectedDb = null, reason = "unknown") {
+  return invalidateDb(`user:${userId}`, expectedDb, reason);
+}
+
+/** Reopen a content database if CR-SQLite reports a non-zero internal sync bit. */
+export function getHealthyDb(dbKey, operation = "unknown") {
+  let db = getDb(dbKey);
   let health;
   try {
     health = db.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get();
   } catch (error) {
-    invalidateUserDb(userId, db, `health-check-failure:${operation}`);
-    db = getUserDb(userId);
+    invalidateDb(dbKey, db, `health-check-failure:${operation}`);
+    db = getDb(dbKey);
     health = db.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get();
   }
 
@@ -640,40 +710,42 @@ export function getHealthyUserDb(userId, operation = "unknown") {
   if (syncBit !== 0) {
     console.warn("[db]", JSON.stringify({
       event: "crsqlite_connection_health_reset",
-      userId: maskUserId(userId),
+      dbKey: maskDbKey(dbKey),
       operation,
       syncBit,
     }));
-    invalidateUserDb(userId, db, `unhealthy-sync-bit:${operation}`);
-    db = getUserDb(userId);
+    invalidateDb(dbKey, db, `unhealthy-sync-bit:${operation}`);
+    db = getDb(dbKey);
     const reopenedBit = Number(
       db.prepare("SELECT crsql_internal_sync_bit() AS sync_bit").get()?.sync_bit ?? 0,
     );
     if (reopenedBit !== 0) {
-      invalidateUserDb(userId, db, `reopen-health-check-failure:${operation}`);
+      invalidateDb(dbKey, db, `reopen-health-check-failure:${operation}`);
       throw new Error("CR-SQLite connection health check failed");
     }
   }
   return db;
 }
 
-export function getUserDbSizeBytes(userId) {
-  if (!userId) return 0;
+export function getHealthyUserDb(userId, operation = "unknown") {
+  return getHealthyDb(`user:${userId}`, operation);
+}
 
-  const dbPath = path.join(DB_DIR, `${userId}.db`);
-  const walPath = `${dbPath}-wal`;
-  const shmPath = `${dbPath}-shm`;
-
-  return [dbPath, walPath, shmPath].reduce((total, filePath) => {
+export function getDbSizeBytes(dbKey) {
+  const { dbPath } = resolveDbPath(dbKey);
+  return [dbPath, `${dbPath}-wal`, `${dbPath}-shm`].reduce((total, filePath) => {
     try {
-      if (fs.existsSync(filePath)) {
-        return total + fs.statSync(filePath).size;
-      }
+      if (fs.existsSync(filePath)) return total + fs.statSync(filePath).size;
     } catch (error) {
       console.error(`[db] Failed to read file size for ${filePath}:`, error);
     }
     return total;
   }, 0);
+}
+
+export function getUserDbSizeBytes(userId) {
+  if (!userId) return 0;
+  return getDbSizeBytes(`user:${userId}`);
 }
 
 const AUTH_SCHEMA = `
@@ -693,6 +765,51 @@ const AUTH_SCHEMA = `
   );
 `;
 
+const SPACES_MIGRATION_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS spaces_schema_migrations (
+    version INTEGER PRIMARY KEY NOT NULL,
+    applied_at TEXT NOT NULL
+  );
+`;
+
+const SPACES_SCHEMA_V1 = `
+  CREATE TABLE IF NOT EXISTS spaces (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active', 'pending_delete')),
+    delete_after TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS space_members (
+    space_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'editor'
+      CHECK (role IN ('owner', 'editor')),
+    invited_by TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (space_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS space_invites (
+    token_hash TEXT PRIMARY KEY NOT NULL,
+    space_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'editor' CHECK (role = 'editor'),
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_space_members_user ON space_members(user_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_space_members_one_owner
+    ON space_members(space_id) WHERE role = 'owner';
+  CREATE TABLE IF NOT EXISTS space_user_versions (
+    user_id TEXT PRIMARY KEY NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1
+  );
+`;
+
 export function getAuthDb() {
   const key = "_auth";
   if (dbConnections.has(key)) return dbConnections.get(key);
@@ -707,26 +824,69 @@ export function getAuthDb() {
   return db;
 }
 
+export function initializeSpacesDb(db) {
+  db.exec(SPACES_MIGRATION_SCHEMA);
+  const currentVersion = Number(
+    db.prepare("SELECT MAX(version) AS version FROM spaces_schema_migrations").get()?.version ?? 0,
+  );
+  if (currentVersion > 1) {
+    throw new Error("Shared-space metadata schema is newer than this server supports.");
+  }
+  if (currentVersion < 1) {
+    db.transaction(() => {
+      db.exec(SPACES_SCHEMA_V1);
+      db.prepare(
+        "INSERT INTO spaces_schema_migrations (version, applied_at) VALUES (?, ?)",
+      ).run(1, new Date().toISOString());
+    })();
+  }
+}
+
+export function getSpacesDb() {
+  const key = "_spaces";
+  if (dbConnections.has(key)) return dbConnections.get(key);
+
+  fs.mkdirSync(DB_DIR, { recursive: true });
+  const db = new Database(path.join(DB_DIR, "_spaces.db"));
+  try {
+    initializeSpacesDb(db);
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  db.pragma("journal_mode = wal");
+  db.pragma("synchronous = normal");
+  dbConnections.set(key, db);
+  return db;
+}
+
 export function initDb() {
   getAuthDb();
-  console.log("Authentication database initialized.");
+  getSpacesDb();
+  console.info("Authentication and shared-space metadata databases initialized.");
 }
 
+function listUuidDatabaseFiles(directory, kind) {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".db"))
+    .map((entry) => entry.name.slice(0, -3))
+    .filter((id) => UUID_PATTERN.test(id))
+    .map((id) => `${kind}:${id.toLowerCase()}`);
+}
+
+/**
+ * Compatibility name retained for background jobs. Entries are canonical
+ * database keys so user and space databases cannot collide on the same UUID.
+ */
 export function listUserDbIds() {
-  if (!fs.existsSync(DB_DIR)) {
-    return [];
-  }
-
-  return fs
-    .readdirSync(DB_DIR, { withFileTypes: true })
-    .filter(
-      (entry) =>
-        entry.isFile() &&
-        entry.name.endsWith(".db") &&
-        entry.name !== "_users.db",
-    )
-    .map((entry) => entry.name.slice(0, -3));
+  return [
+    ...listUuidDatabaseFiles(DB_DIR, "user"),
+    ...listUuidDatabaseFiles(SPACES_DB_DIR, "space"),
+  ].sort();
 }
+
+export const listDbKeys = listUserDbIds;
 
 /**
  * Close all database connections
@@ -749,77 +909,63 @@ export function clearConnectionCache() {
   dbConnections.clear();
 }
 
-/**
- * Create a test database (for testing purposes)
- * @param {string} userId - User ID for the test database
- * @param {Object} options - Options
- * @param {boolean} options.inMemory - Use in-memory database
- * @returns {Database} Database instance
- */
-export function getTestDb(userId, options = {}) {
+function resolveTestDatabase(identifier) {
+  if (typeof identifier !== "string") throw new TypeError("Test database identifier must be a string.");
+  if (identifier.includes(":")) return resolveDbPath(identifier);
+  if (UUID_PATTERN.test(identifier)) return resolveDbPath(`user:${identifier}`);
+  if (!/^[a-z0-9_-]+$/i.test(identifier)) throw new Error("Unsafe test database identifier.");
+  return {
+    kind: "user",
+    id: identifier,
+    dbKey: `test:${identifier}`,
+    root: DB_DIR,
+    dbPath: path.join(DB_DIR, `${identifier}.db`),
+  };
+}
+
+/** Create a content database for tests. Canonical dbKeys are preferred. */
+export function getTestDb(identifier, options = {}) {
   const { inMemory = false } = options;
+  const resolved = resolveTestDatabase(identifier);
+  if (dbConnections.has(resolved.dbKey)) return dbConnections.get(resolved.dbKey);
 
-  if (dbConnections.has(userId)) return dbConnections.get(userId);
-
-  if (!inMemory && !fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
-  }
-
-  const dbPath = inMemory ? ":memory:" : path.join(DB_DIR, `${userId}.db`);
-  const db = new Database(dbPath);
-
-  // Load CR-SQLite
+  if (!inMemory) fs.mkdirSync(resolved.root, { recursive: true });
+  const db = new Database(inMemory ? ":memory:" : resolved.dbPath);
   try {
-    const extPath = resolveCrsqlitePath();
-    db.loadExtension(extPath);
-  } catch (e) {
-    console.error("Failed to load crsqlite extension:", e);
-    throw e;
+    db.loadExtension(resolveCrsqlitePath());
+    initializeContentDb(db, resolved.kind);
+    db.pragma("journal_mode = wal");
+    db.pragma("synchronous = normal");
+  } catch (error) {
+    try {
+      db.close();
+    } catch {
+      // The original initialization error is more actionable.
+    }
+    throw error;
   }
 
-  db.exec(BASE_SCHEMA);
-  ensureNotesSchema(db);
-  ensureImagesSchema(db);
-  ensureGlobalsSchema(db);
-  ensureBackupConfigSchema(db);
-  ensureTemplatesSchema(db);
-  ensureNoteRevisionsSchema(db);
-  ensureCrr(db);
-
-  db.pragma("journal_mode = wal");
-  db.pragma("synchronous = normal");
-
-  dbConnections.set(userId, db);
+  dbConnections.set(resolved.dbKey, db);
   return db;
 }
 
-/**
- * Delete a test database (for testing purposes)
- * @param {string} userId - User ID for the test database
- */
-export function deleteTestDb(userId) {
-  // Close connection if exists
-  if (dbConnections.has(userId)) {
+export function deleteTestDb(identifier) {
+  const resolved = resolveTestDatabase(identifier);
+  if (dbConnections.has(resolved.dbKey)) {
     try {
-      dbConnections.get(userId).close();
-    } catch (e) {
-      console.error(`Error closing database for ${userId}:`, e);
+      dbConnections.get(resolved.dbKey).close();
+    } catch (error) {
+      console.error(`Error closing database for ${resolved.dbKey}:`, error);
     }
-    dbConnections.delete(userId);
+    dbConnections.delete(resolved.dbKey);
   }
 
-  // Delete database files
-  const dbPath = path.join(DB_DIR, `${userId}.db`);
-  const walPath = `${dbPath}-wal`;
-  const shmPath = `${dbPath}-shm`;
-
-  [dbPath, walPath, shmPath].forEach((filePath) => {
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (e) {
-        console.error(`Error deleting ${filePath}:`, e);
-      }
+  [resolved.dbPath, `${resolved.dbPath}-wal`, `${resolved.dbPath}-shm`].forEach((filePath) => {
+    if (!fs.existsSync(filePath)) return;
+    try {
+      fs.unlinkSync(filePath);
+    } catch (error) {
+      console.error(`Error deleting ${filePath}:`, error);
     }
   });
 }

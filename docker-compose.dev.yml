@@ -18,6 +18,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-super-secret-for-dev}
       PORT: 8000
       NODE_ENV: development
+      SHARED_SPACES_ENABLED: ${SHARED_SPACES_ENABLED:-false}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:8000}
