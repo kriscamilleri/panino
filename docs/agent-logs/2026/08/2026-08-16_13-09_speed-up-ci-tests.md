@@ -19,11 +19,10 @@ Puppeteer's browser.
 
 ## Changes Made
 
-- Added a GitHub Actions BuildKit cache for the backend test image. The dependency-install layer
-  stays reusable when application source changes because the Dockerfile copies package metadata
-  before application code.
-- Kept `scripts/test-backend.sh` as the canonical local runner and added an explicit
-  `SKIP_IMAGE_BUILD=1` mode for CI after the cached image has been loaded.
+- Evaluated a GitHub Actions BuildKit cache for the backend test image, then removed it after its
+  first run took 114 seconds against the prior 63-second Docker build. GitHub stored only a 5 KB
+  cache index rather than reusable image layers, so the cache could not amortize native and
+  Puppeteer setup.
 - Added workflow concurrency so a newer push cancels an obsolete test run for the same branch or
   pull request.
 - Stopped the standalone test workflow from running on `main` pushes because `deploy.yml`
@@ -35,8 +34,6 @@ Puppeteer's browser.
 
 - Inspected workflow job and step timestamps from GitHub Actions run `31943511401`.
 - Confirmed the backend run passed 15 test files and 170 tests in 15 seconds.
-- `SKIP_IMAGE_BUILD=1 ./scripts/test-backend.sh` — 15 files and 170 tests passed using the
-  prebuilt image.
 - `bash -n scripts/test-backend.sh` and `git diff --check` — passed.
 - GitHub branch-protection API reports neither `main` nor `develop` has required checks, so a
   documentation-only skipped test workflow cannot block a merge.
@@ -46,5 +43,4 @@ Puppeteer's browser.
 
 ## Open Items / Notes
 
-- The first run after this change remains cold while GitHub Actions creates the cache. Subsequent
-  backend runs should avoid rebuilding the package-install and native-setup layers.
+- Keep the direct Docker build: it remains the faster, proven path for this small test image.
