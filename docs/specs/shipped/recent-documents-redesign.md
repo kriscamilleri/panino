@@ -121,6 +121,14 @@ one column below 640px. If fewer than three results exist, render only the avail
 not render placeholder cards. If no result matches the current filters or quick filter, hide
 the section rather than showing an empty container.
 
+> **As built (2026-08-16).** Two deliberate departures from the text above:
+>
+> - The rail has no surrounding `pn-panel` and no `CONTINUE WRITING` label. The cards stand on
+>   their own in the grid, which is what renders conditionally.
+> - The rail is hidden entirely while the quick filter has text. During a search the list is
+>   the answer, and repeating its first three hits as cards only pushes the results down the
+>   page. The Pinned filter is not a search and keeps the cards.
+
 ### 5.3 Document list and time groups
 
 List items use a flat, border-separated layout rather than cards. On desktop each item has:
@@ -202,6 +210,10 @@ loaded, bounded in-memory collection. Its clear control appears only when text i
 restores the active select/toggle filters without resetting them. It never expands a folder
 scope or includes descendant notes. The input must not claim to search tags or all note content
 until the Advanced Search feature exists.
+
+> **As built (2026-08-16).** The toolbar ships the Pinned toggle button as the *only* type
+> control; the redundant `All` / `Pinned` select was dropped. The underlying filter state is
+> unchanged, so restoring the select later is a template-only change.
 
 Do not render a `My notes` filter in this version. It would be a deceptive no-op in Panino's
 per-user local database. Shared-workspace scope, if introduced later, can add it alongside the

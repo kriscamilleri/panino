@@ -82,6 +82,24 @@ At tablet width the single-row header truncated `Recent Documents` to `R..`, bec
 and the search field shared a row from `sm` upward. The spec puts the single-row header at
 1024px and above, so the breakpoint moved from `sm:` to `lg:`. Covered by a component test.
 
+### Deviations from the spec, agreed during review
+
+Three UI decisions taken while the dashboard was running in the dev stack. All are recorded as
+"As built" notes in the spec.
+
+1. **No panel chrome around Continue Writing.** The `pn-panel` wrapper and the uppercase
+   `CONTINUE WRITING` label are gone; the cards stand on their own. The grid element itself now
+   carries the `v-if`, so nothing renders on a folder view or when the result set is empty —
+   a wrapper-only guard would have left bare cards behind, which is exactly what happened
+   briefly and is now covered by tests that assert on card count, not on the wrapper.
+2. **The rail hides while the quick filter has text.** During a search the list is the answer;
+   repeating its first three hits as cards only pushes the results down. A whitespace-only
+   query does not count, and the Pinned filter is not a search, so both keep the cards.
+3. **One type control, not two.** The `All` / `Pinned` select was dropped; the Pinned toggle
+   button is the single control. The underlying `filter` state is unchanged, so restoring the
+   select is a template-only change. Component tests drive the toggle and assert the select
+   only when it is present.
+
 ## Changes Made
 
 | File | Change |
@@ -109,9 +127,9 @@ and the search field shared a row from `sm` upward. The spec puts the single-row
 | Suite | Result |
 |---|---|
 | `frontend/tests/unit/recentDocuments.test.js` | 44 passed — normalization, pin coercion, quick filter, sort with missing timestamps, all four local-date groups against a fixed `now`, formatter boundaries |
-| `frontend/tests/unit/documentDashboard.test.js` | 39 passed — new file; real mounted SFCs |
+| `frontend/tests/unit/documentDashboard.test.js` | 42 passed — new file; real mounted SFCs |
 | `frontend/tests/unit/docStoreDocuments.test.js` | 14 passed — new file; parameterized queries, folder scoping, pin write, error paths |
-| `npm run test:fe` (whole suite) | 348 passed, 20 files |
+| `npm run test:fe` (whole suite) | 351 passed, 19 files |
 | `npm run test:be` | 176 passed, 15 files (6 new in `tests/unit/db.test.js`) |
 | `npm run lint` | 0 errors, 40 warnings, all pre-existing `no-console` |
 

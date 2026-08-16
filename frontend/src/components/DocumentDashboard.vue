@@ -19,31 +19,33 @@
             @new-note="openCreateModal"
         />
 
-        <!-- Continue Writing: the first three documents of the active result set. -->
-        <section
-            v-if="isGlobal && continueWriting.length > 0"
-            class="pn-panel mb-6 p-4"
-            aria-labelledby="continue-writing-heading"
+        <!--
+            Continue Writing: the first three documents of the active result
+            set, global scope only. The cards carry the section on their own —
+            no panel chrome or heading around them — so the grid itself is what
+            renders conditionally, and nothing is left behind on a folder view
+            or when the active filters match nothing.
+
+            The rail also steps aside while the quick filter is in use: when the
+            user is searching, the answer is the list, and repeating its first
+            three hits as cards just pushes that list down the page.
+        -->
+        <div
+            v-if="showContinueWriting"
+            class="my-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            role="group"
+            aria-label="Continue writing"
             data-testid="continue-writing-section"
         >
-            <h3
-                id="continue-writing-heading"
-                class="mb-3 uppercase tracking-wide pn-meta"
-            >
-                Continue writing
-            </h3>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <RecentDocumentCard
-                    v-for="doc in continueWriting"
-                    :key="doc.id"
-                    :document="doc"
-                    :now="now"
-                    @open="openDocument"
-                    @toggle-pin="togglePin"
-                />
-            </div>
-        </section>
+            <RecentDocumentCard
+                v-for="doc in continueWriting"
+                :key="doc.id"
+                :document="doc"
+                :now="now"
+                @open="openDocument"
+                @toggle-pin="togglePin"
+            />
+        </div>
 
         <!-- Toolbar -->
         <div class="mb-3 flex flex-wrap items-center gap-2">
@@ -53,20 +55,6 @@
             >
                 {{ listTitle }}
             </h3>
-
-            <label
-                class="sr-only"
-                :for="`document-filter-${scopeKey}`"
-            >Filter documents</label>
-            <select
-                :id="`document-filter-${scopeKey}`"
-                v-model="filter"
-                class="pn-select w-auto"
-                data-testid="document-dashboard-filter"
-            >
-                <option :value="FILTER_ALL">All</option>
-                <option :value="FILTER_PINNED">Pinned</option>
-            </select>
 
             <label
                 class="sr-only"
@@ -287,6 +275,15 @@ const groups = computed(() => view.value.groups)
  * duplication is intentional so a user can resume or scan.
  */
 const continueWriting = computed(() => view.value.documents.slice(0, 3))
+
+/**
+ * Global scope only, and never while the quick filter is narrowing the list:
+ * during a search the list is the answer, so the rail would only repeat its
+ * first three hits and push the results down.
+ */
+const showContinueWriting = computed(
+    () => isGlobal.value && !query.value.trim() && continueWriting.value.length > 0
+)
 
 const resultCountLabel = computed(() => {
     const count = view.value.documents.length

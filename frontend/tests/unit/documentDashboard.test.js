@@ -85,6 +85,23 @@ function testid(wrapper, id) {
     return wrapper.find(`[data-testid="${id}"]`);
 }
 
+/**
+ * Set the type filter. The Pinned toggle is the control that is always
+ * present; the `All`/`Pinned` select is optional chrome that stays in sync
+ * with it, so tests drive the toggle and assert the select only when rendered.
+ */
+async function setPinnedFilter(wrapper, pinnedOnly) {
+    const toggle = testid(wrapper, 'document-dashboard-pinned-toggle');
+    if (toggle.attributes('aria-pressed') !== String(pinnedOnly)) {
+        await toggle.trigger('click');
+    }
+}
+
+function filterSelectValue(wrapper) {
+    const select = testid(wrapper, 'document-dashboard-filter');
+    return select.exists() ? select.element.value : null;
+}
+
 afterEach(() => {
     while (mounted.length) mounted.pop().unmount();
 });
@@ -156,6 +173,34 @@ describe('DocumentDashboard — global Recent Documents', () => {
         docStoreMock.getRecentDocuments.mockImplementation(async () => []);
         const empty = await mountDashboard();
         expect(testid(empty, 'continue-writing-section').exists()).toBe(false);
+        expect(empty.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(0);
+    });
+
+    it('hides the Continue Writing cards while the quick filter is in use', async () => {
+        const wrapper = await mountDashboard();
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(3);
+
+        // Searching: the list is the answer, so the rail steps aside even when
+        // the query still matches documents.
+        await testid(wrapper, 'document-dashboard-search').setValue('a');
+        expect(testid(wrapper, 'continue-writing-section').exists()).toBe(false);
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(0);
+        expect(wrapper.findAll('[data-testid^="document-row-title-"]').length).toBeGreaterThan(0);
+
+        await testid(wrapper, 'document-dashboard-search-clear').trigger('click');
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(3);
+    });
+
+    it('keeps the cards for a whitespace-only query', async () => {
+        const wrapper = await mountDashboard();
+        await testid(wrapper, 'document-dashboard-search').setValue('   ');
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(3);
+    });
+
+    it('keeps the cards under the Pinned filter, which is not a search', async () => {
+        const wrapper = await mountDashboard();
+        await setPinnedFilter(wrapper, true);
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(2);
     });
 
     it('hides the Continue Writing section when the filters match nothing', async () => {
@@ -163,6 +208,7 @@ describe('DocumentDashboard — global Recent Documents', () => {
         await testid(wrapper, 'document-dashboard-search').setValue('no-such-note');
 
         expect(testid(wrapper, 'continue-writing-section').exists()).toBe(false);
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(0);
         expect(testid(wrapper, 'document-dashboard-no-matches').text())
             .toContain('No recent documents match these filters.');
     });
@@ -187,14 +233,14 @@ describe('DocumentDashboard — quick filter', () => {
         const wrapper = await mountDashboard();
         expect(testid(wrapper, 'document-dashboard-search-clear').exists()).toBe(false);
 
-        await testid(wrapper, 'document-dashboard-pinned-toggle').trigger('click');
+        await setPinnedFilter(wrapper, true);
         await testid(wrapper, 'document-dashboard-search').setValue('alpha');
         expect(testid(wrapper, 'document-dashboard-search-clear').exists()).toBe(true);
 
         await testid(wrapper, 'document-dashboard-search-clear').trigger('click');
         expect(testid(wrapper, 'document-dashboard-search').element.value).toBe('');
         // The Pinned filter survives clearing the quick filter.
-        expect(testid(wrapper, 'document-dashboard-filter').element.value).toBe('pinned');
+        expect(testid(wrapper, 'document-dashboard-pinned-toggle').attributes('aria-pressed')).toBe('true');
         expect(wrapper.findAll('[data-testid^="document-row-title-"]')).toHaveLength(2);
     });
 
@@ -214,20 +260,21 @@ describe('DocumentDashboard — filters and sorting', () => {
     it('limits to pinned documents and keeps the select and toggle in sync', async () => {
         const wrapper = await mountDashboard();
 
-        await testid(wrapper, 'document-dashboard-pinned-toggle').trigger('click');
-        expect(testid(wrapper, 'document-dashboard-filter').element.value).toBe('pinned');
+        await setPinnedFilter(wrapper, true);
         expect(testid(wrapper, 'document-dashboard-pinned-toggle').attributes('aria-pressed')).toBe('true');
+        expect(filterSelectValue(wrapper) ?? 'pinned').toBe('pinned');
         expect(wrapper.findAll('[data-testid^="document-row-title-"]').map((r) => r.text()))
             .toEqual(['Alpha Plan', 'Delta Review']);
 
-        await testid(wrapper, 'document-dashboard-filter').setValue('all');
+        await setPinnedFilter(wrapper, false);
         expect(testid(wrapper, 'document-dashboard-pinned-toggle').attributes('aria-pressed')).toBe('false');
+        expect(filterSelectValue(wrapper) ?? 'all').toBe('all');
         expect(wrapper.findAll('[data-testid^="document-row-title-"]')).toHaveLength(4);
     });
 
     it('includes pinned notes from every folder in the global scope', async () => {
         const wrapper = await mountDashboard();
-        await testid(wrapper, 'document-dashboard-filter').setValue('pinned');
+        await setPinnedFilter(wrapper, true);
 
         expect(wrapper.findAll('[data-testid^="document-row-folder-"]').map((r) => r.text()))
             .toEqual(['Work / Planning', 'Archive']);
@@ -377,6 +424,9 @@ describe('DocumentDashboard — folder scope', () => {
         expect(docStoreMock.getFolderDocuments).toHaveBeenCalledWith('folder-1', 50);
         expect(docStoreMock.getRecentDocuments).not.toHaveBeenCalled();
         expect(testid(wrapper, 'continue-writing-section').exists()).toBe(false);
+        // Asserted on the cards too: the rail's absence must not depend on a
+        // wrapper element that could be removed while the cards stay behind.
+        expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')).toHaveLength(0);
     });
 
     it('lists immediate child folders only, sorted by name, and opens them by route', async () => {
@@ -402,7 +452,7 @@ describe('DocumentDashboard — folder scope', () => {
 
     it('limits the Pinned filter to notes assigned to the selected folder', async () => {
         const wrapper = await mountDashboard('folder-1');
-        await testid(wrapper, 'document-dashboard-filter').setValue('pinned');
+        await setPinnedFilter(wrapper, true);
 
         expect(wrapper.findAll('[data-testid^="document-row-title-"]').map((r) => r.text()))
             .toEqual(['Folder Pinned']);
@@ -443,12 +493,12 @@ describe('DocumentDashboard — empty and refresh behavior', () => {
     it('offers a clear-filters affordance when the filters exclude everything', async () => {
         const wrapper = await mountDashboard();
         await testid(wrapper, 'document-dashboard-search').setValue('zzz');
-        await testid(wrapper, 'document-dashboard-filter').setValue('pinned');
+        await setPinnedFilter(wrapper, true);
 
         await testid(wrapper, 'document-dashboard-clear-filters').trigger('click');
 
         expect(testid(wrapper, 'document-dashboard-search').element.value).toBe('');
-        expect(testid(wrapper, 'document-dashboard-filter').element.value).toBe('all');
+        expect(testid(wrapper, 'document-dashboard-pinned-toggle').attributes('aria-pressed')).toBe('false');
         expect(wrapper.findAll('[data-testid^="document-row-title-"]')).toHaveLength(4);
     });
 
