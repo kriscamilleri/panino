@@ -3,9 +3,25 @@ name: Tests
 on:
   pull_request:
     branches: [develop, main]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'LICENSE'
   push:
-    branches: [develop, main]
+    branches: [develop]
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - 'LICENSE'
   workflow_call:
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint:
@@ -38,5 +54,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build cached Node 24 backend test image
+        uses: docker/build-push-action@v6
+        with:
+          context: backend/api-service
+          file: backend/api-service/Dockerfile.test
+          tags: panino-api-test
+          load: true
+          cache-from: type=gha,scope=backend-test
+          cache-to: type=gha,mode=max,scope=backend-test
       - name: Run backend suite in the Node 24 test image
-        run: ./scripts/test-backend.sh
+        run: SKIP_IMAGE_BUILD=1 ./scripts/test-backend.sh
