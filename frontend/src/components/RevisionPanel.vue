@@ -60,21 +60,7 @@
         </div>
 
         <template v-else-if="revisionStore.selectedRevisionDetail">
-          <div v-if="showCompare" class="overflow-y-auto h-full min-h-0 font-mono text-xs leading-5">
-            <div
-              v-for="(line, i) in diffLineItems"
-              :key="i"
-              :class="{
-                'bg-red-50 text-red-700': line.type === 'removed',
-                'bg-green-50 text-green-700': line.type === 'added',
-                'text-gray-600': line.type === 'unchanged',
-              }"
-              class="flex px-2 whitespace-pre-wrap break-all"
-            >
-              <span class="select-none w-4 shrink-0 mr-2 text-gray-400">{{ line.prefix }}</span><span>{{ line.text }}</span>
-            </div>
-            <div v-if="diffLineItems.length === 0" class="p-3 text-gray-400 text-xs">No differences.</div>
-          </div>
+          <DiffView v-if="showCompare" :old-text="oldText" :new-text="newText" />
 
           <div v-else class="p-2 h-full">
             <textarea readonly class="pn-textarea h-full resize-none font-mono text-xs" :value="revisionStore.selectedRevisionDetail.content"></textarea>
@@ -91,7 +77,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { diffLines } from 'diff';
+import DiffView from '@/components/DiffView.vue';
 import { useRevisionStore } from '@/store/revisionStore';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
@@ -110,26 +96,8 @@ const showCompare = ref(true);
 
 const selectedFileId = computed(() => docStore.selectedFileId);
 const currentContent = computed(() => docStore.selectedFile?.content || '');
-
-const diffLineItems = computed(() => {
-  const oldText = revisionStore.selectedRevisionDetail?.content || '';
-  const newText = currentContent.value;
-  const hunks = diffLines(oldText, newText);
-  const result = [];
-  for (const hunk of hunks) {
-    const lines = hunk.value.replace(/\n$/, '').split('\n');
-    for (const line of lines) {
-      if (hunk.added) {
-        result.push({ type: 'added', prefix: '+', text: line });
-      } else if (hunk.removed) {
-        result.push({ type: 'removed', prefix: '-', text: line });
-      } else {
-        result.push({ type: 'unchanged', prefix: ' ', text: line });
-      }
-    }
-  }
-  return result;
-});
+const oldText = computed(() => revisionStore.selectedRevisionDetail?.content || '');
+const newText = computed(() => currentContent.value);
 
 watch(
   () => selectedFileId.value,

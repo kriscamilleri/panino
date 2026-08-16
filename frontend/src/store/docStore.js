@@ -1,17 +1,20 @@
 // /frontend/src/store/docStore.js
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { defineStore } from "pinia";
 import { storeToRefs } from "pinia";
 import { useStructureStore } from "./structureStore";
 import { useMarkdownStore } from "./markdownStore";
 import { useSyncStore } from "./syncStore";
+import { useDraftStore } from "./draftStore";
 import { useImportExportStore } from "./importExportStore";
 import { normalizeRecentDocument } from "../utils/recentDocuments.js";
+import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 
 export const useDocStore = defineStore("docStore", () => {
   const structureStore = useStructureStore();
   const markdownStore = useMarkdownStore();
   const syncStore = useSyncStore();
+  const draftStore = useDraftStore();
   const importExportStore = useImportExportStore();
   const isSaving = ref(false);
   const recentDocVersion = ref(0);
@@ -28,6 +31,20 @@ export const useDocStore = defineStore("docStore", () => {
   } = storeToRefs(structureStore);
 
   const { styles, printStyles } = storeToRefs(markdownStore);
+
+  /**
+   * True when the open document has local edits that differ from its base and
+   * have not yet been persisted. Consumed by the editor's save-status surface.
+   * See COLLAB-01.
+   */
+  const isDirty = computed(() => {
+    const id = selectedFileId.value;
+    if (!id) return false;
+    const draft = draftStore.getDraft(id);
+    if (draft === undefined) return false;
+    const base = draftStore.getBase(id) ?? selectedFile.value?.content ?? "";
+    return hasDocumentContentChanged(base, draft);
+  });
 
   async function loadInitialData() {
     // This is now mainly for selecting a default file after the initial sync
@@ -181,6 +198,9 @@ ${DOCUMENT_COLUMNS}
         "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
         [newContent, new Date().toISOString(), fileId],
       );
+      // A local commit is a new agreement point: record it as the base before
+      // the optimistic content update re-enters the editor's content watch.
+      draftStore.setBase(fileId, newContent);
       if (selectedFile.value?.id === fileId) {
         selectedFile.value.content = newContent; // Optimistic update
       }
@@ -246,5 +266,6 @@ ${DOCUMENT_COLUMNS}
     refreshData, // Expose the new function
     recentDocVersion,
     isSaving,
+    isDirty,
   };
 });

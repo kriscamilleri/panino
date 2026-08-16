@@ -58,7 +58,72 @@
         <span class="font-medium">Lines:</span>
         <span data-testid="editor-stats-lines">{{ lineCount }}</span>
       </div>
+      <div class="flex items-center gap-1 ml-auto">
+        <span
+          data-testid="editor-save-status"
+          class="pn-meta"
+          :class="{ 'text-amber-600': isDirty }"
+        >{{ saveStatusLabel }}</span>
+      </div>
     </div>
+
+    <div
+      v-if="conflict"
+      class="pn-alert pn-alert-warning mt-0 rounded-none"
+      data-testid="editor-conflict-banner"
+    >
+      <div class="flex-1">
+        <p class="font-medium">This document was updated elsewhere.</p>
+        <p class="text-sm">Your unsaved changes are being held.</p>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <BaseButton
+          size="sm"
+          variant="secondary"
+          data-testid="editor-conflict-keep-mine"
+          @click="keepMine"
+        >Keep mine</BaseButton>
+        <BaseButton
+          size="sm"
+          variant="secondary"
+          data-testid="editor-conflict-use-theirs"
+          @click="useTheirs"
+        >Use theirs</BaseButton>
+        <BaseButton
+          size="sm"
+          variant="ghost"
+          data-testid="editor-conflict-compare"
+          @click="openCompare"
+        >Compare</BaseButton>
+      </div>
+    </div>
+
+    <BaseModal
+      :show="showCompare"
+      title="Compare versions"
+      size="lg"
+      :close-on-backdrop="false"
+      close-testid="editor-conflict-compare-close"
+      @close="showCompare = false"
+    >
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[60vh]">
+        <div class="min-h-0 flex flex-col">
+          <h4 class="pn-title-sub mb-2">Remote changes</h4>
+          <DiffView :old-text="compareBase" :new-text="compareTheirs" />
+        </div>
+        <div class="min-h-0 flex flex-col">
+          <h4 class="pn-title-sub mb-2">Your changes</h4>
+          <DiffView :old-text="compareBase" :new-text="compareMine" />
+        </div>
+      </div>
+      <template #footer>
+        <BaseButton
+          size="md"
+          variant="secondary"
+          @click="showCompare = false"
+        >Close</BaseButton>
+      </template>
+    </BaseModal>
 
     <div class="flex-1 flex flex-col min-h-0 mt-0">
       <div
@@ -123,7 +188,10 @@ import { useEditorStore } from '@/store/editorStore';
 import { useHistoryStore } from '@/store/historyStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useOverTypePatches } from '@/composables/useOverTypePatches';
-import { hasDocumentContentChanged } from '@/utils/documentPersistence';
+import { hasDocumentContentChanged, classifyEditorConflict } from '@/utils/documentPersistence';
+import BaseButton from '@/components/BaseButton.vue';
+import BaseModal from '@/components/BaseModal.vue';
+import DiffView from '@/components/DiffView.vue';
 import OverType from 'overtype';
 
 useOverTypePatches();
@@ -155,7 +223,7 @@ const themeStore = useThemeStore();
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
 
-const { selectedFile: file } = storeToRefs(docStore);
+const { selectedFile: file, isSaving, isDirty } = storeToRefs(docStore);
 
 /* ───── upload state ───── */
 const isUploading = ref(false);
@@ -163,6 +231,16 @@ const uploadError = ref('');
 
 /* ───── reactive draft ───── */
 const contentDraft = ref('');
+
+/* ───── editor conflict safety (COLLAB-01) ───── */
+// Non-null while the open document has diverged from a remote edit:
+// `{ theirs: string }` holds the remote body we have not adopted.
+const conflict = ref(null);
+const showCompare = ref(false);
+// Set while the editor value is being changed programmatically (adoption or
+// resolution), so the resulting onChange does not schedule a DB write or
+// re-enter classification.
+const isProgrammaticUpdate = ref(false);
 
 /* ───── debounced save ───── */
 const debouncedSyncToDB = debounce((id, text) => {
@@ -300,6 +378,17 @@ function handleInput(value) {
 
   if (file.value) {
     draftStore.setDraft(file.value.id, value);
+
+    // A programmatic setValue (adoption/resolution) refreshes bookkeeping but
+    // must not schedule a database write.
+    if (isProgrammaticUpdate.value) return;
+
+    // While diverged, local writes are held and never reach the database.
+    if (conflict.value) {
+      debouncedSyncToDB.cancel();
+      return;
+    }
+
     if (hasDocumentContentChanged(file.value.content, value)) {
       debouncedSyncToDB(file.value.id, value);
     } else {
@@ -426,20 +515,115 @@ watch(() => file.value, (newFile) => {
   }
 });
 
-/* ───── watch for file changes ───── */
-watch(() => file.value?.id, (newId) => {
+/* ───── watch for file changes (id + content, ordered) ───── */
+function setEditorValue(text, { preserveCursor = true } = {}) {
+  const textarea = getTextareaElement();
+  const selStart = textarea ? textarea.selectionStart : 0;
+  const selEnd = textarea ? textarea.selectionEnd : 0;
+
+  isProgrammaticUpdate.value = true;
+  try {
+    if (editorInstance.value) {
+      editorInstance.value.setValue(text);
+    } else {
+      contentDraft.value = text;
+      return;
+    }
+  } finally {
+    // Clear the guard after OverType's onChange has had a chance to run. It may
+    // fire synchronously or on the next tick; the timeout covers both.
+    nextTick(() => { isProgrammaticUpdate.value = false; });
+    setTimeout(() => { isProgrammaticUpdate.value = false; }, 0);
+  }
+
+  if (preserveCursor) {
+    const length = text.length;
+    const start = Math.min(selStart, length);
+    const end = Math.min(selEnd, length);
+    nextTick(() => {
+      const ta = getTextareaElement();
+      if (ta) {
+        ta.focus();
+        ta.setSelectionRange(start, end);
+      }
+    });
+  }
+}
+
+function clearConflict() {
+  conflict.value = null;
+  showCompare.value = false;
+}
+
+function adoptRemote(fileId, theirs) {
+  const normalized = theirs ?? '';
+  contentDraft.value = normalized;
+  draftStore.setDraft(fileId, normalized);
+  draftStore.setBase(fileId, normalized);
+  setEditorValue(normalized, { preserveCursor: true });
+}
+
+function enterConflict(fileId, theirs) {
+  conflict.value = { theirs: theirs ?? '' };
+  // Hold local writes; the actual fix is that nothing reaches the database
+  // until the user resolves.
+  debouncedSyncToDB.cancel();
+}
+
+async function keepMine() {
+  const id = file.value?.id;
+  if (!id) return;
+  const mine = contentDraft.value;
+  draftStore.setBase(id, mine);
+  draftStore.setDraft(id, mine);
+  clearConflict();
+  await docStore.updateFileContent(id, mine);
+}
+
+async function useTheirs() {
+  const id = file.value?.id;
+  if (!id) return;
+  const theirs = conflict.value?.theirs ?? '';
+  draftStore.setBase(id, theirs);
+  draftStore.setDraft(id, theirs);
+  clearConflict();
+  setEditorValue(theirs, { preserveCursor: true });
+}
+
+function openCompare() {
+  showCompare.value = true;
+}
+
+function classifyRemoteContent(fileId, theirs) {
+  const mine = contentDraft.value;
+  const base = draftStore.getBase(fileId) ?? '';
+  const action = classifyEditorConflict({ mine, base, theirs });
+
+  if (action === 'adopt') {
+    adoptRemote(fileId, theirs);
+  } else if (action === 'conflict') {
+    enterConflict(fileId, theirs);
+  }
+}
+
+function handleDocumentSwitch(newId) {
+  clearConflict();
+  debouncedSyncToDB.cancel();
+  debouncedRecord.cancel();
+
   if (newId) {
-    const newContent = file.value.content ?? '';
+    const newContent = file.value?.content ?? '';
 
     // Initialize history for this file (keeps existing stack if revisited)
     historyStore.initialize(newId, newContent);
 
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
+    draftStore.setBase(newId, newContent);
 
     // If editor exists, update its value
     if (editorInstance.value) {
-      editorInstance.value.setValue(newContent);
+      setEditorValue(newContent, { preserveCursor: false });
     } else {
       // If no editor, initialize it (will happen on next tick after DOM updates)
       nextTick(() => {
@@ -449,10 +633,25 @@ watch(() => file.value?.id, (newId) => {
   } else {
     contentDraft.value = '';
     if (editorInstance.value) {
-      editorInstance.value.setValue('');
+      setEditorValue('', { preserveCursor: false });
     }
   }
-}, { immediate: true });
+}
+
+watch(
+  () => [file.value?.id, file.value?.content],
+  ([newId, newContent], oldValue) => {
+    const oldId = oldValue ? oldValue[0] : undefined;
+    if (newId !== oldId) {
+      handleDocumentSwitch(newId);
+      return;
+    }
+    if (newId) {
+      classifyRemoteContent(newId, newContent ?? '');
+    }
+  },
+  { immediate: true },
+);
 
 watch(() => themeStore.theme, () => {
   if (!editorInstance.value) return;
@@ -464,6 +663,18 @@ watch(() => themeStore.theme, () => {
 const wordCount = computed(() => (contentDraft.value ? contentDraft.value.trim().split(/\s+/).filter(Boolean).length : 0));
 const characterCount = computed(() => contentDraft.value.length);
 const lineCount = computed(() => (contentDraft.value ? contentDraft.value.split('\n').length : 0));
+
+/* ───── persistence indicator (COLLAB-01) ───── */
+const saveStatusLabel = computed(() => {
+  if (isSaving.value) return 'Saving…';
+  if (isDirty.value) return 'Unsaved changes';
+  return 'Saved';
+});
+
+/* ───── conflict compare (COLLAB-01) ───── */
+const compareBase = computed(() => (file.value ? draftStore.getBase(file.value.id) ?? '' : ''));
+const compareTheirs = computed(() => conflict.value?.theirs ?? '');
+const compareMine = computed(() => contentDraft.value);
 
 /* ───── paste-images & upload helper ───── */
 async function handlePaste(event) {
