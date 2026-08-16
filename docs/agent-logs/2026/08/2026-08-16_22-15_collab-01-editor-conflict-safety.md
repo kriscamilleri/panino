@@ -2,7 +2,7 @@
 
 Agent: Zed coding agent
 Start: 2026-08-16 22:15 +02:00
-Status: In progress
+Status: Complete
 
 ## Objective
 
@@ -27,10 +27,18 @@ _(in progress)_
 
 ## Tests
 
-_(pending)_
+- `cd frontend && npm test`
+  - Passed: 388 tests in 26 files (including 16 new `editorConflictSafety` tests).
+- `cd frontend && npm run build`
+  - Passed: 1728 modules transformed, production build succeeds.
+- `npm run lint`
+  - No errors or warnings reported for the changed files.
 
 ## Open Items / Notes
 
 - COLLAB-02 will promote the in-memory `draftStore` base to the durable `note_sync_base`
   table; the in-memory base in this spec is anticipated by that design.
-- `docStore.isSaving` currently has no `.vue` consumer; this spec adds the first such surface.
+- `docStore.isSaving` had no `.vue` consumer before; this spec adds the first such surface.
+- Two-browser manual reproduction (§2) requires the full Docker dev stack and is deferred:
+  the sandbox blocks outbound network for image pulls and the terminal does not run
+  long-lived dev servers. The classification logic is unit-tested and the build compiles.
