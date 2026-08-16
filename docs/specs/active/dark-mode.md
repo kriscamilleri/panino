@@ -22,7 +22,7 @@ different interface theme on each device without creating a document change.
 3. Persist the selected preference in browser storage and restore it before user interaction.
 4. Apply the dark mode to application surfaces, text, icons, controls, menus, dialogs, tables,
    the markdown editor, rendered preview, and focus states.
-5. Use `#000b2b` as the dark surface, `#77a0a5` as primary, and `#9377a5` as the accent.
+5. Use an off-black dark surface, `#77a0a5` as primary, and `#9377a5` as the accent.
    Semantic status colors are success `#7dff95`, warning `#ffbc5e`, danger `#ff8080`, and
    info `#87d1ff`.
 6. Keep text, icon, focus, link, error, and disabled states legible and keyboard accessible.
@@ -45,9 +45,9 @@ different interface theme on each device without creating a document change.
 
 ## 5) Design and accessibility
 
-`html[data-theme="dark"]` activates the dark theme. `#000b2b` is the application base,
+`html[data-theme="dark"]` activates the dark theme. The off-black application base is `#0b0b0d`,
 `#77a0a5` is the interactive primary, and `#9377a5` is the accent. Elevated and inset navy
-surfaces are derived from that base for hierarchy, as in the supplied reference. Light text and
+surfaces are derived from that base for hierarchy. Light text and
 muted text use high-contrast blue-gray neutrals; semantic status colors remain distinct from
 neutral controls.
 
