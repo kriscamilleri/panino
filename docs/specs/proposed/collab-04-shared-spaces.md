@@ -442,7 +442,8 @@ the intermediate duplicate recoverable and auditable.
 
 Phase 1 is a pure refactor and should land with the full existing backend suite green before
 anything else starts. Phase 0 must produce an approved authorization matrix, transfer state diagram,
-and a restore/backup runbook update before Phase 1 begins.
+and a restore/backup runbook update before Phase 2 begins. The five Phase 0 contracts are specified
+in [collab-04-phase-0-design-artifacts.md](collab-04-phase-0-design-artifacts.md).
 
 ---
 

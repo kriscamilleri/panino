@@ -58,6 +58,14 @@ Do not extract an archive over the production volume. Restore into a separate di
 validate the databases, and follow the production change approval and backup rules before
 replacing any live data.
 
+**Shared spaces are not yet covered by this backup.** When shared spaces are enabled, a space
+adds `data/spaces/{spaceId}.db` and `uploads/spaces/` — the current backup enumerates only flat
+`*.db` files in `/app/data`, so it captures `_spaces.db` but not the space content databases or
+uploads, and its flat tar layout cannot represent the `spaces/` subdirectory. This gap is latent
+while `SHARED_SPACES_ENABLED=false`; it must be closed before the flag is enabled in production.
+See the atomic backup/restore contract in
+[`docs/specs/proposed/collab-04-phase-0-design-artifacts.md`](../specs/proposed/collab-04-phase-0-design-artifacts.md) §5.
+
 ## Routing
 
 - `/` serves the built frontend from Nginx.
