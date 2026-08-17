@@ -25,6 +25,7 @@ import {
   ensureNoteRevisionsSchema,
   ensureImagesSchema,
   ensureNotesSchema,
+  METADATA_DB_BUSY_TIMEOUT_MS,
 } from "../../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -179,6 +180,19 @@ describe("Database Initialization", () => {
     const db2 = getAuthDb();
 
     expect(db1).toBe(db2);
+  });
+
+  it("sets a bounded busy_timeout on both the auth and shared-spaces connections", () => {
+    // Guards against the concurrent-lock regression where invariant checks
+    // (writes against `_spaces.db`) and actor lookups (reads against
+    // `_users.db`) could hit an immediate SQLITE_BUSY instead of retrying
+    // briefly, since neither long-lived metadata connection configured a
+    // busy timeout.
+    const authDb = getAuthDb();
+    const spacesDb = getSpacesDb();
+
+    expect(authDb.pragma("busy_timeout", { simple: true })).toBe(METADATA_DB_BUSY_TIMEOUT_MS);
+    expect(spacesDb.pragma("busy_timeout", { simple: true })).toBe(METADATA_DB_BUSY_TIMEOUT_MS);
   });
 });
 
@@ -508,6 +522,12 @@ describe("ensureNoteRevisionsSchema", () => {
       .prepare("SELECT COUNT(*) as c FROM note_revisions WHERE note_id = ?")
       .get("note-x").c;
     expect(revCount).toBe(1);
+    // The FK-rebuild path also backfills the actor columns for a DB that
+    // predates both fixes, defaulting existing rows to NULL.
+    const revisionRow = db
+      .prepare("SELECT actor_user_id, actor_kind FROM note_revisions WHERE id = 'rev-x'")
+      .get();
+    expect(revisionRow).toEqual({ actor_user_id: null, actor_kind: null });
     // Indexes are recreated on the new table (not lost with the old one).
     expect(listIndexes(db)).toEqual([
       "idx_note_revisions_note_created",
@@ -539,6 +559,62 @@ describe("ensureNoteRevisionsSchema", () => {
       "idx_note_revisions_note_type_created",
       "sqlite_autoindex_note_revisions_1",
     ]);
+
+    db.close();
+  });
+
+  it("adds the actor_user_id/actor_kind columns in place when the cascade FK is already present", () => {
+    const db = getTestDb(`migr-actor-cols-${Date.now()}`, { inMemory: true });
+    // Simulate a DB that already received the cascade FK fix (from an
+    // earlier deploy) but predates the backend-only actor columns.
+    db.exec("DROP TABLE note_revisions");
+    db.exec(`
+      CREATE TABLE note_revisions (
+          id TEXT PRIMARY KEY NOT NULL,
+          note_id TEXT NOT NULL,
+          title TEXT,
+          content_gzip BLOB NOT NULL,
+          type TEXT NOT NULL DEFAULT 'auto',
+          content_sha256 TEXT NOT NULL,
+          uncompressed_bytes INTEGER NOT NULL,
+          compressed_bytes INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+      );
+      CREATE INDEX idx_note_revisions_note_created
+          ON note_revisions(note_id, created_at DESC);
+      CREATE INDEX idx_note_revisions_note_type_created
+          ON note_revisions(note_id, type, created_at DESC);
+      INSERT INTO notes (id, title, content, created_at, updated_at)
+          VALUES ('note-y', 't', 'c', datetime('now'), datetime('now'));
+      INSERT INTO note_revisions (
+          id, note_id, title, content_gzip, type, content_sha256,
+          uncompressed_bytes, compressed_bytes, created_at
+      ) VALUES ('rev-y', 'note-y', 't', X'00', 'auto', 'h', 0, 1, datetime('now'));
+    `);
+
+    const columnNames = () =>
+      db.prepare("PRAGMA table_info('note_revisions')").all().map((c) => c.name);
+    expect(noteRevisionsFkOnDelete(db)).toBe("CASCADE");
+    expect(columnNames()).not.toContain("actor_user_id");
+
+    ensureNoteRevisionsSchema(db);
+
+    expect(columnNames()).toEqual(
+      expect.arrayContaining(["actor_user_id", "actor_kind"]),
+    );
+    expect(noteRevisionsFkOnDelete(db)).toBe("CASCADE");
+    // Existing row preserved; the new columns default to NULL, not an error.
+    const row = db
+      .prepare(
+        "SELECT actor_user_id, actor_kind FROM note_revisions WHERE id = 'rev-y'",
+      )
+      .get();
+    expect(row).toEqual({ actor_user_id: null, actor_kind: null });
+
+    // Running again is a no-op: no duplicate-column error, nothing changes.
+    expect(() => ensureNoteRevisionsSchema(db)).not.toThrow();
+    expect(columnNames().filter((c) => c === "actor_user_id")).toHaveLength(1);
 
     db.close();
   });

@@ -117,9 +117,135 @@ function membershipQuery(db, spaceId, userId) {
               m.created_at AS memberSince
          FROM spaces s
          JOIN space_members m ON m.space_id = s.id
-        WHERE s.id = ? AND m.user_id = ?`,
+        WHERE s.id = ? AND m.user_id = ? AND s.status = 'active'`,
     )
     .get(spaceId, userId);
+}
+
+function tableExists(db, name) {
+  return !!db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(name);
+}
+
+/**
+ * Read-only invariant sweep over `_spaces.db` (phase-0 design artifacts §2).
+ * Returns { ok, violations } and, when `throwOnViolation` (the default),
+ * throws SpaceRepositoryError("SPACE_INVARIANT_VIOLATION", ...) on any
+ * failure so the caller's transaction rolls back rather than guessing a
+ * repair. The thrown message is intentionally generic; violation detail is
+ * only logged server-side (never surfaced to an HTTP caller).
+ */
+export function assertSpacesInvariants(db, { throwOnViolation = true } = {}) {
+  const violations = [];
+
+  // 1 & 6: every space has exactly one owner membership agreeing with
+  // spaces.owner_user_id; more than one is a duplicate-owner violation.
+  const spaces = db
+    .prepare("SELECT id, owner_user_id AS ownerUserId FROM spaces")
+    .all();
+  for (const space of spaces) {
+    const owners = db
+      .prepare(
+        "SELECT user_id AS userId FROM space_members WHERE space_id = ? AND role = 'owner'",
+      )
+      .all(space.id);
+    if (owners.length === 0) {
+      violations.push({ code: "SPACE_OWNER_MISSING", spaceId: space.id });
+    } else if (owners.length > 1) {
+      violations.push({ code: "SPACE_DUPLICATE_OWNER", spaceId: space.id });
+    } else if (owners[0].userId !== space.ownerUserId) {
+      violations.push({ code: "SPACE_OWNER_MISMATCH", spaceId: space.id });
+    }
+  }
+
+  // 2: no orphaned space_members / space_invites rows.
+  const orphanMembers = db
+    .prepare(
+      "SELECT DISTINCT space_id AS spaceId FROM space_members WHERE space_id NOT IN (SELECT id FROM spaces)",
+    )
+    .all();
+  for (const row of orphanMembers) {
+    violations.push({ code: "SPACE_ORPHAN_MEMBER", spaceId: row.spaceId });
+  }
+
+  if (tableExists(db, "space_invites")) {
+    const orphanInvites = db
+      .prepare(
+        "SELECT DISTINCT space_id AS spaceId FROM space_invites WHERE space_id NOT IN (SELECT id FROM spaces)",
+      )
+      .all();
+    for (const row of orphanInvites) {
+      violations.push({ code: "SPACE_ORPHAN_INVITE", spaceId: row.spaceId });
+    }
+  }
+
+  // 3 & 5: every referenced user id (member or owner) must exist in the auth
+  // DB, and must have a space_user_versions row (no gaps).
+  const referencedUserIds = new Set([
+    ...db
+      .prepare("SELECT DISTINCT user_id AS userId FROM space_members")
+      .all()
+      .map((r) => r.userId),
+    ...db
+      .prepare("SELECT DISTINCT owner_user_id AS userId FROM spaces")
+      .all()
+      .map((r) => r.userId),
+  ]);
+
+  if (referencedUserIds.size > 0) {
+    const authDb = getAuthDb();
+    const authExists = authDb.prepare("SELECT 1 FROM users WHERE id = ?");
+    for (const userId of referencedUserIds) {
+      if (!authExists.get(userId)) {
+        violations.push({ code: "SPACE_MEMBER_USER_MISSING", userId });
+      }
+    }
+
+    const versionExists = db.prepare(
+      "SELECT 1 FROM space_user_versions WHERE user_id = ?",
+    );
+    for (const userId of referencedUserIds) {
+      if (!versionExists.get(userId)) {
+        violations.push({ code: "SPACE_VERSION_MISSING", userId });
+      }
+    }
+  }
+
+  // 4: status/delete_after pairing.
+  const pairingViolations = db
+    .prepare(
+      `SELECT id AS spaceId FROM spaces
+        WHERE (status = 'pending_delete' AND delete_after IS NULL)
+           OR (status = 'active' AND delete_after IS NOT NULL)`,
+    )
+    .all();
+  for (const row of pairingViolations) {
+    violations.push({
+      code: "SPACE_STATUS_DELETE_AFTER_MISMATCH",
+      spaceId: row.spaceId,
+    });
+  }
+
+  const ok = violations.length === 0;
+  if (!ok) {
+    console.error(
+      "[spaces]",
+      JSON.stringify({
+        event: "space_invariant_violation",
+        count: violations.length,
+        codes: [...new Set(violations.map((v) => v.code))],
+      }),
+    );
+    if (throwOnViolation) {
+      throw new SpaceRepositoryError(
+        "SPACE_INVARIANT_VIOLATION",
+        "Shared-space metadata failed an integrity check",
+      );
+    }
+  }
+
+  return { ok, violations };
 }
 
 function createArgs(actorOrOptions, name) {
@@ -179,6 +305,7 @@ export function createSpace(actorOrOptions, suppliedName) {
        VALUES (?, ?, 'owner', NULL, ?)`,
     ).run(spaceId, actorUserId, now);
     bumpUserVersion(db, actorUserId);
+    assertSpacesInvariants(db);
   });
 
   create();
@@ -263,6 +390,7 @@ export function addEditorMember(
        VALUES (?, ?, 'editor', ?, ?)`,
     ).run(spaceId, userId, actorUserId, now);
     bumpUserVersion(db, userId);
+    assertSpacesInvariants(db);
   });
 
   try {
@@ -336,8 +464,62 @@ export function removeEditorMember(
       );
     }
     bumpUserVersion(db, userId);
+    assertSpacesInvariants(db);
   });
 
   remove();
   return { spaceId, userId, membershipVersion: membershipVersion(db, userId) };
+}
+
+/**
+ * The one shared-space authorization resolver for `/sync` and the WebSocket
+ * subscribe/poke paths (COLLAB-04 §4.2, §4.3). It never trusts a
+ * client-supplied user id: `actorUserId` must come from `req.user.user_id`
+ * (the authenticated JWT subject) at every call site. It never throws for an
+ * ordinary "no access" outcome — disabled flag, invalid input, unknown
+ * space, non-member, and pending-deletion space are all indistinguishable
+ * `null` so a caller cannot use it to probe space existence. It returns the
+ * active membership plus the caller's current space_user_versions version.
+ *
+ * A genuine metadata operational failure (e.g. `_spaces.db` unreadable) is
+ * NOT swallowed into that same `null` — it propagates as a thrown error, so
+ * callers can tell "not a member" apart from "we couldn't check" and
+ * respond accordingly (never as a disclosing detail, but never as a silent
+ * false negative either).
+ */
+export function resolveSpaceAccess(spaceOrOptions, suppliedActorUserId) {
+  const spaceId =
+    spaceOrOptions && typeof spaceOrOptions === "object"
+      ? spaceOrOptions.spaceId
+      : spaceOrOptions;
+  const actorUserId =
+    spaceOrOptions && typeof spaceOrOptions === "object"
+      ? spaceOrOptions.actorUserId
+      : suppliedActorUserId;
+
+  if (!isSharedSpacesEnabled()) return null;
+  if (typeof spaceId !== "string" || !validateUuid(spaceId)) return null;
+  if (typeof actorUserId !== "string" || !validateUuid(actorUserId)) return null;
+
+  const db = getSpacesDb();
+  const membership = membershipQuery(db, spaceId, actorUserId);
+  if (!membership) return null;
+  return {
+    spaceId: membership.spaceId,
+    role: membership.role,
+    membershipVersion: membershipVersion(db, actorUserId),
+  };
+}
+
+/**
+ * The caller's current space_user_versions version, or 0 when shared spaces
+ * are disabled, the user id is invalid, or the user has no space activity
+ * yet. Never returns 0 for a genuine metadata operational failure — see
+ * `resolveSpaceAccess` above for the same rationale; that case propagates as
+ * a thrown error instead so it can be surfaced as a real server failure.
+ */
+export function getSpaceMembershipVersion(userId) {
+  if (!isSharedSpacesEnabled()) return 0;
+  if (typeof userId !== "string" || !validateUuid(userId)) return 0;
+  return membershipVersion(getSpacesDb(), userId);
 }

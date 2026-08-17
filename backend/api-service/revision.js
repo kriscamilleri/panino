@@ -31,7 +31,16 @@ function validateRevisionType(type) {
   return type === 'auto' || type === 'manual' || type === 'pre-restore';
 }
 
-function createRevisionRowPayload({ noteId, title, content, type, createdAt }) {
+// Backend-only revision attribution (COLLAB-04 §3.3/§4.3). Only these three
+// kinds are ever recorded; anything else (including client-supplied values)
+// is silently dropped to null rather than trusted.
+const ACTOR_KINDS = new Set(['sync', 'collab', 'system']);
+
+function validateActorKind(actorKind) {
+  return ACTOR_KINDS.has(actorKind) ? actorKind : null;
+}
+
+function createRevisionRowPayload({ noteId, title, content, type, createdAt, actorUserId = null, actorKind = null }) {
   const safeType = validateRevisionType(type) ? type : 'auto';
   const safeTitle = title == null ? null : String(title);
   const safeContent = normalizeText(content);
@@ -48,6 +57,8 @@ function createRevisionRowPayload({ noteId, title, content, type, createdAt }) {
     compressedBytes: compressed.length,
     createdAt: createdAt || new Date().toISOString(),
     content: safeContent,
+    actorUserId: actorUserId == null ? null : String(actorUserId),
+    actorKind: validateActorKind(actorKind),
   };
 }
 
@@ -177,8 +188,10 @@ export function createRevisionSnapshot(db, {
   skipDuplicateCheck = false,
   enforceAutoThrottle = false,
   runPruneGate = true,
+  actorUserId = null,
+  actorKind = null,
 }) {
-  const payload = createRevisionRowPayload({ noteId, title, content, type });
+  const payload = createRevisionRowPayload({ noteId, title, content, type, actorUserId, actorKind });
 
   if (!skipDuplicateCheck) {
     const latest = getLatestRevision(db, noteId);
@@ -194,8 +207,9 @@ export function createRevisionSnapshot(db, {
   db.prepare(`
     INSERT INTO note_revisions (
       id, note_id, title, content_gzip, type, content_sha256,
-      uncompressed_bytes, compressed_bytes, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      uncompressed_bytes, compressed_bytes, created_at,
+      actor_user_id, actor_kind
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     payload.id,
     payload.noteId,
@@ -205,7 +219,9 @@ export function createRevisionSnapshot(db, {
     payload.contentSha256,
     payload.uncompressedBytes,
     payload.compressedBytes,
-    payload.createdAt
+    payload.createdAt,
+    payload.actorUserId,
+    payload.actorKind
   );
 
   if (runPruneGate && shouldRunPrune(db, noteId)) {

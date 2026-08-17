@@ -6,8 +6,6 @@ import path from 'path';
 import fs from 'fs';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import jwt from 'jsonwebtoken';
-import { URL } from 'url';
 
 import { authRoutes, authenticateToken } from './auth.js';
 import { syncRoutes } from './sync.js';
@@ -18,6 +16,7 @@ import { passwordResetRoutes } from './passwordReset.js';
 import { backupPublicRoutes, backupRoutes } from './backup.js';
 import { initDb } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
+import { attachWebSocketHandlers } from './websocket.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, 'data');
@@ -50,27 +49,7 @@ export function createApp() {
 
     const clients = new Map();
 
-    wss.on('connection', (ws, req) => {
-        console.log('WebSocket client connected');
-        const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
-        const token = params.get('token');
-        const siteId = params.get('siteId');
-
-        if (!token || !siteId) return ws.close(1008, 'Token and siteId required');
-
-        jwt.verify(token, JWT_SECRET, (err, payload) => {
-            if (err) return ws.close(1008, 'Invalid token');
-
-            const userId = payload.user_id;
-            clients.set(ws, { userId, siteId });
-            console.log(`Client associated with user_id: ${userId} and siteId: ${siteId}`);
-
-            ws.on('close', () => {
-                clients.delete(ws);
-                console.log(`Client for user_id: ${userId} with siteId: ${siteId} disconnected`);
-            });
-        });
-    });
+    attachWebSocketHandlers(wss, clients, JWT_SECRET);
 
     // Middleware to attach WebSocket server and clients to requests
     app.use((req, res, next) => {

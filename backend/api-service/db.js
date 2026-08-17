@@ -11,6 +11,20 @@ const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
 const CONTENT_SCHEMA_VERSION = 1;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Both the shared auth (`_users.db`) and shared spaces (`_spaces.db`) metadata
+// connections are long-lived, process-wide singletons that can be queried or
+// written from concurrent requests (e.g. a space-invariant check writing to
+// `_spaces.db` while another request reads `_users.db` to resolve an actor).
+// Without a busy timeout, SQLITE_BUSY surfaces immediately on any lock
+// contention instead of retrying briefly, so both connections get a bounded
+// `busy_timeout` right after opening/initializing, before being cached or
+// used elsewhere. 30s (rather than a shorter value) absorbs realistic
+// contention bursts against these two shared singleton files under heavy
+// concurrent load (e.g. many parallel test-suite workers or requests
+// hitting the same physical file at once) while still bounding worst-case
+// request latency instead of hanging indefinitely.
+export const METADATA_DB_BUSY_TIMEOUT_MS = 30_000;
+
 const dbConnections = new Map();
 
 const BASE_SCHEMA = `
@@ -76,6 +90,12 @@ const BASE_SCHEMA = `
     uncompressed_bytes INTEGER NOT NULL,
     compressed_bytes INTEGER NOT NULL,
     created_at TEXT NOT NULL,
+    -- Backend-only revision attribution (COLLAB-04 §3.3). Never a CRR
+    -- column, never client-writable; actor_kind validity ('sync' | 'collab'
+    -- | 'system') is enforced in createRevisionSnapshot(), not by CHECK,
+    -- so it stays easy to migrate in place.
+    actor_user_id TEXT,
+    actor_kind TEXT,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
   );
 
@@ -535,24 +555,58 @@ export function ensureNoteRevisionsSchema(db) {
   try {
     const cols = db.prepare("PRAGMA table_info('note_revisions')").all();
     if (!cols || cols.length === 0) {
-      // BASE_SCHEMA creates the table with the correct (cascade) FK already.
+      // BASE_SCHEMA creates the table with the correct (cascade) FK and the
+      // actor columns already.
       return;
     }
+
+    const columnNames = new Set(cols.map((c) => c.name));
+    const hasActorColumns =
+      columnNames.has("actor_user_id") && columnNames.has("actor_kind");
 
     // SQLite does not expose FK actions via PRAGMA table_info; inspect
     // foreign_key_list to see if the existing FK still has NO ACTION.
     const fks = db.prepare("PRAGMA foreign_key_list('note_revisions')").all();
-    const needsMigration = fks.some(
+    const needsFkMigration = fks.some(
       (f) =>
         f.table === "notes" && (f.on_delete || "NO ACTION") === "NO ACTION",
     );
-    if (!needsMigration) return;
+
+    if (!needsFkMigration && hasActorColumns) return;
+
+    if (!needsFkMigration && !hasActorColumns) {
+      // Already has the cascade FK from an earlier repair/initializer run;
+      // just add the two backend-only actor columns in place.
+      db.exec(`
+        ALTER TABLE note_revisions ADD COLUMN actor_user_id TEXT;
+        ALTER TABLE note_revisions ADD COLUMN actor_kind TEXT;
+      `);
+      return;
+    }
 
     // Standard SQLite pattern for changing FK actions: turn FK enforcement off,
     // rebuild the table, then re-enable. crsqlite's merge_delete deletes the
     // parent `notes` row mid-transaction during sync, so a non-cascade FK to a
     // CRR parent table breaks sync transactions whenever the parent is
-    // deleted before the application-level cleanup runs.
+    // deleted before the application-level cleanup runs. The new table
+    // definition always includes the actor columns; an explicit source
+    // column list keeps the INSERT working whether or not the old table
+    // already had them (SELECT * would break once the column counts
+    // diverge).
+    const sourceColumns = [
+      "id",
+      "note_id",
+      "title",
+      "content_gzip",
+      "type",
+      "content_sha256",
+      "uncompressed_bytes",
+      "compressed_bytes",
+      "created_at",
+      hasActorColumns ? "actor_user_id" : "NULL AS actor_user_id",
+      hasActorColumns ? "actor_kind" : "NULL AS actor_kind",
+    ].join(", ");
+
     db.exec(`
       PRAGMA foreign_keys = OFF;
       ALTER TABLE note_revisions RENAME TO note_revisions_old;
@@ -566,9 +620,16 @@ export function ensureNoteRevisionsSchema(db) {
         uncompressed_bytes INTEGER NOT NULL,
         compressed_bytes INTEGER NOT NULL,
         created_at TEXT NOT NULL,
+        actor_user_id TEXT,
+        actor_kind TEXT,
         FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
       );
-      INSERT INTO note_revisions SELECT * FROM note_revisions_old;
+      INSERT INTO note_revisions (
+        id, note_id, title, content_gzip, type, content_sha256,
+        uncompressed_bytes, compressed_bytes, created_at,
+        actor_user_id, actor_kind
+      )
+      SELECT ${sourceColumns} FROM note_revisions_old;
       -- The renamed table still owns the old named indexes, which would make
       -- CREATE INDEX IF NOT EXISTS silently skip re-creation. Drop them first.
       DROP INDEX IF EXISTS idx_note_revisions_note_created;
@@ -819,6 +880,7 @@ export function getAuthDb() {
   const dbPath = path.join(DB_DIR, "_users.db");
   const db = new Database(dbPath);
   db.exec(AUTH_SCHEMA);
+  db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
 
   dbConnections.set(key, db);
   return db;
@@ -856,6 +918,7 @@ export function getSpacesDb() {
   }
   db.pragma("journal_mode = wal");
   db.pragma("synchronous = normal");
+  db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
   dbConnections.set(key, db);
   return db;
 }
