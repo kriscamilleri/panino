@@ -13,18 +13,26 @@ export const useConflictStore = defineStore('conflictStore', () => {
 
     const count = computed(() => conflictedNoteIds.value.size);
 
+    const conflictKey = (dbKey, noteId) => `${dbKey}:${noteId}`;
+
     async function loadConflicts() {
         if (!syncStore.isInitialized) {
             conflictedNoteIds.value = new Set();
             return;
         }
-        const rows = await syncStore.execute('SELECT note_id FROM note_conflicts');
-        conflictedNoteIds.value = new Set((rows || []).map((row) => row.note_id));
+        const ids = new Set();
+        for (const entry of syncStore.databases.values()) {
+            if (!entry.db) continue;
+            const rows = await syncStore.repository(entry.dbKey).execute('SELECT note_id FROM note_conflicts');
+            for (const row of rows || []) ids.add(conflictKey(entry.dbKey, row.note_id));
+        }
+        conflictedNoteIds.value = ids;
     }
 
-    async function loadConflict(noteId) {
+    async function loadConflict(noteId, dbKey) {
         if (!noteId || !syncStore.isInitialized) return null;
-        const rows = await syncStore.execute(
+        if (!dbKey) throw new Error('Database scope is required to load a conflict.');
+        const rows = await syncStore.repository(dbKey).execute(
             `SELECT note_id, base_content, mine_content, theirs_content,
                     conflict_hunks, created_at, updated_at, merge_attempts
              FROM note_conflicts
@@ -44,6 +52,7 @@ export const useConflictStore = defineStore('conflictStore', () => {
 
         return {
             noteId: row.note_id,
+            dbKey,
             baseContent: row.base_content ?? '',
             mineContent: row.mine_content ?? '',
             theirsContent: row.theirs_content ?? '',
@@ -56,13 +65,11 @@ export const useConflictStore = defineStore('conflictStore', () => {
 
     async function resolveConflict(conflict, content) {
         if (!conflict?.noteId) throw new Error('A conflict record is required.');
-        const database = syncStore.db?.value;
-        if (!database) throw new Error('The local database is not available.');
+        if (!conflict.dbKey) throw new Error('Database scope is required to resolve a conflict.');
 
         const now = new Date().toISOString();
-        await database.exec('BEGIN');
-        try {
-            const currentRows = await database.execO(
+        await syncStore.repository(conflict.dbKey).transaction(async (repo) => {
+            const currentRows = await repo.execute(
                 'SELECT updated_at, merge_attempts FROM note_conflicts WHERE note_id = ?',
                 [conflict.noteId],
             );
@@ -77,11 +84,11 @@ export const useConflictStore = defineStore('conflictStore', () => {
                 throw error;
             }
 
-            await database.exec(
+            await repo.exec(
                 'UPDATE notes SET content = ?, updated_at = ? WHERE id = ?',
                 [content ?? '', now, conflict.noteId],
             );
-            await database.exec(
+            await repo.exec(
                 `INSERT INTO note_sync_base
                    (note_id, content, writeback_count, writeback_window_started_at, updated_at)
                  VALUES (?, ?, 0, NULL, ?)
@@ -92,24 +99,17 @@ export const useConflictStore = defineStore('conflictStore', () => {
                    updated_at = excluded.updated_at`,
                 [conflict.noteId, content ?? '', now],
             );
-            await database.exec('DELETE FROM note_conflicts WHERE note_id = ?', [conflict.noteId]);
-            await database.exec('COMMIT');
-        } catch (error) {
-            try {
-                await database.exec('ROLLBACK');
-            } catch (rollbackError) {
-                console.error('[conflictStore] Failed to roll back conflict resolution.', rollbackError);
-            }
-            throw error;
-        }
+            await repo.exec('DELETE FROM note_conflicts WHERE note_id = ?', [conflict.noteId]);
+        });
 
         const nextIds = new Set(conflictedNoteIds.value);
-        nextIds.delete(conflict.noteId);
+        nextIds.delete(conflictKey(conflict.dbKey, conflict.noteId));
         conflictedNoteIds.value = nextIds;
     }
 
-    function hasConflict(noteId) {
-        return conflictedNoteIds.value.has(noteId);
+    function hasConflict(noteId, dbKey) {
+        if (!dbKey) return false;
+        return conflictedNoteIds.value.has(conflictKey(dbKey, noteId));
     }
 
     function clearAll() {

@@ -199,18 +199,17 @@ pre > code {
   const saveStylesToDB = debounce(async () => {
     if (!settingsLoaded || !syncStore.isInitialized) return;
     try {
-      await syncStore.db.value.exec('BEGIN TRANSACTION;');
-      await syncStore.db.value.exec(
-        'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-        ['previewStyles', JSON.stringify(styles.value)]
-      );
-      await syncStore.db.value.exec(
-        'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-        ['printStyles', JSON.stringify(printStyles.value)]
-      );
-      await syncStore.db.value.exec('COMMIT;');
+      await syncStore.personalRepository().transaction(async (repo) => {
+        await repo.exec(
+          'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+          ['previewStyles', JSON.stringify(styles.value)]
+        );
+        await repo.exec(
+          'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+          ['printStyles', JSON.stringify(printStyles.value)]
+        );
+      });
     } catch (err) {
-      await syncStore.db.value.exec('ROLLBACK;');
       console.error('[markdownStore] Failed to save styles', err);
     }
   }, 500);
@@ -218,7 +217,7 @@ pre > code {
   async function loadStylesFromDB() {
     if (!syncStore.isInitialized) return;
     try {
-      const result = await syncStore.execute(`SELECT id, value FROM settings WHERE id IN ('previewStyles', 'printStyles')`);
+      const result = await syncStore.personalRepository().execute(`SELECT id, value FROM settings WHERE id IN ('previewStyles', 'printStyles')`);
       const loadedSettings = result || [];
 
       const preview = loadedSettings.find(s => s.id === 'previewStyles');

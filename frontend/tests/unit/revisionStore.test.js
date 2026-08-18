@@ -7,6 +7,8 @@ vi.mock('../../src/store/authStore.js', () => ({
 
 import { useRevisionStore } from '../../src/store/revisionStore.js';
 
+const PERSONAL_DB_KEY = 'user:11111111-1111-4111-8111-111111111111';
+
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,
@@ -36,7 +38,7 @@ describe('revisionStore', () => {
     }));
 
     const store = useRevisionStore();
-    await store.fetchRevisions('note-1', { reset: true, limit: 50 });
+    await store.fetchRevisions(PERSONAL_DB_KEY, 'note-1', { reset: true, limit: 50 });
 
     expect(store.revisions).toHaveLength(1);
     expect(store.hasMore).toBe(false);
@@ -56,8 +58,8 @@ describe('revisionStore', () => {
     }));
 
     const store = useRevisionStore();
-    await store.fetchRevisionDetail('note-1', 'rev-1');
-    await store.fetchRevisionDetail('note-1', 'rev-1');
+    await store.fetchRevisionDetail(PERSONAL_DB_KEY, 'note-1', 'rev-1');
+    await store.fetchRevisionDetail(PERSONAL_DB_KEY, 'note-1', 'rev-1');
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(store.selectedRevisionId).toBe('rev-1');
@@ -80,7 +82,7 @@ describe('revisionStore', () => {
       .mockResolvedValueOnce(jsonResponse({ revisions: [] }));
 
     const store = useRevisionStore();
-    const result = await store.restoreRevision('note-1', 'rev-1', '2026-02-17T10:00:00.000Z');
+    const result = await store.restoreRevision(PERSONAL_DB_KEY, 'note-1', 'rev-1', '2026-02-17T10:00:00.000Z');
 
     expect(result.restored).toBe(true);
     expect(fetchSpy).toHaveBeenNthCalledWith(
@@ -114,7 +116,7 @@ describe('revisionStore', () => {
       }));
 
     const store = useRevisionStore();
-    await store.fetchRevisionDetail('note-1', 'rev-1');
+    await store.fetchRevisionDetail(PERSONAL_DB_KEY, 'note-1', 'rev-1');
     expect(store.selectedRevisionId).toBe('rev-1');
     expect(store.selectedRevisionDetail.content).toBe('# markdown');
 
@@ -122,7 +124,7 @@ describe('revisionStore', () => {
     expect(store.selectedRevisionId).toBe(null);
     expect(store.selectedRevisionDetail).toBe(null);
 
-    await store.fetchRevisionDetail('note-1', 'rev-1');
+    await store.fetchRevisionDetail(PERSONAL_DB_KEY, 'note-1', 'rev-1');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -164,10 +166,10 @@ describe('revisionStore', () => {
       }));
 
     const store = useRevisionStore();
-    await store.fetchRevisionDetail('note-1', 'rev-selected');
+    await store.fetchRevisionDetail(PERSONAL_DB_KEY, 'note-1', 'rev-selected');
     expect(store.selectedRevisionId).toBe('rev-selected');
 
-    await store.restoreRevision('note-1', 'rev-selected', '2026-02-17T10:00:00.000Z');
+    await store.restoreRevision(PERSONAL_DB_KEY, 'note-1', 'rev-selected', '2026-02-17T10:00:00.000Z');
     expect(store.selectedRevisionId).toBe(null);
     expect(store.revisions.map((r) => r.id)).toEqual(['rev-other']);
   });
@@ -221,14 +223,14 @@ describe('revisionStore', () => {
 
     const store = useRevisionStore();
 
-    await store.fetchRevisionDetail('note-1', 'rev-selected');
+    await store.fetchRevisionDetail(PERSONAL_DB_KEY, 'note-1', 'rev-selected');
     expect(store.selectedRevisionId).toBe('rev-selected');
     expect(store.selectedRevisionDetail.content).toBe('# checkpoint');
 
-    await store.restoreRevision('note-1', 'rev-selected', '2026-02-17T10:00:00.000Z');
+    await store.restoreRevision(PERSONAL_DB_KEY, 'note-1', 'rev-selected', '2026-02-17T10:00:00.000Z');
     expect(store.selectedRevisionId).toBe(null);
 
-    await store.fetchRevisionDetail('note-1', 'rev-selected');
+    await store.fetchRevisionDetail(PERSONAL_DB_KEY, 'note-1', 'rev-selected');
     expect(store.selectedRevisionId).toBe('rev-selected');
     expect(store.selectedRevisionDetail.content).toBe('# checkpoint');
     expect(fetchSpy).toHaveBeenCalledTimes(4);

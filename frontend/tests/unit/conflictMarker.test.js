@@ -14,12 +14,12 @@ describe("unresolved-conflict markers (COLLAB-02 §6.2)", () => {
   it("renders a marker on tree document rows", () => {
     expect(treeItemSource).toContain('tree-item-conflict-');
     expect(treeItemSource).toContain("hasConflict");
-    expect(treeItemSource).toContain("conflictStore.hasConflict(props.item.id)");
+    expect(treeItemSource).toContain("conflictStore.hasConflict(props.item.id, props.item.dbKey)");
   });
 
   it("renders a marker on recent document rows", () => {
     expect(recentRowSource).toContain('document-row-conflict-');
     expect(recentRowSource).toContain("hasConflict");
-    expect(recentRowSource).toContain("conflictStore.hasConflict(props.document.id)");
+    expect(recentRowSource).toContain("conflictStore.hasConflict(props.document.id, props.document.dbKey)");
   });
 });

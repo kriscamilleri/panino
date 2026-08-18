@@ -183,6 +183,7 @@ import { ChevronLeft, ChevronRight, Image, RefreshCw } from 'lucide-vue-next';
 import BaseModal from '@/components/BaseModal.vue';
 import BaseButton from '@/components/BaseButton.vue';
 import { useImageManagerStore } from '@/store/imageManagerStore';
+import { useSyncStore } from '@/store/syncStore';
 import { useAuthStore } from '@/store/authStore';
 
 const PAGE_LIMIT = 25;
@@ -194,6 +195,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'insert-selected']);
 
 const imageManager = useImageManagerStore();
+const syncStore = useSyncStore();
 const authStore = useAuthStore();
 
 const search = ref('');
@@ -240,7 +242,7 @@ function imagePreviewUrl(url) {
 }
 
 async function loadPage(cursor = null) {
-    await imageManager.fetchImages({
+    await imageManager.fetchImages(syncStore.personalDbKey, {
         limit: PAGE_LIMIT,
         cursor,
         search: search.value.trim(),
@@ -258,7 +260,7 @@ async function applyFilters() {
     currentCursor.value = null;
     await Promise.all([
         loadPage(null),
-        imageManager.fetchStats(),
+        imageManager.fetchStats(syncStore.personalDbKey),
     ]);
 }
 

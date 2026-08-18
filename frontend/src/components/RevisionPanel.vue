@@ -6,7 +6,14 @@
     ]"
     data-testid="revision-panel"
   >
-    <div class="flex h-full min-h-0">
+    <div
+      v-if="isSharedDocument"
+      class="p-4 text-sm text-gray-600"
+      data-testid="revision-panel-space-unavailable"
+    >
+      Revision history for shared-space Documents is not available yet.
+    </div>
+    <div v-else class="flex h-full min-h-0">
       <div class="w-[30rem] max-w-[30rem] shrink-0 border-r border-gray-200 min-h-0 flex flex-col overflow-y-auto">
         <div v-if="revisionStore.isListLoading && revisionStore.revisions.length === 0" class="p-3 space-y-2">
           <div v-for="idx in 6" :key="idx" class="h-10 animate-pulse rounded-md bg-gray-100"></div>
@@ -95,18 +102,20 @@ const ui = useUiStore();
 const showCompare = ref(true);
 
 const selectedFileId = computed(() => docStore.selectedFileId);
+const selectedDbKey = computed(() => docStore.selectedDbKey);
+const isSharedDocument = computed(() => selectedDbKey.value?.startsWith('space:'));
 const currentContent = computed(() => docStore.selectedFile?.content || '');
 const oldText = computed(() => revisionStore.selectedRevisionDetail?.content || '');
 const newText = computed(() => currentContent.value);
 
 watch(
-  () => selectedFileId.value,
-  async (noteId) => {
+  () => [selectedFileId.value, selectedDbKey.value],
+  async ([noteId, dbKey]) => {
     revisionStore.resetState();
     showCompare.value = true;
-    if (!noteId) return;
+    if (!noteId || !dbKey || isSharedDocument.value) return;
     try {
-      await revisionStore.fetchRevisions(noteId, { reset: true, limit: 50 });
+      await revisionStore.fetchRevisions(dbKey, noteId, { reset: true, limit: 50 });
     } catch {
       // error is surfaced via store state and inline UI
     }
@@ -124,7 +133,7 @@ function formatTimestamp(value) {
 async function refreshList() {
   if (!selectedFileId.value) return;
   try {
-    await revisionStore.fetchRevisions(selectedFileId.value, { reset: true, limit: 50 });
+    await revisionStore.fetchRevisions(selectedDbKey.value, selectedFileId.value, { reset: true, limit: 50 });
   } catch {
     // error is surfaced via store state and inline UI
   }
@@ -133,7 +142,7 @@ async function refreshList() {
 async function selectRevision(revisionId) {
   if (!selectedFileId.value || !revisionId) return;
   try {
-    await revisionStore.fetchRevisionDetail(selectedFileId.value, revisionId);
+    await revisionStore.fetchRevisionDetail(selectedDbKey.value, selectedFileId.value, revisionId);
   } catch {
     // error is surfaced via store state and inline UI
   }
@@ -142,7 +151,7 @@ async function selectRevision(revisionId) {
 async function loadMore() {
   if (!selectedFileId.value) return;
   try {
-    await revisionStore.loadMore(selectedFileId.value, 50);
+    await revisionStore.loadMore(selectedDbKey.value, selectedFileId.value, 50);
   } catch {
     // error is surfaced via store state and inline UI
   }
@@ -151,7 +160,7 @@ async function loadMore() {
 async function saveVersion() {
   if (!selectedFileId.value) return;
   try {
-    const result = await revisionStore.saveManualRevision(selectedFileId.value);
+    const result = await revisionStore.saveManualRevision(selectedDbKey.value, selectedFileId.value);
     if (result?.created === false && result?.reason === 'duplicate-latest') {
       ui.addToast('Latest version is identical; nothing new was saved.', 'info');
       return;
@@ -167,6 +176,7 @@ async function restoreSelected() {
 
   try {
     const result = await revisionStore.restoreRevision(
+      selectedDbKey.value,
       selectedFileId.value,
       revisionStore.selectedRevisionId
     );

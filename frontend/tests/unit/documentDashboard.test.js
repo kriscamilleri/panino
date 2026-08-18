@@ -6,6 +6,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 const routerMock = { push: vi.fn() };
 const draftStoreMock = { clearDraft: vi.fn() };
 const uiStoreMock = { addToast: vi.fn() };
+const PERSONAL_KEY = 'user:11111111-1111-4111-8111-111111111111';
 
 /**
  * Reactive stand-in for the docStore facade. `syncStore.isInitialized`,
@@ -15,15 +16,19 @@ const uiStoreMock = { addToast: vi.fn() };
 const docStoreMock = reactive({
     recentDocVersion: 0,
     contentVersion: 0,
+    selectedDbKey: PERSONAL_KEY,
     syncStore: {
         isInitialized: true,
+        personalDbKey: PERSONAL_KEY,
+        databases: new Map([[PERSONAL_KEY, { dbKey: PERSONAL_KEY, kind: 'user', name: 'Personal' }]]),
         execute: vi.fn(async () => [{ name: 'Above Bored' }]),
+        repository: vi.fn(() => ({ execute: vi.fn(async () => [{ name: 'Above Bored' }]) })),
     },
     getRecentDocuments: vi.fn(async () => []),
     getFolderDocuments: vi.fn(async () => []),
     getChildren: vi.fn(async () => []),
     setDocumentPinned: vi.fn(async () => { }),
-    createFile: vi.fn(async () => ({ id: 'new-note', type: 'file', name: 'New' })),
+    createFile: vi.fn(async () => ({ id: 'new-note', type: 'file', name: 'New', dbKey: PERSONAL_KEY })),
     selectFile: vi.fn(),
     selectFolder: vi.fn(),
 });
@@ -54,6 +59,7 @@ function makeDoc(id, overrides = {}) {
         excerpt: `Excerpt for ${id}`,
         wordCount: 10,
         isPinned: false,
+        dbKey: PERSONAL_KEY,
         ...overrides,
     };
 }
@@ -132,7 +138,7 @@ beforeEach(() => {
     docStoreMock.getFolderDocuments.mockImplementation(async () => []);
     docStoreMock.getChildren.mockImplementation(async () => []);
     docStoreMock.setDocumentPinned.mockImplementation(async () => { });
-    docStoreMock.createFile.mockImplementation(async () => ({ id: 'new-note', type: 'file', name: 'New' }));
+    docStoreMock.createFile.mockImplementation(async () => ({ id: 'new-note', type: 'file', name: 'New', dbKey: PERSONAL_KEY }));
 });
 
 describe('DocumentDashboard — global Recent Documents', () => {
@@ -364,8 +370,8 @@ describe('DocumentDashboard — opening and creating documents', () => {
         await flushPromises();
 
         expect(draftStoreMock.clearDraft).toHaveBeenCalledWith('beta');
-        expect(docStoreMock.selectFile).toHaveBeenCalledWith('beta');
-        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'beta' } });
+        expect(docStoreMock.selectFile).toHaveBeenCalledWith('beta', PERSONAL_KEY);
+        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'beta' }, query: { dbKey: PERSONAL_KEY } });
     });
 
     it('opens a document from the keyboard on both rows and cards', async () => {
@@ -373,11 +379,11 @@ describe('DocumentDashboard — opening and creating documents', () => {
 
         await testid(wrapper, 'document-row-gamma').trigger('keydown.enter');
         await flushPromises();
-        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'gamma' } });
+        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'gamma' }, query: { dbKey: PERSONAL_KEY } });
 
         await testid(wrapper, 'continue-writing-card-alpha').trigger('keydown.space');
         await flushPromises();
-        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'alpha' } });
+        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'alpha' }, query: { dbKey: PERSONAL_KEY } });
     });
 
     it('creates a root document from Recent Documents and navigates to it', async () => {
@@ -389,8 +395,8 @@ describe('DocumentDashboard — opening and creating documents', () => {
         await testid(wrapper, 'document-dashboard-create-modal-confirm').trigger('click');
         await flushPromises();
 
-        expect(docStoreMock.createFile).toHaveBeenCalledWith('Fresh Note', null);
-        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'new-note' } });
+        expect(docStoreMock.createFile).toHaveBeenCalledWith(PERSONAL_KEY, 'Fresh Note', null);
+        expect(routerMock.push).toHaveBeenCalledWith({ name: 'doc', params: { fileId: 'new-note' }, query: { dbKey: PERSONAL_KEY } });
     });
 
     it('opens the template picker from the New button menu in the current scope', async () => {
@@ -436,7 +442,7 @@ describe('DocumentDashboard — pinning', () => {
         const wrapper = await mountDashboard();
         await testid(wrapper, 'document-pin-toggle-beta').trigger('click');
 
-        expect(docStoreMock.setDocumentPinned).toHaveBeenCalledWith('beta', true);
+        expect(docStoreMock.setDocumentPinned).toHaveBeenCalledWith('beta', true, PERSONAL_KEY);
         expect(routerMock.push).not.toHaveBeenCalled();
         expect(docStoreMock.selectFile).not.toHaveBeenCalled();
         expect(testid(wrapper, 'document-pin-toggle-beta').attributes('aria-pressed')).toBe('true');
@@ -446,7 +452,7 @@ describe('DocumentDashboard — pinning', () => {
         const wrapper = await mountDashboard();
         await wrapper.findAll('[data-testid="document-pin-toggle-alpha"]').at(-1).trigger('click');
 
-        expect(docStoreMock.setDocumentPinned).toHaveBeenCalledWith('alpha', false);
+        expect(docStoreMock.setDocumentPinned).toHaveBeenCalledWith('alpha', false, PERSONAL_KEY);
     });
 
     it('reverts and reports a failed pin write, then reloads from the database', async () => {
@@ -472,9 +478,9 @@ describe('DocumentDashboard — folder scope', () => {
     beforeEach(() => {
         docStoreMock.getFolderDocuments.mockImplementation(async () => FOLDER_DOCS.map((d) => ({ ...d })));
         docStoreMock.getChildren.mockImplementation(async () => [
-            { id: 'child-b', name: 'Zulu', type: 'folder' },
-            { id: 'child-a', name: 'Alpha', type: 'folder' },
-            { id: 'note-x', name: 'A note', type: 'file' },
+            { id: 'child-b', name: 'Zulu', type: 'folder', dbKey: PERSONAL_KEY },
+            { id: 'child-a', name: 'Alpha', type: 'folder', dbKey: PERSONAL_KEY },
+            { id: 'note-x', name: 'A note', type: 'file', dbKey: PERSONAL_KEY },
         ]);
     });
 
@@ -490,7 +496,7 @@ describe('DocumentDashboard — folder scope', () => {
     it('queries only the selected folder and shows its pinned card', async () => {
         const wrapper = await mountDashboard('folder-1');
 
-        expect(docStoreMock.getFolderDocuments).toHaveBeenCalledWith('folder-1', 50);
+        expect(docStoreMock.getFolderDocuments).toHaveBeenCalledWith('folder-1', PERSONAL_KEY, 50);
         expect(docStoreMock.getRecentDocuments).not.toHaveBeenCalled();
         expect(testid(wrapper, 'continue-writing-section').exists()).toBe(true);
         expect(wrapper.findAll('[data-testid^="continue-writing-card-"]')
@@ -506,8 +512,8 @@ describe('DocumentDashboard — folder scope', () => {
 
         await items[0].trigger('click');
         await flushPromises();
-        expect(docStoreMock.selectFolder).toHaveBeenCalledWith('child-a');
-        expect(routerMock.push).toHaveBeenCalledWith({ name: 'folder', params: { folderId: 'child-a' } });
+        expect(docStoreMock.selectFolder).toHaveBeenCalledWith('child-a', PERSONAL_KEY);
+        expect(routerMock.push).toHaveBeenCalledWith({ name: 'folder', params: { folderId: 'child-a' }, query: { dbKey: PERSONAL_KEY } });
     });
 
     it('never hides child-folder navigation behind the document filters', async () => {
@@ -536,7 +542,7 @@ describe('DocumentDashboard — folder scope', () => {
         await testid(wrapper, 'document-dashboard-create-modal-confirm').trigger('click');
         await flushPromises();
 
-        expect(docStoreMock.createFile).toHaveBeenCalledWith('Folder Note', 'folder-1');
+        expect(docStoreMock.createFile).toHaveBeenCalledWith(PERSONAL_KEY, 'Folder Note', 'folder-1');
     });
 
     it('shows the folder-specific empty state without a duplicate New action', async () => {

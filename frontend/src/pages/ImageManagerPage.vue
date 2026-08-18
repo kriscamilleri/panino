@@ -154,12 +154,14 @@ import { ChevronLeft, ChevronRight, RefreshCw, Trash2 } from 'lucide-vue-next';
 import AccountLayout from '@/components/AccountLayout.vue';
 import BaseButton from '@/components/BaseButton.vue';
 import { useImageManagerStore } from '@/store/imageManagerStore';
+import { useSyncStore } from '@/store/syncStore';
 import { useAuthStore } from '@/store/authStore';
 import { useUiStore } from '@/store/uiStore';
 
 const PAGE_LIMIT = 25;
 
 const imageManager = useImageManagerStore();
+const syncStore = useSyncStore();
 const authStore = useAuthStore();
 const uiStore = useUiStore();
 
@@ -203,7 +205,7 @@ function imagePreviewUrl(url) {
 }
 
 async function loadPage(cursor = null) {
-    await imageManager.fetchImages({
+    await imageManager.fetchImages(syncStore.personalDbKey, {
         limit: PAGE_LIMIT,
         cursor,
         search: search.value.trim(),
@@ -221,7 +223,7 @@ async function applyFilters() {
     currentCursor.value = null;
     await Promise.all([
         loadPage(null),
-        imageManager.fetchStats(),
+        imageManager.fetchStats(syncStore.personalDbKey),
     ]);
 }
 
@@ -278,7 +280,7 @@ function summarizeUsage(usageMap) {
 async function collectUsage(imageIds) {
     const usageMap = {};
     for (const imageId of imageIds) {
-        usageMap[imageId] = await imageManager.fetchImageUsage(imageId);
+        usageMap[imageId] = await imageManager.fetchImageUsage(syncStore.personalDbKey, imageId);
     }
     return usageMap;
 }
@@ -290,18 +292,18 @@ async function refreshAfterDelete(deletedIds) {
 
     await Promise.all([
         loadPage(currentCursor.value),
-        imageManager.fetchStats(),
+        imageManager.fetchStats(syncStore.personalDbKey),
     ]);
 }
 
 async function handleSingleDelete(image) {
-    const usage = await imageManager.fetchImageUsage(image.id);
+    const usage = await imageManager.fetchImageUsage(syncStore.personalDbKey, image.id);
     const warning = summarizeUsage({ [image.id]: usage });
     const confirmed = window.confirm(`Delete image "${image.filename}"?\n\n${warning}`);
     if (!confirmed) return;
 
     try {
-        await imageManager.deleteImage(image.id, usage.count > 0);
+        await imageManager.deleteImage(syncStore.personalDbKey, image.id, usage.count > 0);
         uiStore.addToast('Image deleted.', 'success');
         await refreshAfterDelete([image.id]);
     } catch (err) {
@@ -320,7 +322,7 @@ async function handleBulkDelete() {
 
     try {
         const force = Object.values(usageMap).some((usage) => usage.count > 0);
-        const response = await imageManager.bulkDelete(ids, force);
+        const response = await imageManager.bulkDelete(syncStore.personalDbKey, ids, force);
         const results = response?.results || [];
         const deletedIds = results.filter((result) => result.deleted).map((result) => result.id);
         const failed = results.filter((result) => !result.deleted).length;

@@ -12,9 +12,9 @@
             tabindex="0"
             :aria-label="`Open ${document.name}`"
             :data-testid="`document-row-${document.id}`"
-            @click="$emit('open', document.id)"
-            @keydown.enter.prevent="$emit('open', document.id)"
-            @keydown.space.prevent="$emit('open', document.id)"
+            @click="$emit('open', document)"
+            @keydown.enter.prevent="$emit('open', document)"
+            @keydown.space.prevent="$emit('open', document)"
         >
             <FileText
                 class="mt-0.5 h-4 w-4 shrink-0 text-gray-400"
@@ -35,6 +35,12 @@
                         :data-testid="`document-row-conflict-${document.id}`"
                     ></span>
                 </span>
+
+                <span
+                    v-if="document.spaceName"
+                    class="mt-0.5 block pn-meta"
+                    :data-testid="`document-row-space-${document.id}`"
+                >Shared in {{ document.spaceName }}</span>
 
                 <span
                     class="block truncate pn-meta"
@@ -98,7 +104,7 @@ const props = defineProps({
 defineEmits(['open', 'toggle-pin'])
 
 const conflictStore = useConflictStore()
-const hasConflict = computed(() => conflictStore.hasConflict(props.document.id))
+const hasConflict = computed(() => conflictStore.hasConflict(props.document.id, props.document.dbKey))
 
 const wordCountLabel = computed(() => formatWordCount(props.document.wordCount))
 const relativeDate = computed(() => formatRelativeTime(props.document.displayedDate, props.now))

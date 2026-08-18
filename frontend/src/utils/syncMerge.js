@@ -12,7 +12,7 @@ export const WRITEBACK_WINDOW_MS = 60 * 1000;
 export const WRITEBACK_MAX_COUNT = 3;
 
 /**
- * @param {{ hasBase: boolean, base: string | null | undefined, mine: string | null | undefined, theirs: string | null | undefined, capabilityEnabled: boolean }} parts
+ * @param {{ hasBase: boolean, hasMine?: boolean, base: string | null | undefined, mine: string | null | undefined, theirs: string | null | undefined, capabilityEnabled: boolean }} parts
  * @returns {{
  *   action: 'record-base' | 'adopt-theirs' | 'restore-mine' | 'write-merge' | 'record-conflict',
  *   content: string,
@@ -21,12 +21,17 @@ export const WRITEBACK_MAX_COUNT = 3;
  *   pendingMerged?: string,
  * }}
  */
-export function resolveSyncMerge({ hasBase, base, mine, theirs, capabilityEnabled }) {
+export function resolveSyncMerge({ hasBase, hasMine = true, base, mine, theirs, capabilityEnabled }) {
     const nb = normalizeContent(base);
     const nm = normalizeContent(mine);
     const nt = normalizeContent(theirs);
 
     if (!hasBase) {
+        // A row that did not exist before remote apply is a first-time pull,
+        // not an empty local edit competing with the remote body.
+        if (!hasMine) {
+            return { action: 'record-base', content: nt, conflicts: [] };
+        }
         if (nm === nt) {
             return { action: 'record-base', content: nt, conflicts: [] };
         }

@@ -6,6 +6,19 @@ import {
 } from "../../src/utils/syncMerge.js";
 
 describe("resolveSyncMerge (COLLAB-02 §5.3)", () => {
+  it("adopts a first remote row when no local row or merge base existed", () => {
+    const result = resolveSyncMerge({
+      hasBase: false,
+      hasMine: false,
+      base: undefined,
+      mine: "",
+      theirs: "# First pull",
+      capabilityEnabled: true,
+    });
+
+    expect(result).toEqual({ action: "record-base", content: "# First pull", conflicts: [] });
+  });
+
   it("records the value as base when there is no base and both sides agree", () => {
     const result = resolveSyncMerge({
       hasBase: false,

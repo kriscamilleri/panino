@@ -5,17 +5,25 @@
   >
     <div
       v-if="ui.showMetadata"
-      class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
+      class="p-2 bg-gray-50 text-gray-700 text-sm border-b border-gray-200"
       data-testid="editor-metadata-container"
     >
-      <div class="flex gap-4">
+      <div class="flex min-w-0 flex-wrap gap-x-4 gap-y-1">
         <div class="flex items-center gap-2">
           <span class="font-medium">Name:</span>
           <span data-testid="editor-metadata-name">{{ file.title || file.name }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Type:</span>
-          <span data-testid="editor-metadata-type">file</span>
+          <span data-testid="editor-metadata-type">Document</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="font-medium">Visibility:</span>
+          <span data-testid="editor-metadata-visibility">{{ file.visibility || 'Private' }}</span>
+        </div>
+        <div v-if="file.spaceName" class="flex items-center gap-2">
+          <span class="font-medium">Space:</span>
+          <span data-testid="editor-metadata-space">{{ file.spaceName }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Last Updated:</span>
@@ -162,7 +170,7 @@
     v-else
     data-testid="editor-no-file"
   >
-    <p class="text-gray-500 mt-3 ml-3">No file selected</p>
+    <p class="text-gray-500 mt-3 ml-3">No Document selected</p>
   </div>
 </template>
 
@@ -275,7 +283,7 @@ const isProgrammaticUpdate = ref(false);
 
 /* ───── debounced save ───── */
 const debouncedSyncToDB = debounce((id, text) => {
-  docStore.updateFileContent(id, text);
+  docStore.updateFileContent(id, text, file.value?.dbKey);
 }, 500);
 
 /* ───── History Setup ───── */
@@ -608,7 +616,7 @@ async function keepMine() {
   draftStore.setBase(id, mine);
   draftStore.setDraft(id, mine);
   clearConflict();
-  await docStore.updateFileContent(id, mine);
+  await docStore.updateFileContent(id, mine, file.value.dbKey);
 }
 
 async function useTheirs() {
@@ -674,12 +682,12 @@ function handleDocumentSwitch(newId) {
 watch(
   () => [file.value?.id, conflictStore.conflictedNoteIds],
   async ([noteId]) => {
-    if (!noteId || !conflictStore.hasConflict(noteId)) {
+    if (!noteId || !conflictStore.hasConflict(noteId, file.value?.dbKey)) {
       persistedConflict.value = null;
       showResolution.value = false;
       return;
     }
-    const loaded = await conflictStore.loadConflict(noteId);
+    const loaded = await conflictStore.loadConflict(noteId, file.value?.dbKey);
     if (file.value?.id === noteId) persistedConflict.value = loaded;
   },
   { immediate: true },
@@ -757,7 +765,7 @@ async function applyPersistedResolution(content) {
     ui.addToast('Document changes resolved.', 'success');
   } catch (error) {
     if (error?.code === 'CONFLICT_STALE') {
-      persistedConflict.value = await conflictStore.loadConflict(id);
+      persistedConflict.value = await conflictStore.loadConflict(id, file.value?.dbKey);
     }
     ui.addToast(error?.message || 'Could not apply the document resolution.', 'error');
   } finally {
@@ -796,6 +804,10 @@ function getScreenshotBaseName() {
 async function uploadImage(fileObj, options = {}) {
   if (!authStore.isAuthenticated) {
     uploadError.value = 'You must be logged in to upload images.';
+    return;
+  }
+  if (file.value?.dbKey?.startsWith('space:')) {
+    uploadError.value = 'Image uploads for shared-space Documents are not available yet.';
     return;
   }
   isUploading.value = true;

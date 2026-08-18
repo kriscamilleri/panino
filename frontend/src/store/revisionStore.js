@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { useAuthStore } from './authStore';
+import { requirePersonalDatabaseKey } from '@/utils/databaseKey';
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
@@ -57,7 +58,8 @@ export const useRevisionStore = defineStore('revisionStore', () => {
     lastCursor.value = { before: null, beforeId: null };
   }
 
-  async function fetchRevisions(noteId, { reset = true, limit = 50 } = {}) {
+  async function fetchRevisions(dbKey, noteId, { reset = true, limit = 50 } = {}) {
+    requirePersonalDatabaseKey(dbKey, 'Revision history');
     if (!noteId) return;
 
     if (reset) {
@@ -106,12 +108,13 @@ export const useRevisionStore = defineStore('revisionStore', () => {
     }
   }
 
-  async function loadMore(noteId, limit = 50) {
+  async function loadMore(dbKey, noteId, limit = 50) {
     if (!hasMore.value || isListLoading.value) return;
-    return fetchRevisions(noteId, { reset: false, limit });
+    return fetchRevisions(dbKey, noteId, { reset: false, limit });
   }
 
-  async function fetchRevisionDetail(noteId, revisionId) {
+  async function fetchRevisionDetail(dbKey, noteId, revisionId) {
+    requirePersonalDatabaseKey(dbKey, 'Revision history');
     if (!noteId || !revisionId) return null;
     if (revisionDetailCache.value[revisionId]) {
       selectedRevisionId.value = revisionId;
@@ -146,7 +149,8 @@ export const useRevisionStore = defineStore('revisionStore', () => {
     }
   }
 
-  async function saveManualRevision(noteId) {
+  async function saveManualRevision(dbKey, noteId) {
+    requirePersonalDatabaseKey(dbKey, 'Revision history');
     if (!noteId) return { created: false };
 
     isActionLoading.value = true;
@@ -162,14 +166,15 @@ export const useRevisionStore = defineStore('revisionStore', () => {
         throw new Error(data.error || 'Failed to save version');
       }
 
-      await fetchRevisions(noteId, { reset: true, limit: 50 });
+      await fetchRevisions(dbKey, noteId, { reset: true, limit: 50 });
       return data;
     } finally {
       isActionLoading.value = false;
     }
   }
 
-  async function restoreRevision(noteId, revisionId, expectedUpdatedAt = null) {
+  async function restoreRevision(dbKey, noteId, revisionId, expectedUpdatedAt = null) {
+    requirePersonalDatabaseKey(dbKey, 'Revision history');
     if (!noteId || !revisionId) return null;
 
     isActionLoading.value = true;
@@ -185,7 +190,7 @@ export const useRevisionStore = defineStore('revisionStore', () => {
         throw new Error(data.error || 'Failed to restore revision');
       }
 
-      await fetchRevisions(noteId, { reset: true, limit: 50 });
+      await fetchRevisions(dbKey, noteId, { reset: true, limit: 50 });
       if (selectedRevisionId.value && !revisions.value.some((item) => item.id === selectedRevisionId.value)) {
         selectedRevisionId.value = null;
       }

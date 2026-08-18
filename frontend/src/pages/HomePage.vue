@@ -35,11 +35,13 @@ import ImageLibraryModal from '@/components/ImageLibraryModal.vue'
 import { useUiStore } from '@/store/uiStore'
 import { useDocStore } from '@/store/docStore'
 import { useEditorStore } from '@/store/editorStore'
+import { useGlobalVariablesStore } from '@/store/globalVariablesStore'
 import { useRouter } from 'vue-router'
 
 const ui = useUiStore()
 const docStore = useDocStore()
 const editorStore = useEditorStore()
+const globalVariablesStore = useGlobalVariablesStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -52,19 +54,24 @@ onUnmounted(() => window.removeEventListener('resize', handleResize))
 
 // Sync store on route param changes
 async function applyRouteSelection() {
+    const dbKey = typeof route.query.dbKey === 'string'
+        ? route.query.dbKey
+        : docStore.syncStore.personalDbKey
     if (route.params.fileId) {
-        await docStore.selectFile(route.params.fileId)
+        await docStore.selectFile(route.params.fileId, dbKey)
         // Auto-collapse Documents pane on mobile when a document is selected
         ui.collapseDocumentsOnMobile(isMobileView.value)
     } else if (route.params.folderId) {
-        docStore.selectFolder(route.params.folderId)
+        docStore.selectFolder(route.params.folderId, dbKey)
     } else {
-        docStore.selectFolder(null)
+        docStore.selectFolder(null, docStore.syncStore.personalDbKey)
     }
+    await globalVariablesStore.loadGlobals(dbKey)
 }
 onMounted(applyRouteSelection)
 watch(() => route.params.fileId, applyRouteSelection)
 watch(() => route.params.folderId, applyRouteSelection)
+watch(() => route.query.dbKey, applyRouteSelection)
 
 function handleImportSuccess() {
     console.info('Import successful')
@@ -73,6 +80,11 @@ function handleImportSuccess() {
 }
 
 function handleInsertSelectedImages(images) {
+    if (docStore.selectedFile?.spaceName) {
+        ui.addToast('Images for shared-space Documents are not available yet.', 'warning')
+        ui.closeImageLibraryModal()
+        return
+    }
     editorStore.insertImageFromLibrary(images)
     ui.closeImageLibraryModal()
 }

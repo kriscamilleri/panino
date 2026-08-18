@@ -75,6 +75,7 @@ async function fetchAllImageData(images, token) {
 
 export const useImportExportStore = defineStore('importExportStore', () => {
     const syncStore = useSyncStore();
+    const personalRepo = () => syncStore.personalRepository();
     const docStore = useDocStore();
 
     // ─── helpers ──────────────────────────────────────────────
@@ -184,11 +185,11 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         // `note_conflicts` (LOCAL_ONLY_TABLES) are client-local recovery state
         // and must never leave the device through any export.
         const [folders, notes, images, settings, globals] = await Promise.all([
-            syncStore.execute('SELECT * FROM folders'),
-            syncStore.execute('SELECT * FROM notes'),
-            syncStore.execute('SELECT * FROM images'),
-            syncStore.execute('SELECT * FROM settings'),
-            syncStore.execute('SELECT * FROM globals'),
+            personalRepo().execute('SELECT * FROM folders'),
+            personalRepo().execute('SELECT * FROM notes'),
+            personalRepo().execute('SELECT * FROM images'),
+            personalRepo().execute('SELECT * FROM settings'),
+            personalRepo().execute('SELECT * FROM globals'),
         ]);
         return {
             folders: folders || [],
@@ -316,7 +317,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             return folderLookupCache.get(cacheKey);
         }
 
-        const rows = await syncStore.execute(
+        const rows = await personalRepo().execute(
             'SELECT id, name, parent_id, created_at FROM folders WHERE parent_id IS ? AND name = ? LIMIT 1',
             [parentId ?? null, name]
         );
@@ -331,7 +332,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             return noteLookupCache.get(cacheKey);
         }
 
-        const rows = await syncStore.execute(
+        const rows = await personalRepo().execute(
             'SELECT id, folder_id, title, content, created_at, updated_at FROM notes WHERE folder_id IS ? AND title = ? LIMIT 1',
             [folderId ?? null, title]
         );
@@ -372,7 +373,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
 
             if (!folderRow) {
                 const folderId = uuidv4();
-                await syncStore.db.value.exec(
+                await personalRepo().exec(
                     'INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)',
                     [folderId, userId, segment, parentId, createdAt]
                 );
@@ -471,7 +472,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         };
 
         try {
-            await syncStore.db.value.exec('BEGIN TRANSACTION;');
+            await personalRepo().exec('BEGIN TRANSACTION;');
 
             const sortedFolderPaths = [...folderMap.keys()].sort((a, b) => a.split('/').length - b.split('/').length);
             for (const folderPath of sortedFolderPaths) {
@@ -501,7 +502,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
                         result.unchanged += 1;
                     } else {
                         const updatedAt = note.updatedAt || now;
-                        await syncStore.db.value.exec(
+                        await personalRepo().exec(
                             'UPDATE notes SET content = ?, updated_at = ? WHERE id = ?',
                             [note.content, updatedAt, existingNote.id]
                         );
@@ -516,7 +517,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
                     const noteId = uuidv4();
                     const createdAt = note.createdAt || now;
                     const updatedAt = note.updatedAt || createdAt;
-                    await syncStore.db.value.exec(
+                    await personalRepo().exec(
                         'INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                         [noteId, authStore.user.id, folderId, note.title, note.content, createdAt, updatedAt]
                     );
@@ -534,9 +535,9 @@ export const useImportExportStore = defineStore('importExportStore', () => {
                 if (onProgress) onProgress(index + 1, notes.length);
             }
 
-            await syncStore.db.value.exec('COMMIT;');
+            await personalRepo().exec('COMMIT;');
         } catch (error) {
-            await syncStore.db.value.exec('ROLLBACK;');
+            await personalRepo().exec('ROLLBACK;');
             throw error;
         }
 
@@ -817,8 +818,8 @@ export const useImportExportStore = defineStore('importExportStore', () => {
     async function exportDataAsStackEditJsonString() {
         if (!syncStore.isInitialized) throw new Error('Sync not ready.');
 
-        const folders = await syncStore.execute('SELECT * FROM folders');
-        const notes = await syncStore.execute('SELECT * FROM notes');
+        const folders = await personalRepo().execute('SELECT * FROM folders');
+        const notes = await personalRepo().execute('SELECT * FROM notes');
 
         const stackEditData = {};
         const now = Date.now();

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useAuthStore } from './authStore';
+import { requirePersonalDatabaseKey } from '@/utils/databaseKey';
 
 const IS_PROD = import.meta.env.PROD;
 const API_BASE = IS_PROD ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
@@ -58,7 +59,8 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
         return payload;
     }
 
-    async function fetchImages({ limit = 25, cursor = null, search = '', sort = 'created_desc' } = {}) {
+    async function fetchImages(dbKey, { limit = 25, cursor = null, search = '', sort = 'created_desc' } = {}) {
+        requirePersonalDatabaseKey(dbKey, 'Image management');
         isLoading.value = true;
         error.value = '';
 
@@ -78,12 +80,14 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
         }
     }
 
-    async function fetchImageUsage(imageId) {
+    async function fetchImageUsage(dbKey, imageId) {
+        requirePersonalDatabaseKey(dbKey, 'Image management');
         const payload = await authFetch(`/images/${imageId}/usage`);
         return payload?.usage || { count: 0, notes: [] };
     }
 
-    async function deleteImage(imageId, force = false) {
+    async function deleteImage(dbKey, imageId, force = false) {
+        requirePersonalDatabaseKey(dbKey, 'Image management');
         isDeleting.value = true;
         try {
             return await authFetch(`/images/${imageId}`, {
@@ -96,7 +100,8 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
         }
     }
 
-    async function bulkDelete(ids, force = false) {
+    async function bulkDelete(dbKey, ids, force = false) {
+        requirePersonalDatabaseKey(dbKey, 'Image management');
         isDeleting.value = true;
         try {
             return await authFetch('/images/bulk-delete', {
@@ -109,7 +114,8 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
         }
     }
 
-    async function fetchStats() {
+    async function fetchStats(dbKey) {
+        requirePersonalDatabaseKey(dbKey, 'Image management');
         const payload = await authFetch('/images/stats');
         stats.value = {
             imageCount: Number(payload?.imageCount || 0),

@@ -55,16 +55,25 @@ Many stores also watch `authStore.user?.id` to reload on user switch.
 ## DB Access Patterns
 
 ```javascript
-// READ — returns array of row objects
-const rows = await syncStore.execute('SELECT * FROM notes WHERE id = ?', [id]);
+// Resolve a repository once from a canonical `user:<uuid>` / `space:<uuid>` key.
+const repository = syncStore.repository(dbKey);
 
-// WRITE — no return value
-syncStore.db.value.exec('INSERT INTO notes (id, title) VALUES (?, ?)', [id, title]);
+// READ — returns array of row objects
+const rows = await repository.execute('SELECT * FROM notes WHERE id = ?', [id]);
+
+// WRITE — keep application writes transactional
+await repository.transaction((tx) =>
+  tx.exec('UPDATE notes SET title = ? WHERE id = ?', [title, id])
+);
 ```
 
-- `syncStore.execute()` → reads (returns `execO` — array of objects).
-- `syncStore.db.value.exec()` → writes (no return value).
-- Wrap multi-statement writes in `BEGIN` / `COMMIT` / `ROLLBACK`.
+- Public store operations require an explicit canonical database key; never accept a bare UUID
+  or silently fall back to the personal database.
+- `repository.execute()` returns `execO` row objects; `repository.exec()` performs statements.
+- Use `syncStore.personalRepository()` only for deliberately personal-only settings/import/export
+  adapters, not as an ambient default for document operations.
+- `repository.transaction()` supplies scoped `execute`/`exec` methods and handles
+  `BEGIN` / `COMMIT` / `ROLLBACK`.
 
 ---
 
