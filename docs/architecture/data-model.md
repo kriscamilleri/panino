@@ -29,6 +29,14 @@ configuration are deliberate non-CRR exceptions.
 
 Shared spaces use `data/spaces/{spaceId}.db` and the same CRR content tables as personal databases. Backend content connections use canonical `space:<uuid>` keys; personal databases use `user:<uuid>`. `application_schema` is a local, non-CRR table that records the content database kind and ordered schema version. Personal-only `backup_config` is not created in a space database.
 
+Content schema v2 adds `collab_sessions`, `collab_session_acks`, and
+`collab_recovery_archives` only to space databases. All are backend-local, non-CRR recovery
+tables. The first stores the last acknowledged Yjs document state and server-owned plain-text
+merge base; the second makes participant sequence acknowledgements idempotent across a restart;
+the third retains the gzip support export made before 30-day abandoned-state deletion. None is
+part of `/sync` or the browser schema, and `notes.content` remains the only replicated document
+body.
+
 ### Shared-space metadata database
 
 `data/_spaces.db` is backend-only and not synced. It contains `spaces`, `space_members`,

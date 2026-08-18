@@ -50,6 +50,64 @@
     </div>
 
     <div
+      v-if="isSharedDocument"
+      class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2"
+      data-testid="collab-status"
+    >
+      <template v-if="!collabActive">
+        <span class="pn-meta">Solo editing</span>
+        <BaseButton
+          size="sm"
+          variant="secondary"
+          :disabled="!syncOnline"
+          data-testid="collab-start"
+          @click="startCollaboration"
+        >Collaborate</BaseButton>
+      </template>
+      <template v-else>
+        <span
+          class="pn-meta"
+          :class="{ 'text-amber-600': collabStatus === 'reconnecting', 'text-red-600': collabStatus === 'dropped' }"
+        >{{ collabStatusLabel }}</span>
+        <AvatarStack
+          v-if="collabParticipants.length"
+          :users="collabParticipants"
+          size="sm"
+          data-testid="collab-participants"
+        />
+        <span class="pn-meta">{{ collabUnacked }} unsaved {{ collabUnacked === 1 ? 'change' : 'changes' }}</span>
+        <div class="ml-auto flex items-center gap-2">
+          <BaseButton
+            size="sm"
+            :disabled="collabStatus !== 'live' || collabUnacked > 0"
+            data-testid="collab-commit"
+            @click="showCollabSave = true"
+          >Save version</BaseButton>
+          <BaseButton size="sm" variant="ghost" data-testid="collab-leave" @click="leaveCollaboration">Leave</BaseButton>
+        </div>
+      </template>
+    </div>
+
+    <div
+      v-if="collabLastError"
+      class="pn-alert pn-alert-warning rounded-none"
+      :data-testid="collabStatus === 'dropped' ? 'collab-readonly-notice' : 'collab-error'"
+    >{{ collabLastError }}</div>
+
+    <BaseModal
+      :show="showCollabSave"
+      title="Save document version"
+      :close-on-backdrop="false"
+      @close="showCollabSave = false"
+    >
+      <p>This saves the session's agreed text as a normal document version for everyone in this space.</p>
+      <template #footer>
+        <BaseButton variant="secondary" @click="showCollabSave = false">Cancel</BaseButton>
+        <BaseButton data-testid="collab-commit-confirm" @click="confirmCollabSave">Save version</BaseButton>
+      </template>
+    </BaseModal>
+
+    <div
       v-if="ui.showStats"
       class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
       data-testid="editor-stats-display"
@@ -157,10 +215,19 @@
       @apply="applyPersistedResolution"
     />
 
+    <ConflictResolutionModal
+      v-if="collabConflict"
+      :show="showCollabConflict"
+      :conflict="collabConflict"
+      @close="showCollabConflict = false"
+      @apply="applyCollabResolution"
+    />
+
     <div class="flex-1 flex flex-col min-h-0 mt-0">
       <div
         ref="editorContainerRef"
         class="flex-1 bg-white mt-0 p-0"
+        :class="{ 'opacity-50 cursor-not-allowed': collabStatus === 'dropped' }"
         data-testid="editor-container"
       ></div>
     </div>
@@ -220,12 +287,16 @@ import { useEditorStore } from '@/store/editorStore';
 import { useHistoryStore } from '@/store/historyStore';
 import { useThemeStore } from '@/store/themeStore';
 import { useConflictStore } from '@/store/conflictStore';
+import { useSyncStore } from '@/store/syncStore';
+import { useCollabSessionStore } from '@/store/collabSessionStore';
 import { useOverTypePatches } from '@/composables/useOverTypePatches';
 import { hasDocumentContentChanged, classifyEditorConflict } from '@/utils/documentPersistence';
 import BaseButton from '@/components/BaseButton.vue';
 import BaseModal from '@/components/BaseModal.vue';
 import DiffView from '@/components/DiffView.vue';
 import ConflictResolutionModal from '@/components/ConflictResolutionModal.vue';
+import AvatarStack from '@/components/AvatarStack.vue';
+import { YTextareaBinding } from '@/utils/yTextareaBinding';
 import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';
 
@@ -256,10 +327,33 @@ const editorStore = useEditorStore();
 const historyStore = useHistoryStore(); // <--- INIT STORE
 const themeStore = useThemeStore();
 const conflictStore = useConflictStore();
+const syncStore = useSyncStore();
+const collabStore = useCollabSessionStore();
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
 
 const { selectedFile: file, isSaving, isDirty } = storeToRefs(docStore);
+const {
+  status: collabStatus,
+  participants: collabParticipants,
+  lastError: collabLastError,
+  ydoc: collabYdoc,
+  isActive: collabActive,
+  unackedCount: collabUnacked,
+  conflict: collabConflict,
+} = storeToRefs(collabStore);
+const collabBinding = ref(null);
+const showCollabSave = ref(false);
+const showCollabConflict = ref(false);
+const syncOnline = computed(() => syncStore.isOnline);
+const isSharedDocument = computed(() => file.value?.dbKey?.startsWith('space:'));
+const collabStatusLabel = computed(() => ({
+  opening: 'Joining live session…',
+  live: 'Live session',
+  reconnecting: 'Reconnecting…',
+  committing: 'Saving version…',
+  dropped: 'Live session disconnected',
+}[collabStatus.value] || 'Solo editing'));
 
 /* ───── upload state ───── */
 const isUploading = ref(false);
@@ -319,7 +413,7 @@ function handleKeydown(e) {
 // This runs on every keystroke via the native event listener
 // This runs on every keystroke via the native event listener
 function handleNativeInput(e) {
-  if (isHistoryAction.value || !file.value) return;
+  if (isHistoryAction.value || !file.value || collabActive.value) return;
 
   const textarea = e.target;
   const val = textarea.value;
@@ -347,12 +441,20 @@ function handleNativeInput(e) {
 /* ───── History Methods ───── */
 function performUndo() {
   if (!file.value) return;
+  if (collabBinding.value && collabActive.value) {
+    collabBinding.value.undo();
+    return;
+  }
   const previousState = historyStore.undo(file.value.id);
   if (previousState) applyHistoryState(previousState);
 }
 
 function performRedo() {
   if (!file.value) return;
+  if (collabBinding.value && collabActive.value) {
+    collabBinding.value.redo();
+    return;
+  }
   const nextState = historyStore.redo(file.value.id);
   if (nextState) applyHistoryState(nextState);
 }
@@ -395,6 +497,11 @@ function wrapWithRecord(fn) {
   return (...args) => {
     if (!file.value) return;
 
+    if (collabActive.value) {
+      fn(...args);
+      return;
+    }
+
     const textarea = getTextareaElement();
     const cursor = textarea ? textarea.selectionEnd : 0;
 
@@ -417,6 +524,19 @@ function handleInput(value) {
 
   if (file.value) {
     draftStore.setDraft(file.value.id, value);
+
+    // A live session owns persistence. The textarea binding emits a compact
+    // Yjs edit; ordinary local database saving and COLLAB-01/02 are paused.
+    if (collabActive.value) {
+      debouncedSyncToDB.cancel();
+      const textarea = getTextareaElement();
+      collabStore.sendAwareness({
+        cursor: textarea?.selectionStart,
+        selection: textarea?.selectionEnd,
+        idle: false,
+      });
+      return;
+    }
 
     // A programmatic setValue (adoption/resolution) refreshes bookkeeping but
     // must not schedule a database write.
@@ -526,6 +646,8 @@ function getEditorTheme(theme) {
 }
 
 function destroyEditor() {
+  collabBinding.value?.destroy();
+  collabBinding.value = null;
   // Remove paste event listener
   const textarea = getTextareaElement();
   if (textarea) {
@@ -634,6 +756,7 @@ function openCompare() {
 }
 
 function classifyRemoteContent(fileId, theirs) {
+  if (collabActive.value && collabStore.noteId === fileId) return;
   const mine = contentDraft.value;
   const base = draftStore.getBase(fileId) ?? '';
   const action = classifyEditorConflict({ mine, base, theirs });
@@ -646,6 +769,7 @@ function classifyRemoteContent(fileId, theirs) {
 }
 
 function handleDocumentSwitch(newId) {
+  if (collabActive.value && collabStore.noteId !== newId) collabStore.leave();
   clearConflict();
   persistedConflict.value = null;
   showResolution.value = false;
@@ -692,6 +816,69 @@ watch(
   },
   { immediate: true },
 );
+
+function bindLiveEditor() {
+  collabBinding.value?.destroy();
+  collabBinding.value = null;
+  const textarea = getTextareaElement();
+  const ytext = collabYdoc.value?.getText('content');
+  if (!textarea || !ytext || !collabActive.value) return;
+  collabBinding.value = new YTextareaBinding({
+    textarea,
+    ytext,
+    origin: collabStore.localOrigin,
+    applyValue: (value) => setEditorValue(value, { preserveCursor: false }),
+  });
+  const value = ytext.toString();
+  contentDraft.value = value;
+  setEditorValue(value, { preserveCursor: true });
+}
+
+async function startCollaboration() {
+  if (!isSharedDocument.value || !file.value?.id) return;
+  debouncedSyncToDB.cancel();
+  if (isDirty.value) await docStore.updateFileContent(file.value.id, contentDraft.value, file.value.dbKey);
+  // Admission reads the durable server Document as the Yjs base. Flush any
+  // local solo edit/creation first so starting collaboration cannot silently
+  // reopen an older body or fail because the new Document is not uploaded yet.
+  await syncStore.sync(file.value.dbKey);
+  collabStore.open(file.value.dbKey.slice('space:'.length), file.value.id);
+}
+
+function confirmCollabSave() {
+  if (collabStore.saveVersion()) showCollabSave.value = false;
+}
+
+function leaveCollaboration() {
+  collabBinding.value?.destroy();
+  collabBinding.value = null;
+  collabStore.leave();
+  showCollabSave.value = false;
+}
+
+function applyCollabResolution(content) {
+  if (collabStore.resolveConflict(content)) {
+    showCollabConflict.value = false;
+    ui.addToast('Conflict choices applied to the live session. Save the version when ready.', 'success');
+  }
+}
+
+watch(collabYdoc, () => nextTick(bindLiveEditor));
+
+watch(collabStatus, (status) => {
+  const textarea = getTextareaElement();
+  if (textarea) textarea.disabled = status === 'dropped';
+  if (status === 'idle') {
+    collabBinding.value?.destroy();
+    collabBinding.value = null;
+  } else if (status === 'live' && !collabBinding.value) {
+    nextTick(bindLiveEditor);
+  }
+});
+
+watch(collabConflict, (value) => {
+  showCollabConflict.value = Boolean(value);
+});
 
 watch(
   () => [file.value?.id, file.value?.content],
@@ -1097,6 +1284,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (collabActive.value) collabStore.leave();
   destroyEditor();
   editorStore.clearEditorRef();
 });

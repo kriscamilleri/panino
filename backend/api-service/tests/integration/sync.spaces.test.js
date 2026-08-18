@@ -215,6 +215,10 @@ describe("POST /sync (shared spaces)", () => {
 
   it("rejects a batch containing a disallowed table with no partial merge", async () => {
     const siteId = generateSiteId("d");
+    const spaceDb = getDb(`space:${spaceId}`);
+    const initialVersion = spaceDb
+      .prepare("SELECT max(db_version) AS version FROM crsql_changes")
+      .get().version ?? 0;
 
     const response = await request(app)
       .post("/sync")
@@ -255,14 +259,13 @@ describe("POST /sync (shared spaces)", () => {
       code: "SPACE_CHANGE_NOT_ALLOWED",
     });
 
-    const spaceDb = getDb(`space:${spaceId}`);
     expect(
       spaceDb.prepare("SELECT id FROM folders WHERE id = ?").get("folder-allowed"),
     ).toBeUndefined();
     expect(
       spaceDb.prepare("SELECT max(db_version) AS version FROM crsql_changes").get()
         .version ?? 0,
-    ).toBe(0);
+    ).toBe(initialVersion);
   });
 
   it("rejects a disallowed column (user_id) on an otherwise-allowed table", async () => {

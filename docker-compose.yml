@@ -7,6 +7,7 @@ services:
       context: .
       dockerfile: backend/api-service/Dockerfile
     restart: always
+    stop_grace_period: 15s
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -15,6 +16,7 @@ services:
       PORT: 8000
       NODE_ENV: production
       SHARED_SPACES_ENABLED: ${SHARED_SPACES_ENABLED:-false}
+      LIVE_SESSIONS_ENABLED: ${LIVE_SESSIONS_ENABLED:-false}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}

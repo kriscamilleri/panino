@@ -18,6 +18,7 @@ import {
   clockStorageKey,
   isStorageQuotaError,
   migrateLegacyPersonalClock,
+  projectSpaceOutgoingChanges,
   reconcileMembershipKeys,
   runSequentially,
 } from "@/utils/syncRegistry";
@@ -128,8 +129,30 @@ export const useSyncStore = defineStore("syncStore", () => {
   let membershipRefreshRequested = false;
   let reconnectTimer = null;
   let shouldReconnect = false;
+  const webSocketListeners = new Set();
+  let collabRemoteGuard = null;
 
   const debouncedSync = debounce(() => sync(), 500);
+
+  function addWebSocketListener(listener) {
+    webSocketListeners.add(listener);
+    return () => webSocketListeners.delete(listener);
+  }
+
+  function notifyWebSocketListeners(message) {
+    for (const listener of webSocketListeners) listener(message);
+  }
+
+  function sendWebSocketMessage(type, payload = {}) {
+    if (ws.value?.readyState !== WebSocket.OPEN) return null;
+    const requestId = uuidv4();
+    ws.value.send(JSON.stringify({ v: 1, type, requestId, payload }));
+    return requestId;
+  }
+
+  function setCollabRemoteGuard(guard) {
+    collabRemoteGuard = typeof guard === "function" ? guard : null;
+  }
 
   function getClock(dbKey) {
     return Number(localStorage.getItem(clockStorageKey(dbKey)) || 0);
@@ -884,6 +907,10 @@ tags:
         for (const noteId of idList) {
           const dbMine = mineMap.get(noteId) ?? "";
           const theirs = theirsMap.get(noteId) ?? "";
+          if (collabRemoteGuard?.(entry.dbKey, noteId, theirs)) {
+            await upsertMergeBase(database, noteId, theirs);
+            continue;
+          }
           const draft = draftStore.getDraft(noteId);
           const mine = draft !== undefined ? draft : dbMine;
 
@@ -1195,10 +1222,13 @@ tags:
         [myClock],
       );
       const target = parseDatabaseKey(entry.dbKey);
+      const outgoingChanges = target.kind === "space"
+        ? projectSpaceOutgoingChanges(localChanges)
+        : localChanges;
       const body = {
         since: myClock,
         siteId: entry.siteId,
-        changes: localChanges,
+        changes: outgoingChanges,
       };
       if (target.kind === "space") body.space = target.id;
 
@@ -1325,10 +1355,12 @@ tags:
     ws.value.onopen = () => {
       console.info("[Sync] WebSocket connected.");
       subscribeInitializedDatabases();
+      notifyWebSocketListeners({ type: "socket:open" });
     };
     ws.value.onclose = () => {
       ws.value = null;
       console.info("[Sync] WebSocket disconnected.");
+      notifyWebSocketListeners({ type: "socket:close" });
       if (shouldReconnect && isOnline.value && syncEnabled.value) {
         clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(connectWebSocket, 1000);
@@ -1338,6 +1370,7 @@ tags:
     ws.value.onmessage = async (event) => {
       let msg;
       try { msg = JSON.parse(event.data); } catch { return; }
+      notifyWebSocketListeners(msg);
       if (msg.type === "sync") {
         const target = msg.payload?.dbKey || personalDbKey.value;
         if (databases.value.has(target)) void sync(target);
@@ -1448,5 +1481,8 @@ tags:
     ensureTemplatesSchema,
     connectWebSocket,
     disconnectWebSocket,
+    addWebSocketListener,
+    sendWebSocketMessage,
+    setCollabRemoteGuard,
   };
 });

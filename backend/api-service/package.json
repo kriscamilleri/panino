@@ -30,11 +30,12 @@
         "pdf-lib": "^1.17.1",
         "puppeteer": "^25.5.0",
         "uuid": "^9.0.1",
-        "ws": "^8.17.0"
+        "ws": "^8.17.0",
+        "yjs": "^13.6.32"
     },
     "devDependencies": {
-        "vitest": "^2.0.0",
         "@vitest/coverage-v8": "^2.0.0",
-        "supertest": "^7.0.0"
+        "supertest": "^7.0.0",
+        "vitest": "^2.0.0"
     }
 }

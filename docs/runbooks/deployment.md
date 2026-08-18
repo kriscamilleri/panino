@@ -22,6 +22,20 @@ The production compose file mounts `api-data` at `/app/backend/api-service/data`
 and must not be copied into image layers. Operator tooling must use these mounted paths;
 `/app/data` and `/app/uploads` are not the production volumes.
 
+## Collaboration feature flags
+
+Both collaboration gates default to false in Compose:
+
+```text
+SHARED_SPACES_ENABLED=false
+LIVE_SESSIONS_ENABLED=false
+```
+
+Live sessions also require shared spaces. Enable them only after a full backup and the isolated
+two-account checks in `live-session-recovery.md`. Turning off the live flag rejects new sessions;
+sessions already held by the process remain eligible to reconnect and save while they drain.
+Recovery rows are never deleted just because the flag is off.
+
 ## Stream a production database backup
 
 Run the backup from a trusted local checkout:

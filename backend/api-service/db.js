@@ -9,7 +9,10 @@ import { randomUUID } from "node:crypto";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "data");
 const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
-export const CONTENT_SCHEMA_VERSION = 1;
+export const CONTENT_SCHEMA_VERSION = 2;
+// Browser CRR schema compatibility remains v1: content schema v2 adds only
+// backend-local live-session recovery tables.
+export const MINIMUM_CLIENT_SCHEMA_VERSION = 1;
 export const SPACES_SCHEMA_VERSION = 3;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -140,6 +143,37 @@ const USER_LOCAL_SCHEMA = `
     last_warning TEXT,
     last_error TEXT,
     created_at TEXT NOT NULL
+  );
+`;
+
+// Backend-only, space-local recovery state for COLLAB-05. This table must
+// never become a CRR or appear in the browser schema: acknowledged Yjs state
+// is a bounded crash-recovery checkpoint, not a second replicated document.
+const SPACE_LOCAL_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS collab_sessions (
+    note_id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL UNIQUE,
+    ydoc_state BLOB NOT NULL,
+    base_content TEXT NOT NULL,
+    base_hash TEXT NOT NULL,
+    durable_sequence INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS collab_session_acks (
+    session_id TEXT NOT NULL,
+    participant_id TEXT NOT NULL,
+    highest_seq INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (session_id, participant_id),
+    FOREIGN KEY (session_id) REFERENCES collab_sessions(session_id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS collab_recovery_archives (
+    id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    note_id TEXT NOT NULL,
+    payload_gzip BLOB NOT NULL,
+    archived_at TEXT NOT NULL
   );
 `;
 
@@ -667,6 +701,7 @@ export function initializeContentDb(db, kind) {
 
   db.exec(BASE_SCHEMA);
   if (kind === "user") db.exec(USER_LOCAL_SCHEMA);
+  if (kind === "space") db.exec(SPACE_LOCAL_SCHEMA);
   ensureNotesSchema(db);
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
@@ -1034,6 +1069,18 @@ export function getSpacesDb() {
 export function initDb() {
   getAuthDb();
   getSpacesDb();
+  if (process.env.LIVE_SESSIONS_ENABLED === "true") {
+    for (const dbKey of listUuidDatabaseFiles(SPACES_DB_DIR, "space")) {
+      try {
+        getDb(dbKey);
+      } catch (error) {
+        // Keep the service available for healthy spaces, but leave this key
+        // uncached: collab admission will retry initialization and fail closed
+        // until its ordered local recovery migration succeeds.
+        console.error("[db] Live-session space migration failed:", error?.code || error?.message || "unknown");
+      }
+    }
+  }
   console.info("Authentication and shared-space metadata databases initialized.");
 }
 

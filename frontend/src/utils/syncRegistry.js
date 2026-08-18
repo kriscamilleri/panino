@@ -68,6 +68,30 @@ export function reconcileMembershipKeys(registeredKeys, personalDbKey, spaces) {
   return { desired, revoked };
 }
 
+const SPACE_OUTGOING_COLUMNS = new Map([
+  ['folders', new Set(['id', 'name', 'parent_id', 'created_at'])],
+  ['notes', new Set(['id', 'folder_id', 'title', 'content', 'pinned', 'created_at', 'updated_at'])],
+  ['globals', new Set(['key', 'id', 'value', 'created_at', 'updated_at', 'display_key'])],
+  ['templates', new Set(['id', 'name', 'content', 'title_pattern', 'default_folder_id', 'created_at', 'updated_at'])],
+]);
+
+/**
+ * Project shared-space deltas onto the public replicated schema. This mirrors
+ * the server's fail-closed allowlist: server-authored profiles and images must
+ * never echo back, while legacy personal-only user_id columns are discarded.
+ * Tombstones retain their empty/-1 cid for each allowed table.
+ *
+ * @param {Array<{table?:string,cid?:string}>} changes
+ */
+export function projectSpaceOutgoingChanges(changes) {
+  return (changes || []).filter((change) => {
+    const columns = SPACE_OUTGOING_COLUMNS.get(change?.table);
+    if (!columns) return false;
+    return change.cid == null || change.cid === '' || String(change.cid) === '-1' ||
+      columns.has(String(change.cid));
+  });
+}
+
 /**
  * Merge database-tagged dashboard results, sort globally, then apply the
  * requested limit. No per-database limiting is performed here.

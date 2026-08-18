@@ -2,7 +2,7 @@ import { v4 as uuidv4, validate as validateUuid } from "uuid";
 import express from "express";
 import crypto from "node:crypto";
 import {
-  CONTENT_SCHEMA_VERSION,
+  MINIMUM_CLIENT_SCHEMA_VERSION,
   deleteDb,
   getAuthDb,
   getDb,
@@ -544,7 +544,7 @@ export function listSpaceMembershipPage({ userId, cursor = null, limit = 25 }) {
   return {
     spaces,
     membershipVersion: membershipVersion(db, userId),
-    minimum_client_schema: CONTENT_SCHEMA_VERSION,
+    minimum_client_schema: MINIMUM_CLIENT_SCHEMA_VERSION,
     nextCursor: hasNextPage ? encodeSpaceCursor(spaces.at(-1)) : null,
   };
 }
@@ -1191,11 +1191,12 @@ export function getSpaceMembershipVersion(userId) {
 
 async function publishLifecycleChange(req, result) {
   if (!req.clients || !result) return;
-  const { notifySpaceMembershipChanged, revokeSpaceSubscribers } = await import("./websocket.js");
+  const { closeCollabSpaceSessions, notifySpaceMembershipChanged, revokeSpaceSubscribers } = await import("./websocket.js");
   if (result.versions?.size) {
     notifySpaceMembershipChanged(req.clients, result.versions);
   }
   if (result.revokedUserIds?.length && result.spaceId) {
+    if (result.deleteAfter) closeCollabSpaceSessions(req.clients, `space:${result.spaceId}`);
     revokeSpaceSubscribers(
       req.clients,
       `space:${result.spaceId}`,

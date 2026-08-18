@@ -71,6 +71,7 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell
 # Copy application code
 COPY shared/ /app/shared/
 COPY backend/api-service/ ./
+COPY docker-compose.yml /app/docker-compose.yml
 
 # Set test environment
 ENV NODE_ENV=test

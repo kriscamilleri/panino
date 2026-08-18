@@ -7,7 +7,7 @@ import {
   deleteNoteRevisionsForDeletedNote,
 } from "./revision.js";
 import { resolveSpaceAccess, getSpaceMembershipVersion } from "./spaces.js";
-import { pokePersonalClients, pokeSpaceSubscribers } from "./websocket.js";
+import { closeCollabDocumentSessions, pokePersonalClients, pokeSpaceSubscribers } from "./websocket.js";
 
 const router = express.Router();
 
@@ -427,6 +427,11 @@ router.post("/sync", (req, res, next) => {
       // authorized (re-checked at poke time) and subscribed to this dbKey.
       const { clients } = req;
       if (isSpaceSync) {
+        closeCollabDocumentSessions(
+          clients,
+          dbKey,
+          noteMutations.filter((mutation) => mutation.deleted).map((mutation) => mutation.noteId),
+        );
         pokeSpaceSubscribers(clients, dbKey, siteId);
       } else {
         pokePersonalClients(clients, userId, siteId);

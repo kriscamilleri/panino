@@ -385,7 +385,7 @@ pre > code {
         if (isInternalImage && authStore.token) {
           try {
             token.attrs[srcIndex][1] = withImageAuthToken(src, authStore.token, {
-              origin: window.location.origin,
+              origin: apiUrl || window.location.origin,
               absolute: Boolean(apiUrl),
             });
           } catch (e) {

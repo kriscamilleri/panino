@@ -12,13 +12,15 @@
 import { validate as validateUuid } from "uuid";
 import jwt from "jsonwebtoken";
 import { URL } from "url";
-import { parseDbKey } from "./db.js";
+import { getAuthDb, parseDbKey } from "./db.js";
 import { resolveSpaceAccess, getSpaceMembershipVersion } from "./spaces.js";
+import { COLLAB_LIMITS, createCollabSessionManager } from "./collab.js";
 
 export const WS_PROTOCOL_VERSION = 1;
 
 // COLLAB-00 §4 resource limits.
 export const MAX_CONTROL_FRAME_BYTES = 64 * 1024;
+export const MAX_MESSAGE_BYTES = COLLAB_LIMITS.maxMessageBytes;
 export const MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024;
 export const MAX_SPACE_SUBSCRIPTIONS = 100;
 export const MAX_TOTAL_SUBSCRIPTIONS = MAX_SPACE_SUBSCRIPTIONS + 1; // +1 personal
@@ -261,9 +263,9 @@ export function handleUnsubscribe(clientState, payload) {
  * string). Always safe to call: malformed/unsupported messages get a
  * versioned error response and never mutate `clientState`.
  */
-export function handleClientMessage(ws, clientState, rawData) {
+export function handleClientMessage(ws, clientState, rawData, collabManager = null) {
   const buffer = Buffer.isBuffer(rawData) ? rawData : Buffer.from(String(rawData ?? ""), "utf8");
-  if (buffer.length > MAX_CONTROL_FRAME_BYTES) {
+  if (buffer.length > MAX_MESSAGE_BYTES) {
     try {
       ws.close(1009, "Message too large");
     } catch {
@@ -288,6 +290,15 @@ export function handleClientMessage(ws, clientState, rawData) {
   const requestId = isValidRequestId(msg.requestId) ? msg.requestId : null;
   const responseType = typeof msg.type === "string" ? msg.type : "error";
 
+  if (!responseType.startsWith("collab:") && buffer.length > MAX_CONTROL_FRAME_BYTES) {
+    try {
+      ws.close(1009, "Message too large");
+    } catch {
+      // Best-effort.
+    }
+    return;
+  }
+
   if (msg.v !== WS_PROTOCOL_VERSION) {
     safeSend(
       ws,
@@ -301,6 +312,11 @@ export function handleClientMessage(ws, clientState, rawData) {
       ws,
       errorEnvelope(responseType, null, "INVALID_REQUEST", "requestId must be a UUID"),
     );
+    return;
+  }
+
+  if (responseType.startsWith("collab:") && collabManager) {
+    void collabManager.handle(ws, clientState, msg);
     return;
   }
 
@@ -408,6 +424,7 @@ export function revokeSpaceSubscribers(clients, dbKey, userIds) {
   clients?.forEach((clientState, clientWs) => {
     if (!revokedUsers.has(clientState.userId)) return;
     if (!clientState.subscriptions?.has(dbKey)) return;
+    clientState.collabManager?.revokeSocket(clientWs, clientState, dbKey);
     clientState.subscriptions.delete(dbKey);
     safeSend(clientWs, {
       v: WS_PROTOCOL_VERSION,
@@ -417,6 +434,20 @@ export function revokeSpaceSubscribers(clients, dbKey, userIds) {
       payload: { dbKey },
     });
   });
+}
+
+function collabManagers(clients) {
+  return new Set([...clients.values()].map((state) => state.collabManager).filter(Boolean));
+}
+
+export function closeCollabDocumentSessions(clients, dbKey, noteIds) {
+  for (const manager of collabManagers(clients)) {
+    for (const noteId of noteIds || []) manager.closeDocument(dbKey, noteId, "revoked");
+  }
+}
+
+export function closeCollabSpaceSessions(clients, dbKey) {
+  for (const manager of collabManagers(clients)) manager.closeSpace(dbKey, "revoked");
 }
 
 /** Notify connected clients that their space-list payload changed. */
@@ -450,6 +481,9 @@ function countConnectionsForUser(clients, userId) {
  * independent of a live HTTP/WS server.
  */
 export function attachWebSocketHandlers(wss, clients, jwtSecret) {
+  const collabManager = createCollabSessionManager({
+    poke: (dbKey, excludeSiteId) => pokeSpaceSubscribers(clients, dbKey, excludeSiteId),
+  });
   wss.on("connection", (ws, req) => {
     const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
     const token = params.get("token");
@@ -461,22 +495,28 @@ export function attachWebSocketHandlers(wss, clients, jwtSecret) {
       if (err) return ws.close(1008, "Invalid token");
 
       const userId = payload.user_id;
+      if (!getAuthDb().prepare("SELECT 1 FROM users WHERE id = ?").get(userId)) {
+        return ws.close(1008, "Invalid token");
+      }
       if (countConnectionsForUser(clients, userId) >= MAX_CONNECTIONS_PER_USER) {
         return ws.close(1008, "Too many connections for this account");
       }
 
       const clientState = createClientState({ userId, siteId });
+      clientState.collabManager = collabManager;
       clients.set(ws, clientState);
       console.log("WebSocket client connected and authenticated");
 
       ws.on("message", (data) => {
-        handleClientMessage(ws, clientState, data);
+        handleClientMessage(ws, clientState, data, collabManager);
       });
 
       ws.on("close", () => {
+        collabManager.socketClosed(ws, clientState);
         clients.delete(ws);
         console.log("WebSocket client disconnected");
       });
     });
   });
+  return collabManager;
 }

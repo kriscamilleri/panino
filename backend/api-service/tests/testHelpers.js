@@ -8,8 +8,8 @@ import { getAuthDb, deleteTestDb } from '../db.js';
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
 
 export function createTestApp() {
-    const { app, server, wss, clients } = createApp();
-    return { app, server, wss, clients };
+    const { app, server, wss, clients, collabManager } = createApp();
+    return { app, server, wss, clients, collabManager };
 }
 
 export function getTestToken(userId) {

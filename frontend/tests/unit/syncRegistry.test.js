@@ -7,6 +7,7 @@ import {
   isStorageQuotaError,
   mergeDashboardRows,
   migrateLegacyPersonalClock,
+  projectSpaceOutgoingChanges,
   reconcileMembershipKeys,
   runSequentially,
 } from '@/utils/syncRegistry.js';
@@ -167,6 +168,25 @@ describe('sequential registry work', () => {
 });
 
 describe('membership and dashboard helpers', () => {
+  it('projects outgoing shared-space changes onto the server allowlist', () => {
+    const changes = [
+      { table: 'notes', cid: 'title', val: 'Draft' },
+      { table: 'notes', cid: 'user_id', val: null },
+      { table: 'folders', cid: 'user_id', val: null },
+      { table: 'folders', cid: 'name', val: 'Ideas' },
+      { table: 'users', cid: 'name', val: 'Server profile' },
+      { table: 'images', cid: 'filename', val: 'server-owned.png' },
+      { table: 'notes', cid: '-1', val: null },
+    ];
+
+    expect(projectSpaceOutgoingChanges(changes)).toEqual([
+      changes[0],
+      changes[3],
+      changes[6],
+    ]);
+    expect(changes).toHaveLength(7);
+  });
+
   it('identifies revoked space databases while retaining personal state', () => {
     const otherSpace = 'space:33333333-3333-4333-8333-333333333333';
     const result = reconcileMembershipKeys([PERSONAL_KEY, SPACE_KEY, otherSpace], PERSONAL_KEY, [
