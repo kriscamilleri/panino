@@ -69,6 +69,9 @@ keep shared spaces and live sessions disabled by default.
 - Post-rebase canonical validation passed: `npm run doctor`, root `npm run lint`, aggregate
   `npm test` (shared 25/25, frontend 49 files / 502 tests, backend 26 files / 307 tests), and the
   frontend production build. Build output retained only the existing chunking warnings.
+- The first PR frontend job exposed a clean-checkout setup gap: it installed the linked frontend
+  package without installing the shared package runtime dependency. CI now mirrors the established
+  Docker order (`shared` runtime install before `frontend`) and keys the npm cache on both locks.
 
 ## Open Items / Notes
 
