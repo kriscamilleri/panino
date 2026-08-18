@@ -21,7 +21,7 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `backup.js` | GitHub OAuth, repository selection, snapshot commits, auto-backup scheduling | Mixed |
 | `revision.js` | Note revision capture, listing, detail, restore, and pruning; snapshots may carry a nullable server-derived `actor_user_id`/`actor_kind` (`sync`\|`collab`\|`system`) — never accepted from client input | Authenticated |
 | `db.js` | Canonical `getDb(dbKey)` content connections, user compatibility wrappers, versioned content initialization, auth/space metadata DBs, connection caching, CR-SQLite extension loading | — |
-| `spaces.js` | Flag-gated internal shared-space and owner/editor membership repository; `assertSpacesInvariants()` (checker run pre-commit in `createSpace`/`addEditorMember`/`removeEditorMember`) and `resolveSpaceAccess()`/`getSpaceMembershipVersion()` (non-disclosing membership resolver used by `sync.js` and `websocket.js`) (Phase 2; no public space routes yet) | Trusted server callers |
+| `spaces.js` | Flag-gated shared-space repository plus authenticated, paginated read-only `GET /spaces` registry discovery; no lifecycle/invite mutation routes yet | Authenticated / trusted server callers |
 | `websocket.js` | COLLAB-00 v1 subscribe/unsubscribe envelope (`{v:1,type:'subscribe',requestId,payload:{databases:[{dbKey,siteId}]}}` / `{v:1,type:'unsubscribe',requestId,payload:{dbKeys:[...]}}`, success response payload `{subscriptions,membershipVersion}`) layered over the legacy handshake; per-connection subscription state, atomic/idempotent (un)subscribe validation, membership re-check on every subscribe and poke, `pokePersonalClients()`/`pokeSpaceSubscribers()` targeted sync notifications with site-id self-exclusion, backpressure/connection-limit guards | Authenticated (JWT at handshake) |
 | `db-repair.js` | Orphan-clock detection and repair helpers used by the incident tooling | — |
 | `mailer.js` | Nodemailer transport, `sendPasswordResetEmail()` | — |
@@ -38,7 +38,7 @@ first — it defaults to a dry run and requires `--apply` to mutate anything.
 1. Public routes: `signupRoutes`, `passwordResetRoutes`
 2. Mixed routes: `authRoutes` (login is public, /me and /refresh need auth)
 3. `authenticateToken` middleware (all routes after this require auth)
-4. Authenticated routes: `syncRoutes`, `imageRoutes`, `pdfRoutes`
+4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `imageRoutes`, `pdfRoutes`
 
 ---
 

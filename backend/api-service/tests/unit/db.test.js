@@ -122,7 +122,7 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     db.close();
   });
 
-  it("runs the shared-space metadata migration once and records it atomically", () => {
+  it("runs the shared-space metadata migration idempotently and records it once", () => {
     const db = new Database(":memory:");
     initializeSpacesDb(db);
     initializeSpacesDb(db);

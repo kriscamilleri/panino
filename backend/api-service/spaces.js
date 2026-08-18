@@ -1,5 +1,6 @@
 import { v4 as uuidv4, validate as validateUuid } from "uuid";
-import { getAuthDb, getSpacesDb } from "./db.js";
+import express from "express";
+import { CONTENT_SCHEMA_VERSION, getAuthDb, getSpacesDb } from "./db.js";
 
 const ALLOWED_ROLES = new Set(["owner", "editor"]);
 
@@ -359,6 +360,112 @@ export function listSpacesForUser(userOrOptions) {
 
   return { spaces, membershipVersion: membershipVersion(db, userId) };
 }
+
+function encodeSpaceCursor(space) {
+  return Buffer.from(JSON.stringify([space.createdAt, space.spaceId]), "utf8").toString("base64url");
+}
+
+function decodeSpaceCursor(value) {
+  if (!value) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (
+      !Array.isArray(decoded) ||
+      decoded.length !== 2 ||
+      typeof decoded[0] !== "string" ||
+      typeof decoded[1] !== "string" ||
+      !validateUuid(decoded[1])
+    ) {
+      return null;
+    }
+    return { createdAt: decoded[0], spaceId: decoded[1] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Paginated, read-only discovery payload for a member's local registry.
+ * Member profiles intentionally expose only `{id, name}`.
+ */
+export function listSpaceMembershipPage({ userId, cursor = null, limit = 25 }) {
+  requireEnabled();
+  requireUser(userId);
+  const boundedLimit = Math.min(50, Math.max(1, Number(limit) || 25));
+  const decodedCursor = cursor ? decodeSpaceCursor(cursor) : null;
+  if (cursor && !decodedCursor) {
+    throw new SpaceRepositoryError("INVALID_SPACE_CURSOR", "Invalid space-list cursor");
+  }
+
+  const db = getSpacesDb();
+  const cursorSql = decodedCursor
+    ? "AND (s.created_at > ? OR (s.created_at = ? AND s.id > ?))"
+    : "";
+  const params = decodedCursor
+    ? [userId, decodedCursor.createdAt, decodedCursor.createdAt, decodedCursor.spaceId, boundedLimit + 1]
+    : [userId, boundedLimit + 1];
+  const rows = db.prepare(
+    `SELECT s.id AS spaceId,
+            s.name,
+            s.owner_user_id AS ownerUserId,
+            s.created_at AS createdAt,
+            s.updated_at AS updatedAt,
+            m.role,
+            m.created_at AS memberSince
+       FROM spaces s
+       JOIN space_members m ON m.space_id = s.id
+      WHERE m.user_id = ? AND s.status = 'active'
+      ${cursorSql}
+      ORDER BY s.created_at ASC, s.id ASC
+      LIMIT ?`,
+  ).all(...params);
+
+  const hasNextPage = rows.length > boundedLimit;
+  const spaces = rows.slice(0, boundedLimit);
+  const authDb = getAuthDb();
+  const memberRows = db.prepare(
+    `SELECT user_id AS id
+       FROM space_members
+      WHERE space_id = ?
+      ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, created_at ASC, user_id ASC`,
+  );
+  const userName = authDb.prepare("SELECT name FROM users WHERE id = ?");
+  for (const space of spaces) {
+    space.members = memberRows.all(space.spaceId).map(({ id }) => ({
+      id,
+      name: userName.get(id)?.name || "Unknown collaborator",
+    }));
+  }
+
+  return {
+    spaces,
+    membershipVersion: membershipVersion(db, userId),
+    minimum_client_schema: CONTENT_SCHEMA_VERSION,
+    nextCursor: hasNextPage ? encodeSpaceCursor(spaces.at(-1)) : null,
+  };
+}
+
+export const spaceRoutes = express.Router();
+
+spaceRoutes.get("/spaces", (req, res) => {
+  try {
+    const page = listSpaceMembershipPage({
+      userId: req.user.user_id,
+      cursor: req.query.cursor || null,
+      limit: req.query.limit,
+    });
+    res.json(page);
+  } catch (error) {
+    if (error?.code === "SHARED_SPACES_DISABLED") {
+      return res.status(404).json({ error: "Not found", code: "SPACE_NOT_FOUND" });
+    }
+    if (error?.code === "INVALID_SPACE_CURSOR") {
+      return res.status(400).json({ error: "Invalid cursor", code: error.code });
+    }
+    console.error("[spaces] discovery failed", { code: error?.code || "UNKNOWN" });
+    return res.status(500).json({ error: "Unable to list spaces" });
+  }
+});
 
 export function addEditorMember(
   actorOrOptions,

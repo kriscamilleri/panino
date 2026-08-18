@@ -8,7 +8,7 @@ import fs from "fs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "data");
 const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
-const CONTENT_SCHEMA_VERSION = 1;
+export const CONTENT_SCHEMA_VERSION = 1;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Both the shared auth (`_users.db`) and shared spaces (`_spaces.db`) metadata
@@ -898,7 +898,10 @@ export function initializeSpacesDb(db) {
     db.transaction(() => {
       db.exec(SPACES_SCHEMA_V1);
       db.prepare(
-        "INSERT INTO spaces_schema_migrations (version, applied_at) VALUES (?, ?)",
+        // Multiple server/test workers can initialize the metadata file at the
+        // same time. The schema DDL is idempotent, so its version marker must
+        // be idempotent too after a competing worker commits first.
+        "INSERT OR IGNORE INTO spaces_schema_migrations (version, applied_at) VALUES (?, ?)",
       ).run(1, new Date().toISOString());
     })();
   }
@@ -910,6 +913,7 @@ export function getSpacesDb() {
 
   fs.mkdirSync(DB_DIR, { recursive: true });
   const db = new Database(path.join(DB_DIR, "_spaces.db"));
+  db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
   try {
     initializeSpacesDb(db);
   } catch (error) {
@@ -918,7 +922,6 @@ export function getSpacesDb() {
   }
   db.pragma("journal_mode = wal");
   db.pragma("synchronous = normal");
-  db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
   dbConnections.set(key, db);
   return db;
 }
