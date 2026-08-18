@@ -31,7 +31,21 @@ Shared spaces use `data/spaces/{spaceId}.db` and the same CRR content tables as 
 
 ### Shared-space metadata database
 
-`data/_spaces.db` is backend-only and not synced. It contains `spaces`, `space_members`, `space_invites`, `space_user_versions`, and its own ordered `spaces_schema_migrations` table. Owner/editor membership mutations remain internal and fail closed unless `SHARED_SPACES_ENABLED=true`. The authenticated, read-only `GET /spaces` registry-discovery route is also flag-gated: it returns active memberships in stable cursor pages, a membership version, the minimum supported client schema, and profile-safe member `{id, name}` values. It deliberately exposes no lifecycle or invite operation.
+`data/_spaces.db` is backend-only and not synced. It contains `spaces`, `space_members`,
+`space_invites`, `space_user_versions`, and its own ordered `spaces_schema_migrations` table.
+Schema v2 adds a non-secret UUID management id and revocation timestamp to invitations; raw
+256-bit invite tokens appear only in email, while SHA-256 hashes remain at rest. Invites are
+normalized to the captured email, expire after seven days, create editors only, and are
+single-use.
+
+All lifecycle routes fail closed unless `SHARED_SPACES_ENABLED=true`. The authenticated,
+paginated `GET /spaces` registry returns only active memberships, a membership version, the
+minimum supported client schema, and profile-safe member `{id, name}` values. Member-detail
+responses expose pending invite email only to the owner. Rename, member changes, ownership
+transfer, leave, and deletion advance every affected member's version. Removal/leave/deletion
+also revoke active WebSocket subscriptions immediately. A deletion request makes the space
+inaccessible at once, retains its content/uploads for 30 days, and leaves feature-flag-independent
+maintenance to purge the retained set after the deadline.
 
 ### Authentication database
 

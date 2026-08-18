@@ -398,6 +398,43 @@ export function pokeSpaceSubscribers(clients, dbKey, excludeSiteId) {
   });
 }
 
+/**
+ * Immediately revoke one space subscription for the named users. Membership
+ * mutations call this only after their metadata transaction commits, so the
+ * notice never gets ahead of authorization state.
+ */
+export function revokeSpaceSubscribers(clients, dbKey, userIds) {
+  const revokedUsers = new Set(userIds || []);
+  clients?.forEach((clientState, clientWs) => {
+    if (!revokedUsers.has(clientState.userId)) return;
+    if (!clientState.subscriptions?.has(dbKey)) return;
+    clientState.subscriptions.delete(dbKey);
+    safeSend(clientWs, {
+      v: WS_PROTOCOL_VERSION,
+      type: "subscription:revoked",
+      requestId: null,
+      ok: true,
+      payload: { dbKey },
+    });
+  });
+}
+
+/** Notify connected clients that their space-list payload changed. */
+export function notifySpaceMembershipChanged(clients, versionsByUser) {
+  const versions = versionsByUser instanceof Map
+    ? versionsByUser
+    : new Map(Object.entries(versionsByUser || {}));
+  clients?.forEach((clientState, clientWs) => {
+    const version = versions.get(clientState.userId);
+    if (!Number.isInteger(version)) return;
+    safeSend(clientWs, {
+      v: WS_PROTOCOL_VERSION,
+      type: "membership:changed",
+      payload: { membershipVersion: version },
+    });
+  });
+}
+
 function countConnectionsForUser(clients, userId) {
   let count = 0;
   clients.forEach((clientState) => {

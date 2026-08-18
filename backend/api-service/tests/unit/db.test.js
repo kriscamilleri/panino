@@ -128,7 +128,44 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     initializeSpacesDb(db);
     expect(db.prepare("SELECT version FROM spaces_schema_migrations").all()).toEqual([
       { version: 1 },
+      { version: 2 },
     ]);
+    expect(db.prepare("PRAGMA table_info('space_invites')").all().map((column) => column.name))
+      .toEqual(expect.arrayContaining(["invite_id", "revoked_at"]));
+    db.close();
+  });
+
+  it("upgrades version-one invitations with stable management ids", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE spaces_schema_migrations (
+        version INTEGER PRIMARY KEY NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+      INSERT INTO spaces_schema_migrations VALUES (1, '2026-01-01T00:00:00.000Z');
+      CREATE TABLE space_invites (
+        token_hash TEXT PRIMARY KEY NOT NULL,
+        space_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'editor' CHECK (role = 'editor'),
+        expires_at TEXT NOT NULL,
+        used_at TEXT,
+        created_at TEXT NOT NULL
+      );
+      INSERT INTO space_invites
+        (token_hash, space_id, email, expires_at, created_at)
+      VALUES
+        ('legacy-token-hash', 'space-id', 'person@example.test',
+         '2026-08-25T00:00:00.000Z', '2026-08-18T00:00:00.000Z');
+    `);
+    initializeSpacesDb(db);
+    const migrated = db.prepare(
+      "SELECT invite_id AS inviteId, revoked_at AS revokedAt FROM space_invites",
+    ).get();
+    expect(migrated.inviteId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(migrated.revokedAt).toBeNull();
+    expect(db.prepare("SELECT MAX(version) AS version FROM spaces_schema_migrations").get().version)
+      .toBe(2);
     db.close();
   });
 

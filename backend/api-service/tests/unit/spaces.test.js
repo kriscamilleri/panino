@@ -2,22 +2,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 
 const databaseMocks = vi.hoisted(() => ({
+  deleteDb: vi.fn(),
   getAuthDb: vi.fn(),
+  getDb: vi.fn(),
   getSpacesDb: vi.fn(),
 }));
 
 vi.mock("../../db.js", () => databaseMocks);
 
 import {
+  acceptSpaceInvite,
   addEditorMember,
   assertSpacesInvariants,
+  assertAccountDeletionAllowed,
+  createSpaceInvite,
   createSpace,
   getSpaceMembership,
   getSpaceMembershipVersion,
+  getSpaceDetails,
   isSharedSpacesEnabled,
+  leaveSpace,
   listSpacesForUser,
+  renameSpace,
   removeEditorMember,
+  requestSpaceDeletion,
+  purgeExpiredSpaces,
+  resendSpaceInvite,
   resolveSpaceAccess,
+  revokeSpaceInvite,
+  transferSpaceOwnership,
 } from "../../spaces.js";
 
 const OWNER_ID = "11111111-1111-4111-8111-111111111111";
@@ -52,7 +65,9 @@ const SPACES_SCHEMA = `
     role TEXT NOT NULL DEFAULT 'editor' CHECK (role = 'editor'),
     expires_at TEXT NOT NULL,
     used_at TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    invite_id TEXT UNIQUE,
+    revoked_at TEXT
   );
   CREATE UNIQUE INDEX idx_space_members_one_owner
     ON space_members(space_id) WHERE role = 'owner';
@@ -64,9 +79,11 @@ const SPACES_SCHEMA = `
 
 let authDb;
 let spacesDb;
+let contentDb;
 
-function addAuthUser(id) {
-  authDb.prepare("INSERT INTO users (id) VALUES (?)").run(id);
+function addAuthUser(id, email = `${id}@example.test`, name = "Test User") {
+  authDb.prepare("INSERT INTO users (id, email, name, created_at) VALUES (?, ?, ?, ?)")
+    .run(id, email, name, "2026-01-01T00:00:00.000Z");
 }
 
 function versionFor(userId) {
@@ -79,12 +96,25 @@ beforeEach(() => {
   process.env.SHARED_SPACES_ENABLED = "true";
   authDb = new Database(":memory:");
   spacesDb = new Database(":memory:");
-  authDb.exec("CREATE TABLE users (id TEXT PRIMARY KEY NOT NULL)");
+  contentDb = new Database(":memory:");
+  authDb.exec(`CREATE TABLE users (
+    id TEXT PRIMARY KEY NOT NULL,
+    email TEXT,
+    name TEXT,
+    created_at TEXT
+  )`);
+  contentDb.exec(`CREATE TABLE users (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT,
+    email TEXT,
+    created_at TEXT
+  )`);
   spacesDb.exec(SPACES_SCHEMA);
-  addAuthUser(OWNER_ID);
-  addAuthUser(EDITOR_ID);
-  addAuthUser(OTHER_ID);
+  addAuthUser(OWNER_ID, "owner@example.test", "Owner");
+  addAuthUser(EDITOR_ID, "editor@example.test", "Editor");
+  addAuthUser(OTHER_ID, "other@example.test", "Other");
   databaseMocks.getAuthDb.mockReturnValue(authDb);
+  databaseMocks.getDb.mockReturnValue(contentDb);
   databaseMocks.getSpacesDb.mockReturnValue(spacesDb);
 });
 
@@ -92,6 +122,7 @@ afterEach(() => {
   delete process.env.SHARED_SPACES_ENABLED;
   authDb.close();
   spacesDb.close();
+  contentDb.close();
   vi.clearAllMocks();
 });
 
@@ -474,7 +505,7 @@ describe("resolveSpaceAccess", () => {
     expect(resolveSpaceAccess(space.spaceId, OWNER_ID)).toEqual({
       spaceId: space.spaceId,
       role: "owner",
-      membershipVersion: 1,
+      membershipVersion: 2,
     });
     expect(resolveSpaceAccess(space.spaceId, EDITOR_ID)).toEqual({
       spaceId: space.spaceId,
@@ -542,5 +573,190 @@ describe("getSpaceMembershipVersion", () => {
     createSpace(OWNER_ID, "Broken");
     spacesDb.exec("DROP TABLE space_user_versions");
     expect(() => getSpaceMembershipVersion(OWNER_ID)).toThrow();
+  });
+});
+
+describe("Phase 5 lifecycle", () => {
+  it("normalizes, hashes, expires, and accepts an email-bound invite once", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    const now = new Date("2026-08-18T20:00:00.000Z");
+    const token = "a".repeat(64);
+    const created = createSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      email: "  Editor@Example.Test ",
+      now,
+      tokenFactory: () => token,
+    });
+
+    expect(created.invite).toMatchObject({
+      email: "editor@example.test",
+      role: "editor",
+      expiresAt: "2026-08-25T20:00:00.000Z",
+    });
+    const stored = spacesDb.prepare(
+      "SELECT token_hash AS tokenHash, email FROM space_invites WHERE invite_id = ?",
+    ).get(created.invite.id);
+    expect(stored.email).toBe("editor@example.test");
+    expect(stored.tokenHash).not.toBe(token);
+
+    const accepted = acceptSpaceInvite({
+      actorUserId: EDITOR_ID,
+      token,
+      now: new Date("2026-08-20T20:00:00.000Z"),
+    });
+    expect(accepted.spaceId).toBe(space.spaceId);
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)?.role).toBe("editor");
+    expect(contentDb.prepare("SELECT name, email FROM users WHERE id = ?").get(EDITOR_ID))
+      .toEqual({ name: "Editor", email: null });
+    expect(() => acceptSpaceInvite({ actorUserId: EDITOR_ID, token, now }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_INVALID" }));
+  });
+
+  it("rejects wrong-account and expired invite acceptance without adding membership", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    const now = new Date("2026-08-18T20:00:00.000Z");
+    const token = "b".repeat(64);
+    createSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      email: "editor@example.test",
+      now,
+      tokenFactory: () => token,
+    });
+
+    expect(() => acceptSpaceInvite({ actorUserId: OTHER_ID, token, now }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_INVALID" }));
+    expect(() => acceptSpaceInvite({
+      actorUserId: EDITOR_ID,
+      token,
+      now: new Date("2026-08-25T20:00:00.000Z"),
+    })).toThrowError(expect.objectContaining({ code: "SPACE_INVITE_INVALID" }));
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)).toBeNull();
+  });
+
+  it("revokes and resends with a new token while invalidating the old link", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    const first = createSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      email: "editor@example.test",
+      tokenFactory: () => "c".repeat(64),
+    });
+    const resent = resendSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      inviteId: first.invite.id,
+      tokenFactory: () => "d".repeat(64),
+    });
+    expect(resent.invite.id).not.toBe(first.invite.id);
+    expect(() => acceptSpaceInvite({ actorUserId: EDITOR_ID, token: first.token }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_INVALID" }));
+    expect(() => revokeSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      inviteId: first.invite.id,
+    })).toThrowError(expect.objectContaining({ code: "SPACE_INVITE_NOT_FOUND" }));
+    revokeSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      inviteId: resent.invite.id,
+    });
+    expect(() => acceptSpaceInvite({ actorUserId: EDITOR_ID, token: resent.token }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_INVALID" }));
+  });
+
+  it("renames for owners, exposes invite email only to owners, and bumps all members", () => {
+    const space = createSpace(OWNER_ID, "Old name");
+    addEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
+    const ownerBefore = versionFor(OWNER_ID);
+    const editorBefore = versionFor(EDITOR_ID);
+    renameSpace({ actorUserId: OWNER_ID, spaceId: space.spaceId, name: "New name" });
+    const invitation = createSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      email: "other@example.test",
+    });
+    expect(getSpaceDetails({ actorUserId: OWNER_ID, spaceId: space.spaceId }).invitations)
+      .toEqual([expect.objectContaining({ id: invitation.invite.id, email: "other@example.test" })]);
+    expect(getSpaceDetails({ actorUserId: EDITOR_ID, spaceId: space.spaceId }).invitations)
+      .toEqual([]);
+    expect(versionFor(OWNER_ID)).toBe(ownerBefore + 2);
+    expect(versionFor(EDITOR_ID)).toBe(editorBefore + 2);
+    expect(() => renameSpace({ actorUserId: EDITOR_ID, spaceId: space.spaceId, name: "No" }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_OWNER_REQUIRED" }));
+  });
+
+  it("transfers sole ownership before the former owner leaves", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    addEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
+    expect(() => leaveSpace({ actorUserId: OWNER_ID, spaceId: space.spaceId }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_OWNER_LEAVE_DENIED" }));
+    transferSpaceOwnership({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      targetUserId: EDITOR_ID,
+    });
+    expect(getSpaceMembership(space.spaceId, OWNER_ID)?.role).toBe("editor");
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)?.role).toBe("owner");
+    const ownerRows = spacesDb.prepare(
+      "SELECT user_id AS userId FROM space_members WHERE space_id = ? AND role = 'owner'",
+    ).all(space.spaceId);
+    expect(ownerRows).toEqual([{ userId: EDITOR_ID }]);
+    leaveSpace({ actorUserId: OWNER_ID, spaceId: space.spaceId });
+    expect(getSpaceMembership(space.spaceId, OWNER_ID)).toBeNull();
+  });
+
+  it("revokes a deletion-requested space for 30 days and blocks account deletion while retained", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    addEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
+    const result = requestSpaceDeletion({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      now: new Date("2026-08-18T20:00:00.000Z"),
+    });
+    expect(result.deleteAfter).toBe("2026-09-17T20:00:00.000Z");
+    expect(result.revokedUserIds).toEqual(expect.arrayContaining([OWNER_ID, EDITOR_ID]));
+    expect(resolveSpaceAccess(space.spaceId, OWNER_ID)).toBeNull();
+    expect(resolveSpaceAccess(space.spaceId, EDITOR_ID)).toBeNull();
+    expect(() => assertAccountDeletionAllowed(OWNER_ID))
+      .toThrowError(expect.objectContaining({ code: "OWNED_SPACES_REMAIN" }));
+    expect(assertAccountDeletionAllowed(OTHER_ID)).toBe(true);
+  });
+
+  it("purges retained metadata only after the deadline and retries filesystem failures", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    requestSpaceDeletion({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      now: new Date("2026-08-18T20:00:00.000Z"),
+    });
+    const removeContent = vi.fn();
+    const removeUploads = vi.fn();
+    expect(purgeExpiredSpaces({
+      now: new Date("2026-09-17T19:59:59.999Z"),
+      removeContent,
+      removeUploads,
+    }).purged).toEqual([]);
+    expect(removeContent).not.toHaveBeenCalled();
+
+    removeContent.mockImplementationOnce(() => { throw new Error("disk busy"); });
+    const failed = purgeExpiredSpaces({
+      now: new Date("2026-09-17T20:00:00.000Z"),
+      removeContent,
+      removeUploads,
+    });
+    expect(failed.failed).toEqual([expect.objectContaining({ spaceId: space.spaceId })]);
+    expect(spacesDb.prepare("SELECT status FROM spaces WHERE id = ?").get(space.spaceId)?.status)
+      .toBe("pending_delete");
+
+    const retried = purgeExpiredSpaces({
+      now: new Date("2026-09-17T20:00:01.000Z"),
+      removeContent,
+      removeUploads,
+    });
+    expect(retried.purged).toEqual([space.spaceId]);
+    expect(spacesDb.prepare("SELECT 1 FROM spaces WHERE id = ?").get(space.spaceId))
+      .toBeUndefined();
   });
 });

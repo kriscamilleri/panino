@@ -38,6 +38,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `uiStore` | Panel visibility (persisted to DB), menus, modals, toast notifications | syncStore |
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
+| `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
 
 ### Store initialization pattern
 
@@ -137,5 +138,7 @@ Today: {{ GLOBAL_DATE }}
 - **Circular dependency avoidance**: use dynamic `await import('./storeName')` when stores have circular refs (see `syncStore` importing `uiStore`).
 - **Tailwind CSS** for styling; scoped `<style scoped>` blocks with `:deep()` for child component overrides.
 - **Lucide Vue Next** for icons.
+- Shared-space management lives at `/spaces`; invitation landing is explicit (never auto-accepts)
+  and posts the raw email token in the request body before removing it from the address bar.
 - **`@/`** path alias resolves to `frontend/src/`.
 - **No TypeScript** — plain JavaScript throughout.

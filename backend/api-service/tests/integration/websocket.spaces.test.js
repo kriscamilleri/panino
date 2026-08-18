@@ -559,6 +559,33 @@ describe('WebSocket v1 subscribe/unsubscribe protocol (shared spaces)', () => {
         }
     });
 
+    it('revokes a removed member immediately without waiting for a later sync poke', async () => {
+        const editorSiteId = hexSiteId();
+        const editorWs = await openWebSocket(`ws://localhost:${WS_PORT}?token=${editorToken}&siteId=${editorSiteId}`);
+
+        try {
+            await subscribe(editorWs, [{ dbKey: `space:${spaceId}`, siteId: editorSiteId }]);
+            const revocation = waitForMessage(editorWs, (m) => m.type === 'subscription:revoked');
+
+            await request(app)
+                .delete(`/spaces/${spaceId}/members/${editor.userId}`)
+                .set('Authorization', `Bearer ${ownerToken}`)
+                .expect(204);
+
+            expect(await revocation).toEqual({
+                v: 1,
+                type: 'subscription:revoked',
+                requestId: null,
+                ok: true,
+                payload: { dbKey: `space:${spaceId}` },
+            });
+            const serverWs = getServerSocket(clients, editorSiteId);
+            expect(clients.get(serverWs).subscriptions.has(`space:${spaceId}`)).toBe(false);
+        } finally {
+            await closeWebSocket(editorWs);
+        }
+    });
+
     it('re-checks membership at poke time, drops a revoked subscriber, and emits a revocation notice', async () => {
         const editorSiteId = hexSiteId();
         const ownerSiteId = hexSiteId();

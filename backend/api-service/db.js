@@ -4,11 +4,13 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { randomUUID } from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "data");
 const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
 export const CONTENT_SCHEMA_VERSION = 1;
+export const SPACES_SCHEMA_VERSION = 2;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Both the shared auth (`_users.db`) and shared spaces (`_spaces.db`) metadata
@@ -809,6 +811,22 @@ export function getUserDbSizeBytes(userId) {
   return getDbSizeBytes(`user:${userId}`);
 }
 
+/** Delete one validated content database and its SQLite sidecars. */
+export function deleteDb(dbKey) {
+  const resolved = resolveDbPath(dbKey);
+  invalidateDb(resolved.dbKey, null, "database-delete");
+  const removed = [];
+  for (const filePath of [resolved.dbPath, `${resolved.dbPath}-wal`, `${resolved.dbPath}-shm`]) {
+    try {
+      fs.unlinkSync(filePath);
+      removed.push(filePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  return { dbKey: resolved.dbKey, removedCount: removed.length };
+}
+
 const AUTH_SCHEMA = `
   PRAGMA foreign_keys = ON;
   CREATE TABLE IF NOT EXISTS users (
@@ -871,6 +889,41 @@ const SPACES_SCHEMA_V1 = `
   );
 `;
 
+function hasColumn(db, table, column) {
+  return db.prepare(`PRAGMA table_info('${table}')`).all().some((row) => row.name === column);
+}
+
+function addColumnIfMissing(db, table, column, definition) {
+  if (hasColumn(db, table, column)) return;
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (error) {
+    // Another server/test worker may have completed the idempotent migration
+    // after this connection read the version marker but before it acquired
+    // the schema write lock. Only the now-present target column makes that
+    // race a success; every other migration failure still propagates.
+    if (!hasColumn(db, table, column)) throw error;
+  }
+}
+
+function migrateSpacesSchemaV2(db) {
+  addColumnIfMissing(db, "space_invites", "invite_id", "TEXT");
+  addColumnIfMissing(db, "space_invites", "revoked_at", "TEXT");
+  const missingIds = db.prepare(
+    "SELECT token_hash AS tokenHash FROM space_invites WHERE invite_id IS NULL",
+  ).all();
+  const setId = db.prepare(
+    "UPDATE space_invites SET invite_id = ? WHERE token_hash = ? AND invite_id IS NULL",
+  );
+  for (const row of missingIds) setId.run(randomUUID(), row.tokenHash);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_space_invites_id
+      ON space_invites(invite_id);
+    CREATE INDEX IF NOT EXISTS idx_space_invites_space_pending
+      ON space_invites(space_id, used_at, revoked_at, expires_at);
+  `);
+}
+
 export function getAuthDb() {
   const key = "_auth";
   if (dbConnections.has(key)) return dbConnections.get(key);
@@ -891,7 +944,7 @@ export function initializeSpacesDb(db) {
   const currentVersion = Number(
     db.prepare("SELECT MAX(version) AS version FROM spaces_schema_migrations").get()?.version ?? 0,
   );
-  if (currentVersion > 1) {
+  if (currentVersion > SPACES_SCHEMA_VERSION) {
     throw new Error("Shared-space metadata schema is newer than this server supports.");
   }
   if (currentVersion < 1) {
@@ -903,6 +956,14 @@ export function initializeSpacesDb(db) {
         // be idempotent too after a competing worker commits first.
         "INSERT OR IGNORE INTO spaces_schema_migrations (version, applied_at) VALUES (?, ?)",
       ).run(1, new Date().toISOString());
+    })();
+  }
+  if (currentVersion < 2) {
+    db.transaction(() => {
+      migrateSpacesSchemaV2(db);
+      db.prepare(
+        "INSERT OR IGNORE INTO spaces_schema_migrations (version, applied_at) VALUES (?, ?)",
+      ).run(2, new Date().toISOString());
     })();
   }
 }

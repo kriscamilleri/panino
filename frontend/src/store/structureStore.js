@@ -311,6 +311,29 @@ export const useStructureStore = defineStore('structureStore', () => {
     return openFolders.value.has(`${dbKey}:${folderId}`);
   }
 
+  function clearDatabaseScope(dbKey) {
+    parseDatabaseKey(dbKey);
+    const nodeIds = [...nodeDbIndex.value.entries()]
+      .filter(([, indexedDbKey]) => indexedDbKey === dbKey)
+      .map(([nodeId]) => nodeId)
+      .filter((nodeId) => nodeId !== dbKey);
+    if (selectedDbKey.value === dbKey) {
+      if (selectedFileId.value) nodeIds.push(selectedFileId.value);
+      selectedFileId.value = null;
+      selectedFolderId.value = null;
+      selectedDbKey.value = null;
+      selectedFile.value = null;
+    }
+    rootItems.value = rootItems.value.filter((item) => item.dbKey !== dbKey);
+    nodeDbIndex.value = new Map(
+      [...nodeDbIndex.value.entries()].filter(([, indexedDbKey]) => indexedDbKey !== dbKey),
+    );
+    openFolders.value = new Set(
+      [...openFolders.value].filter((key) => !key.startsWith(`${dbKey}:`)),
+    );
+    return [...new Set(nodeIds)];
+  }
+
   function resetStore() {
     rootItems.value = [];
     selectedFileId.value = null;
@@ -347,6 +370,7 @@ export const useStructureStore = defineStore('structureStore', () => {
     duplicateFile,
     toggleFolder,
     isFolderOpen,
+    clearDatabaseScope,
     reFetchSelectedFile,
     resetStore,
   };

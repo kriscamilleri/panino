@@ -17,7 +17,7 @@ import { backupPublicRoutes, backupRoutes } from './backup.js';
 import { initDb } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 import { attachWebSocketHandlers } from './websocket.js';
-import { spaceRoutes } from './spaces.js';
+import { spaceRoutes, startSpaceDeletionJob } from './spaces.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, 'data');
@@ -28,6 +28,7 @@ if (!fs.existsSync(dataDir)) {
 initDb();
 startImageOrphanPruneJob();
 startRevisionMaintenanceJob();
+startSpaceDeletionJob();
 
 const PORT = process.env.PORT || 8000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';

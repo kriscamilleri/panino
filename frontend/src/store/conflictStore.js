@@ -116,6 +116,12 @@ export const useConflictStore = defineStore('conflictStore', () => {
         conflictedNoteIds.value = new Set();
     }
 
+    function clearDatabase(dbKey) {
+        conflictedNoteIds.value = new Set(
+            [...conflictedNoteIds.value].filter((key) => !key.startsWith(`${dbKey}:`)),
+        );
+    }
+
     watch(
         () => syncStore.isInitialized,
         async (ready) => {
@@ -130,6 +136,7 @@ export const useConflictStore = defineStore('conflictStore', () => {
         loadConflict,
         resolveConflict,
         hasConflict,
+        clearDatabase,
         clearAll,
     };
 });

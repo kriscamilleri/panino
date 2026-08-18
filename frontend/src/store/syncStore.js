@@ -999,6 +999,19 @@ tags:
     if (!entry || dbKey === personalDbKey.value) return;
     entry.syncPending = false;
     entry.isSyncing = false;
+    const { useStructureStore } = await import("./structureStore");
+    const { useDraftStore } = await import("./draftStore");
+    const { useHistoryStore } = await import("./historyStore");
+    const { useConflictStore } = await import("./conflictStore");
+    const affectedNoteIds = useStructureStore().clearDatabaseScope(dbKey);
+    const drafts = useDraftStore();
+    const history = useHistoryStore();
+    for (const noteId of affectedNoteIds) {
+      drafts.clearDraft(noteId);
+      drafts.clearBase(noteId);
+      history.clear(noteId);
+    }
+    useConflictStore().clearDatabase(dbKey);
     if (notifyServer && ws.value?.readyState === WebSocket.OPEN) {
       ws.value.send(JSON.stringify({
         v: 1,
@@ -1330,7 +1343,17 @@ tags:
         if (databases.value.has(target)) void sync(target);
       } else if (msg.type === "subscription:revoked" && msg.payload?.dbKey) {
         await removeDatabase(msg.payload.dbKey, { notifyServer: false });
-        await refreshMembership();
+        await requestMembershipRefresh();
+      } else if (
+        msg.type === "membership:changed" &&
+        Number.isFinite(Number(msg.payload?.membershipVersion)) &&
+        Number(msg.payload.membershipVersion) !== membershipVersion.value
+      ) {
+        try {
+          await requestMembershipRefresh();
+        } catch (error) {
+          reportMembershipRefreshFailure(error);
+        }
       } else if (
         msg.ok === true &&
         msg.type === "subscribe" &&
@@ -1414,6 +1437,7 @@ tags:
     resetDatabase,
     sync,
     refreshMembership,
+    requestMembershipRefresh,
     retryBootstrap,
     removeDatabase,
     subscribeInitializedDatabases,

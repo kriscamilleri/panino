@@ -7,6 +7,16 @@
             :data-testid="`tree-item-context-menu-${item.id}`"
         >
             <button
+                v-if="isSpace"
+                @click="handleManageSpace"
+                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                :data-testid="`tree-item-context-menu-manage-${item.id}`"
+            >
+                <Settings class="h-4 w-4" />
+                <span>Manage space</span>
+            </button>
+
+            <button
                 v-if="!isSpace"
                 @click="handleRename"
                 class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
@@ -260,7 +270,7 @@ import AvatarStack from '@/components/AvatarStack.vue'
 
 import {
     Trash2, FilePlus, FolderPlus, MoreHorizontal,
-    ChevronRight, ChevronDown, Folder, File, Edit, Copy, Users
+    ChevronRight, ChevronDown, Folder, File, Edit, Copy, Users, Settings
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -394,6 +404,11 @@ function showMenu(event) {
     contextMenuY.value = event.clientY
     showContextMenu.value = true
     event.preventDefault()
+}
+
+function handleManageSpace() {
+    showContextMenu.value = false
+    router.push({ name: 'spaces', query: { space: props.item.id } })
 }
 
 async function handleDuplicate() {
