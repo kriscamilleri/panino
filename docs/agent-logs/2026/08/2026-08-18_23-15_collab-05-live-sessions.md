@@ -2,7 +2,7 @@
 
 - **Agent:** Codex
 - **Started:** 2026-08-18 23:00 +0200
-- **Status:** In progress — implementation and pre-rebase validation complete; rebase pending
+- **Status:** Complete
 
 ## Objective
 
@@ -22,6 +22,11 @@ keep shared spaces and live sessions disabled by default.
   disposable Compose project. It covered invitation acceptance, shared Document creation, live
   convergence, qualified image rendering, explicit version save, two hard API crashes, and both
   acknowledged recovery and pre-ack replay.
+- Preserved pre-rebase tip `4d815d0` on local branch
+  `backup/feature-collab-pre-rebase-20260818`, then rebased all collaboration commits onto
+  `origin/main` at `a297aa8`. The rebase had no conflicts; range-diff classified every collaboration
+  patch as equivalent, and the only tree additions versus the preserved tip were mainline's
+  deployment lockfile fix and its log.
 
 ## Changes Made
 
@@ -48,7 +53,7 @@ keep shared spaces and live sessions disabled by default.
   replay/duplicate handling, malformed input, non-disclosure, merge/conflict, feature flag,
   immediate revocation, revision attribution, and graceful shutdown.
 - Backend schema focus: 38 database tests passed with space-only content schema v2 coverage.
-- Aggregate `npm test`: shared 25/25, frontend 49 files / 501 tests, and Dockerized backend
+- Pre-rebase aggregate `npm test`: shared 25/25, frontend 49 files / 501 tests, and Dockerized backend
   26 files / 307 tests passed.
 - `npm run doctor`, root `npm run lint`, `git diff --check`, and the frontend production build passed.
   Vite reported only the repository's existing mixed static/dynamic import and large-chunk warnings.
@@ -61,9 +66,14 @@ keep shared spaces and live sessions disabled by default.
 - Shared outbound-projection regression: `frontend/tests/unit/syncRegistry.test.js` passed (16 tests).
 - Post-review focused checks passed: 22 frontend tests for live state, sync projection, and image URLs;
   targeted frontend/backend ESLint; and the backend automatic-conflict recovery integration test.
+- Post-rebase canonical validation passed: `npm run doctor`, root `npm run lint`, aggregate
+  `npm test` (shared 25/25, frontend 49 files / 502 tests, backend 26 files / 307 tests), and the
+  frontend production build. Build output retained only the existing chunking warnings.
 
 ## Open Items / Notes
 
-- Run full backend/root validation, deliberately rebase onto `origin/main`, and repeat validation
-  before opening the PR.
+- Shared spaces and live sessions remain independently disabled by default. Enable both only in a
+  deliberately configured environment.
+- The local pre-rebase backup branch can be removed after the rebased remote branch and PR are
+  confirmed.
 - Dependency installation reported existing audit findings; no breaking force-fix was run.
