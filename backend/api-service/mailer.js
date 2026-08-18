@@ -7,10 +7,12 @@ const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: parseInt(SMTP_PORT || '587', 10),
     secure: (SMTP_PORT === '465'), // true for 465, false for other ports
-    auth: {
-        user: SMTP_USER,
-        pass: SMTP_PASS,
-    },
+    ...(SMTP_USER && SMTP_PASS ? {
+        auth: {
+            user: SMTP_USER,
+            pass: SMTP_PASS,
+        },
+    } : {}),
 });
 
 export async function sendPasswordResetEmail(to, token) {
@@ -29,5 +31,32 @@ export async function sendPasswordResetEmail(to, token) {
     } catch (error) {
         console.error(`Error sending password reset email to ${to}:`, error);
         // In a real app, you'd have more robust error handling here
+    }
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[character]);
+}
+
+export async function sendSpaceInviteEmail(to, token, spaceName) {
+    const inviteLink = `${FRONTEND_URL || 'http://localhost:5173'}/#/spaces/invitations/${token}`;
+    const safeLink = escapeHtml(inviteLink);
+    const safeSpaceName = escapeHtml(spaceName);
+    const mailOptions = {
+        from: `Panino <${SMTP_FROM}>`,
+        to,
+        subject: 'You were invited to a Panino space',
+        text: `You were invited to collaborate in “${spaceName}”. Open this link while signed in to the invited email address: ${inviteLink}\n\nThis invitation expires in 7 days.`,
+        html: `<p>You were invited to collaborate in <strong>${safeSpaceName}</strong>.</p><p><a href="${safeLink}">Accept invitation</a></p><p>Sign in with the invited email address. This invitation expires in 7 days.</p>`,
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        return true;
+    } catch (error) {
+        console.error('[mailer] Failed to send a space invitation:', error?.message || 'unknown error');
+        return false;
     }
 }
