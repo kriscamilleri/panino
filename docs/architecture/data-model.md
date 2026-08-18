@@ -31,7 +31,7 @@ Shared spaces use `data/spaces/{spaceId}.db` and the same CRR content tables as 
 
 ### Shared-space metadata database
 
-`data/_spaces.db` is backend-only and not synced. It contains `spaces`, `space_members`, `space_invites`, `space_user_versions`, and its own ordered `spaces_schema_migrations` table. Owner/editor membership operations are internal and fail closed unless `SHARED_SPACES_ENABLED=true`; Phase 1 exposes no public space routes.
+`data/_spaces.db` is backend-only and not synced. It contains `spaces`, `space_members`, `space_invites`, `space_user_versions`, and its own ordered `spaces_schema_migrations` table. Owner/editor membership mutations remain internal and fail closed unless `SHARED_SPACES_ENABLED=true`. The authenticated, read-only `GET /spaces` registry-discovery route is also flag-gated: it returns active memberships in stable cursor pages, a membership version, the minimum supported client schema, and profile-safe member `{id, name}` values. It deliberately exposes no lifecycle or invite operation.
 
 ### Authentication database
 
@@ -53,8 +53,8 @@ The synced `settings` table stores one JSON string per setting key. Current keys
 
 ```text
 POST /sync
-Body:     { since: number, siteId: hex_string, changes: Change[] }
-Response: { changes: Change[], clock: number, skipped: number }
+Body:     { since: number, siteId: hex_string, changes: Change[], space?: uuid }
+Response: { changes: Change[], clock: number, skipped: number, membershipVersion?: number }
 ```
 
 Each change has the shape:
@@ -67,6 +67,11 @@ Each change has the shape:
 - `site_id` is a 32-character hexadecimal representation of 16 bytes.
 - `val` is a JSON-encoded scalar for values received from the browser.
 - `clock` is the highest `db_version` returned by the backend.
+- An absent `space` targets the authenticated user's personal database; a present `space`
+  targets canonical `space:<uuid>` state after membership authorization. A non-member receives
+  the same `404` shape as a missing space.
+- Space responses carry `membershipVersion`; clients refresh their paginated membership snapshot
+  before retrying when it changes.
 - `skipped` is an observability field for the number of changes rejected by legacy
   per-change handling; new code should fail closed rather than silently treating a failed
   merge as success.
@@ -82,3 +87,16 @@ Each change has the shape:
 
 Use parameterized SQL for all application values. Do not interpolate primary keys, user IDs,
 or change values into SQL text.
+
+## Browser database registry
+
+The frontend registry is keyed only by canonical `user:<uuid>` and `space:<uuid>` values. Each
+entry owns its CR-SQLite handle, database-reported site ID, clock, and sync/apply state. Browser
+clocks live at `crsqlite_clock:<dbKey>`; initialization migrates and removes the legacy personal
+`crsqlite_clock` key once. The personal database opens before asynchronous membership discovery,
+and registered databases sync sequentially so a failed replica cannot block or advance another.
+
+Frontend repositories require a database key at their public boundary. Tree nodes retain an
+in-memory node-to-database index, dashboard rows are tagged before their per-database result sets
+are merged, and global limits are applied only after that merge. A revoked membership closes and
+removes the local handle from the active registry and unsubscribes its WebSocket key.
