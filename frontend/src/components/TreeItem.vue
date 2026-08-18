@@ -336,6 +336,7 @@ const shouldShowContextButton = computed(() =>
    ▸ DRAG-AND-DROP
 ────────────────────────────── */
 const refreshParent = inject('refreshParent', () => { });
+const requestDatabaseTransfer = inject('requestDatabaseTransfer', () => { });
 
 function handleDragStart(e) {
     e.dataTransfer.effectAllowed = 'move'
@@ -349,12 +350,17 @@ async function handleDrop(e) {
 
     let oldParentId
     try {
-        ({ oldParentId } = await structureStore.moveItem(
+        const result = await structureStore.moveItem(
             droppedItem.id,
             props.item.id,
             droppedItem.type,
             props.item.dbKey,
-        ))
+        )
+        if (result?.requiresConfirmation) {
+            requestDatabaseTransfer(result)
+            return
+        }
+        oldParentId = result?.oldParentId
     } catch (error) {
         ui.addToast(error?.message || 'Failed to move Document.', 'warning')
         return

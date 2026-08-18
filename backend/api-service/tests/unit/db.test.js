@@ -129,9 +129,17 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     expect(db.prepare("SELECT version FROM spaces_schema_migrations").all()).toEqual([
       { version: 1 },
       { version: 2 },
+      { version: 3 },
     ]);
     expect(db.prepare("PRAGMA table_info('space_invites')").all().map((column) => column.name))
       .toEqual(expect.arrayContaining(["invite_id", "revoked_at"]));
+    expect(db.prepare("PRAGMA table_info('space_transfers')").all().map((column) => column.name))
+      .toEqual(expect.arrayContaining([
+        "source_db_key",
+        "destination_db_key",
+        "image_map_json",
+        "warnings_json",
+      ]));
     db.close();
   });
 
@@ -165,7 +173,7 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     expect(migrated.inviteId).toMatch(/^[0-9a-f-]{36}$/);
     expect(migrated.revokedAt).toBeNull();
     expect(db.prepare("SELECT MAX(version) AS version FROM spaces_schema_migrations").get().version)
-      .toBe(2);
+      .toBe(3);
     db.close();
   });
 

@@ -248,7 +248,28 @@ export const useStructureStore = defineStore('structureStore', () => {
     const targetDbKey = newParentId
       ? scopeForNode(newParentId, destinationDbKey || null)
       : requireDbKey(destinationDbKey);
-    if (sourceDbKey !== targetDbKey) throw new Error('Moving Documents between databases is not available yet.');
+    if (sourceDbKey !== targetDbKey) {
+      if (type !== 'file') {
+        throw new Error('Folders cannot be moved between databases. Move Documents individually.');
+      }
+      const sourceRows = await syncStore.repository(sourceDbKey).execute(
+        'SELECT title FROM notes WHERE id = ?',
+        [itemId],
+      );
+      if (!sourceRows[0]) throw new Error('Source Document is no longer available.');
+      const sourceEntry = syncStore.databases.get(sourceDbKey);
+      const destinationEntry = syncStore.databases.get(targetDbKey);
+      return {
+        requiresConfirmation: true,
+        sourceDbKey,
+        destinationDbKey: targetDbKey,
+        sourceNoteId: itemId,
+        destinationFolderId: newParentId === targetDbKey ? null : newParentId,
+        documentName: sourceRows[0].title || 'Untitled',
+        sourceName: sourceEntry?.name || 'Personal',
+        destinationName: destinationEntry?.name || 'Personal',
+      };
+    }
     const repository = syncStore.repository(sourceDbKey);
     const oldParentRows = await repository.execute(
       type === 'folder'

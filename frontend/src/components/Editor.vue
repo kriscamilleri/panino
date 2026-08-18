@@ -806,10 +806,6 @@ async function uploadImage(fileObj, options = {}) {
     uploadError.value = 'You must be logged in to upload images.';
     return;
   }
-  if (file.value?.dbKey?.startsWith('space:')) {
-    uploadError.value = 'Image uploads for shared-space Documents are not available yet.';
-    return;
-  }
   isUploading.value = true;
   uploadError.value = '';
   try {
@@ -824,7 +820,10 @@ async function uploadImage(fileObj, options = {}) {
     const formData = new FormData();
     formData.append('image', fileObj, uploadFilename);
 
-    const response = await fetch(`${imageServiceUrl}/images`, {
+    const imageTarget = file.value?.dbKey?.startsWith('space:')
+      ? `?space=${encodeURIComponent(file.value.dbKey.slice('space:'.length))}`
+      : '';
+    const response = await fetch(`${imageServiceUrl}/images${imageTarget}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${authStore.token}`

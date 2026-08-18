@@ -6,14 +6,7 @@
     ]"
     data-testid="revision-panel"
   >
-    <div
-      v-if="isSharedDocument"
-      class="p-4 text-sm text-gray-600"
-      data-testid="revision-panel-space-unavailable"
-    >
-      Revision history for shared-space Documents is not available yet.
-    </div>
-    <div v-else class="flex h-full min-h-0">
+    <div class="flex h-full min-h-0">
       <div class="w-[30rem] max-w-[30rem] shrink-0 border-r border-gray-200 min-h-0 flex flex-col overflow-y-auto">
         <div v-if="revisionStore.isListLoading && revisionStore.revisions.length === 0" class="p-3 space-y-2">
           <div v-for="idx in 6" :key="idx" class="h-10 animate-pulse rounded-md bg-gray-100"></div>
@@ -35,7 +28,10 @@
           >
             <div class="text-xs text-gray-500">{{ formatTimestamp(item.createdAt) }}</div>
             <div class="text-sm font-medium text-gray-700 truncate">{{ item.title || '(Untitled)' }}</div>
-            <div class="text-[11px] uppercase tracking-wide text-gray-400">{{ item.type }}</div>
+            <div class="flex items-center gap-1 text-[11px] text-gray-400">
+              <span class="uppercase tracking-wide">{{ item.type }}</span>
+              <span v-if="item.actor" :data-testid="`revision-actor-${item.id}`">by {{ item.actor.name }}</span>
+            </div>
           </button>
 
           <button
@@ -103,7 +99,6 @@ const showCompare = ref(true);
 
 const selectedFileId = computed(() => docStore.selectedFileId);
 const selectedDbKey = computed(() => docStore.selectedDbKey);
-const isSharedDocument = computed(() => selectedDbKey.value?.startsWith('space:'));
 const currentContent = computed(() => docStore.selectedFile?.content || '');
 const oldText = computed(() => revisionStore.selectedRevisionDetail?.content || '');
 const newText = computed(() => currentContent.value);
@@ -113,7 +108,7 @@ watch(
   async ([noteId, dbKey]) => {
     revisionStore.resetState();
     showCompare.value = true;
-    if (!noteId || !dbKey || isSharedDocument.value) return;
+    if (!noteId || !dbKey) return;
     try {
       await revisionStore.fetchRevisions(dbKey, noteId, { reset: true, limit: 50 });
     } catch {

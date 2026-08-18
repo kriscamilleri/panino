@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "data");
 const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
 export const CONTENT_SCHEMA_VERSION = 1;
-export const SPACES_SCHEMA_VERSION = 2;
+export const SPACES_SCHEMA_VERSION = 3;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Both the shared auth (`_users.db`) and shared spaces (`_spaces.db`) metadata
@@ -924,6 +924,42 @@ function migrateSpacesSchemaV2(db) {
   `);
 }
 
+function migrateSpacesSchemaV3(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS space_transfers (
+      id TEXT PRIMARY KEY NOT NULL,
+      actor_user_id TEXT NOT NULL,
+      source_db_key TEXT NOT NULL,
+      destination_db_key TEXT NOT NULL,
+      source_note_id TEXT NOT NULL,
+      destination_note_id TEXT NOT NULL,
+      destination_folder_id TEXT,
+      source_updated_at TEXT,
+      source_content_sha256 TEXT NOT NULL,
+      status TEXT NOT NULL
+        CHECK (status IN (
+          'checkpointed',
+          'copying_images',
+          'copying_document',
+          'destination_confirmed',
+          'recoverable_duplicate',
+          'kept_both',
+          'source_deleted',
+          'complete'
+        )),
+      image_map_json TEXT NOT NULL DEFAULT '{}',
+      warnings_json TEXT NOT NULL DEFAULT '[]',
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      destination_confirmed_at TEXT,
+      source_deleted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_space_transfers_actor_status
+      ON space_transfers(actor_user_id, status, updated_at DESC);
+  `);
+}
+
 export function getAuthDb() {
   const key = "_auth";
   if (dbConnections.has(key)) return dbConnections.get(key);
@@ -964,6 +1000,14 @@ export function initializeSpacesDb(db) {
       db.prepare(
         "INSERT OR IGNORE INTO spaces_schema_migrations (version, applied_at) VALUES (?, ?)",
       ).run(2, new Date().toISOString());
+    })();
+  }
+  if (currentVersion < 3) {
+    db.transaction(() => {
+      migrateSpacesSchemaV3(db);
+      db.prepare(
+        "INSERT OR IGNORE INTO spaces_schema_migrations (version, applied_at) VALUES (?, ?)",
+      ).run(3, new Date().toISOString());
     })();
   }
 }

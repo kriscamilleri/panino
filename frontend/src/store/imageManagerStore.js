@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { useAuthStore } from './authStore';
-import { requirePersonalDatabaseKey } from '@/utils/databaseKey';
+import { DATABASE_KINDS, parseDatabaseKey } from '@/utils/databaseKey';
 
 const IS_PROD = import.meta.env.PROD;
 const API_BASE = IS_PROD ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
@@ -17,8 +17,16 @@ function toQuery(params = {}) {
     return query ? `?${query}` : '';
 }
 
-function toImageUrl(imageId) {
-    return `${API_BASE}/images/${imageId}`;
+function targetParams(dbKey) {
+    const parsed = parseDatabaseKey(dbKey);
+    return parsed.kind === DATABASE_KINDS.SPACE ? { space: parsed.id } : {};
+}
+
+function toImageUrl(urlOrId, dbKey) {
+    const canonical = String(urlOrId || '').startsWith('/images/')
+        ? String(urlOrId)
+        : `/images/${urlOrId}${toQuery(targetParams(dbKey))}`;
+    return `${API_BASE}${canonical}`;
 }
 
 export const useImageManagerStore = defineStore('imageManagerStore', () => {
@@ -60,15 +68,15 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
     }
 
     async function fetchImages(dbKey, { limit = 25, cursor = null, search = '', sort = 'created_desc' } = {}) {
-        requirePersonalDatabaseKey(dbKey, 'Image management');
+        const scope = targetParams(dbKey);
         isLoading.value = true;
         error.value = '';
 
         try {
-            const payload = await authFetch(`/images${toQuery({ limit, cursor, search, sort })}`);
+            const payload = await authFetch(`/images${toQuery({ ...scope, limit, cursor, search, sort })}`);
             images.value = (payload?.images || []).map((item) => ({
                 ...item,
-                imageUrl: toImageUrl(item.id),
+                imageUrl: toImageUrl(item.url || item.id, dbKey),
             }));
             nextCursor.value = payload?.nextCursor || null;
             return payload;
@@ -81,16 +89,14 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
     }
 
     async function fetchImageUsage(dbKey, imageId) {
-        requirePersonalDatabaseKey(dbKey, 'Image management');
-        const payload = await authFetch(`/images/${imageId}/usage`);
+        const payload = await authFetch(`/images/${imageId}/usage${toQuery(targetParams(dbKey))}`);
         return payload?.usage || { count: 0, notes: [] };
     }
 
     async function deleteImage(dbKey, imageId, force = false) {
-        requirePersonalDatabaseKey(dbKey, 'Image management');
         isDeleting.value = true;
         try {
-            return await authFetch(`/images/${imageId}`, {
+            return await authFetch(`/images/${imageId}${toQuery(targetParams(dbKey))}`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ force }),
@@ -101,10 +107,9 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
     }
 
     async function bulkDelete(dbKey, ids, force = false) {
-        requirePersonalDatabaseKey(dbKey, 'Image management');
         isDeleting.value = true;
         try {
-            return await authFetch('/images/bulk-delete', {
+            return await authFetch(`/images/bulk-delete${toQuery(targetParams(dbKey))}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ids, force }),
@@ -115,8 +120,7 @@ export const useImageManagerStore = defineStore('imageManagerStore', () => {
     }
 
     async function fetchStats(dbKey) {
-        requirePersonalDatabaseKey(dbKey, 'Image management');
-        const payload = await authFetch('/images/stats');
+        const payload = await authFetch(`/images/stats${toQuery(targetParams(dbKey))}`);
         stats.value = {
             imageCount: Number(payload?.imageCount || 0),
             totalImageBytes: Number(payload?.totalImageBytes || 0),

@@ -315,6 +315,28 @@ describe("assertSpacesInvariants", () => {
     expect(() => assertSpacesInvariants(spacesDb)).not.toThrow();
   });
 
+  it("can validate against an injected staged auth database", () => {
+    const space = createSpace(OWNER_ID, "Staged");
+    databaseMocks.getAuthDb.mockClear();
+    const stagedAuthDb = new Database(":memory:");
+    stagedAuthDb.exec("CREATE TABLE users (id TEXT PRIMARY KEY)");
+
+    try {
+      const report = assertSpacesInvariants(spacesDb, {
+        throwOnViolation: false,
+        authDb: stagedAuthDb,
+      });
+      expect(report.violations).toContainEqual({
+        code: "SPACE_MEMBER_USER_MISSING",
+        userId: OWNER_ID,
+      });
+      expect(databaseMocks.getAuthDb).not.toHaveBeenCalled();
+      expect(getSpaceMembership(space.spaceId, OWNER_ID)).not.toBeNull();
+    } finally {
+      stagedAuthDb.close();
+    }
+  });
+
   it("detects a space with no owner membership row", () => {
     const space = createSpace(OWNER_ID, "No Owner");
     spacesDb

@@ -213,10 +213,14 @@ function tableExists(db, name) {
  * Returns { ok, violations } and, when `throwOnViolation` (the default),
  * throws SpaceRepositoryError("SPACE_INVARIANT_VIOLATION", ...) on any
  * failure so the caller's transaction rolls back rather than guessing a
- * repair. The thrown message is intentionally generic; violation detail is
- * only logged server-side (never surfaced to an HTTP caller).
+ * repair. Restore tooling may inject its staged auth DB; normal application
+ * callers default to the live auth connection. The thrown message is
+ * intentionally generic; violation detail is only logged server-side.
  */
-export function assertSpacesInvariants(db, { throwOnViolation = true } = {}) {
+export function assertSpacesInvariants(
+  db,
+  { throwOnViolation = true, authDb = null } = {},
+) {
   const violations = [];
 
   // 1 & 6: every space has exactly one owner membership agreeing with
@@ -274,8 +278,8 @@ export function assertSpacesInvariants(db, { throwOnViolation = true } = {}) {
   ]);
 
   if (referencedUserIds.size > 0) {
-    const authDb = getAuthDb();
-    const authExists = authDb.prepare("SELECT 1 FROM users WHERE id = ?");
+    const authDatabase = authDb || getAuthDb();
+    const authExists = authDatabase.prepare("SELECT 1 FROM users WHERE id = ?");
     for (const userId of referencedUserIds) {
       if (!authExists.get(userId)) {
         violations.push({ code: "SPACE_MEMBER_USER_MISSING", userId });

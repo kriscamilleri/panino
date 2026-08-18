@@ -75,6 +75,7 @@
         </div>
 
         <div class="flex-1 overflow-y-auto">
+            <DocumentTransferPanel />
             <div
                 v-if="docStore.syncStore.bootstrapState.status === 'loading'"
                 class="mb-2 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-800"
@@ -172,15 +173,19 @@ import { Search, X, FilePlus, FolderPlus, FileText } from 'lucide-vue-next'
 import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
 import PromptModal from '@/components/PromptModal.vue'
 import { useStructureStore } from '@/store/structureStore'
+import { useSpaceTransferStore } from '@/store/spaceTransferStore'
+import DocumentTransferPanel from '@/components/DocumentTransferPanel.vue'
 
 const docStore = useDocStore()
 const ui = useUiStore();
 const structureStore = useStructureStore()
+const transferStore = useSpaceTransferStore()
 const router = useRouter();
 
 const rootItems = computed(() => docStore.rootItems)
 
 provide('refreshParent', docStore.loadRootItems);
+provide('requestDatabaseTransfer', (details) => transferStore.begin(details));
 
 /* search / ui refs */
 const searchQuery = ref('')
@@ -305,7 +310,16 @@ async function handleRootDrop(e) {
     const droppedItem = JSON.parse(e.dataTransfer.getData('application/json'))
     if (!droppedItem || !droppedItem.id) return
     try {
-        await docStore.moveItem(droppedItem.id, null, droppedItem.type, docStore.syncStore.personalDbKey);
+        const result = await docStore.moveItem(
+            droppedItem.id,
+            null,
+            droppedItem.type,
+            docStore.syncStore.personalDbKey,
+        );
+        if (result?.requiresConfirmation) {
+            transferStore.begin(result);
+            return;
+        }
         await docStore.loadRootItems(); // Refresh root list
     } catch (error) {
         ui.addToast(error?.message || 'Failed to move Document.', 'warning')

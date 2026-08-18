@@ -13,6 +13,7 @@
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
         <ImageLibraryModal
             :show="ui.showImageLibraryModal"
+            :db-key="docStore.selectedDbKey"
             @close="ui.closeImageLibraryModal()"
             @insert-selected="handleInsertSelectedImages"
             data-testid="homepage-image-library-modal"
@@ -80,11 +81,6 @@ function handleImportSuccess() {
 }
 
 function handleInsertSelectedImages(images) {
-    if (docStore.selectedFile?.spaceName) {
-        ui.addToast('Images for shared-space Documents are not available yet.', 'warning')
-        ui.closeImageLibraryModal()
-        return
-    }
     editorStore.insertImageFromLibrary(images)
     ui.closeImageLibraryModal()
 }

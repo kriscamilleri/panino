@@ -2,7 +2,9 @@ import express from 'express';
 import { createHash } from 'crypto';
 import { gzipSync, gunzipSync } from 'zlib';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb, getUserDb, listUserDbIds } from './db.js';
+import { getAuthDb, getDb, getUserDb, listUserDbIds } from './db.js';
+import { resolveSpaceAccess } from './spaces.js';
+import { pokeSpaceSubscribers } from './websocket.js';
 
 export const revisionRoutes = express.Router();
 
@@ -241,6 +243,68 @@ function ensureNoteExists(db, noteId) {
   return note || null;
 }
 
+function resolveRevisionTarget(req) {
+  const userId = req.user?.user_id;
+  const requestedSpace = req.query?.space;
+
+  if (requestedSpace === undefined) {
+    return {
+      db: getUserDb(userId),
+      dbKey: `user:${userId}`,
+      isSpace: false,
+    };
+  }
+
+  const access = resolveSpaceAccess({
+    spaceId: requestedSpace,
+    actorUserId: userId,
+  });
+  if (!access) return null;
+
+  const dbKey = `space:${access.spaceId}`;
+  return {
+    db: getDb(dbKey),
+    dbKey,
+    isSpace: true,
+  };
+}
+
+function revisionTargetNotFound(res) {
+  return res.status(404).json({ error: 'Not found', code: 'SPACE_NOT_FOUND' });
+}
+
+function revisionNoteNotFound(res, target) {
+  return res.status(404).json({ error: target.isSpace ? 'Not found' : 'Note not found' });
+}
+
+function actorDisplay(actorUserId) {
+  if (!actorUserId) return null;
+  const profile = getAuthDb()
+    .prepare('SELECT id, name FROM users WHERE id = ?')
+    .get(actorUserId);
+  return {
+    id: actorUserId,
+    name: profile?.name || 'Former member',
+  };
+}
+
+function serializeRevision(row, { includeContent = false } = {}) {
+  return {
+    id: row.id,
+    noteId: row.note_id,
+    title: row.title,
+    type: row.type,
+    createdAt: row.created_at,
+    ...(row.uncompressed_bytes === undefined ? {} : {
+      uncompressedBytes: row.uncompressed_bytes,
+      compressedBytes: row.compressed_bytes,
+    }),
+    ...(includeContent ? { content: row.content } : {}),
+    actor: actorDisplay(row.actor_user_id),
+    actorKind: row.actor_kind || null,
+  };
+}
+
 function parseLimit(value, fallback = 50, max = 200) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
@@ -250,7 +314,8 @@ function parseLimit(value, fallback = 50, max = 200) {
 function buildListQuery({ hasBefore, hasBeforeId }) {
   if (!hasBefore) {
     return `
-      SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes
+      SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes,
+             actor_user_id, actor_kind
       FROM note_revisions
       WHERE note_id = ?
       ORDER BY datetime(created_at) DESC, id DESC
@@ -260,7 +325,8 @@ function buildListQuery({ hasBefore, hasBeforeId }) {
 
   if (hasBefore && hasBeforeId) {
     return `
-      SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes
+      SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes,
+             actor_user_id, actor_kind
       FROM note_revisions
       WHERE note_id = ?
         AND (
@@ -272,7 +338,8 @@ function buildListQuery({ hasBefore, hasBeforeId }) {
   }
 
   return `
-    SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes
+    SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes,
+           actor_user_id, actor_kind
     FROM note_revisions
     WHERE note_id = ?
       AND created_at < ?
@@ -295,9 +362,18 @@ revisionRoutes.get('/notes/:id/revisions', (req, res) => {
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const db = getUserDb(userId);
+  let target;
+  try {
+    target = resolveRevisionTarget(req);
+  } catch (error) {
+    console.error('[revision] Failed to authorize revision list:', error?.code || error?.message || 'unknown error');
+    return res.status(500).json({ error: 'Failed to load revisions' });
+  }
+  if (!target) return revisionTargetNotFound(res);
+
+  const { db } = target;
   const note = ensureNoteExists(db, noteId);
-  if (!note) return res.status(404).json({ error: 'Note not found' });
+  if (!note) return revisionNoteNotFound(res, target);
 
   const limit = parseLimit(req.query.limit, 50, 200);
   const before = req.query.before ? String(req.query.before) : null;
@@ -315,15 +391,7 @@ revisionRoutes.get('/notes/:id/revisions', (req, res) => {
     : db.prepare(query).all(noteId, limit);
 
   return res.json({
-    revisions: rows.map((row) => ({
-      id: row.id,
-      noteId: row.note_id,
-      title: row.title,
-      type: row.type,
-      createdAt: row.created_at,
-      uncompressedBytes: row.uncompressed_bytes,
-      compressedBytes: row.compressed_bytes,
-    })),
+    revisions: rows.map((row) => serializeRevision(row)),
   });
 });
 
@@ -334,12 +402,22 @@ revisionRoutes.get('/notes/:id/revisions/:revisionId', (req, res) => {
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const db = getUserDb(userId);
+  let target;
+  try {
+    target = resolveRevisionTarget(req);
+  } catch (error) {
+    console.error('[revision] Failed to authorize revision detail:', error?.code || error?.message || 'unknown error');
+    return res.status(500).json({ error: 'Failed to load revision' });
+  }
+  if (!target) return revisionTargetNotFound(res);
+
+  const { db } = target;
   const note = ensureNoteExists(db, noteId);
-  if (!note) return res.status(404).json({ error: 'Note not found' });
+  if (!note) return revisionNoteNotFound(res, target);
 
   const row = db.prepare(`
-    SELECT id, note_id, title, type, created_at, content_gzip
+    SELECT id, note_id, title, type, created_at, content_gzip,
+           actor_user_id, actor_kind
     FROM note_revisions
     WHERE note_id = ? AND id = ?
     LIMIT 1
@@ -349,16 +427,7 @@ revisionRoutes.get('/notes/:id/revisions/:revisionId', (req, res) => {
 
   try {
     const content = decodeRevisionContent(row.content_gzip);
-    return res.json({
-      revision: {
-        id: row.id,
-        noteId: row.note_id,
-        title: row.title,
-        type: row.type,
-        createdAt: row.created_at,
-        content,
-      },
-    });
+    return res.json({ revision: serializeRevision({ ...row, content }, { includeContent: true }) });
   } catch (error) {
     console.error('[revision] Failed to decompress revision payload:', error);
     return res.status(422).json({ error: 'Revision payload is corrupt' });
@@ -371,9 +440,18 @@ revisionRoutes.post('/notes/:id/revisions', (req, res) => {
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const db = getUserDb(userId);
+  let target;
+  try {
+    target = resolveRevisionTarget(req);
+  } catch (error) {
+    console.error('[revision] Failed to authorize manual revision:', error?.code || error?.message || 'unknown error');
+    return res.status(500).json({ error: 'Failed to save revision' });
+  }
+  if (!target) return revisionTargetNotFound(res);
+
+  const { db } = target;
   const note = ensureNoteExists(db, noteId);
-  if (!note) return res.status(404).json({ error: 'Note not found' });
+  if (!note) return revisionNoteNotFound(res, target);
 
   const tx = db.transaction(() => createRevisionSnapshot(db, {
     noteId,
@@ -383,6 +461,8 @@ revisionRoutes.post('/notes/:id/revisions', (req, res) => {
     skipDuplicateCheck: false,
     enforceAutoThrottle: false,
     runPruneGate: true,
+    actorUserId: userId,
+    actorKind: 'system',
   }));
 
   const result = tx();
@@ -402,7 +482,16 @@ revisionRoutes.post('/notes/:id/revisions/:revisionId/restore', (req, res) => {
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const db = getUserDb(userId);
+  let target;
+  try {
+    target = resolveRevisionTarget(req);
+  } catch (error) {
+    console.error('[revision] Failed to authorize revision restore:', error?.code || error?.message || 'unknown error');
+    return res.status(500).json({ error: 'Failed to restore revision' });
+  }
+  if (!target) return revisionTargetNotFound(res);
+
+  const { db } = target;
 
   try {
     const tx = db.transaction(() => {
@@ -448,6 +537,8 @@ revisionRoutes.post('/notes/:id/revisions/:revisionId/restore', (req, res) => {
         skipDuplicateCheck: true,
         enforceAutoThrottle: false,
         runPruneGate: true,
+        actorUserId: userId,
+        actorKind: 'system',
       });
 
       const nextUpdatedAt = new Date().toISOString();
@@ -470,7 +561,11 @@ revisionRoutes.post('/notes/:id/revisions/:revisionId/restore', (req, res) => {
     });
 
     const result = tx();
-    pokeUserClients(req, userId);
+    if (target.isSpace) {
+      pokeSpaceSubscribers(req.clients, target.dbKey, null);
+    } else {
+      pokeUserClients(req, userId);
+    }
     return res.json(result);
   } catch (error) {
     if (error.httpStatus === 404) {

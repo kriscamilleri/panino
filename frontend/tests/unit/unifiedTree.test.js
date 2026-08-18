@@ -14,7 +14,7 @@ function createRepository(dbKey) {
     const rows = rowsByDb.get(dbKey) || {};
     if (sql.includes('parent_id IS NULL')) return rows.root || [];
     if (sql.includes('parent_id = ?')) return rows.children?.[params[0]] || [];
-    if (sql.includes('SELECT * FROM notes')) return rows.notes || [];
+    if (sql.includes('SELECT * FROM notes') || sql.includes('SELECT title FROM notes')) return rows.notes || [];
     if (sql.includes('old_parent_id')) return [{ old_parent_id: null }];
     return [];
   });
@@ -116,7 +116,7 @@ describe('unified tree database routing', () => {
     expect(calls.some((call) => call.dbKey === USER_KEY && call.sql.includes('UPDATE notes SET title'))).toBe(false);
   });
 
-  it('preserves same-database moves and rejects cross-database movement', async () => {
+  it('preserves same-database moves and requires confirmation for a cross-database Document transfer', async () => {
     const store = useStructureStore();
     await store.loadRootItems();
     await store.getChildren(SPACE_KEY, SPACE_KEY);
@@ -125,7 +125,14 @@ describe('unified tree database routing', () => {
 
     await store.getChildren('personal-folder', USER_KEY);
     await expect(store.moveItem('personal-note', 'space-folder', 'file', SPACE_KEY))
-      .rejects.toThrow(/between databases/i);
+      .resolves.toMatchObject({
+        requiresConfirmation: true,
+        sourceDbKey: USER_KEY,
+        destinationDbKey: SPACE_KEY,
+        sourceNoteId: 'personal-note',
+        destinationFolderId: 'space-folder',
+        documentName: 'Mine',
+      });
   });
 
   it('fails loudly when a public operation has no database scope', async () => {

@@ -32,11 +32,18 @@ Shared spaces use `data/spaces/{spaceId}.db` and the same CRR content tables as 
 ### Shared-space metadata database
 
 `data/_spaces.db` is backend-only and not synced. It contains `spaces`, `space_members`,
-`space_invites`, `space_user_versions`, and its own ordered `spaces_schema_migrations` table.
+`space_invites`, `space_user_versions`, `space_transfers`, and its own ordered
+`spaces_schema_migrations` table.
 Schema v2 adds a non-secret UUID management id and revocation timestamp to invitations; raw
 256-bit invite tokens appear only in email, while SHA-256 hashes remain at rest. Invites are
 normalized to the captured email, expire after seven days, create editors only, and are
 single-use.
+
+Schema v3 adds server-owned cross-database transfer checkpoints. A transfer records the actor,
+source/destination database keys and Document ids, source content hash/timestamp, stable image-id
+map, visible warnings, stage, and confirmation/deletion timestamps. The API reauthorizes both
+databases on every resume/recovery action. Destination rows and copied bytes are hash/size verified
+before source deletion; terminal recovery is either `complete` or `kept_both`.
 
 All lifecycle routes fail closed unless `SHARED_SPACES_ENABLED=true`. The authenticated,
 paginated `GET /spaces` registry returns only active memberships, a membership version, the
@@ -46,6 +53,12 @@ transfer, leave, and deletion advance every affected member's version. Removal/l
 also revoke active WebSocket subscriptions immediately. A deletion request makes the space
 inaccessible at once, retains its content/uploads for 30 days, and leaves feature-flag-independent
 maintenance to purge the retained set after the deadline.
+
+Space image metadata remains in the space content database while bytes live under
+`uploads/spaces/{spaceId}/`. Every image operation, including token-query `<img>` reads and PDF
+embedding, resolves active membership first; qualified HTTP responses use `private, no-store`.
+Canonical Markdown destinations are `/images/{id}?space={spaceId}`. Revision routes use the same
+optional `space` qualifier and return only backend-derived actor `{id, name}` display data.
 
 ### Authentication database
 

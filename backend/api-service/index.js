@@ -18,6 +18,7 @@ import { initDb } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 import { attachWebSocketHandlers } from './websocket.js';
 import { spaceRoutes, startSpaceDeletionJob } from './spaces.js';
+import { spaceTransferRoutes } from './spaceTransfer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, 'data');
@@ -76,6 +77,7 @@ export function createApp() {
     app.use(authenticateToken);
     app.use(syncRoutes);
     app.use(spaceRoutes);
+    app.use(spaceTransferRoutes);
     app.use(imageRoutes);
     app.use(pdfRoutes); // Mount the new PDF route
     app.use(backupRoutes);

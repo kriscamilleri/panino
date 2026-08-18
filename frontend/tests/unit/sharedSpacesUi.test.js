@@ -35,6 +35,9 @@ vi.mock('vue-router', () => ({ useRouter: () => router }));
 vi.mock('@/store/docStore', () => ({ useDocStore: () => docStore }));
 vi.mock('@/store/structureStore', () => ({ useStructureStore: () => structureStore }));
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => syncStore }));
+vi.mock('@/store/spaceTransferStore', () => ({
+  useSpaceTransferStore: () => ({ begin: vi.fn(), recoverable: [], loadRecoverable: vi.fn() }),
+}));
 vi.mock('@/store/conflictStore', () => ({
   useConflictStore: () => ({ hasConflict: () => false }),
 }));
@@ -99,6 +102,7 @@ describe('shared-space UI', () => {
           TreeItem: { props: ['item'], template: '<div data-testid="stub-tree-item">{{ item.name }}</div>' },
           TemplatePickerModal: true,
           PromptModal: true,
+          DocumentTransferPanel: true,
         },
       },
     });

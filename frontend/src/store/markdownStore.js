@@ -6,6 +6,7 @@ import markdownItTaskLists from 'markdown-it-task-lists'
 import { useSyncStore } from './syncStore'
 import { useAuthStore } from './authStore'
 import { useGlobalVariablesStore } from './globalVariablesStore'
+import { withImageAuthToken } from '@/utils/imageUrl'
 
 export const useMarkdownStore = defineStore('markdownStore', () => {
   const syncStore = useSyncStore();
@@ -383,9 +384,10 @@ pre > code {
 
         if (isInternalImage && authStore.token) {
           try {
-            const url = new URL(src, window.location.origin);
-            url.searchParams.set('token', authStore.token);
-            token.attrs[srcIndex][1] = apiUrl ? url.href : url.pathname + url.search;
+            token.attrs[srcIndex][1] = withImageAuthToken(src, authStore.token, {
+              origin: window.location.origin,
+              absolute: Boolean(apiUrl),
+            });
           } catch (e) {
             console.error("Failed to parse image URL for token injection:", src, e);
           }
