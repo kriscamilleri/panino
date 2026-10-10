@@ -39,6 +39,21 @@ export const BACKUP_MANIFEST_PATH = "panino-backup-manifest.json";
 const TAR_BLOCK_SIZE = 512;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Where the data volume is mounted inside the api-service container: the current
+ * layout first, then the one used before the image moved the backend under
+ * backend/api-service. The backup taken just before deploying that change runs
+ * against the older container, so the producer finds the directory itself instead
+ * of being told one path that is wrong for half of that deploy.
+ */
+export const CONTAINER_DATA_DIRS = ["/app/backend/api-service/data", "/app/data"];
+
+/** The explicit directory if given, else the first known mount that holds the auth database. */
+export function resolveDataDir(explicit, candidates = CONTAINER_DATA_DIRS) {
+  if (explicit) return explicit;
+  return candidates.find((dir) => fs.existsSync(path.join(dir, "_users.db"))) || candidates[0];
+}
+
 function writeString(buffer, offset, length, value) {
   buffer.write(value, offset, length, "ascii");
 }
@@ -278,15 +293,19 @@ export async function* createDatabaseTar(
   const databaseEntries = listDatabaseEntries(dbDir, selection);
   if (databaseEntries.length === 0) throw new Error(`No database files found in ${dbDir}`);
   const fullBackup = !selection.include && !selection.exclude;
-  if (fullBackup && !databaseEntries.some((entry) => entry.kind === "spaces-metadata")) {
-    throw new Error("Full backup requires data/_spaces.db");
-  }
   if (fullBackup && !databaseEntries.some((entry) => entry.kind === "auth")) {
     throw new Error("Full backup requires data/_users.db");
   }
 
   const includedSpaceIds = new Set(databaseEntries.filter((entry) => entry.kind === "space").map((entry) => entry.spaceId));
   const uploadEntries = listSpaceUploadEntries(uploadsDir, includedSpaceIds, { strict: fullBackup });
+  // An estate from before shared spaces existed has no _spaces.db, and nothing
+  // that would need one. That is a complete backup. Space content without the
+  // metadata database is not.
+  const hasSpacesMetadata = databaseEntries.some((entry) => entry.kind === "spaces-metadata");
+  if (fullBackup && !hasSpacesMetadata && (includedSpaceIds.size > 0 || uploadEntries.length > 0)) {
+    throw new Error("Full backup requires data/_spaces.db");
+  }
   const manifestEntries = [];
   const createdAt = new Date().toISOString();
   const snapshotDir = fs.mkdtempSync(path.join(snapshotRoot, "panino-db-backup-"));
@@ -348,6 +367,7 @@ export async function* createDatabaseTar(
       version: BACKUP_FORMAT_VERSION,
       createdAt,
       scope: fullBackup ? "full" : "selected",
+      spacesMetadata: hasSpacesMetadata,
       spaces: [...includedSpaceIds].sort().map((spaceId) => ({
         spaceId,
         databasePath: `data/spaces/${spaceId}.db`,
@@ -392,7 +412,7 @@ export function describeDatabases(dbDir) {
 }
 
 if (process.env.PANINO_STREAM_BACKUP_RUN === "1") {
-  const dbDir = process.env.DB_DIR || "/app/backend/api-service/data";
+  const dbDir = resolveDataDir(process.env.DB_DIR);
   try {
     if (process.env.PANINO_BACKUP_LIST === "1") {
       process.stdout.write(`${JSON.stringify(describeDatabases(dbDir), null, 2)}\n`);

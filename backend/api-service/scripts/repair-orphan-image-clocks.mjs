@@ -71,7 +71,9 @@ const files = fs
   .filter(
     (f) =>
       f.endsWith(".db") &&
-      f !== "_users.db" &&
+      // Names starting with an underscore are service metadata (_users.db,
+      // _spaces.db), not per-user libraries.
+      !f.startsWith("_") &&
       (!targetUser || f === `${targetUser}.db` || f === targetUser),
   );
 

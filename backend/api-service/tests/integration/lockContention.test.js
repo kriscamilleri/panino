@@ -13,7 +13,7 @@ const busy = () => Object.assign(new Error('database is locked'), { code: 'SQLIT
 /** Make the next `prepare` on this connection fail the way a held lock does. */
 function lockOnce(db) {
     const original = db.prepare;
-    db.prepare = function lockedPrepare(...args) {
+    db.prepare = function lockedPrepare() {
         db.prepare = original;
         throw busy();
     };

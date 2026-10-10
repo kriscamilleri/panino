@@ -37,7 +37,9 @@ export default defineConfig(({ mode }) => {
       closeBundle() {
         const swSource = path.resolve(__dirname, 'src/service-worker.js');
         const swDest = path.resolve(__dirname, 'dist/service-worker.js');
-        if (fs.existsSync(swSource)) {
+        // This hook also runs after a failed build, when dist/ does not exist.
+        // Writing regardless threw ENOENT and hid the real build error.
+        if (fs.existsSync(swSource) && fs.existsSync(path.dirname(swDest))) {
           const swContent = fs.readFileSync(swSource, 'utf-8');
           const replaced = swContent.replace(
             'import.meta.env.VITE_APP_VERSION',

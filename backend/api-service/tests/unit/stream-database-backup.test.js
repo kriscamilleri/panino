@@ -4,6 +4,8 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import {
   BACKUP_MANIFEST_PATH,
+  CONTAINER_DATA_DIRS,
+  resolveDataDir,
   createTarHeader,
   createProgressReporter,
   createDatabaseTar,
@@ -67,9 +69,74 @@ describe("stream database backup", () => {
 
     expect(compose).toContain("api-data:/app/backend/api-service/data");
     expect(compose).toContain("uploads-data:/app/backend/api-service/uploads");
-    expect(backupScript).toContain("DB_DIR=/app/backend/api-service/data");
-    expect(backupScript).toContain("UPLOADS_DIR=/app/backend/api-service/uploads");
-    expect(backupScript).not.toContain("DB_DIR=/app/data");
+    // The producer looks in the mounted path first, then in the path the
+    // previous image used. The wrapper pins neither: pinned to the new path it
+    // could not back up the container that is running just before this layout
+    // is deployed, which is the backup that deploy depends on.
+    expect(CONTAINER_DATA_DIRS).toEqual(["/app/backend/api-service/data", "/app/data"]);
+    expect(backupScript).not.toMatch(/-e DB_DIR=\/app/);
+    expect(backupScript).not.toMatch(/-e UPLOADS_DIR=\/app/);
+    expect(backupScript).toContain("PANINO_CONTAINER_DB_DIR");
+  });
+
+  describe("finding the data volume in the container", () => {
+    const layout = (name) => {
+      const dir = path.join(tempDir, name);
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    };
+
+    it("uses the current mount when it holds the auth database", () => {
+      const current = layout("current");
+      const previous = layout("previous");
+      fs.writeFileSync(path.join(current, "_users.db"), "");
+      fs.writeFileSync(path.join(previous, "_users.db"), "");
+
+      expect(resolveDataDir(undefined, [current, previous])).toBe(current);
+    });
+
+    it("falls back to the previous layout on a container that predates the move", () => {
+      const previous = layout("previous");
+      fs.writeFileSync(path.join(previous, "_users.db"), "");
+
+      expect(resolveDataDir(undefined, [path.join(tempDir, "absent"), previous])).toBe(previous);
+    });
+
+    it("lets an explicit directory win, and names the current mount when nothing is found", () => {
+      expect(resolveDataDir("/somewhere/else", [layout("current")])).toBe("/somewhere/else");
+      expect(resolveDataDir("", [path.join(tempDir, "a"), path.join(tempDir, "b")])).toBe(path.join(tempDir, "a"));
+    });
+  });
+
+  it("archives an estate from before shared spaces existed as a full backup", async () => {
+    const authDb = new Database(path.join(tempDir, "_users.db"));
+    authDb.exec("CREATE TABLE users (id TEXT PRIMARY KEY)");
+    authDb.close();
+    const userDb = new Database(path.join(tempDir, "user-A.db"));
+    userDb.exec("CREATE TABLE notes (id TEXT PRIMARY KEY)");
+    userDb.close();
+    // The uploads volume holds personal images only; none of them is archived.
+    const uploadsDir = path.join(tempDir, "uploads");
+    fs.mkdirSync(path.join(uploadsDir, "user-A"), { recursive: true });
+    fs.writeFileSync(path.join(uploadsDir, "user-A", "image.png"), "personal");
+
+    const entries = parseTar(await collect(createDatabaseTar(tempDir, tempDir, () => {}, {}, uploadsDir)));
+
+    expect([...entries.keys()]).toEqual(["data/user-A.db", "data/_users.db", BACKUP_MANIFEST_PATH]);
+    expect(JSON.parse(entries.get(BACKUP_MANIFEST_PATH).toString("utf8"))).toMatchObject({
+      scope: "full",
+      spacesMetadata: false,
+      spaces: [],
+    });
+  });
+
+  it("still refuses a full backup of space content without its metadata database", async () => {
+    const spaceId = "11111111-1111-4111-8111-111111111111";
+    new Database(path.join(tempDir, "_users.db")).close();
+    fs.mkdirSync(path.join(tempDir, "spaces"));
+    new Database(path.join(tempDir, "spaces", `${spaceId}.db`)).close();
+
+    await expect(collect(createDatabaseTar(tempDir, tempDir))).rejects.toThrow("Full backup requires data/_spaces.db");
   });
 
   it("lists only regular .db files in stable order", () => {

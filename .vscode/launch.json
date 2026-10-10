@@ -8,7 +8,7 @@
       "port": 9229,
       "address": "localhost",
       "localRoot": "${workspaceFolder}/backend/api-service",
-      "remoteRoot": "/app",
+      "remoteRoot": "/app/backend/api-service",
       "restart": true,
       "skipFiles": ["<node_internals>/**"],
       "preLaunchTask": "Dev: Docker Compose Up (detached)"

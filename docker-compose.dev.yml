@@ -35,7 +35,11 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
     volumes:
       - ./backend/api-service:/app/backend/api-service
-      - ./shared:/app/shared:ro
+      - ./shared:/app/shared
+      # The image installs the shared package's dependency (node-diff3) here.
+      # Without this volume the bind mount above hides it, and on a fresh clone
+      # the API cannot import the shared module.
+      - /app/shared/node_modules
       - ./backend/api-service/data:/app/backend/api-service/data # Persist SQLite DBs
       - ./backend/api-service/uploads:/app/backend/api-service/uploads # Persist uploaded files
       - /app/backend/api-service/node_modules
@@ -59,7 +63,9 @@ services:
       VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY}
     volumes:
       - ./frontend:/app
-      - ./shared:/shared:ro
+      - ./shared:/shared
+      # Same reason as in api-service: keep the image's /shared/node_modules visible.
+      - /shared/node_modules
       - /app/node_modules
     command: npm run dev -- --host
     depends_on:

@@ -128,9 +128,9 @@ npm test              # vitest run (single pass)
 npm run test:watch    # vitest (watch mode)
 npm run test:coverage # vitest with v8 coverage
 
-# Via Docker
-docker build -f Dockerfile.test -t panino-test .
-docker run --rm panino-test
+# Via Docker, from the repository root (the image is built from the root so it
+# can include shared/)
+npm run test:be
 ```
 
 The canonical repository command is `npm run test:be` from the repository root. It builds

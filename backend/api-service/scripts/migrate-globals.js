@@ -12,7 +12,9 @@ function listDbFiles(dir) {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir)
     .filter((name) => name.endsWith('.db'))
-    .filter((name) => name !== '_users.db')
+    // Names starting with an underscore are service metadata (_users.db,
+    // _spaces.db), not per-user libraries.
+    .filter((name) => !name.startsWith('_'))
     .map((name) => path.join(dir, name));
 }
 

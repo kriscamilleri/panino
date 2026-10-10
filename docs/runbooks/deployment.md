@@ -2,7 +2,9 @@
 
 ## Before deploying
 
-1. Confirm the branch has passed the frontend and backend CI checks.
+1. Confirm the branch has passed the CI checks: lint, shared, frontend, backend, and `build`.
+   The `build` job builds the frontend bundle through the same script `deploy.sh` calls and
+   builds the production API image, both from a clean checkout.
 2. Confirm the server checkout is clean. The deploy workflow performs this check before
    running `git pull`.
 3. Confirm the required GitHub secrets (`SSH_PRIVATE_KEY`, `SSH_USER`, `SSH_HOST`,
@@ -13,7 +15,11 @@
 From the repository root, `deploy.sh`:
 
 1. Loads deployment configuration from `.env`.
-2. Builds the frontend and writes its production environment file.
+2. Writes the frontend's production environment file and runs `scripts/build-frontend.sh`,
+   which installs `shared/`, then `frontend/`, and builds. The frontend reaches `shared/`
+   through a `file:` link, and npm does not install a linked directory's own dependencies,
+   so `shared/` has to be installed first. If the build fails, nothing is published and the
+   running site is unchanged.
 3. Generates and, when running as root, installs the Nginx configuration.
 4. Starts the production `api-service` container with Docker Compose.
 
@@ -21,6 +27,42 @@ The production compose file mounts `api-data` at `/app/backend/api-service/data`
 `uploads-data` at `/app/backend/api-service/uploads`. Those directories are runtime volumes
 and must not be copied into image layers. Operator tooling must use these mounted paths;
 `/app/data` and `/app/uploads` are not the production volumes.
+
+## First deploy of the collaboration release
+
+This release changes where the two volumes are mounted inside the container and adds
+metadata. The volumes themselves (`api-data`, `uploads-data`) are the same, so the data
+carries over. On its first start the new image:
+
+- finds the databases at `/app/backend/api-service/data` instead of `/app/data`;
+- creates `_spaces.db` (empty while `SHARED_SPACES_ENABLED` is false);
+- switches `_users.db` to write-ahead logging, so it gains `-wal` and `-shm` files like
+  every other database already has;
+- adds columns to each user's `note_revisions` table the first time that user's database is
+  opened.
+
+Take a backup immediately before merging (see below). The backup script works against the
+container that is running at that moment: it finds the data directory in either layout, and
+an estate that has no shared spaces yet is archived as a complete backup with
+`"spacesMetadata": false` in its manifest. Stage that archive once to prove it restores
+before relying on it.
+
+## Rolling back a release
+
+Roll back by reverting the commit on `main` and letting the pipeline deploy it, so the
+compose file, the frontend and the image all go back together.
+
+Do **not** start the previous image under the current compose file. The previous image
+reads `/app/data`; the current compose file mounts the volume elsewhere, so that image would
+start on an empty directory inside the container. Every login would fail, new sign-ups would
+create accounts that vanish when the container is replaced, and the real data would sit
+untouched but unreachable. The image `deploy.sh` keeps as "previous build" is only usable
+together with the compose file from the same commit.
+
+Databases written by this release stay readable by the previous one: the added tables and
+columns are ignored by it, and a database in write-ahead-logging mode opens normally. This
+was checked locally by running the previous release against data the new one had migrated
+and used.
 
 ## Collaboration feature flags
 
@@ -79,6 +121,14 @@ databases, and `data/_users.db`. SQLite files use the online backup API. Space u
 streamed as regular files; if a file changes while it is read, or a symlink/non-UUID space
 root is encountered, the backup fails and its partial local artifact is removed.
 
+**Personal images are not in the archive.** Only the shared-space part of the uploads volume
+is. Everything else under the uploads volume has no backup from this tool, on this release
+or any earlier one; back that volume up separately if the images matter.
+
+Always copy databases with this tool, never with `cp`. Every database uses write-ahead
+logging, so recent commits can live in the `-wal` file beside it; a plain copy of the `.db`
+file alone can be missing them.
+
 Before relying on an archive, verify it locally:
 
 ```bash
@@ -116,17 +166,37 @@ drill and application release are approved.
    variable.
 3. Stop `api-service` so no database, membership, or upload can change. Take a second backup
    and verify its checksum; this is the rollback point.
-4. Install the staged `data/` and `uploads/` trees as one maintenance operation, retaining the
-   complete previous pair under timestamped rollback names. Never restore `_spaces.db`, a
-   space database, or a space upload directory individually.
-5. Before admitting traffic, rerun the read-only validator against the installed pair with
-   `stage-production-restore.mjs --verify-dir <installed-root>`. If any manifest, SQLite,
-   invariant, or set-agreement check fails, keep the API stopped and restore the complete
-   rollback pair.
+4. Install the staged set as one maintenance operation:
+   - **Data volume:** move everything in it aside under a timestamped rollback name,
+     including every `-wal` and `-shm` file, then copy in the staged `data/` tree. A `-wal`
+     file left beside a database it does not belong to can corrupt that database.
+   - **Uploads volume:** replace only its `spaces/` directory with the staged
+     `uploads/spaces/` tree, keeping the previous `spaces/` under a rollback name. Leave the
+     rest of the volume exactly as it is: those are personal images, they are not in the
+     archive, and replacing the volume would remove them.
+   Never restore `_spaces.db`, a space database, or a space upload directory individually.
+5. Before admitting traffic, check the installed set against the manifest it came from:
+
+   ```bash
+   node scripts/production-database-backup/stage-production-restore.mjs \
+     --verify-installed /srv/panino-restore/<UTC timestamp>/panino-backup-manifest.json \
+     --data-dir <api-data mountpoint> \
+     --uploads-dir <uploads-data mountpoint>
+   ```
+
+   It reads only. It requires every database and shared-space upload to be present and
+   byte-identical to the backup, nothing extra in their place, no write-ahead log with
+   content beside a database, and the same integrity and invariant checks as staging.
+   Personal uploads are ignored. If it fails, keep the API stopped and put the complete
+   rollback set back. (`--verify-dir` rechecks a staging directory, not the volumes.)
 6. Start `api-service` only after the whole set passes. With the shared-spaces flag still
    disabled, verify personal login/sync first; then perform the separately approved,
    flag-enabled two-account space drill and confirm membership, content, and images all load.
-7. Retain both the source archive and rollback pair until the recovery is signed off.
+7. Retain both the source archive and rollback set until the recovery is signed off.
+
+Images uploaded after the backup stay on disk but the restored databases do not list them;
+Documents restored from the backup that reference images deleted since will show them as
+missing. Neither is repaired by the restore.
 
 Because SQLite online backup is per database, the archive is a bounded sequence rather than a
 cross-file filesystem snapshot. Traffic gating makes restore admission all-or-nothing;

@@ -64,6 +64,39 @@ jobs:
       - run: npm test
         working-directory: frontend
 
+  shared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+          cache-dependency-path: shared/package-lock.json
+      - run: npm ci
+        working-directory: shared
+      - run: npm test
+        working-directory: shared
+
+  # What a deploy builds, from a clean checkout: the frontend bundle through the
+  # same script deploy.sh calls, and the production API image. The test jobs
+  # above use a dev install and Dockerfile.test, so neither proves these build.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+          cache-dependency-path: |
+            shared/package-lock.json
+            frontend/package-lock.json
+      - name: Build the frontend as deploy.sh does
+        run: ./scripts/build-frontend.sh
+      - name: Build the production API image
+        run: docker build -f backend/api-service/Dockerfile -t panino-api-service:ci .
+
   backend:
     runs-on: ubuntu-latest
     steps:

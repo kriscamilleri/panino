@@ -19,6 +19,32 @@ const Database = require("better-sqlite3");
 const TAR_BLOCK_SIZE = 512;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SQLITE_SIDECAR_PATTERN = /\.db-(wal|shm|journal)$/;
+
+/**
+ * SQLite creates `-wal` and `-shm` files beside a write-ahead-logging database as
+ * soon as it is opened, even read-only, so validating a set leaves them behind.
+ * They are not part of the set. An empty log and its index are ignored; a log with
+ * content, or a rollback journal, means the database was written to after it was
+ * validated.
+ */
+function isIgnorableSidecar(target, name) {
+  const kind = SQLITE_SIDECAR_PATTERN.exec(name)?.[1];
+  if (!kind) return false;
+  if (kind === "shm") return true;
+  if (kind === "wal" && fs.statSync(target).size === 0) return true;
+  throw new Error(`${name} holds changes written after the backup was validated`);
+}
+
+async function hashFile(target) {
+  const hash = crypto.createHash("sha256");
+  let sizeBytes = 0;
+  for await (const chunk of fs.createReadStream(target)) {
+    hash.update(chunk);
+    sizeBytes += chunk.length;
+  }
+  return { sizeBytes, sha256: hash.digest("hex") };
+}
 
 function parseOctal(buffer, fieldName) {
   const value = buffer.toString("ascii").replace(/\0.*$/, "").trim();
@@ -156,9 +182,9 @@ function verifySqliteIntegrity(databasePath) {
   }
 }
 
-function verifySpaceImageAssets(stagingRoot, spaceId) {
-  const databasePath = resolveStagedPath(stagingRoot, `data/spaces/${spaceId}.db`);
-  const uploadsRoot = resolveStagedPath(stagingRoot, `uploads/spaces/${spaceId}`);
+function verifySpaceImageAssets(locate, spaceId) {
+  const databasePath = locate(`data/spaces/${spaceId}.db`);
+  const uploadsRoot = locate(`uploads/spaces/${spaceId}`);
   const db = new Database(databasePath, { readonly: true, fileMustExist: true });
   try {
     const hasImages = db.prepare(
@@ -211,6 +237,17 @@ function requireManifestShape(manifest) {
 export function verifyStagedRestore(stagingRoot, extracted) {
   const manifestPath = resolveStagedPath(stagingRoot, BACKUP_MANIFEST_PATH);
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  return verifyRestoreSet(manifest, extracted, (archivePath) => resolveStagedPath(stagingRoot, archivePath));
+}
+
+/**
+ * The checks themselves, independent of where the set lives.
+ *
+ * @param {object} manifest the backup manifest
+ * @param {Map<string, { sizeBytes: number, sha256: string }>} extracted files found, by archive path
+ * @param {(archivePath: string) => string} locate where an archive path is on disk
+ */
+function verifyRestoreSet(manifest, extracted, locate) {
   requireManifestShape(manifest);
   const expectedPaths = new Set();
   for (const entry of manifest.entries) {
@@ -230,15 +267,27 @@ export function verifyStagedRestore(stagingRoot, extracted) {
   if (nonManifestPaths.some((name) => !expectedPaths.has(name)) || expectedPaths.size !== nonManifestPaths.length) {
     throw new Error("Archive entries do not exactly match the manifest");
   }
-  for (const required of ["data/_spaces.db", "data/_users.db"]) {
+  // An estate backed up before shared spaces existed has no metadata database
+  // and must then have no space content either. The service creates an empty
+  // _spaces.db when it starts on such a set.
+  const hasSpacesMetadata = manifest.spacesMetadata !== false;
+  for (const required of hasSpacesMetadata ? ["data/_spaces.db", "data/_users.db"] : ["data/_users.db"]) {
     if (!expectedPaths.has(required)) throw new Error(`Full backup is missing ${required}`);
   }
   for (const archivePath of expectedPaths) {
-    if (archivePath.endsWith(".db")) verifySqliteIntegrity(resolveStagedPath(stagingRoot, archivePath));
+    if (archivePath.endsWith(".db")) verifySqliteIntegrity(locate(archivePath));
+  }
+  if (!hasSpacesMetadata) {
+    const spaceContent = [...expectedPaths].some((archivePath) =>
+      archivePath === "data/_spaces.db" || archivePath.startsWith("data/spaces/") || archivePath.startsWith("uploads/spaces/"));
+    if (manifest.spaces.length > 0 || spaceContent) {
+      throw new Error("Backup holds shared-space content but no space metadata database");
+    }
+    return manifest;
   }
 
-  const authDb = new Database(resolveStagedPath(stagingRoot, "data/_users.db"), { readonly: true, fileMustExist: true });
-  const spacesDb = new Database(resolveStagedPath(stagingRoot, "data/_spaces.db"), { readonly: true, fileMustExist: true });
+  const authDb = new Database(locate("data/_users.db"), { readonly: true, fileMustExist: true });
+  const spacesDb = new Database(locate("data/_spaces.db"), { readonly: true, fileMustExist: true });
   try {
     assertSpacesInvariants(spacesDb, { authDb });
     const metadataSpaceIds = spacesDb.prepare("SELECT id FROM spaces ORDER BY id").pluck().all();
@@ -256,7 +305,7 @@ export function verifyStagedRestore(stagingRoot, extracted) {
         throw new Error(`Invalid restore mapping for space ${space.spaceId}`);
       }
       if (!expectedPaths.has(expectedDatabasePath)) throw new Error(`Missing database for space ${space.spaceId}`);
-      verifySpaceImageAssets(stagingRoot, space.spaceId);
+      verifySpaceImageAssets(locate, space.spaceId);
     }
     for (const archivePath of expectedPaths) {
       if (!archivePath.startsWith("uploads/spaces/")) continue;
@@ -279,42 +328,98 @@ function materializeSpaceUploadRoots(stagingRoot, manifest) {
   }
 }
 
-async function describeStagedFiles(stagingRoot) {
-  const extracted = new Map();
-  async function visit(directory, relativeDirectory = "") {
+/** Hash every regular file under `root`, keyed by `prefix` plus its relative path. */
+async function describeTree(root, prefix = "") {
+  const found = new Map();
+  async function visit(directory, relativeDirectory) {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const relativePath = path.posix.join(relativeDirectory, entry.name);
       const target = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new Error(`Staged restore contains a symbolic link: ${relativePath}`);
+      if (entry.isSymbolicLink()) throw new Error(`Restore set contains a symbolic link: ${relativePath}`);
       if (entry.isDirectory()) await visit(target, relativePath);
       else if (entry.isFile()) {
+        if (isIgnorableSidecar(target, entry.name)) continue;
         validateArchivePath(relativePath);
-        const hash = crypto.createHash("sha256");
-        let sizeBytes = 0;
-        for await (const chunk of fs.createReadStream(target)) {
-          hash.update(chunk);
-          sizeBytes += chunk.length;
-        }
-        extracted.set(relativePath, { sizeBytes, sha256: hash.digest("hex") });
+        found.set(relativePath, await hashFile(target));
       } else {
-        throw new Error(`Staged restore contains an unsupported entry: ${relativePath}`);
+        throw new Error(`Restore set contains an unsupported entry: ${relativePath}`);
       }
     }
   }
-  await visit(stagingRoot);
-  return extracted;
+  await visit(root, prefix);
+  return found;
 }
 
-/** Recheck an already installed/staged pair without mutating it. */
-export async function verifyStagedDirectory(stagingRoot) {
-  const extracted = await describeStagedFiles(stagingRoot);
-  const manifest = verifyStagedRestore(stagingRoot, extracted);
+const describeStagedFiles = (stagingRoot) => describeTree(stagingRoot);
+
+/**
+ * The files of an installed set. The two volumes are separate directories, and
+ * only part of each belongs to the set: every database in the data volume, and
+ * the shared-space tree of the uploads volume. Personal uploads live beside that
+ * tree and are in no archive, so they are neither checked nor a reason to fail.
+ */
+async function describeInstalledFiles(dataDir, uploadsDir) {
+  const found = new Map();
+  for (const [directory, prefix] of [[dataDir, "data/"], [path.join(dataDir, "spaces"), "data/spaces/"]]) {
+    if (!fs.statSync(directory, { throwIfNoEntry: false })?.isDirectory()) continue;
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`Installed data contains a symbolic link: ${prefix}${entry.name}`);
+      if (!entry.isFile() || isIgnorableSidecar(target, entry.name) || !entry.name.endsWith(".db")) continue;
+      found.set(`${prefix}${entry.name}`, await hashFile(target));
+    }
+  }
+  const spaceUploads = path.join(uploadsDir, "spaces");
+  if (fs.statSync(spaceUploads, { throwIfNoEntry: false })?.isDirectory()) {
+    for (const [relativePath, file] of await describeTree(spaceUploads, "uploads/spaces")) found.set(relativePath, file);
+  }
+  return found;
+}
+
+function installedLocator(dataDir, uploadsDir) {
+  const roots = { data: path.resolve(dataDir), uploads: path.resolve(uploadsDir) };
+  return (archivePath) => {
+    validateArchivePath(archivePath);
+    const [top, ...rest] = archivePath.split("/");
+    const root = roots[top];
+    if (!root || rest.length === 0) throw new Error(`No installed location for ${archivePath}`);
+    const target = path.resolve(root, ...rest);
+    if (!target.startsWith(`${root}${path.sep}`)) throw new Error(`Archive entry escaped its volume: ${archivePath}`);
+    return target;
+  };
+}
+
+function requireSpaceUploadRoots(manifest, locate) {
   for (const space of manifest.spaces) {
-    const uploadRoot = resolveStagedPath(stagingRoot, space.uploadsPrefix.slice(0, -1));
-    if (!fs.statSync(uploadRoot, { throwIfNoEntry: false })?.isDirectory()) {
+    if (!fs.statSync(locate(space.uploadsPrefix.slice(0, -1)), { throwIfNoEntry: false })?.isDirectory()) {
       throw new Error(`Missing upload root for space ${space.spaceId}`);
     }
   }
+}
+
+/**
+ * Check an installed set against the manifest it was restored from, before the
+ * service is started on it: every database and shared-space upload is present
+ * and byte-identical, nothing extra is in their place, and the same integrity
+ * and invariant checks pass. Reads only.
+ */
+export async function verifyInstalledRestore({ manifestPath, dataDir, uploadsDir }) {
+  if (!manifestPath || !dataDir || !uploadsDir) throw new Error("manifestPath, dataDir and uploadsDir are required");
+  for (const directory of [dataDir, uploadsDir]) {
+    if (!fs.statSync(directory, { throwIfNoEntry: false })?.isDirectory()) throw new Error(`Not a directory: ${directory}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const locate = installedLocator(dataDir, uploadsDir);
+  verifyRestoreSet(manifest, await describeInstalledFiles(dataDir, uploadsDir), locate);
+  requireSpaceUploadRoots(manifest, locate);
+  return { createdAt: manifest.createdAt, spaces: manifest.spaces.length, entries: manifest.entries.length };
+}
+
+/** Recheck an already staged set without mutating it. */
+export async function verifyStagedDirectory(stagingRoot) {
+  const extracted = await describeStagedFiles(stagingRoot);
+  const manifest = verifyStagedRestore(stagingRoot, extracted);
+  requireSpaceUploadRoots(manifest, (archivePath) => resolveStagedPath(stagingRoot, archivePath));
   return { createdAt: manifest.createdAt, spaces: manifest.spaces.length, entries: manifest.entries.length };
 }
 
@@ -340,7 +445,8 @@ export async function stageProductionRestore({ archivePath, checksumPath = `${ar
 
 function usage() {
   return "Usage: stage-production-restore.mjs --archive PATH --staging-dir PATH [--checksum PATH]\n" +
-    "   or: stage-production-restore.mjs --verify-dir PATH";
+    "   or: stage-production-restore.mjs --verify-dir STAGING_DIR\n" +
+    "   or: stage-production-restore.mjs --verify-installed MANIFEST --data-dir PATH --uploads-dir PATH";
 }
 
 function parseArgs(argv) {
@@ -348,7 +454,8 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const flag = argv[index];
     if (flag === "--help" || flag === "-h") return { help: true };
-    if (!["--archive", "--checksum", "--staging-dir", "--verify-dir"].includes(flag) || !argv[index + 1]) {
+    const known = ["--archive", "--checksum", "--staging-dir", "--verify-dir", "--verify-installed", "--data-dir", "--uploads-dir"];
+    if (!known.includes(flag) || !argv[index + 1]) {
       throw new Error(`Unknown or incomplete option: ${flag}`);
     }
     options[flag.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = argv[index + 1];
@@ -362,9 +469,21 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
     const options = parseArgs(process.argv.slice(2));
     if (options.help) {
       process.stdout.write(`${usage()}\n`);
+    } else if (options.verifyInstalled) {
+      if (options.archive || options.checksum || options.stagingDir || options.verifyDir) {
+        throw new Error("--verify-installed takes only --data-dir and --uploads-dir");
+      }
+      const result = await verifyInstalledRestore({
+        manifestPath: options.verifyInstalled,
+        dataDir: options.dataDir,
+        uploadsDir: options.uploadsDir,
+      });
+      process.stdout.write(
+        `Installed set matches the backup (${result.spaces} spaces, ${result.entries} files, snapshot ${result.createdAt}).\n`,
+      );
     } else if (options.verifyDir) {
-      if (options.archive || options.checksum || options.stagingDir) {
-        throw new Error("--verify-dir cannot be combined with archive staging options");
+      if (options.archive || options.checksum || options.stagingDir || options.dataDir || options.uploadsDir) {
+        throw new Error("--verify-dir cannot be combined with other options");
       }
       const result = await verifyStagedDirectory(options.verifyDir);
       process.stdout.write(
