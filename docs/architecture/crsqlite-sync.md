@@ -15,8 +15,9 @@ The frontend implementation is in `frontend/src/store/syncStore.js`; the backend
 
 - **`site_id`** — the 16-byte identity of one CR-SQLite database replica. The frontend keeps
   its hexadecimal form in `localStorage` as `crsqlite_site_id`.
-- **`db_version`** — the database-wide causal clock. The `/sync` request's `since` value is
-  the last clock the client has observed.
+- **`db_version`** — the database-wide causal clock. Every replica has its own; the numbers
+  are only comparable within one database. The `/sync` request's `since` value is the last
+  *server* clock the client has observed.
 - **`col_version`** — the version of one column value for one primary key.
 - **`cl`** — causal length. A positive value on a `cid = '-1'` row represents a delete
   tombstone; ordinary column updates use a column name and normally have `cl = 0`.
@@ -26,6 +27,37 @@ The frontend implementation is in `frontend/src/store/syncStore.js`; the backend
 The wire representation is deliberately tolerant because clients may send packed primary-key
 objects, JSON primary-key arrays, buffers, hex, or UUID strings. `sync.js` normalizes these
 values before binding them to SQLite.
+
+## Two positions per client
+
+A client tracks two independent positions, in two different version spaces:
+
+| Position | Version space | Storage | Used for |
+|---|---|---|---|
+| Pull clock | Server `db_version` | `localStorage` `crsqlite_clock` | `since` in the request; set from `clock` in the response |
+| Push cursor | This replica's `db_version` | `localStorage` `crsqlite_push_cursor` | Selecting own changes to upload; set once the server acknowledges them |
+
+They must never be the same number. Merging remote rows moves a replica's `db_version` up to
+the highest version it received, not to the server's current version, so after a sync that
+both uploads and finds the server ahead the server's clock is one above the replica's. The
+replica's next transaction then takes exactly that version, and a `db_version > clock` filter
+never selects it. Until 2026-10 the client used the pull clock for both, which stranded such
+writes: a document created on a newly signed-in device never uploaded, and after later edits
+the server held only its `content` and `updated_at`.
+
+The upload rules live in `frontend/src/utils/syncCursor.js`:
+
+- Upload only rows whose `site_id` is this replica's. Every change reaches the server from the
+  replica that made it; echoing received rows is redundant and wakes other clients for nothing.
+- Bound the upload at the committed `crsql_db_version()`. Rows of a transaction still open on
+  the connection already carry the next version; sending part of it and advancing the cursor
+  would strand the rest.
+- Advance the cursor only after a successful response. Re-sending is harmless because the
+  server merge is idempotent.
+- A missing cursor, or one ahead of the local database, restarts from zero. The first sync
+  after the cursor was introduced therefore re-offers every own change, in batches of at most
+  500 changes cut on version boundaries. This is what recovers writes stranded earlier.
+- `resetDatabase()` clears both positions together.
 
 ## Table anatomy
 
@@ -80,6 +112,7 @@ check. A fresh connection must report a zero sync bit before ordinary deletes or
 | Symptom | Root cause | Current mitigation | Evidence |
 |---|---|---|---|
 | `constraint failed` on note delete | `note_revisions` children outlived a deleted CRR parent because the FK lacked cascade behavior | Cascade FK migration plus deferred FK checks | 2026-06-29 incident log |
+| A document created on a second device never appears elsewhere, or appears without a title | One clock served as both pull position and upload position, so a write at the version the clock landed on was never selected | Separate push cursor in the replica's own version space; one-time full re-offer of own changes | 2026-10-10 log |
 | `could not find row to merge with for tbl images` | A failed merge left the cached connection's sync bit set; the next image prune suppressed its delete trigger and created an orphan clock | Connection invalidation, health checks, fail-closed merge handling, and orphan repair | 2026-07-06 and 2026-07-11 logs |
 
 ## Rules when changing sync or schema
@@ -163,3 +196,4 @@ The production snapshot and all working copies were deleted immediately after ve
 - `docs/agent-logs/2026/07/2026-07-06_17-00_fix-sync-could-not-find-row.md`
 - `docs/agent-logs/2026/07/2026-07-11_12-00_review-latest-sync-fix.md`
 - `docs/agent-logs/2026/07/2026-07-11_00-00_sync-connection-recovery.md`
+- `docs/agent-logs/2026/10/2026-10-10_10-05_sync-upload-cursor.md`
