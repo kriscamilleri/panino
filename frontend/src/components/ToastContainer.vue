@@ -24,8 +24,19 @@
         </TransitionGroup>
     </div>
 </template>
-<script setup>import { useUiStore } from '@/store/uiStore';
+<script setup>
+import { onMounted } from 'vue';
+import { useUiStore } from '@/store/uiStore';
+import { takeDeferredToasts } from '@/utils/deferredToasts';
+
 const ui = useUiStore()
+
+// Show messages queued by a flow that reloaded the page (see deferredToasts.js).
+onMounted(() => {
+    for (const toast of takeDeferredToasts(window.sessionStorage)) {
+        ui.addToast(toast.message, toast.type, toast.duration);
+    }
+});
 
 function getToastClass(type) {
     switch (type) {
