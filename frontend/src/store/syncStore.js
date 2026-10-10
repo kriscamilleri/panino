@@ -12,6 +12,7 @@ import {
   planRemoteContent,
   resolveServerValue,
   evaluateWritebackGuard,
+  supersedes,
 } from "@/utils/syncMerge";
 import { readOutgoingChanges } from "@/utils/syncCursor";
 import {
@@ -923,6 +924,10 @@ tags:
     const held = rows[0];
     const current = normalizeContent(currentContent);
     if (normalizeContent(held.mine_content) === current) {
+      await clearConflict(database, noteId);
+      return;
+    }
+    if (supersedes(held.base_content, held.mine_content, currentContent)) {
       await clearConflict(database, noteId);
       return;
     }

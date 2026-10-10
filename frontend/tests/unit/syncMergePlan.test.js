@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planRemoteContent, resolveServerValue } from '@/utils/syncMerge.js';
+import { containsLinesInOrder, planRemoteContent, resolveServerValue, supersedes } from '@/utils/syncMerge.js';
 
 const BASE = 'title\n\nalpha\n\nbeta\n';
 const MINE = 'title\n\nalpha edited here\n\nbeta\n';
@@ -168,5 +168,49 @@ describe('planRemoteContent: a stranded edit with a known base', () => {
   it('merges instead of silently adopting when the local value survived the remote row', () => {
     const result = plan({ mine: MINE, localPending: false, postApply: MINE, serverValue: REMOTE, capabilityEnabled: true });
     expect(result).toEqual({ action: 'write-merge', content: MERGED, base: REMOTE, conflicts: [] });
+  });
+});
+
+describe('containsLinesInOrder and supersedes', () => {
+  it('finds every line of the smaller text in order', () => {
+    expect(containsLinesInOrder('a\nb\nc\nd', 'a\nc')).toBe(true);
+    expect(containsLinesInOrder('a\nb\nc', 'c\na')).toBe(false);
+    expect(containsLinesInOrder('a\nb', 'a\nb\nc')).toBe(false);
+    expect(containsLinesInOrder('a\na\nb', 'a\na')).toBe(true);
+    expect(containsLinesInOrder('a\nb', 'a\na')).toBe(false);
+  });
+
+  it('requires the smaller side to have only added lines to the base', () => {
+    expect(supersedes('a\nb', 'a\nb\nx', 'a\nb\nx\ny')).toBe(true);
+    // The smaller side deleted `b`; taking the larger one would silently undo that.
+    expect(supersedes('a\nb', 'a', 'a\nb\ny')).toBe(false);
+    expect(supersedes('a\nb', 'a\nb\nx', 'a\nb\ny')).toBe(false);
+  });
+});
+
+describe('planRemoteContent: one side already contains the other', () => {
+  const APPENDED = `${BASE}gamma\n`;
+  const APPENDED_MORE = `${BASE}gamma\ndelta\n`;
+
+  it('adopts a remote body that holds the local addition plus more at the same place', () => {
+    // A line merge reports a conflict here (both sides appended after `beta`),
+    // yet the remote body loses nothing of the local one.
+    expect(plan({ mine: APPENDED, localPending: true, remote: APPENDED_MORE, postApply: APPENDED_MORE, serverValue: APPENDED_MORE }))
+      .toEqual({ action: 'adopt', base: APPENDED_MORE, conflicts: [] });
+  });
+
+  it('keeps a local body that holds the remote addition plus more', () => {
+    expect(plan({ mine: APPENDED_MORE, localPending: true, remote: APPENDED, postApply: APPENDED_MORE, serverValue: APPENDED_MORE }))
+      .toEqual({ action: 'keep', base: APPENDED_MORE, conflicts: [] });
+  });
+
+  it('still records a conflict when the two sides appended different text', () => {
+    const other = `${BASE}epsilon\n`;
+    const result = plan({ mine: APPENDED, localPending: true, remote: other, postApply: other, serverValue: other, capabilityEnabled: true });
+    expect(['record-conflict', 'write-merge']).toContain(result.action);
+    if (result.action === 'write-merge') {
+      expect(result.content).toContain('gamma');
+      expect(result.content).toContain('epsilon');
+    }
   });
 });

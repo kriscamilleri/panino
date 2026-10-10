@@ -76,6 +76,38 @@ export function resolveSyncMerge({ hasBase, hasMine = true, base, mine, theirs, 
 }
 
 /**
+ * True when every line of `inner` appears in `outer`, in the same order.
+ *
+ * @param {string} outer
+ * @param {string} inner
+ * @returns {boolean}
+ */
+export function containsLinesInOrder(outer, inner) {
+    const outerLines = normalizeContent(outer).split('\n');
+    const innerLines = normalizeContent(inner).split('\n');
+    let matched = 0;
+    for (const line of outerLines) {
+        if (matched < innerLines.length && line === innerLines[matched]) matched += 1;
+    }
+    return matched === innerLines.length;
+}
+
+/**
+ * True when `larger` already holds everything `smaller` added to `base`:
+ * `smaller` only added lines to `base`, and all of `smaller` survives in
+ * `larger`. Taking `larger` then loses nothing, even where a line-based merge
+ * would report a conflict because both sides added text at the same place.
+ *
+ * @param {string} base
+ * @param {string} smaller
+ * @param {string} larger
+ * @returns {boolean}
+ */
+export function supersedes(base, smaller, larger) {
+    return containsLinesInOrder(smaller, base) && containsLinesInOrder(larger, smaller);
+}
+
+/**
  * The content the server holds for a document after a `/sync` request that
  * returned another replica's value. The server's reply is computed before it
  * merges this request's upload, so both sides of a concurrent edit are known
@@ -197,6 +229,10 @@ export function planRemoteContent({
 
     if (nm === nb) return storeRemote();
     if (nr === nb) return storeMine();
+    // One side already contains everything the other added (for example the
+    // same edit arriving again inside a later version). Nothing to decide.
+    if (supersedes(nb, nm, nr)) return storeRemote();
+    if (supersedes(nb, nr, nm)) return storeMine();
 
     const merge = mergeContent({ base: nb, mine: nm, theirs: nr });
     if (merge.status === 'conflict') {
