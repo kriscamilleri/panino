@@ -7,6 +7,7 @@ import { useAuthStore } from "./authStore";
 import { useDocStore } from "./docStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore";
 import { v4 as uuidv4 } from "uuid";
+import { PUSH_CURSOR_KEY, readOutgoingChanges } from "@/utils/syncCursor";
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd
@@ -74,6 +75,14 @@ export const useSyncStore = defineStore("syncStore", () => {
   }
   function setClock(v) {
     localStorage.setItem("crsqlite_clock", String(v));
+  }
+  // The pull clock above is the server's version; uploads are tracked by a
+  // separate cursor in this replica's own version space (see syncCursor.js).
+  function getPushCursor() {
+    return localStorage.getItem(PUSH_CURSOR_KEY);
+  }
+  function setPushCursor(v) {
+    localStorage.setItem(PUSH_CURSOR_KEY, String(v));
   }
   function getSiteId() {
     return localStorage.getItem("crsqlite_site_id") || "";
@@ -661,6 +670,7 @@ tags:
     db.value = null;
     isInitialized.value = false;
     setClock(0);
+    localStorage.removeItem(PUSH_CURSOR_KEY);
   }
 
   function hexToUint8Array(hex) {
@@ -689,14 +699,13 @@ tags:
     }
 
     isSyncing.value = true;
+    let moreToUpload = false;
     try {
       const myClock = getClock();
       const mySite = getSiteId();
 
-      const localChanges = await db.value.execO(
-        `SELECT "table", pk, cid, val, col_version, db_version, hex(site_id) AS site_id, seq, cl FROM crsql_changes WHERE db_version > ? ORDER BY db_version ASC`,
-        [myClock],
-      );
+      const outgoing = await readOutgoingChanges(db.value, getPushCursor());
+      const localChanges = outgoing.changes;
 
       const resp = await fetch(`${API_URL}/sync`, {
         method: "POST",
@@ -750,6 +759,11 @@ tags:
 
       const { changes: remoteChanges, clock: newClock } = await resp.json();
 
+      // The server has merged this batch, so the upload cursor moves past it
+      // now; a failure while applying remote rows below must not re-send it.
+      setPushCursor(outgoing.upTo);
+      moreToUpload = outgoing.hasMore;
+
       if (remoteChanges?.length) {
         console.log(`Applying ${remoteChanges.length} remote changes.`);
         const insertSQL = `INSERT INTO crsql_changes ("table", pk, cid, val, col_version, db_version, site_id, seq, cl) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
@@ -785,6 +799,10 @@ tags:
     } finally {
       isSyncing.value = false;
     }
+
+    // A backlog larger than one request (for example the first sync after this
+    // cursor was introduced) continues in further batches.
+    if (moreToUpload) void sync();
   }
 
   function connectWebSocket() {
