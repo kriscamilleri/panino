@@ -169,7 +169,7 @@
                         class="pn-input"
                         data-testid="import-modal-linked-document-select"
                     >
-                        <option disabled value="">Choose a document</option>
+                        <option value="">Choose a document</option>
                         <option v-for="document in linkedDocuments" :key="document.path" :value="document.path">
                             {{ document.path }}
                         </option>

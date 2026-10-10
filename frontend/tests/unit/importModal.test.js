@@ -17,6 +17,7 @@ describe('ImportModal document with linked images', () => {
     it('lists discovered documents and imports the user-selected one with its source folder', () => {
         expect(source).toContain('docStore.listMarkdownDocumentsInDirectory(directoryHandle)');
         expect(source).toContain('selectedLinkedDocumentPath');
+        expect(source).toContain('<option value="">Choose a document</option>');
         expect(source).toContain('docStore.importDocumentWithLinkedImages(');
         expect(source).toContain('linkedSourceDirectory.value');
     });
