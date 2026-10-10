@@ -34,8 +34,11 @@ A client tracks two independent positions, in two different version spaces:
 
 | Position | Version space | Storage | Used for |
 |---|---|---|---|
-| Pull clock | Server `db_version` | `localStorage` `crsqlite_clock` | `since` in the request; set from `clock` in the response |
-| Push cursor | This replica's `db_version` | `localStorage` `crsqlite_push_cursor` | Selecting own changes to upload; set once the server acknowledges them |
+| Pull clock | Server `db_version` | `localStorage` `crsqlite_clock:<dbKey>` | `since` in the request; set from `clock` in the response |
+| Push cursor | This replica's `db_version` | `localStorage` `crsqlite_push_cursor:<dbKey>` | Selecting own changes to upload; set once the server acknowledges them |
+
+Both are kept per database (`user:<uuid>` or `space:<uuid>`). The unkeyed names used before
+the database registry are migrated once at start-up.
 
 They must never be the same number. Merging remote rows moves a replica's `db_version` up to
 the highest version it received, not to the server's current version, so after a sync that
@@ -57,7 +60,24 @@ The upload rules live in `frontend/src/utils/syncCursor.js`:
 - A missing cursor, or one ahead of the local database, restarts from zero. The first sync
   after the cursor was introduced therefore re-offers every own change, in batches of at most
   500 changes cut on version boundaries. This is what recovers writes stranded earlier.
-- `resetDatabase()` clears both positions together.
+
+## Merge base for document bodies
+
+`note_sync_base` (client-local, not replicated) holds, per document, the body the server is
+known to hold. The three-way merge of concurrent body edits depends on it being exactly that:
+
+- It moves when a remote body is adopted and when an upload is acknowledged without a
+  competing body in the same reply.
+- It does **not** move on a local save or on a manual conflict resolution. Those are edits
+  that still have to be uploaded. A base that already contains the unsent edit equals the local
+  body, so every incoming body looks safe to adopt and the edit is lost without a conflict.
+- An incoming body is concurrent only if this replica has an unacknowledged edit to that
+  document, an unsaved draft, or a local value that outranked the remote row. Otherwise it is
+  simply newer and is adopted, with or without an existing base.
+
+The server makes the second half possible by replying with other replicas' changes as they
+stood before it merged the request's upload (see the `/sync` contract in `data-model.md`).
+The decision table is `planRemoteContent` in `frontend/src/utils/syncMerge.js`.
 
 ## Table anatomy
 

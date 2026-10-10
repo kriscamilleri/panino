@@ -15,16 +15,18 @@ On the server, stop writes or otherwise coordinate a maintenance window. Copy th
 database and matching `-wal`/`-shm` files to a timestamped backup directory. Verify the copy
 before applying any repair.
 
-The production database directory is normally `/app/data` inside the API container. Use the
-container's matching Node/CR-SQLite runtime when inspecting CRR support tables.
+The production database directory is `/app/backend/api-service/data` inside the API container
+(it was `/app/data` before the shared package changed the image layout; that path no longer
+exists). Run the repair commands from `/app/backend/api-service`, the container's working
+directory, with the container's matching Node/CR-SQLite runtime.
 
 ## 3. Dry-run the orphan detector
 
 From `backend/api-service/`:
 
 ```bash
-DB_DIR=/app/data node scripts/repair-orphan-image-clocks.mjs
-DB_DIR=/app/data node scripts/repair-orphan-image-clocks.mjs --user <user-id>
+DB_DIR=/app/backend/api-service/data node scripts/repair-orphan-image-clocks.mjs
+DB_DIR=/app/backend/api-service/data node scripts/repair-orphan-image-clocks.mjs --user <user-id>
 ```
 
 The dry-run reports non-sentinel clock rows whose mapped base image is missing and whose key
@@ -35,8 +37,8 @@ has no `-1` deletion sentinel. It does not mutate the database.
 After the backup and dry-run output are reviewed:
 
 ```bash
-DB_DIR=/app/data node scripts/repair-orphan-image-clocks.mjs --apply
-DB_DIR=/app/data node scripts/repair-orphan-image-clocks.mjs --apply --user <user-id>
+DB_DIR=/app/backend/api-service/data node scripts/repair-orphan-image-clocks.mjs --apply
+DB_DIR=/app/backend/api-service/data node scripts/repair-orphan-image-clocks.mjs --apply --user <user-id>
 ```
 
 The helper deletes only the orphan non-sentinel rows inside a transaction. It preserves

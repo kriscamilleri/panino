@@ -92,7 +92,8 @@ The synced `settings` table stores one JSON string per setting key. Current keys
 ```text
 POST /sync
 Body:     { since: number, siteId: hex_string, changes: Change[], space?: uuid }
-Response: { changes: Change[], clock: number, skipped: number, membershipVersion?: number }
+Response: { changes: Change[], clock: number, skipped: number,
+            contentMergeWriteback: boolean, membershipVersion?: number }
 ```
 
 Each change has the shape:
@@ -104,7 +105,19 @@ Each change has the shape:
 - `pk` is commonly a JSON array string such as `'["uuid-value"]'`.
 - `site_id` is a 32-character hexadecimal representation of 16 bytes.
 - `val` is a JSON-encoded scalar for values received from the browser.
-- `clock` is the highest `db_version` returned by the backend.
+- `pk` must decode to a well-formed CR-SQLite packed key. A batch containing one that does
+  not is refused whole with `400 INVALID_CHANGE` before anything is merged, because the
+  extension aborts the process on a malformed key.
+- `changes` in the response are the other replicas' changes since `since` **as they stood
+  before this request's own `changes` were merged**. A body the upload overwrites is therefore
+  still returned once, which is how the uploader learns it replaced an edit it had not seen.
+  Such rows lose again when the client applies them.
+- `clock` is the highest `db_version` on the backend after the merge. It is the server's
+  version: clients send it back as `since` and must not use it to select their own changes to
+  upload (see "Two positions per client" in `crsqlite-sync.md`).
+- `contentMergeWriteback` is the server-owned switch for automatic merging of concurrent body
+  edits (`CONTENT_MERGE_WRITEBACK_ENABLED`). Absent or false means the client keeps both sides
+  for the user instead.
 - An absent `space` targets the authenticated user's personal database; a present `space`
   targets canonical `space:<uuid>` state after membership authorization. A non-member receives
   the same `404` shape as a missing space.

@@ -26,11 +26,11 @@
 //   node scripts/repair-orphan-image-clocks.mjs --apply --user <userId>
 //
 //   # Override DB dir / crsqlite ext path.
-//   DB_DIR=/app/data node scripts/repair-orphan-image-clocks.mjs --apply
+//   DB_DIR=/app/backend/api-service/data node scripts/repair-orphan-image-clocks.mjs --apply
 //
 // Notes:
 //   - Default DB dir is `process.env.DB_DIR` or `./data`.
-//   - The script MUTATES the database; back up /app/data before running
+//   - The script MUTATES the database; back up /app/backend/api-service/data before running
 //     with --apply in production.
 
 import fs from "node:fs";

@@ -24,12 +24,24 @@ and must not be copied into image layers. Operator tooling must use these mounte
 
 ## Collaboration feature flags
 
-Both collaboration gates default to false in Compose:
+All collaboration gates default to false in Compose:
 
 ```text
+CONTENT_MERGE_WRITEBACK_ENABLED=false
 SHARED_SPACES_ENABLED=false
 LIVE_SESSIONS_ENABLED=false
 ```
+
+`CONTENT_MERGE_WRITEBACK_ENABLED` applies to every account, shared spaces or not. While it is
+false, two devices that edit the same Document at the same time get a conflict to review, with
+both versions kept. Setting it to `true` lets clients merge non-overlapping edits on their own;
+overlapping edits still become a conflict. Each `/sync` response carries the current value, so
+the change takes effect on the next sync without a client release, and setting it back to
+`false` stops automatic merging the same way.
+
+`FRONTEND_URL` and `PUBLIC_API_BASE_URL` must be set to the public origin. PDF export embeds a
+Document's own images only from relative paths or from absolute links on one of the configured
+origins; an absolute link on any other origin is treated as external.
 
 Live sessions also require shared spaces. Enable them only after a full backup and the isolated
 two-account checks in `live-session-recovery.md`. Turning off the live flag rejects new sessions;

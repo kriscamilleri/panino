@@ -3,7 +3,7 @@
 > Three-way merge document bodies at sync boundaries instead of losing one side.
 > Status: proposed
 > Created: 2026-08-16
-> Last updated: 2026-08-16 (final review)
+> Last updated: 2026-10-10 (amended after two-device verification; see §10)
 > Part of [COLLAB-00](collab-00-overview.md) · Depends on [COLLAB-01](collab-01-editor-conflict-safety.md)
 
 ---
@@ -344,3 +344,36 @@ both online, confirm both paragraphs survive on both devices.
 - **Merge cost on a large sync batch.** A client returning after a long offline period may have
   hundreds of changed documents. Merge lazily — only documents whose base differs — and yield
   between documents so the UI does not freeze.
+
+---
+
+## 10) Amendments from verification (2026-10-10)
+
+Two-device testing of the first implementation showed that concurrent offline edits still
+lost one side with no conflict, and that a stale device raised conflicts for documents it had
+never edited. Three statements above are superseded:
+
+1. **"No backend runtime change" (§1, §7) no longer holds.** `/sync` now replies with the other
+   replicas' changes as they stood *before* it merges the request's own upload. With the
+   original ordering, a replica whose upload won never received the body it overwrote, so
+   "only the replica whose local value was overwritten writes back a merge" (§6.3) left the
+   other half of the cases unprotected. The server also sends `contentMergeWriteback`
+   (`CONTENT_MERGE_WRITEBACK_ENABLED`), which §4.1 assumed but nothing provided.
+2. **`theirs` is the remote replica's value, not the local value after applying remote rows
+   (§5.3 steps 5–6).** After a local win the two differ, and the post-apply value is the
+   local body itself.
+3. **The base moves on adoption and on acknowledged upload only (§4).** The first
+   implementation also wrote it on every local save and on manual resolution, which made the
+   base equal to the unsent local body. "No base row, `mine !== theirs` → conflict" (§5.3
+   table) is narrowed to replicas that actually hold an unacknowledged edit; a replica with
+   nothing pending adopts the remote body whether or not it has a base yet.
+
+Two smaller additions: a stored conflict is kept and re-compared when the document later
+changes, instead of being cleared on the next adoption; and when one side already contains
+every line the other added, that side is taken without a conflict even where a line merge
+reports one.
+
+The current rules are documented in `docs/architecture/crsqlite-sync.md` ("Merge base for
+document bodies") and implemented by `planRemoteContent` in `frontend/src/utils/syncMerge.js`.
+The manual validation in §8 now passes in both upload orders with the switch on; with it off,
+both orders end in a visible conflict holding both bodies.
