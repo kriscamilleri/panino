@@ -216,18 +216,19 @@ ${DOCUMENT_COLUMNS}
     isSaving.value = true; // <--- Set to true
     try {
       const now = new Date().toISOString();
+      // Only the document changes here. The merge base in `note_sync_base` is
+      // what the server holds, so it moves when an upload is acknowledged or a
+      // remote body is adopted (syncStore), never on a local save: a base that
+      // already contains the unsent edit makes every incoming body look safe
+      // to adopt and the edit is lost without a conflict.
       await syncStore.repository(dbKey).transaction(async (repo) => {
         await repo.exec(
           "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
           [newContent, now, fileId],
         );
-        await repo.exec(
-          `INSERT INTO note_sync_base (note_id, content, updated_at)
-           VALUES (?, ?, ?)
-           ON CONFLICT(note_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`,
-          [fileId, newContent ?? "", now],
-        );
       });
+      // The editor's in-memory base is different: it is the text the editor
+      // last wrote, used to tell a clean editor from a dirty one (COLLAB-01).
       draftStore.setBase(fileId, newContent);
       if (selectedFile.value?.id === fileId) {
         selectedFile.value.content = newContent; // Optimistic update

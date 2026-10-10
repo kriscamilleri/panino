@@ -76,6 +76,154 @@ export function resolveSyncMerge({ hasBase, hasMine = true, base, mine, theirs, 
 }
 
 /**
+ * The content the server holds for a document after a `/sync` request that
+ * returned another replica's value. The server's reply is computed before it
+ * merges this request's upload, so both sides of a concurrent edit are known
+ * here and the last-writer-wins outcome can be read off the column versions.
+ *
+ * @param {{
+ *   remote: string | null | undefined,
+ *   remoteColVersion: number,
+ *   sent?: { content: string, colVersion: number } | null,
+ *   postApply: string | null | undefined,
+ *   localChangedSinceSend?: boolean,
+ * }} parts `sent` is this replica's value uploaded in the same request, if any
+ * @returns {string | undefined} `undefined` when the outcome cannot be known
+ */
+export function resolveServerValue({ remote, remoteColVersion, sent, postApply, localChangedSinceSend = false }) {
+    const remoteContent = remote ?? '';
+    if (!sent) return remoteContent;
+
+    const theirs = Number(remoteColVersion) || 0;
+    const ours = Number(sent.colVersion) || 0;
+    if (theirs > ours) return remoteContent;
+    if (theirs < ours) return sent.content;
+
+    // Equal versions are settled by a value comparison inside CR-SQLite. This
+    // replica made the same comparison when it applied the remote row, but its
+    // result mirrors the server only while the local value is still the one sent.
+    if (localChangedSinceSend) return undefined;
+    return normalizeContent(postApply) === normalizeContent(remoteContent) ? remoteContent : sent.content;
+}
+
+/**
+ * Decide what to do with one document whose body arrived from another replica
+ * (COLLAB-02 §5.3). Unlike {@link resolveSyncMerge}, this knows whether the
+ * local replica really holds an unacknowledged edit, and it compares against
+ * the remote replica's value rather than the local last-writer-wins outcome.
+ *
+ * Actions:
+ * - `adopt`           the database already holds the remote body; nothing to write
+ * - `keep`            the database already holds the right body (local or merged)
+ * - `write`           store `content` as an ordinary local change
+ * - `write-merge`     store an automatic merge (subject to the oscillation guard)
+ * - `record-conflict` keep both sides for the user; no automatic write
+ *
+ * `base` is the merge base to store: the content the server is known to hold.
+ * `undefined` leaves the stored base untouched.
+ *
+ * @param {{
+ *   hasBase: boolean,
+ *   base?: string | null,
+ *   hasLocalRow: boolean,
+ *   mine: string | null | undefined,
+ *   remote: string | null | undefined,
+ *   postApply: string | null | undefined,
+ *   localPending: boolean,
+ *   serverValue?: string,
+ *   capabilityEnabled: boolean,
+ * }} parts
+ *   `mine` is the open editor's draft when there is one, else the stored body
+ *   before the remote rows were applied; `postApply` is the stored body after;
+ *   `localPending` is true when this replica has an edit the server has not
+ *   acknowledged; `serverValue` comes from {@link resolveServerValue}.
+ * @returns {{
+ *   action: 'adopt' | 'keep' | 'write' | 'write-merge' | 'record-conflict',
+ *   content?: string,
+ *   base?: string,
+ *   conflicts: Array<{ baseLines: string[], mineLines: string[], theirsLines: string[] }>,
+ *   reason?: string,
+ *   pendingMerged?: string,
+ * }}
+ */
+export function planRemoteContent({
+    hasBase,
+    base,
+    hasLocalRow,
+    mine,
+    remote,
+    postApply,
+    localPending,
+    serverValue,
+    capabilityEnabled,
+}) {
+    const nr = normalizeContent(remote);
+    const nm = normalizeContent(mine);
+    const np = normalizeContent(postApply);
+
+    // A document this replica never held, or one both sides already agree on.
+    if (!hasLocalRow || nm === nr) {
+        return { action: 'adopt', base: nr, conflicts: [] };
+    }
+
+    // The local body survived the remote row although nothing was known to be
+    // pending: an edit that never reached the server. Treat it as concurrent
+    // rather than letting the remote body be recorded as agreed.
+    const concurrent = localPending || np !== nr;
+    if (!concurrent) {
+        return { action: 'adopt', base: nr, conflicts: [] };
+    }
+
+    const nextBase = serverValue === undefined ? undefined : normalizeContent(serverValue);
+
+    if (!hasBase) {
+        // No common ancestor to merge from (first sync after upgrade). Both
+        // bodies are kept; nothing is discarded on a guess.
+        return {
+            action: 'record-conflict',
+            base: nextBase,
+            conflicts: [{ baseLines: [], mineLines: nm.split('\n'), theirsLines: nr.split('\n') }],
+            reason: 'no-base',
+        };
+    }
+
+    const nb = normalizeContent(base);
+    const storeRemote = () => (np === nr
+        ? { action: 'adopt', base: nr, conflicts: [] }
+        : { action: 'write', content: nr, base: nextBase ?? nb, conflicts: [] });
+    const storeMine = () => (np === nm
+        ? { action: 'keep', base: nextBase, conflicts: [] }
+        : { action: 'write', content: nm, base: nextBase, conflicts: [] });
+
+    if (nm === nb) return storeRemote();
+    if (nr === nb) return storeMine();
+
+    const merge = mergeContent({ base: nb, mine: nm, theirs: nr });
+    if (merge.status === 'conflict') {
+        return { action: 'record-conflict', base: nextBase, conflicts: merge.conflicts };
+    }
+    if (merge.status === 'budget') {
+        return { action: 'record-conflict', base: nextBase, conflicts: [], reason: 'budget' };
+    }
+
+    const merged = normalizeContent(merge.content);
+    if (merged === nr) return storeRemote();
+    if (merged === nm) return storeMine();
+    if (merged === np) return { action: 'keep', base: nextBase, conflicts: [] };
+
+    if (!capabilityEnabled) {
+        return {
+            action: 'record-conflict',
+            base: nextBase,
+            conflicts: [],
+            reason: 'writeback-disabled',
+            pendingMerged: merge.content,
+        };
+    }
+    return { action: 'write-merge', content: merge.content, base: nextBase, conflicts: [] };
+}
+
+/**
  * Rolling write-back oscillation guard (COLLAB-02 §6.3). The first write-back
  * starts the window; the fourth within 60 seconds is suppressed. Elapsing the
  * window resets the count.

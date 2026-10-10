@@ -7,7 +7,10 @@ import {
   isStorageQuotaError,
   mergeDashboardRows,
   migrateLegacyPersonalClock,
+  migrateLegacyPersonalPushCursor,
   projectSpaceOutgoingChanges,
+  pushCursorStorageKey,
+  reconnectDelayMs,
   reconcileMembershipKeys,
   runSequentially,
 } from '@/utils/syncRegistry.js';
@@ -71,8 +74,10 @@ function fakeDatabase(siteId) {
     siteId,
     exec: vi.fn(async () => {}),
     execO: vi.fn(async (sql) => {
-      if (sql.includes('crsql_site_id')) return [{ id: siteId }];
+      // Change-table reads filter on crsql_site_id() too, so they come first.
       if (sql.includes('crsql_changes')) return [];
+      if (sql.includes('crsql_db_version')) return [{ version: 0 }];
+      if (sql.includes('crsql_site_id')) return [{ id: siteId }];
       if (sql.includes("PRAGMA table_info('notes')")) return [{ name: 'pinned' }];
       if (sql.includes("PRAGMA table_info('images')")) return [
         { name: 'size_bytes' }, { name: 'sha256' },
@@ -462,11 +467,13 @@ describe('syncStore registry integration', () => {
 
     fetchSpy.mockClear();
     await socket.message({ v: 1, type: 'sync', payload: { dbKey: SPACE_KEY } });
-    const syncBodies = fetchSpy.mock.calls
+    // The poke starts a sync without awaiting it; the request follows once the
+    // upload batch has been read.
+    const syncBodies = () => fetchSpy.mock.calls
       .filter(([url]) => url.includes('/sync'))
       .map(([, options]) => JSON.parse(options.body));
-    expect(syncBodies).toHaveLength(1);
-    expect(syncBodies[0].space).toBe(SPACE_ID);
+    await vi.waitFor(() => expect(syncBodies()).toHaveLength(1));
+    expect(syncBodies()[0].space).toBe(SPACE_ID);
   });
 
   it('removes revoked registry entries and clears queued work before another retry', async () => {
@@ -503,5 +510,54 @@ describe('syncStore registry integration', () => {
     expect(FakeWebSocket.instances[0].sent.some(
       (message) => message.type === 'unsubscribe' && message.payload.dbKeys[0] === SPACE_KEY,
     )).toBe(true);
+  });
+});
+
+describe('upload cursor registry helpers', () => {
+  it('keys the push cursor by canonical database key', () => {
+    expect(pushCursorStorageKey(PERSONAL_KEY)).toBe(`crsqlite_push_cursor:${PERSONAL_KEY}`);
+    expect(pushCursorStorageKey(SPACE_KEY)).toBe(`crsqlite_push_cursor:${SPACE_KEY}`);
+    expect(() => pushCursorStorageKey(USER_ID)).toThrow();
+  });
+
+  it('moves an unkeyed personal push cursor once and removes the source', () => {
+    const values = storage({ crsqlite_push_cursor: '41' });
+
+    migrateLegacyPersonalPushCursor(values, PERSONAL_KEY);
+    expect(values.getItem(`crsqlite_push_cursor:${PERSONAL_KEY}`)).toBe('41');
+    expect(values.getItem('crsqlite_push_cursor')).toBeNull();
+
+    migrateLegacyPersonalPushCursor(values, PERSONAL_KEY);
+    expect(values.getItem(`crsqlite_push_cursor:${PERSONAL_KEY}`)).toBe('41');
+  });
+
+  it('never overwrites a keyed cursor with a stale unkeyed one', () => {
+    const values = storage({
+      crsqlite_push_cursor: '3',
+      [`crsqlite_push_cursor:${PERSONAL_KEY}`]: '90',
+    });
+
+    migrateLegacyPersonalPushCursor(values, PERSONAL_KEY);
+
+    expect(values.getItem(`crsqlite_push_cursor:${PERSONAL_KEY}`)).toBe('90');
+    expect(values.getItem('crsqlite_push_cursor')).toBeNull();
+  });
+
+  it('leaves storage untouched when there is nothing to migrate', () => {
+    const values = storage();
+    migrateLegacyPersonalPushCursor(values, PERSONAL_KEY);
+    expect(values.getItem(`crsqlite_push_cursor:${PERSONAL_KEY}`)).toBeNull();
+  });
+});
+
+describe('reconnectDelayMs', () => {
+  it('doubles from one second and caps at thirty', () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 40].map(reconnectDelayMs))
+      .toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
+  });
+
+  it('treats missing or negative attempt counts as the first attempt', () => {
+    expect(reconnectDelayMs(undefined)).toBe(1000);
+    expect(reconnectDelayMs(-4)).toBe(1000);
   });
 });

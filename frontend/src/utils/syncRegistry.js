@@ -1,4 +1,5 @@
 import { createDatabaseKey, parseDatabaseKey } from './databaseKey.js';
+import { PUSH_CURSOR_KEY } from './syncCursor.js';
 
 export const LEGACY_CLOCK_KEY = 'crsqlite_clock';
 
@@ -25,6 +26,41 @@ export function migrateLegacyPersonalClock(storage, personalDbKey) {
   }
   if (legacy !== null) storage.removeItem(LEGACY_CLOCK_KEY);
   return Number(storage.getItem(targetKey) || 0);
+}
+
+/** @param {string} dbKey */
+export function pushCursorStorageKey(dbKey) {
+  parseDatabaseKey(dbKey);
+  return `${PUSH_CURSOR_KEY}:${dbKey}`;
+}
+
+/**
+ * Move the unkeyed personal push cursor (written by builds that predate the
+ * database registry) to its per-database key. Same idempotence rule as the
+ * clock: the source key is removed, so no separate marker can go stale.
+ *
+ * @param {Storage|{getItem:Function,setItem:Function,removeItem:Function}} storage
+ * @param {string} personalDbKey
+ */
+export function migrateLegacyPersonalPushCursor(storage, personalDbKey) {
+  const targetKey = pushCursorStorageKey(personalDbKey);
+  const legacy = storage.getItem(PUSH_CURSOR_KEY);
+  if (legacy === null) return;
+  if (storage.getItem(targetKey) === null) storage.setItem(targetKey, legacy);
+  storage.removeItem(PUSH_CURSOR_KEY);
+}
+
+/**
+ * Delay before the next WebSocket reconnect attempt: 1s, 2s, 4s … capped at
+ * 30s. A fixed one-second retry hammers the server for as long as it keeps
+ * refusing the connection.
+ *
+ * @param {number} attempt number of consecutive failed attempts so far
+ * @returns {number} milliseconds
+ */
+export function reconnectDelayMs(attempt) {
+  const exponent = Math.min(Math.max(Number(attempt) || 0, 0), 5);
+  return Math.min(1000 * 2 ** exponent, 30000);
 }
 
 /**

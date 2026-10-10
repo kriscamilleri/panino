@@ -93,7 +93,8 @@ export function planOutgoingWindow(versionCounts, { localDbVersion, maxChanges =
  * @param {{ execO: (sql: string, params?: unknown[]) => Promise<Array<Record<string, unknown>>> }} database
  * @param {string | number | null | undefined} storedCursor
  * @param {{ maxChanges?: number }} [options]
- * @returns {Promise<{ changes: Array<Record<string, unknown>>, upTo: number, hasMore: boolean }>}
+ * @returns {Promise<{ changes: Array<Record<string, unknown>>, cursor: number, upTo: number, hasMore: boolean }>}
+ *   `cursor` is the position the batch starts after
  */
 export async function readOutgoingChanges(database, storedCursor, { maxChanges = MAX_OUTGOING_CHANGES } = {}) {
   const versionRows = await database.execO(LOCAL_DB_VERSION_SQL);
@@ -106,5 +107,5 @@ export async function readOutgoingChanges(database, storedCursor, { maxChanges =
     ? await database.execO(OUTGOING_CHANGES_SQL, [cursor, upTo])
     : [];
 
-  return { changes, upTo, hasMore };
+  return { changes, cursor, upTo, hasMore };
 }

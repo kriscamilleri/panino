@@ -9,16 +9,25 @@ import { useDraftStore } from "./draftStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore";
 import { parsePkId } from "@/utils/crsqlitePk";
 import {
-  resolveSyncMerge,
+  planRemoteContent,
+  resolveServerValue,
   evaluateWritebackGuard,
 } from "@/utils/syncMerge";
-import { serializeConflictHunks } from "@panino/content-merge";
+import { readOutgoingChanges } from "@/utils/syncCursor";
+import {
+  mergeContent,
+  normalizeContent,
+  serializeConflictHunks,
+} from "@panino/content-merge";
 import { v4 as uuidv4 } from "uuid";
 import {
   clockStorageKey,
   isStorageQuotaError,
   migrateLegacyPersonalClock,
+  migrateLegacyPersonalPushCursor,
+  pushCursorStorageKey,
   projectSpaceOutgoingChanges,
+  reconnectDelayMs,
   reconcileMembershipKeys,
   runSequentially,
 } from "@/utils/syncRegistry";
@@ -91,6 +100,12 @@ CREATE TABLE IF NOT EXISTS note_conflicts (
 );
 `;
 
+const LOCAL_ONLY_SYNC_TABLES = new Set(["note_sync_base", "note_conflicts"]);
+/** A socket must stay open this long before reconnect backoff resets. */
+const STABLE_CONNECTION_MS = 5000;
+/** How often a tab refused for the per-account connection limit tries again. */
+const CONNECTION_LIMIT_RETRY_MS = 60000;
+
 function debounce(fn, wait) {
   let t;
   return (...args) => {
@@ -128,6 +143,9 @@ export const useSyncStore = defineStore("syncStore", () => {
   let membershipRefreshPromise = null;
   let membershipRefreshRequested = false;
   let reconnectTimer = null;
+  let stableConnectionTimer = null;
+  let reconnectAttempts = 0;
+  let hasShownConnectionLimitNotice = false;
   let shouldReconnect = false;
   const webSocketListeners = new Set();
   let collabRemoteGuard = null;
@@ -161,6 +179,14 @@ export const useSyncStore = defineStore("syncStore", () => {
     localStorage.setItem(clockStorageKey(dbKey), String(value));
     const entry = databases.value.get(dbKey);
     if (entry) entry.clock = Number(value) || 0;
+  }
+  // The clock above is the server's version. Uploads are tracked by a separate
+  // cursor in each replica's own version space (see utils/syncCursor.js).
+  function getPushCursor(dbKey) {
+    return localStorage.getItem(pushCursorStorageKey(dbKey));
+  }
+  function setPushCursor(dbKey, value) {
+    localStorage.setItem(pushCursorStorageKey(dbKey), String(value));
   }
 
   function requireEntry(dbKey) {
@@ -219,7 +245,10 @@ export const useSyncStore = defineStore("syncStore", () => {
       error: null,
     };
     databases.value.set(dbKey, entry);
-    database.onUpdate(() => {
+    database.onUpdate((_type, _dbName, tableName) => {
+      // Merge bases and conflict records are client-local; writing them has
+      // nothing to upload and must not schedule another round trip.
+      if (LOCAL_ONLY_SYNC_TABLES.has(tableName)) return;
       if (entry.isApplyingRemote) {
         entry.syncPending = true;
         return;
@@ -241,6 +270,7 @@ export const useSyncStore = defineStore("syncStore", () => {
     }
     const dbKey = createDatabaseKey("user", auth.user.id);
     migrateLegacyPersonalClock(localStorage, dbKey);
+    migrateLegacyPersonalPushCursor(localStorage, dbKey);
     await openDatabaseEntry({ dbKey, name: "Personal" });
 
     isInitialized.value = true;
@@ -847,26 +877,88 @@ tags:
     await database.exec("DELETE FROM note_conflicts WHERE note_id = ?", [noteId]);
   }
 
+  /** Body changes of `notes` in a change list, keyed by document id. */
+  function collectContentChanges(changes) {
+    const byNote = new Map();
+    for (const ch of changes || []) {
+      if (ch.table !== "notes" || ch.cid !== "content") continue;
+      const noteId = parsePkId(ch.pk);
+      if (!noteId) continue;
+      byNote.set(noteId, {
+        content: ch.val == null ? "" : String(ch.val),
+        colVersion: Number(ch.col_version) || 0,
+        dbVersion: Number(ch.db_version) || 0,
+      });
+    }
+    return byNote;
+  }
+
+  /** Documents whose body this replica changed after the given local version. */
+  async function ownContentChangedAfter(database, localVersion) {
+    const rows = await database.execO(
+      `SELECT pk FROM crsql_changes WHERE "table" = 'notes' AND cid = 'content' AND site_id = crsql_site_id() AND db_version > ?`,
+      [localVersion],
+    );
+    const ids = new Set();
+    for (const row of rows || []) {
+      const noteId = parsePkId(row.pk);
+      if (noteId) ids.add(noteId);
+    }
+    return ids;
+  }
+
   /**
-   * Applies remote CR-SQLite changes inside one transaction, capturing each
-   * affected document's `mine` before apply and `theirs` after, then resolving
-   * content merges per COLLAB-02 §5.3.
+   * A stored conflict holds the only copy of a body the user has not decided
+   * about. When the document moves on without a new conflict, keep that copy
+   * and compare it against the new body; drop it only once the new body
+   * already contains it.
+   */
+  async function refreshOrClearConflict(database, noteId, currentContent) {
+    const rows = await database.execO(
+      "SELECT base_content, mine_content FROM note_conflicts WHERE note_id = ?",
+      [noteId],
+    );
+    if (!rows?.length) return;
+
+    const held = rows[0];
+    const current = normalizeContent(currentContent);
+    if (normalizeContent(held.mine_content) === current) {
+      await clearConflict(database, noteId);
+      return;
+    }
+    const merge = mergeContent({ base: held.base_content, mine: held.mine_content, theirs: currentContent });
+    if (merge.status === "clean" && normalizeContent(merge.content) === current) {
+      await clearConflict(database, noteId);
+      return;
+    }
+    await recordConflict(
+      database,
+      noteId,
+      held.base_content,
+      held.mine_content,
+      currentContent,
+      merge.status === "conflict" ? merge.conflicts : [],
+    );
+  }
+
+  /**
+   * Applies remote CR-SQLite changes inside one transaction and decides, per
+   * document, between adopting the remote body, keeping or merging the local
+   * one, and recording a conflict (COLLAB-02 §5.3).
+   *
+   * `upload` describes the request these changes answer: the bodies this
+   * replica sent in it, how far its uploads now reach, and the local version
+   * above which a sent change is known to be new rather than re-offered.
    *
    * @returns {Promise<boolean>} true when a local content write needs a follow-up sync
    */
-  async function applyRemoteChanges(entry, remoteChanges) {
+  async function applyRemoteChanges(entry, remoteChanges, upload = {}) {
+    const { sentContent = new Map(), uploadedUpTo = 0, pendingAfter = 0 } = upload;
     let didLocalWrite = false;
     const database = entry.db;
 
-    const noteIds = new Set();
-    for (const ch of remoteChanges) {
-      if (ch.table === "notes" && ch.cid === "content") {
-        const noteId = parsePkId(ch.pk);
-        if (noteId) noteIds.add(noteId);
-      }
-    }
-
-    const idList = [...noteIds];
+    const remoteContent = collectContentChanges(remoteChanges);
+    const idList = [...remoteContent.keys()];
 
     entry.isApplyingRemote = true;
     try {
@@ -883,36 +975,39 @@ tags:
       }
 
       const placeholders = idList.map(() => "?").join(",");
+      const readBodies = async () => {
+        const rows = await database.execO(
+          `SELECT id, COALESCE(content, '') AS content FROM notes WHERE id IN (${placeholders})`,
+          idList,
+        );
+        return new Map((rows || []).map((row) => [row.id, row.content]));
+      };
 
       await database.exec("BEGIN");
       try {
-        const mineMap = new Map();
-        const mineRows = await database.execO(
-          `SELECT id, COALESCE(content, '') AS content FROM notes WHERE id IN (${placeholders})`,
-          idList,
-        );
-        for (const row of mineRows) mineMap.set(row.id, row.content);
+        const mineMap = await readBodies();
+        const changedSinceUpload = await ownContentChangedAfter(database, uploadedUpTo);
 
         await applyRemoteRows(database, remoteChanges);
 
-        const theirsMap = new Map();
-        const theirsRows = await database.execO(
-          `SELECT id, COALESCE(content, '') AS content FROM notes WHERE id IN (${placeholders})`,
-          idList,
-        );
-        for (const row of theirsRows) theirsMap.set(row.id, row.content);
-
+        const postMap = await readBodies();
         const draftStore = useDraftStore();
 
         for (const noteId of idList) {
-          const dbMine = mineMap.get(noteId) ?? "";
-          const theirs = theirsMap.get(noteId) ?? "";
-          if (collabRemoteGuard?.(entry.dbKey, noteId, theirs)) {
-            await upsertMergeBase(database, noteId, theirs);
+          const remote = remoteContent.get(noteId);
+          const postApply = postMap.get(noteId) ?? "";
+          if (collabRemoteGuard?.(entry.dbKey, noteId, postApply)) {
+            await upsertMergeBase(database, noteId, postApply);
             continue;
           }
+
+          const dbMine = mineMap.get(noteId) ?? "";
           const draft = draftStore.getDraft(noteId);
           const mine = draft !== undefined ? draft : dbMine;
+          const sent = sentContent.get(noteId) || null;
+          const changedSinceSend = changedSinceUpload.has(noteId);
+          const unsavedDraft = draft !== undefined && normalizeContent(draft) !== normalizeContent(dbMine);
+          const localPending = Boolean(sent && sent.dbVersion > pendingAfter) || changedSinceSend || unsavedDraft;
 
           const baseRows = await database.execO(
             "SELECT content, writeback_count, writeback_window_started_at FROM note_sync_base WHERE note_id = ?",
@@ -921,32 +1016,48 @@ tags:
           const hasBase = baseRows.length > 0;
           const base = hasBase ? baseRows[0].content : undefined;
 
-          const resolved = resolveSyncMerge({
+          const decision = planRemoteContent({
             hasBase,
-            hasMine: mineMap.has(noteId) || draft !== undefined,
             base,
+            hasLocalRow: mineMap.has(noteId) || draft !== undefined,
             mine,
-            theirs,
+            remote: remote.content,
+            postApply,
+            localPending,
+            serverValue: resolveServerValue({
+              remote: remote.content,
+              remoteColVersion: remote.colVersion,
+              sent,
+              postApply,
+              localChangedSinceSend: changedSinceSend,
+            }),
             capabilityEnabled: contentMergeWriteback.value,
           });
 
-          if (resolved.action === "write-merge") {
+          const now = new Date().toISOString();
+          const storeBase = async () => {
+            if (decision.base !== undefined) await upsertMergeBase(database, noteId, decision.base);
+          };
+          const holdBothSides = async () => {
+            await recordConflict(database, noteId, base, mine, remote.content, decision.conflicts);
+            await storeBase();
+          };
+
+          if (decision.action === "write-merge") {
             const guard = evaluateWritebackGuard({
               writebackCount: hasBase ? baseRows[0].writeback_count : 0,
               windowStartedAt: hasBase ? baseRows[0].writeback_window_started_at : null,
             });
 
             if (!guard.allowed) {
-              console.info(
-                `[Sync] Suppressing merge write-back for ${noteId} (oscillation guard).`,
-              );
-              await recordConflict(database, noteId, base, mine, theirs, resolved.conflicts);
+              console.info("[Sync] Suppressing a merge write-back (oscillation guard).");
+              await holdBothSides();
               continue;
             }
 
             await database.exec(
               "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
-              [resolved.content, new Date().toISOString(), noteId],
+              [decision.content, now, noteId],
             );
             await database.exec(
               `INSERT INTO note_sync_base (note_id, content, writeback_count, writeback_window_started_at, updated_at)
@@ -956,23 +1067,23 @@ tags:
                  writeback_count = excluded.writeback_count,
                  writeback_window_started_at = excluded.writeback_window_started_at,
                  updated_at = excluded.updated_at`,
-              [noteId, resolved.content, guard.writebackCount, guard.windowStartedAt, new Date().toISOString()],
+              [noteId, decision.base ?? base ?? "", guard.writebackCount, guard.windowStartedAt, now],
             );
-            await clearConflict(database, noteId);
+            await refreshOrClearConflict(database, noteId, decision.content);
             didLocalWrite = true;
-          } else if (resolved.action === "restore-mine") {
+          } else if (decision.action === "write") {
             await database.exec(
               "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
-              [resolved.content, new Date().toISOString(), noteId],
+              [decision.content, now, noteId],
             );
-            await upsertMergeBase(database, noteId, resolved.content);
-            await clearConflict(database, noteId);
+            await storeBase();
+            await refreshOrClearConflict(database, noteId, decision.content);
             didLocalWrite = true;
-          } else if (resolved.action === "adopt-theirs" || resolved.action === "record-base") {
-            await upsertMergeBase(database, noteId, resolved.content);
-            await clearConflict(database, noteId);
+          } else if (decision.action === "adopt" || decision.action === "keep") {
+            await storeBase();
+            await refreshOrClearConflict(database, noteId, postApply);
           } else {
-            await recordConflict(database, noteId, base, mine, theirs, resolved.conflicts);
+            await holdBothSides();
           }
         }
 
@@ -988,10 +1099,40 @@ tags:
     return didLocalWrite;
   }
 
-  async function seedMissingMergeBases(database) {
+  /**
+   * Once the server acknowledges an upload and returns no competing body for a
+   * document, it holds exactly what was sent: that is the new merge base.
+   */
+  async function recordAcknowledgedBases(database, sentContent, remoteNoteIds) {
+    const acknowledged = [...sentContent].filter(([noteId]) => !remoteNoteIds.has(noteId));
+    if (acknowledged.length === 0) return;
+
+    await database.exec("BEGIN");
+    try {
+      for (const [noteId, sent] of acknowledged) {
+        await upsertMergeBase(database, noteId, sent.content);
+      }
+      await database.exec("COMMIT");
+    } catch (e) {
+      await database.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  /**
+   * Give documents without a merge base their current body as one. Valid only
+   * for documents whose body is not waiting to be uploaded: for those, local
+   * and server agree after a completed exchange.
+   */
+  async function seedMissingMergeBases(database, pendingNoteIds = new Set()) {
+    const pending = [...pendingNoteIds];
+    const exclusion = pending.length
+      ? ` WHERE id NOT IN (${pending.map(() => "?").join(",")})`
+      : "";
     await database.exec(
       `INSERT OR IGNORE INTO note_sync_base (note_id, content, updated_at)
-       SELECT id, COALESCE(content, ''), datetime('now') FROM notes`,
+       SELECT id, COALESCE(content, ''), datetime('now') FROM notes${exclusion}`,
+      pending,
     );
   }
 
@@ -1207,6 +1348,23 @@ tags:
     await useDocStore().refreshData();
   }
 
+  /**
+   * The session can no longer be refreshed. Say so once, and stop syncing and
+   * reconnecting until the user signs in again; retrying cannot succeed.
+   */
+  async function handleSessionExpired() {
+    if (!hasShownAuthWarning.value) {
+      hasShownAuthWarning.value = true;
+      const { useUiStore } = await import("./uiStore");
+      useUiStore().addToast(
+        "Your session has expired. Please log in again to sync.",
+        "warning",
+      );
+    }
+    syncEnabled.value = false;
+    disconnectWebSocket();
+  }
+
   async function syncDatabase(entry, { allowAuthRetry = true } = {}) {
     const auth = useAuthStore();
     if (!entry?.db) return false;
@@ -1217,14 +1375,17 @@ tags:
     entry.isSyncing = true;
     const myClock = entry.clock;
     try {
-      const localChanges = await entry.db.execO(
-        `SELECT "table", pk, cid, val, col_version, db_version, lower(hex(site_id)) AS site_id, seq, cl FROM crsql_changes WHERE db_version > ? ORDER BY db_version ASC`,
-        [myClock],
-      );
+      const storedCursor = getPushCursor(entry.dbKey);
+      const outgoing = await readOutgoingChanges(entry.db, storedCursor);
       const target = parseDatabaseKey(entry.dbKey);
       const outgoingChanges = target.kind === "space"
-        ? projectSpaceOutgoingChanges(localChanges)
-        : localChanges;
+        ? projectSpaceOutgoingChanges(outgoing.changes)
+        : outgoing.changes;
+      const sentContent = collectContentChanges(outgoingChanges);
+      // Before the upload cursor existed, only changes above the pull clock
+      // were known to be unsent; the first sync re-offers older ones too, and
+      // those must not be mistaken for fresh local edits.
+      const pendingAfter = storedCursor === null ? myClock : outgoing.cursor;
       const body = {
         since: myClock,
         siteId: entry.siteId,
@@ -1246,6 +1407,13 @@ tags:
           return syncDatabase(entry, { allowAuthRetry: false });
         }
       }
+      if (response.status === 401 || response.status === 403) {
+        await handleSessionExpired();
+        const error = new Error("Session expired");
+        error.status = response.status;
+        error.code = "SESSION_EXPIRED";
+        throw error;
+      }
       if (response.status === 404 && target.kind === "space") {
         await requestMembershipRefresh();
       }
@@ -1256,12 +1424,27 @@ tags:
       }
 
       const data = await response.json();
+
+      // The server has merged this batch: uploads now reach `upTo`, whatever
+      // happens while the reply is applied. A backlog continues next turn.
+      setPushCursor(entry.dbKey, outgoing.upTo);
+      if (outgoing.hasMore) entry.syncPending = true;
+
       contentMergeWriteback.value = data.contentMergeWriteback === true;
+      const remoteNoteIds = new Set(collectContentChanges(data.changes).keys());
       if (data.changes?.length) {
-        const didLocalWrite = await applyRemoteChanges(entry, data.changes);
+        const didLocalWrite = await applyRemoteChanges(entry, data.changes, {
+          sentContent,
+          uploadedUpTo: outgoing.upTo,
+          pendingAfter,
+        });
         if (didLocalWrite) entry.syncPending = true;
       }
-      await seedMissingMergeBases(entry.db);
+      await recordAcknowledgedBases(entry.db, sentContent, remoteNoteIds);
+      await seedMissingMergeBases(
+        entry.db,
+        await ownContentChangedAfter(entry.db, outgoing.upTo),
+      );
 
       // The clock is persisted only after every remote row and merge base has
       // committed successfully.
@@ -1304,6 +1487,11 @@ tags:
         try {
           return await syncDatabase(entry);
         } catch (error) {
+          if (error?.code === "SESSION_EXPIRED") {
+            entry.status = "sync-error";
+            entry.error = "Your session has expired. Log in again to sync; local changes are safe.";
+            return false;
+          }
           entry.status = isStorageQuotaError(error) ? "quota-error" : "sync-error";
           entry.error = isStorageQuotaError(error)
             ? "This database ran out of local storage. Free storage and retry."
@@ -1342,6 +1530,47 @@ tags:
     }));
   }
 
+  function scheduleReconnect(delayMs) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connectWebSocket, delayMs);
+  }
+
+  /**
+   * Decide whether and when to reconnect. The server closes with 1008 and a
+   * reason (see backend websocket.js) when it refuses the connection outright;
+   * retrying those every second can never succeed.
+   */
+  async function handleSocketClosed(event) {
+    const refused = event?.code === 1008 ? String(event.reason || "") : "";
+
+    if (/token/i.test(refused)) {
+      if (await useAuthStore().refreshToken()) {
+        scheduleReconnect(reconnectDelayMs(reconnectAttempts));
+        reconnectAttempts += 1;
+        return;
+      }
+      await handleSessionExpired();
+      return;
+    }
+
+    if (/too many connections/i.test(refused)) {
+      if (!hasShownConnectionLimitNotice) {
+        hasShownConnectionLimitNotice = true;
+        const { useUiStore } = await import("./uiStore");
+        useUiStore().addToast(
+          "Live updates are paused in this tab because too many Panino tabs or devices are connected. Your changes still sync.",
+          "info",
+          8000,
+        );
+      }
+      scheduleReconnect(CONNECTION_LIMIT_RETRY_MS);
+      return;
+    }
+
+    scheduleReconnect(reconnectDelayMs(reconnectAttempts));
+    reconnectAttempts += 1;
+  }
+
   function connectWebSocket() {
     if (ws.value || !syncEnabled.value) return;
     const auth = useAuthStore();
@@ -1356,14 +1585,20 @@ tags:
       console.info("[Sync] WebSocket connected.");
       subscribeInitializedDatabases();
       notifyWebSocketListeners({ type: "socket:open" });
+      // A refused connection also opens, then closes within milliseconds.
+      // Only one that stays up counts as recovered.
+      clearTimeout(stableConnectionTimer);
+      stableConnectionTimer = setTimeout(() => {
+        reconnectAttempts = 0;
+      }, STABLE_CONNECTION_MS);
     };
-    ws.value.onclose = () => {
+    ws.value.onclose = (event) => {
       ws.value = null;
+      clearTimeout(stableConnectionTimer);
       console.info("[Sync] WebSocket disconnected.");
       notifyWebSocketListeners({ type: "socket:close" });
       if (shouldReconnect && isOnline.value && syncEnabled.value) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectWebSocket, 1000);
+        void handleSocketClosed(event);
       }
     };
     ws.value.onerror = (err) => console.error("[Sync] WebSocket error:", err);
@@ -1415,6 +1650,8 @@ tags:
   function disconnectWebSocket() {
     shouldReconnect = false;
     clearTimeout(reconnectTimer);
+    clearTimeout(stableConnectionTimer);
+    reconnectAttempts = 0;
     if (ws.value) {
       ws.value.close();
       ws.value = null;
@@ -1440,6 +1677,7 @@ tags:
     if (v) {
       shouldReconnect = true;
       hasShownAuthWarning.value = false; // Reset warning flag when re-enabling sync
+      hasShownConnectionLimitNotice = false;
       console.info("[Sync] Sync enabled, connecting...");
       connectWebSocket();
       sync();

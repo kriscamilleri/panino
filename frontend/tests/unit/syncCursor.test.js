@@ -170,7 +170,7 @@ describe('readOutgoingChanges', () => {
 
     const result = await readOutgoingChanges(database, '5');
 
-    expect(result).toEqual({ changes: [], upTo: 5, hasMore: false });
+    expect(result).toEqual({ changes: [], cursor: 5, upTo: 5, hasMore: false });
     expect(database.calls.some((call) => call.sql === OUTGOING_CHANGES_SQL)).toBe(false);
   });
 

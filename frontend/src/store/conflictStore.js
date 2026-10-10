@@ -88,16 +88,17 @@ export const useConflictStore = defineStore('conflictStore', () => {
                 'UPDATE notes SET content = ?, updated_at = ? WHERE id = ?',
                 [content ?? '', now, conflict.noteId],
             );
+            // The chosen body is an ordinary local edit that still has to be
+            // uploaded, so the merge base (what the server holds) is left as it
+            // is; syncStore moves it once the upload is acknowledged. A manual
+            // resolution does reset the automatic write-back guard.
             await repo.exec(
-                `INSERT INTO note_sync_base
-                   (note_id, content, writeback_count, writeback_window_started_at, updated_at)
-                 VALUES (?, ?, 0, NULL, ?)
-                 ON CONFLICT(note_id) DO UPDATE SET
-                   content = excluded.content,
-                   writeback_count = 0,
-                   writeback_window_started_at = NULL,
-                   updated_at = excluded.updated_at`,
-                [conflict.noteId, content ?? '', now],
+                `UPDATE note_sync_base
+                    SET writeback_count = 0,
+                        writeback_window_started_at = NULL,
+                        updated_at = ?
+                  WHERE note_id = ?`,
+                [now, conflict.noteId],
             );
             await repo.exec('DELETE FROM note_conflicts WHERE note_id = ?', [conflict.noteId]);
         });

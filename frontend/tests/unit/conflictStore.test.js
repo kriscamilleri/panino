@@ -125,6 +125,10 @@ describe("conflictStore (COLLAB-02 §6.2)", () => {
         expect(calls[0]).toBe("BEGIN");
         expect(calls.some((sql) => sql.startsWith("UPDATE notes SET content"))).toBe(true);
         expect(calls.some((sql) => sql.includes("writeback_count = 0"))).toBe(true);
+        // The chosen body still has to be uploaded. Recording it as the merge
+        // base now would make a remote body arriving first look safe to adopt.
+        const baseWrite = calls.find((sql) => sql.includes("note_sync_base"));
+        expect(baseWrite).not.toMatch(/\bcontent\b/);
         expect(calls.some((sql) => sql.startsWith("DELETE FROM note_conflicts"))).toBe(true);
         expect(calls.at(-1)).toBe("COMMIT");
         expect(store.hasConflict("note-a", DB_KEY)).toBe(false);
