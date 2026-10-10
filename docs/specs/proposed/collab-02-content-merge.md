@@ -373,7 +373,28 @@ changes, instead of being cleared on the next adoption; and when one side alread
 every line the other added, that side is taken without a conflict even where a line merge
 reports one.
 
+Three further statements were superseded later the same day:
+
+4. **A base row exists only while a Document has an unacknowledged edit (§4, §4.1).** The
+   row is captured before the first such edit and dropped on acknowledgement or adoption.
+   Seeding a row for every Document at upgrade and scanning for missing ones on every sync is
+   gone; it doubled local storage for bodies and made an idle sync cost over a second at
+   5,000 Documents. §6.4's pruning on each `loadRootItems` was never built. The rows are
+   removed when the Document is deleted on this device. When it is deleted on another
+   device the deletion wins, an unsent local edit to it is lost as it is today, and any
+   base or conflict row for it stays behind where no screen shows it. Preserving that body
+   "until the user dismisses or copies it" still needs a place in the interface.
+5. **"The database keeps `theirs`, and the unresolved local version is held" (§6.1) is one of
+   two cases.** After a local win the database keeps `mine` and the record's `theirs` is the
+   only copy of the body this replica's upload displaced. The record is therefore maintained
+   by side, not by name: whichever recorded body is the stored text follows the Document, and
+   the other is never overwritten.
+6. **A Document with a stored conflict is read-only on that device until resolved (§6.2).**
+   The first implementation let the user keep typing and neither saved that text nor included
+   it when resolving. Allowing saves instead would need the record to hold a third body.
+
 The current rules are documented in `docs/architecture/crsqlite-sync.md` ("Merge base for
-document bodies") and implemented by `planRemoteContent` in `frontend/src/utils/syncMerge.js`.
+document bodies", "Stored conflicts") and implemented by `planRemoteContent` and
+`planConflictAfterChange` in `frontend/src/utils/syncMerge.js`.
 The manual validation in §8 now passes in both upload orders with the switch on; with it off,
 both orders end in a visible conflict holding both bodies.
