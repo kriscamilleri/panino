@@ -1216,16 +1216,12 @@ export function assertAccountDeletionAllowed(userId) {
  * respond accordingly (never as a disclosing detail, but never as a silent
  * false negative either).
  */
-export function resolveSpaceAccess(spaceOrOptions, suppliedActorUserId) {
-  const spaceId =
-    spaceOrOptions && typeof spaceOrOptions === "object"
-      ? spaceOrOptions.spaceId
-      : spaceOrOptions;
-  const actorUserId =
-    spaceOrOptions && typeof spaceOrOptions === "object"
-      ? spaceOrOptions.actorUserId
-      : suppliedActorUserId;
-
+export function resolveSpaceAccess(spaceId, actorUserId) {
+  // Two positional strings and nothing else. An earlier form also accepted
+  // `{ spaceId, actorUserId }` as the first argument; `/sync` passed the
+  // request's `space` value there, so a body of
+  // `{"space": {"spaceId": ..., "actorUserId": <a member>}}` named its own actor
+  // and the authenticated user was ignored.
   if (!isSharedSpacesEnabled()) return null;
   if (typeof spaceId !== "string" || !validateUuid(spaceId)) return null;
   if (typeof actorUserId !== "string" || !validateUuid(actorUserId)) return null;

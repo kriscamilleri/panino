@@ -489,6 +489,48 @@ describe("POST /sync (shared spaces)", () => {
     expect(revision.actor_kind).toBe("sync");
   });
 
+  it("refuses a space given as an object that names another user as the actor", async () => {
+    // Authorization bypass found in review: `resolveSpaceAccess` used to accept
+    // `{ spaceId, actorUserId }`, and `/sync` passed `req.body.space` to it
+    // unchecked. A non-member could read and write any space by naming one of
+    // its members, including after being removed from it.
+    const siteId = generateSiteId("k");
+    getDb(`space:${spaceId}`)
+      .prepare(
+        `INSERT INTO notes (id, folder_id, title, content, created_at, updated_at)
+         VALUES ('note-private', NULL, 'Members only', 'secret', datetime('now'), datetime('now'))`,
+      )
+      .run();
+
+    for (const forged of [
+      { spaceId, actorUserId: owner.userId },
+      { spaceId, actorUserId: owner.userId, toString: "x" },
+      [spaceId],
+      [{ spaceId, actorUserId: owner.userId }],
+      123,
+      true,
+    ]) {
+      const response = await request(app)
+        .post("/sync")
+        .set("Authorization", `Bearer ${outsiderToken}`)
+        .send({
+          space: forged,
+          since: 0,
+          siteId,
+          changes: [{
+            table: "notes", pk: '["note-private"]', cid: "content", val: "overwritten",
+            col_version: 9, db_version: 9, site_id: siteId, cl: 1, seq: 0,
+          }],
+        });
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "Not found", code: "SPACE_NOT_FOUND" });
+    }
+
+    expect(getDb(`space:${spaceId}`).prepare("SELECT content FROM notes WHERE id = 'note-private'").get().content)
+      .toBe("secret");
+  });
+
   it("ignores a client-supplied actor field and still derives the actor from the JWT", async () => {
     const siteId = generateSiteId("j");
     const spaceDb = getDb(`space:${spaceId}`);

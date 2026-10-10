@@ -85,18 +85,27 @@
 </template>
 
 <script setup>
-import { onMounted } from "vue";
+import { watch } from "vue";
 import BaseButton from "./BaseButton.vue";
 import BaseModal from "./BaseModal.vue";
 import { useSpaceTransferStore } from "@/store/spaceTransferStore";
 import { useStructureStore } from "@/store/structureStore";
+import { useSyncStore } from "@/store/syncStore";
 import { useUiStore } from "@/store/uiStore";
 
 const store = useSpaceTransferStore();
 const structureStore = useStructureStore();
+const syncStore = useSyncStore();
 const ui = useUiStore();
 
-onMounted(() => store.loadRecoverable());
+// Interrupted transfers are loaded once the server is known to offer shared
+// spaces. Discovery finishes after first paint, so this cannot be a one-off
+// check at mount; and without shared spaces there is nothing to ask for.
+watch(
+  () => syncStore.sharedSpacesAvailable,
+  (available) => { if (available) store.loadRecoverable(); },
+  { immediate: true },
+);
 
 async function refreshTree() {
   await structureStore.loadRootItems();

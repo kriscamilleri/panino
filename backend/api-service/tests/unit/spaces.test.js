@@ -549,11 +549,14 @@ describe("resolveSpaceAccess", () => {
     expect(resolveSpaceAccess(space.spaceId, OWNER_ID)).toBeNull();
   });
 
-  it("supports the options-object call form", () => {
-    const space = createSpace(OWNER_ID, "Options Form");
-    expect(
-      resolveSpaceAccess({ spaceId: space.spaceId, actorUserId: OWNER_ID }),
-    ).toMatchObject({ role: "owner" });
+  it("never takes the actor from its first argument", () => {
+    // `/sync` once passed the request's `space` value straight in. With an
+    // options-object form, a body naming a member as `actorUserId` was
+    // authorized as that member regardless of who was signed in.
+    const space = createSpace(OWNER_ID, "No Options Form");
+    expect(resolveSpaceAccess({ spaceId: space.spaceId, actorUserId: OWNER_ID })).toBeNull();
+    expect(resolveSpaceAccess({ spaceId: space.spaceId, actorUserId: OWNER_ID }, OTHER_ID)).toBeNull();
+    expect(resolveSpaceAccess([space.spaceId], OWNER_ID)).toBeNull();
   });
 
   it("throws (never a success-shaped null) when the membership query itself fails", () => {

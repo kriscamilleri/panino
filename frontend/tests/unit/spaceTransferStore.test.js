@@ -3,6 +3,7 @@ import { createPinia, defineStore, setActivePinia } from "pinia";
 import { ref } from "vue";
 
 const sync = vi.fn(async () => {});
+const sharedSpacesAvailable = ref(true);
 const refreshToken = vi.fn(async () => false);
 
 vi.mock("@/store/authStore", () => ({
@@ -13,7 +14,7 @@ vi.mock("@/store/authStore", () => ({
 }));
 
 vi.mock("@/store/syncStore", () => ({
-  useSyncStore: defineStore("syncStore", () => ({ sync })),
+  useSyncStore: defineStore("syncStore", () => ({ sync, sharedSpacesAvailable })),
 }));
 
 const { useSpaceTransferStore } = await import("@/store/spaceTransferStore.js");
@@ -22,6 +23,18 @@ describe("spaceTransferStore", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    sharedSpacesAvailable.value = true;
+  });
+
+  it("asks for nothing when the server offers no shared spaces", async () => {
+    // With the feature off this used to cost every user one request per load.
+    sharedSpacesAvailable.value = false;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const store = useSpaceTransferStore();
+
+    expect(await store.loadRecoverable()).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("requires an explicit confirmation before creating and syncing a transfer", async () => {

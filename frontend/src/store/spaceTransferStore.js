@@ -54,6 +54,13 @@ export const useSpaceTransferStore = defineStore("spaceTransferStore", () => {
   }
 
   async function loadRecoverable() {
+    // Transfers exist only between a personal database and a shared space.
+    // When the server offers no shared spaces there is nothing to recover, and
+    // asking would cost every user one request on every load.
+    if (!syncStore.sharedSpacesAvailable) {
+      transfers.value = [];
+      return recoverable.value;
+    }
     try {
       transfers.value = (await request("/space-transfers")).transfers || [];
     } catch (failure) {

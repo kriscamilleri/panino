@@ -359,6 +359,12 @@ router.post("/sync", (req, res, next) => {
   let dbKey = `user:${userId}`;
 
   if (requestedSpaceId != null) {
+    // A space is named by its id, a string. Anything else is not a space: it
+    // must never reach the access check, where an object once supplied its
+    // own actor.
+    if (typeof requestedSpaceId !== "string") {
+      return res.status(404).json({ error: "Not found", code: "SPACE_NOT_FOUND" });
+    }
     try {
       spaceAccess = resolveSpaceAccess(requestedSpaceId, userId);
     } catch (error) {

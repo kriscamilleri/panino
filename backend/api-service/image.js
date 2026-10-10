@@ -94,7 +94,7 @@ function resolveImageTarget(req, res, operation, { healthy = false } = {}) {
     // Even rejected qualified requests must not be stored by an intermediary.
     res.set('Cache-Control', 'private, no-store');
     if (typeof rawSpaceId !== 'string') return null;
-    const access = resolveSpaceAccess({ spaceId: rawSpaceId, actorUserId: userId });
+    const access = resolveSpaceAccess(rawSpaceId, userId);
     if (!access) return null;
     const dbKey = `space:${access.spaceId}`;
     return {

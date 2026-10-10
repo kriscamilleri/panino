@@ -10,10 +10,19 @@ import {
   resolveDatabaseUploadRoot,
   resolveStoredImagePath,
 } from "./spaceStorage.js";
-import { resolveSpaceAccess } from "./spaces.js";
+import { isSharedSpacesEnabled, resolveSpaceAccess } from "./spaces.js";
 import { pokePersonalClients, pokeSpaceSubscribers } from "./websocket.js";
 
 export const spaceTransferRoutes = express.Router();
+
+// A transfer always has a shared space on one side, so none of these routes
+// has anything to do while shared spaces are off. Without this gate they still
+// answered (the list with 200, the others with distinguishable errors) and
+// read or wrote `_spaces.db`.
+spaceTransferRoutes.use("/space-transfers", (req, res, next) => {
+  if (isSharedSpacesEnabled()) return next();
+  return res.status(404).json({ error: "Not found", code: "SPACE_NOT_FOUND" });
+});
 
 const ACTIVE_STATUSES = new Set([
   "checkpointed",
@@ -97,7 +106,7 @@ function authorizeDatabase(dbKey, actorUserId, operation) {
   } else {
     let access;
     try {
-      access = resolveSpaceAccess({ spaceId: parsed.id, actorUserId });
+      access = resolveSpaceAccess(parsed.id, actorUserId);
     } catch (error) {
       console.error("[space-transfer] authorization failed", error?.code || error?.message);
       throw new TransferError("TRANSFER_UNAVAILABLE", "Transfer is temporarily unavailable", 503);

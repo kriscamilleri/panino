@@ -255,10 +255,7 @@ function resolveRevisionTarget(req) {
     };
   }
 
-  const access = resolveSpaceAccess({
-    spaceId: requestedSpace,
-    actorUserId: userId,
-  });
+  const access = resolveSpaceAccess(requestedSpace, userId);
   if (!access) return null;
 
   const dbKey = `space:${access.spaceId}`;

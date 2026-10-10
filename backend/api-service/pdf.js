@@ -222,7 +222,7 @@ function getInternalImageAsDataUri(source, userId) {
         if (!target) return null;
         let dbKey = `user:${userId}`;
         if (target.spaceId) {
-            const access = resolveSpaceAccess({ spaceId: target.spaceId, actorUserId: userId });
+            const access = resolveSpaceAccess(target.spaceId, userId);
             if (!access) return null;
             dbKey = `space:${access.spaceId}`;
         }
