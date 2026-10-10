@@ -27,6 +27,8 @@ const harness = vi.hoisted(() => ({
     refreshToken: vi.fn(async () => false),
   },
   open: vi.fn(),
+  refreshData: vi.fn(async () => {}),
+  loadGlobals: vi.fn(async () => {}),
   toasts: [],
   drafts: new Map(),
 }));
@@ -35,9 +37,9 @@ vi.mock('@/vendor/crsqlite-wasm/index.js', () => ({
   default: vi.fn(async () => ({ open: harness.open })),
 }));
 vi.mock('@/store/authStore', () => ({ useAuthStore: () => harness.auth }));
-vi.mock('@/store/docStore', () => ({ useDocStore: () => ({ refreshData: vi.fn(async () => {}) }) }));
+vi.mock('@/store/docStore', () => ({ useDocStore: () => ({ refreshData: harness.refreshData }) }));
 vi.mock('@/store/globalVariablesStore', () => ({
-  useGlobalVariablesStore: () => ({ loadGlobals: vi.fn(async () => {}) }),
+  useGlobalVariablesStore: () => ({ loadGlobals: harness.loadGlobals }),
 }));
 vi.mock('@/store/draftStore', () => ({
   useDraftStore: () => ({ getDraft: (id) => harness.drafts.get(id) }),
@@ -60,8 +62,9 @@ class FakeWebSocket {
 const pkOf = (id) => Array.from(new TextEncoder().encode(id)).map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 
 /**
- * @param {{ body?: string, colVersion?: number, dbVersion?: number, base?: string, own?: boolean }} seed
- *   the one document this replica holds, and whether its body is this replica's own change
+ * @param {{ body?: string, colVersion?: number, dbVersion?: number, base?: string, own?: boolean, editedDuringUpload?: boolean }} seed
+ *   the one document this replica holds, and whether its body is this replica's own change;
+ *   `editedDuringUpload` adds a newer own edit that the request in flight did not carry
  */
 function localDatabase(seed = {}) {
   const state = {
@@ -73,6 +76,7 @@ function localDatabase(seed = {}) {
     bases: new Map(seed.base === undefined ? [] : [[NOTE, { content: seed.base, writeback_count: 0, writeback_window_started_at: null }]]),
     conflicts: new Map(),
     localWrites: [],
+    editedDuringUpload: Boolean(seed.editedDuringUpload),
   };
 
   const ownRows = (after, upTo = Infinity) => (state.ownChange && state.ownChange.dbVersion > after && state.ownChange.dbVersion <= upTo
@@ -91,8 +95,12 @@ function localDatabase(seed = {}) {
       if (sql.includes('FROM crsql_changes') && sql.includes('GROUP BY')) {
         return ownRows(params[0], params[1]).map((row) => ({ db_version: row.db_version, change_count: 1 }));
       }
+      if (sql.includes('FROM crsql_changes') && sql.includes('AS pending')) {
+        return ownRows(params[0]).length || state.editedDuringUpload ? [{ pending: 1 }] : [];
+      }
       if (sql.includes('FROM crsql_changes') && sql.startsWith('SELECT pk')) {
-        return ownRows(params[0]).map((row) => ({ pk: row.pk }));
+        const late = state.editedDuringUpload ? [{ pk: new TextEncoder().encode(NOTE) }] : [];
+        return [...ownRows(params[0]).map((row) => ({ pk: row.pk })), ...late];
       }
       if (sql.includes('FROM crsql_changes')) return ownRows(params[0], params[1]);
       if (sql.includes('crsql_site_id')) return [{ id: SITE }];
@@ -148,12 +156,23 @@ function localDatabase(seed = {}) {
         return;
       }
       if (sql.includes('INSERT OR IGNORE INTO note_sync_base')) {
-        const excluded = new Set(params);
-        for (const [id, content] of state.bodies) {
-          if (!state.bases.has(id) && !excluded.has(id)) {
-            state.bases.set(id, { content, writeback_count: 0, writeback_window_started_at: null });
-          }
+        // Capture: the current body becomes the base unless one is already held.
+        const id = params[1];
+        if (state.bodies.has(id) && !state.bases.has(id)) {
+          state.bases.set(id, { content: state.bodies.get(id), writeback_count: 0, writeback_window_started_at: null });
         }
+        return;
+      }
+      if (sql.includes('DELETE FROM note_sync_base')) {
+        const row = state.bases.get(params[0]);
+        if (row && (row.writeback_window_started_at === null || row.writeback_window_started_at < params[1])) {
+          state.bases.delete(params[0]);
+        }
+        return;
+      }
+      if (sql.startsWith('UPDATE note_sync_base SET content')) {
+        const row = state.bases.get(params[2]);
+        if (row) row.content = params[0];
         return;
       }
       if (sql.includes('INSERT INTO note_conflicts')) {
@@ -221,15 +240,27 @@ describe('uploads', () => {
     expect(localStorage.getItem(`crsqlite_clock:${PERSONAL_KEY}`)).toBe('58');
   });
 
-  it('records the uploaded body as the merge base once it is acknowledged', async () => {
+  it('drops the merge base once the upload is acknowledged and nothing else is waiting', async () => {
+    // A base exists only while an edit is in flight; afterwards the document is
+    // in step with the server and keeping a second copy of its body buys nothing.
     const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3, base: BASE });
     serverReplies({ changes: [], clock: 20 });
     const store = await startStore(database, { pushCursor: 8, clock: 19 });
 
     await store.sync();
 
-    expect(database.state.bases.get(NOTE).content).toBe(MINE);
+    expect(database.state.bases.has(NOTE)).toBe(false);
     expect(database.state.conflicts.size).toBe(0);
+  });
+
+  it('keeps what was sent as the base when a newer edit is still waiting', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3, base: BASE, editedDuringUpload: true });
+    serverReplies({ changes: [], clock: 20 });
+    const store = await startStore(database, { pushCursor: 8, clock: 19 });
+
+    await store.sync();
+
+    expect(database.state.bases.get(NOTE).content).toBe(MINE);
   });
 });
 
@@ -245,7 +276,8 @@ describe('a remote body arrives', () => {
 
     expect(database.state.bodies.get(NOTE)).toBe(REMOTE);
     expect(database.state.conflicts.size).toBe(0);
-    expect(database.state.bases.get(NOTE).content).toBe(REMOTE);
+    // In step with the server: no base is created for a document nobody is editing.
+    expect(database.state.bases.has(NOTE)).toBe(false);
   });
 
   it('keeps both bodies when an unacknowledged edit loses to it and merging is off', async () => {
@@ -405,5 +437,96 @@ describe('reconnecting', () => {
     expect(harness.toasts).toHaveLength(1);
     expect(harness.toasts[0].message).toContain('too many Panino tabs or devices');
     expect(store.syncEnabled).toBe(true);
+  });
+});
+
+describe('merge base capture', () => {
+  const capture = (store) => store.captureMergeBase(PERSONAL_KEY, store.repository(PERSONAL_KEY), NOTE);
+
+  it('records the current body before the first edit of a document in step with the server', async () => {
+    const database = localDatabase({ body: BASE, dbVersion: 4, colVersion: 2, own: false });
+    serverReplies({ changes: [], clock: 30 });
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+
+    await capture(store);
+
+    expect(database.state.bases.get(NOTE).content).toBe(BASE);
+  });
+
+  it('keeps the first base across later saves of the same edit', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 4, colVersion: 2, own: false, base: BASE });
+    serverReplies({ changes: [], clock: 30 });
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+
+    await capture(store);
+
+    expect(database.state.bases.get(NOTE).content).toBe(BASE);
+  });
+
+  it('records nothing when the stored body already holds an edit the server has not seen', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3 });
+    serverReplies({ changes: [], clock: 30 });
+    const store = await startStore(database, { pushCursor: 8, clock: 30 });
+
+    await capture(store);
+
+    expect(database.state.bases.has(NOTE)).toBe(false);
+  });
+
+  it('records nothing before the first sync with the upload cursor', async () => {
+    // Fresh from the previous release: which bodies the server has is not known yet.
+    const database = localDatabase({ body: BASE, dbVersion: 4, colVersion: 2, own: false });
+    serverReplies({ changes: [], clock: 30 });
+    const store = await startStore(database, { clock: 30 });
+
+    await capture(store);
+
+    expect(database.state.bases.has(NOTE)).toBe(false);
+  });
+});
+
+describe('after a sync', () => {
+  it('does not reload the tree, dashboard or variables when nothing changed', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3, base: BASE });
+    serverReplies({ changes: [], clock: 20 });
+    const store = await startStore(database, { pushCursor: 8, clock: 19 });
+    harness.refreshData.mockClear();
+    harness.loadGlobals.mockClear();
+
+    await store.sync();
+    await store.sync();
+
+    expect(harness.refreshData).not.toHaveBeenCalled();
+    expect(harness.loadGlobals).not.toHaveBeenCalled();
+  });
+
+  it('reloads them when remote changes arrived', async () => {
+    const database = localDatabase({ body: BASE, dbVersion: 4, colVersion: 2, own: false });
+    serverReplies({ changes: [remoteBody(REMOTE, 5)], clock: 41 });
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+    harness.refreshData.mockClear();
+    harness.loadGlobals.mockClear();
+
+    await store.sync();
+
+    expect(harness.refreshData).toHaveBeenCalledTimes(1);
+    expect(harness.loadGlobals).toHaveBeenCalledTimes(1);
+  });
+
+  it('reloads the tree when a database starts or stops failing, so its state is shown', async () => {
+    const database = localDatabase({ body: BASE, dbVersion: 4, colVersion: 2, own: false });
+    const replies = [{ status: 503 }, { changes: [], clock: 30 }];
+    serverReplies((n) => replies[Math.min(n - 1, replies.length - 1)]);
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+    harness.refreshData.mockClear();
+
+    await store.sync();
+    expect(harness.refreshData).toHaveBeenCalledTimes(1);
+
+    await store.sync();
+    expect(harness.refreshData).toHaveBeenCalledTimes(2);
+
+    await store.sync();
+    expect(harness.refreshData).toHaveBeenCalledTimes(2);
   });
 });

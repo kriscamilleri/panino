@@ -274,7 +274,6 @@ async function createNoteFromTemplate(tpl, inputValues, folderId) {
   await syncStore.repository(props.databaseKey).transaction(async (repo) => {
     const now = new Date().toISOString();
     await repo.exec('UPDATE notes SET content = ?, updated_at = ? WHERE id = ?', [resolvedContent, now, result.id]);
-    await repo.exec('UPDATE note_sync_base SET content = ?, updated_at = ? WHERE note_id = ?', [resolvedContent, now, result.id]);
   });
   await structureStore.loadRootItems();
   emit('created', result);

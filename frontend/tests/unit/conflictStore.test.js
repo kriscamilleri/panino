@@ -23,6 +23,9 @@ describe("conflictStore (COLLAB-02 §6.2)", () => {
         syncStore = {
             isInitialized: true,
             databases: new Map([[DB_KEY, { dbKey: DB_KEY, db: database }]]),
+            // Stands in for the real capture: records one statement so its
+            // position relative to the body write can be asserted.
+            captureMergeBase: vi.fn(async (_dbKey, tx) => { await tx.exec("CAPTURE MERGE BASE"); }),
             execute: vi.fn(async (sql) => {
                 if (sql.includes("base_content")) {
                     return [{
@@ -125,8 +128,13 @@ describe("conflictStore (COLLAB-02 §6.2)", () => {
         expect(calls[0]).toBe("BEGIN");
         expect(calls.some((sql) => sql.startsWith("UPDATE notes SET content"))).toBe(true);
         expect(calls.some((sql) => sql.includes("writeback_count = 0"))).toBe(true);
-        // The chosen body still has to be uploaded. Recording it as the merge
-        // base now would make a remote body arriving first look safe to adopt.
+        // The chosen body still has to be uploaded. The server's body is captured
+        // as the merge base before it is overwritten, and the chosen body is never
+        // written as the base: that would make a remote body arriving first look
+        // safe to adopt.
+        expect(syncStore.captureMergeBase).toHaveBeenCalledWith(DB_KEY, expect.anything(), "note-a");
+        expect(calls.indexOf("CAPTURE MERGE BASE"))
+            .toBeLessThan(calls.findIndex((sql) => sql.startsWith("UPDATE notes SET content")));
         const baseWrite = calls.find((sql) => sql.includes("note_sync_base"));
         expect(baseWrite).not.toMatch(/\bcontent\b/);
         expect(calls.some((sql) => sql.startsWith("DELETE FROM note_conflicts"))).toBe(true);

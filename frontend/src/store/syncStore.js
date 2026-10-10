@@ -13,8 +13,13 @@ import {
   resolveServerValue,
   evaluateWritebackGuard,
   supersedes,
+  WRITEBACK_WINDOW_MS,
 } from "@/utils/syncMerge";
-import { readOutgoingChanges } from "@/utils/syncCursor";
+import {
+  LOCAL_DB_VERSION_SQL,
+  parsePushCursor,
+  readOutgoingChanges,
+} from "@/utils/syncCursor";
 import {
   mergeContent,
   normalizeContent,
@@ -242,6 +247,7 @@ export const useSyncStore = defineStore("syncStore", () => {
       isSyncing: false,
       isApplyingRemote: false,
       syncPending: false,
+      lastSyncChangedData: false,
       status: "ready",
       error: null,
     };
@@ -857,6 +863,64 @@ tags:
     );
   }
 
+  /**
+   * The document is in step with the server again, so it needs no merge base:
+   * one is kept only while an edit is waiting to be acknowledged. A row still
+   * inside its automatic write-back window is updated instead of removed, so
+   * the oscillation guard it carries survives.
+   */
+  async function settleMergeBase(database, noteId, serverContent) {
+    const now = Date.now();
+    await database.exec(
+      `DELETE FROM note_sync_base
+        WHERE note_id = ?
+          AND (writeback_window_started_at IS NULL OR writeback_window_started_at < ?)`,
+      [noteId, new Date(now - WRITEBACK_WINDOW_MS).toISOString()],
+    );
+    await database.exec(
+      "UPDATE note_sync_base SET content = ?, updated_at = ? WHERE note_id = ?",
+      [serverContent ?? "", new Date(now).toISOString(), noteId],
+    );
+  }
+
+  /**
+   * Record the body the server holds for a document, just before the first
+   * local edit that makes it differ. Call inside the transaction that writes
+   * the new body, before the write.
+   *
+   * Nothing is recorded when the stored body is not known to be the server's:
+   * the document already has an edit waiting to be uploaded, or this replica
+   * has not yet completed a sync with the upload cursor. A later concurrent
+   * edit then becomes a conflict that keeps both bodies, rather than a merge
+   * from the wrong ancestor.
+   *
+   * @param {string} dbKey
+   * @param {{ execute: Function, exec: Function }} tx the transaction's repository
+   * @param {string} noteId
+   */
+  async function captureMergeBase(dbKey, tx, noteId) {
+    const stored = getPushCursor(dbKey);
+    if (stored === null) return;
+
+    const versionRows = await tx.execute(LOCAL_DB_VERSION_SQL);
+    const cursor = parsePushCursor(stored, Number(versionRows?.[0]?.version) || 0);
+    const uploadedVersion = cursor.seq === null ? cursor.version : cursor.version - 1;
+    const pending = await tx.execute(
+      `SELECT 1 AS pending FROM crsql_changes
+        WHERE "table" = 'notes' AND cid = 'content' AND site_id = crsql_site_id()
+          AND db_version > ? AND pk = crsql_pack_columns(?)
+        LIMIT 1`,
+      [uploadedVersion, noteId],
+    );
+    if (pending?.length) return;
+
+    await tx.exec(
+      `INSERT OR IGNORE INTO note_sync_base (note_id, content, updated_at)
+       SELECT id, COALESCE(content, ''), ? FROM notes WHERE id = ?`,
+      [new Date().toISOString(), noteId],
+    );
+  }
+
   async function recordConflict(database, noteId, base, mine, theirs, conflicts) {
     const now = new Date().toISOString();
     await database.exec(
@@ -1002,7 +1066,7 @@ tags:
           const remote = remoteContent.get(noteId);
           const postApply = postMap.get(noteId) ?? "";
           if (collabRemoteGuard?.(entry.dbKey, noteId, postApply)) {
-            await upsertMergeBase(database, noteId, postApply);
+            await settleMergeBase(database, noteId, postApply);
             continue;
           }
 
@@ -1084,7 +1148,11 @@ tags:
             await storeBase();
             await refreshOrClearConflict(database, noteId, decision.content);
             didLocalWrite = true;
-          } else if (decision.action === "adopt" || decision.action === "keep") {
+          } else if (decision.action === "adopt") {
+            // Local and server hold the remote body; nothing is pending.
+            await settleMergeBase(database, noteId, decision.base ?? postApply);
+            await refreshOrClearConflict(database, noteId, postApply);
+          } else if (decision.action === "keep") {
             await storeBase();
             await refreshOrClearConflict(database, noteId, postApply);
           } else {
@@ -1106,39 +1174,26 @@ tags:
 
   /**
    * Once the server acknowledges an upload and returns no competing body for a
-   * document, it holds exactly what was sent: that is the new merge base.
+   * document, it holds exactly what was sent. If nothing newer is waiting
+   * locally the document is in step again and its merge base is dropped;
+   * otherwise what was sent becomes the base for the edit still waiting.
    */
-  async function recordAcknowledgedBases(database, sentContent, remoteNoteIds) {
+  async function settleAcknowledgedUploads(database, sentContent, remoteNoteIds, uploadedVersion) {
     const acknowledged = [...sentContent].filter(([noteId]) => !remoteNoteIds.has(noteId));
     if (acknowledged.length === 0) return;
 
+    const stillPending = await ownContentChangedAfter(database, uploadedVersion);
     await database.exec("BEGIN");
     try {
       for (const [noteId, sent] of acknowledged) {
-        await upsertMergeBase(database, noteId, sent.content);
+        if (stillPending.has(noteId)) await upsertMergeBase(database, noteId, sent.content);
+        else await settleMergeBase(database, noteId, sent.content);
       }
       await database.exec("COMMIT");
     } catch (e) {
       await database.exec("ROLLBACK");
       throw e;
     }
-  }
-
-  /**
-   * Give documents without a merge base their current body as one. Valid only
-   * for documents whose body is not waiting to be uploaded: for those, local
-   * and server agree after a completed exchange.
-   */
-  async function seedMissingMergeBases(database, pendingNoteIds = new Set()) {
-    const pending = [...pendingNoteIds];
-    const exclusion = pending.length
-      ? ` WHERE id NOT IN (${pending.map(() => "?").join(",")})`
-      : "";
-    await database.exec(
-      `INSERT OR IGNORE INTO note_sync_base (note_id, content, updated_at)
-       SELECT id, COALESCE(content, ''), datetime('now') FROM notes${exclusion}`,
-      pending,
-    );
   }
 
   async function fetchMembershipPages() {
@@ -1378,6 +1433,7 @@ tags:
       return false;
     }
     entry.isSyncing = true;
+    entry.lastSyncChangedData = false;
     const myClock = entry.clock;
     try {
       const storedCursor = getPushCursor(entry.dbKey);
@@ -1390,7 +1446,7 @@ tags:
       // Before the upload cursor existed, only changes above the pull clock
       // were known to be unsent; the first sync re-offers older ones too, and
       // those must not be mistaken for fresh local edits.
-      const pendingAfter = storedCursor === null ? myClock : outgoing.cursor;
+      const pendingAfter = storedCursor === null ? myClock : outgoing.startVersion;
       const body = {
         since: myClock,
         siteId: entry.siteId,
@@ -1430,26 +1486,25 @@ tags:
 
       const data = await response.json();
 
-      // The server has merged this batch: uploads now reach `upTo`, whatever
-      // happens while the reply is applied. A backlog continues next turn.
-      setPushCursor(entry.dbKey, outgoing.upTo);
+      // The server has merged this batch: the upload cursor moves past it,
+      // whatever happens while the reply is applied. A backlog continues next turn.
+      setPushCursor(entry.dbKey, outgoing.nextCursor);
       if (outgoing.hasMore) entry.syncPending = true;
 
       contentMergeWriteback.value = data.contentMergeWriteback === true;
       const remoteNoteIds = new Set(collectContentChanges(data.changes).keys());
+      // Whether anything visible changed, so the caller can skip reloading the
+      // tree, dashboard and variables after an exchange that changed nothing.
+      entry.lastSyncChangedData = Boolean(data.changes?.length);
       if (data.changes?.length) {
         const didLocalWrite = await applyRemoteChanges(entry, data.changes, {
           sentContent,
-          uploadedUpTo: outgoing.upTo,
+          uploadedUpTo: outgoing.uploadedVersion,
           pendingAfter,
         });
         if (didLocalWrite) entry.syncPending = true;
       }
-      await recordAcknowledgedBases(entry.db, sentContent, remoteNoteIds);
-      await seedMissingMergeBases(
-        entry.db,
-        await ownContentChangedAfter(entry.db, outgoing.upTo),
-      );
+      await settleAcknowledgedUploads(entry.db, sentContent, remoteNoteIds, outgoing.uploadedVersion);
 
       // The clock is persisted only after every remote row and merge base has
       // committed successfully.
@@ -1488,7 +1543,8 @@ tags:
       const entries = dbKey
         ? [requireEntry(dbKey)]
         : [...databases.value.values()].filter((entry) => entry.db);
-      const results = await runSequentially(entries, async (entry) => {
+      const before = entries.map((entry) => ({ status: entry.status, error: entry.error }));
+      await runSequentially(entries, async (entry) => {
         try {
           return await syncDatabase(entry);
         } catch (error) {
@@ -1505,12 +1561,21 @@ tags:
           return false;
         }
       });
-      const docStore = useDocStore();
-      await docStore.refreshData();
-      if (results.some((result) => result.status === "fulfilled" && result.value)) {
-        await useGlobalVariablesStore().loadGlobals(
-          docStore.selectedDbKey || personalDbKey.value,
-        );
+      // Reloading the tree, the dashboard and the variables walks the library,
+      // and most syncs (every save uploads) change nothing here. Reload only
+      // when remote rows arrived or a database's sync state changed.
+      const dataChanged = entries.some((entry) => entry.lastSyncChangedData);
+      const stateChanged = entries.some(
+        (entry, index) => entry.status !== before[index].status || entry.error !== before[index].error,
+      );
+      if (dataChanged || stateChanged) {
+        const docStore = useDocStore();
+        await docStore.refreshData();
+        if (dataChanged) {
+          await useGlobalVariablesStore().loadGlobals(
+            docStore.selectedDbKey || personalDbKey.value,
+          );
+        }
       }
     } finally {
       isSyncing.value = false;
@@ -1727,5 +1792,6 @@ tags:
     addWebSocketListener,
     sendWebSocketMessage,
     setCollabRemoteGuard,
+    captureMergeBase,
   };
 });

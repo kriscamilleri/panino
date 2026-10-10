@@ -173,10 +173,7 @@ export const useStructureStore = defineStore('structureStore', () => {
           [note.id, note.folder_id, note.title, note.content, now, now],
         );
       }
-      await repo.exec(
-        'INSERT OR IGNORE INTO note_sync_base (note_id, content, updated_at) VALUES (?, ?, ?)',
-        [note.id, note.content, now],
-      );
+      // No merge base: the server has no copy of a new document to merge from.
     });
     nodeDbIndex.value.set(note.id, dbKey);
     await loadRootItems();
@@ -314,7 +311,6 @@ export const useStructureStore = defineStore('structureStore', () => {
     await syncStore.repository(dbKey).transaction(async (repo) => {
       const now = new Date().toISOString();
       await repo.exec('UPDATE notes SET content = ?, updated_at = ? WHERE id = ?', [source.content, now, created.id]);
-      await repo.exec('UPDATE note_sync_base SET content = ?, updated_at = ? WHERE note_id = ?', [source.content ?? '', now, created.id]);
     });
     return created;
   }

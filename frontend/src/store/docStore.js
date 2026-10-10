@@ -216,12 +216,14 @@ ${DOCUMENT_COLUMNS}
     isSaving.value = true; // <--- Set to true
     try {
       const now = new Date().toISOString();
-      // Only the document changes here. The merge base in `note_sync_base` is
-      // what the server holds, so it moves when an upload is acknowledged or a
-      // remote body is adopted (syncStore), never on a local save: a base that
-      // already contains the unsent edit makes every incoming body look safe
-      // to adopt and the edit is lost without a conflict.
+      // The merge base in `note_sync_base` is the body the server holds. It is
+      // captured here, before the first edit that makes the document differ,
+      // and never overwritten by a later save: a base that already contains an
+      // unsent edit makes every incoming body look safe to adopt and the edit
+      // is lost without a conflict. syncStore drops it once the upload is
+      // acknowledged, so only documents with edits in flight have one.
       await syncStore.repository(dbKey).transaction(async (repo) => {
+        await syncStore.captureMergeBase(dbKey, repo, fileId);
         await repo.exec(
           "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
           [newContent, now, fileId],

@@ -84,14 +84,15 @@ export const useConflictStore = defineStore('conflictStore', () => {
                 throw error;
             }
 
+            // The chosen body is an ordinary local edit that still has to be
+            // uploaded: capture what the server holds as its merge base first,
+            // as any other edit does. A manual resolution also resets the
+            // automatic write-back guard.
+            await syncStore.captureMergeBase(conflict.dbKey, repo, conflict.noteId);
             await repo.exec(
                 'UPDATE notes SET content = ?, updated_at = ? WHERE id = ?',
                 [content ?? '', now, conflict.noteId],
             );
-            // The chosen body is an ordinary local edit that still has to be
-            // uploaded, so the merge base (what the server holds) is left as it
-            // is; syncStore moves it once the upload is acknowledged. A manual
-            // resolution does reset the automatic write-back guard.
             await repo.exec(
                 `UPDATE note_sync_base
                     SET writeback_count = 0,
