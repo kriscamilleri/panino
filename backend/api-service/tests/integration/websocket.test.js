@@ -1,5 +1,7 @@
 // Integration tests for WebSocket connections and sync notifications
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import net from 'node:net';
+import crypto from 'node:crypto';
 import WebSocket from 'ws';
 import request from 'supertest';
 import { createTestApp, setupTestUser, cleanupTestUser, getTestToken, generateSiteId } from '../testHelpers.js';
@@ -100,6 +102,41 @@ describe('WebSocket Connection', () => {
         const siteId = generateSiteId('a');
         const ws = await openWebSocket(`ws://localhost:${WS_PORT}?token=${token}&siteId=${siteId}`);
 
+        await closeWebSocket(ws);
+    });
+
+    it('survives a frame that breaks the protocol, sent without authenticating', async () => {
+        // A raw socket: a WebSocket client library will not send this. The
+        // library reports it as an "error" event on the server's socket, and an
+        // error event nobody listens for is an uncaught exception that exits
+        // the whole process.
+        await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('server did not close the socket')), WEBSOCKET_TIMEOUT);
+            const socket = net.connect(WS_PORT, '127.0.0.1', () => {
+                socket.write([
+                    'GET / HTTP/1.1',
+                    `Host: 127.0.0.1:${WS_PORT}`,
+                    'Upgrade: websocket',
+                    'Connection: Upgrade',
+                    `Sec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}`,
+                    'Sec-WebSocket-Version: 13',
+                    '', '',
+                ].join('\r\n'));
+            });
+            let upgraded = false;
+            socket.on('data', (chunk) => {
+                if (upgraded || !chunk.toString().startsWith('HTTP/1.1 101')) return;
+                upgraded = true;
+                // FIN with all three reserved bits set, text opcode, masked, one byte.
+                socket.write(Buffer.from([0xf1, 0x81, 0x00, 0x00, 0x00, 0x00, 0x41]));
+            });
+            socket.on('close', () => { clearTimeout(timeout); resolve(); });
+            socket.on('error', () => { clearTimeout(timeout); resolve(); });
+        });
+
+        // Still serving: an ordinary client connects afterwards.
+        const token = getTestToken(testUser.userId);
+        const ws = await openWebSocket(`ws://localhost:${WS_PORT}?token=${token}&siteId=${generateSiteId('b')}`);
         await closeWebSocket(ws);
     });
 
