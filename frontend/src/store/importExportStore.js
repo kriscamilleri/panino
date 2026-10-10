@@ -514,6 +514,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
                         // Overwriting an existing Document is a local edit: keep the
                         // server's body as its merge base, as the editor does.
                         await syncStore.captureMergeBase(syncStore.personalDbKey, personalRepo(), existingNote.id);
+                        await syncStore.followLocalBodyWrite(syncStore.personalDbKey, personalRepo(), existingNote.id, note.content);
                         await personalRepo().exec(
                             'UPDATE notes SET content = ?, updated_at = ? WHERE id = ?',
                             [note.content, updatedAt, existingNote.id]

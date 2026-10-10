@@ -108,12 +108,15 @@ beforeEach(() => {
 });
 
 describe('docStore.getRecentDocuments', () => {
-    it('queries without a per-database limit so the merged limit is correct', async () => {
+    it('bounds each database query by the requested limit', async () => {
+        // The newest N overall are always among the newest N of each database,
+        // so the merged limit stays correct. Unbounded, this query returned
+        // every Document body in the library on each dashboard refresh.
         await store.getRecentDocuments(50);
 
         const [sql, params] = execute.mock.calls[0];
-        expect(params).toBeUndefined();
-        expect(sql).not.toContain('LIMIT');
+        expect(params).toEqual([50]);
+        expect(sql).toMatch(/ORDER BY datetime\(notes\.updated_at\) DESC\s+LIMIT \?/);
         expect(sql).not.toContain('WHERE notes.folder_id');
     });
 
@@ -153,7 +156,7 @@ describe('docStore.getFolderDocuments', () => {
         const [sql, params] = execute.mock.calls[0];
         expect(sql).toContain('WHERE notes.folder_id IS ?');
         expect(sql).not.toContain('folder-1');
-        expect(params).toEqual(['folder-1']);
+        expect(params).toEqual(['folder-1', 50]);
     });
 
     it('does not walk descendant folders', async () => {
@@ -168,7 +171,7 @@ describe('docStore.getFolderDocuments', () => {
 
     it('treats a null folder id as the root scope', async () => {
         await store.getFolderDocuments(null, PERSONAL_KEY, 25);
-        expect(execute.mock.calls[0][1]).toEqual([null]);
+        expect(execute.mock.calls[0][1]).toEqual([null, 25]);
     });
 
     it('normalizes folder rows the same way as global rows', async () => {

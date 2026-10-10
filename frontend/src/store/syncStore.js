@@ -9,10 +9,10 @@ import { useDraftStore } from "./draftStore";
 import { useGlobalVariablesStore } from "./globalVariablesStore";
 import { parsePkId } from "@/utils/crsqlitePk";
 import {
+  planConflictAfterChange,
   planRemoteContent,
   resolveServerValue,
   evaluateWritebackGuard,
-  supersedes,
   WRITEBACK_WINDOW_MS,
 } from "@/utils/syncMerge";
 import {
@@ -42,7 +42,7 @@ import {
   localDatabaseName,
   parseDatabaseKey,
 } from "@/utils/databaseKey";
-import { createScopedRepository } from "@/utils/scopedRepository";
+import { createScopedRepository, runExclusive } from "@/utils/scopedRepository";
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd
@@ -938,6 +938,20 @@ tags:
     );
   }
 
+  /** Conflict regions between two bodies, as stored with a conflict record. */
+  function conflictHunksFor(base, mine, theirs) {
+    if (base === undefined) {
+      // No common ancestor: the whole Document is one region.
+      return [{
+        baseLines: [],
+        mineLines: normalizeContent(mine).split("\n"),
+        theirsLines: normalizeContent(theirs).split("\n"),
+      }];
+    }
+    const merge = mergeContent({ base, mine, theirs });
+    return merge.status === "conflict" ? merge.conflicts : [];
+  }
+
   async function clearConflict(database, noteId) {
     await database.exec("DELETE FROM note_conflicts WHERE note_id = ?", [noteId]);
   }
@@ -973,41 +987,90 @@ tags:
   }
 
   /**
-   * A stored conflict holds the only copy of a body the user has not decided
-   * about. When the document moves on without a new conflict, keep that copy
-   * and compare it against the new body; drop it only once the new body
-   * already contains it.
+   * Keep a stored conflict in step when the Document's stored text changes.
+   * The record holds the only copy of a body the user has not decided about,
+   * so it is never simply replaced: the side that was the Document follows it
+   * to the new text, and the record is dropped only once the new text already
+   * contains the held body ({@link planConflictAfterChange}).
+   *
+   * @param {{ execO: Function, exec: Function }} database a connection, inside the writing transaction
+   * @param {string} noteId
+   * @param {string} previousContent the stored text before the change
+   * @param {string} nextContent the stored text after it
    */
-  async function refreshOrClearConflict(database, noteId, currentContent) {
+  async function followConflict(database, noteId, previousContent, nextContent) {
     const rows = await database.execO(
-      "SELECT base_content, mine_content FROM note_conflicts WHERE note_id = ?",
+      "SELECT base_content, mine_content, theirs_content FROM note_conflicts WHERE note_id = ?",
       [noteId],
     );
     if (!rows?.length) return;
 
     const held = rows[0];
-    const current = normalizeContent(currentContent);
-    if (normalizeContent(held.mine_content) === current) {
+    const plan = planConflictAfterChange({
+      base: held.base_content,
+      mine: held.mine_content,
+      theirs: held.theirs_content,
+      previous: previousContent,
+      next: nextContent,
+    });
+    if (plan.action === "clear") {
       await clearConflict(database, noteId);
-      return;
+    } else if (plan.action === "update") {
+      await recordConflict(database, noteId, held.base_content, plan.mine, plan.theirs, plan.conflicts);
     }
-    if (supersedes(held.base_content, held.mine_content, currentContent)) {
-      await clearConflict(database, noteId);
-      return;
-    }
-    const merge = mergeContent({ base: held.base_content, mine: held.mine_content, theirs: currentContent });
-    if (merge.status === "clean" && normalizeContent(merge.content) === current) {
-      await clearConflict(database, noteId);
-      return;
-    }
-    await recordConflict(
-      database,
-      noteId,
-      held.base_content,
-      held.mine_content,
-      currentContent,
-      merge.status === "conflict" ? merge.conflicts : [],
-    );
+  }
+
+  /**
+   * A local write of a Document's body: call inside the transaction, before the
+   * write, so a stored conflict for the Document follows the new text.
+   *
+   * @param {string} dbKey
+   * @param {{ execute: Function, exec: Function }} tx the transaction's repository
+   * @param {string} noteId
+   * @param {string} nextContent
+   */
+  async function followLocalBodyWrite(dbKey, tx, noteId, nextContent) {
+    const database = { execO: (sql, params) => tx.execute(sql, params), exec: (sql, params) => tx.exec(sql, params) };
+    const recorded = await database.execO("SELECT 1 AS held FROM note_conflicts WHERE note_id = ?", [noteId]);
+    if (!recorded?.length) return;
+    const stored = await database.execO("SELECT COALESCE(content, '') AS content FROM notes WHERE id = ?", [noteId]);
+    if (!stored?.length) return;
+    await followConflict(database, noteId, stored[0].content, nextContent ?? "");
+  }
+
+  /**
+   * Text the editor holds unsaved while its Document has a stored conflict is
+   * this device's side of that conflict. Store it as such, so resolving
+   * compares against what was actually typed.
+   *
+   * @param {string} dbKey
+   * @param {string} noteId
+   * @param {string} text
+   * @returns {Promise<boolean>} true when the record changed
+   */
+  async function holdUnsavedText(dbKey, noteId, text) {
+    return repository(dbKey).transaction(async (tx) => {
+      const rows = await tx.execute(
+        "SELECT base_content, mine_content, theirs_content FROM note_conflicts WHERE note_id = ?",
+        [noteId],
+      );
+      if (!rows?.length) return false;
+      const held = rows[0];
+      const unsaved = normalizeContent(text);
+      if (unsaved === normalizeContent(held.mine_content) || unsaved === normalizeContent(held.theirs_content)) {
+        return false;
+      }
+      const merge = mergeContent({ base: held.base_content, mine: unsaved, theirs: held.theirs_content });
+      await recordConflict(
+        { exec: (sql, params) => tx.exec(sql, params) },
+        noteId,
+        held.base_content,
+        unsaved,
+        held.theirs_content,
+        merge.status === "conflict" ? merge.conflicts : [],
+      );
+      return true;
+    });
   }
 
   /**
@@ -1021,7 +1084,12 @@ tags:
    *
    * @returns {Promise<boolean>} true when a local content write needs a follow-up sync
    */
-  async function applyRemoteChanges(entry, remoteChanges, upload = {}) {
+  function applyRemoteChanges(entry, remoteChanges, upload = {}) {
+    // Queued behind any open editor or store transaction on this database.
+    return runExclusive(entry.dbKey, () => applyRemoteChangesExclusive(entry, remoteChanges, upload));
+  }
+
+  async function applyRemoteChangesExclusive(entry, remoteChanges, upload = {}) {
     const { sentContent = new Map(), uploadedUpTo = 0, pendingAfter = 0 } = upload;
     let didLocalWrite = false;
     const database = entry.db;
@@ -1071,11 +1139,18 @@ tags:
           }
 
           const dbMine = mineMap.get(noteId) ?? "";
+          // The draft store keeps the last editor text of every document opened
+          // in this tab, so a draft that merely differs from the stored body is
+          // usually just old: the document was adopted from another device
+          // after it was closed. It is unsaved text only while it differs from
+          // what the editor itself last saved or adopted.
           const draft = draftStore.getDraft(noteId);
-          const mine = draft !== undefined ? draft : dbMine;
+          const editorBase = draftStore.getBase(noteId);
+          const unsavedDraft = draft !== undefined && editorBase !== undefined
+            && normalizeContent(draft) !== normalizeContent(editorBase);
+          const mine = unsavedDraft ? draft : dbMine;
           const sent = sentContent.get(noteId) || null;
           const changedSinceSend = changedSinceUpload.has(noteId);
-          const unsavedDraft = draft !== undefined && normalizeContent(draft) !== normalizeContent(dbMine);
           const localPending = Boolean(sent && sent.dbVersion > pendingAfter) || changedSinceSend || unsavedDraft;
 
           const baseRows = await database.execO(
@@ -1088,7 +1163,7 @@ tags:
           const decision = planRemoteContent({
             hasBase,
             base,
-            hasLocalRow: mineMap.has(noteId) || draft !== undefined,
+            hasLocalRow: mineMap.has(noteId) || unsavedDraft,
             mine,
             remote: remote.content,
             postApply,
@@ -1108,7 +1183,15 @@ tags:
             if (decision.base !== undefined) await upsertMergeBase(database, noteId, decision.base);
           };
           const holdBothSides = async () => {
-            await recordConflict(database, noteId, base, mine, remote.content, decision.conflicts);
+            // One recorded side is always the Document's stored text. After a
+            // local win that is the stored body itself; text the editor still
+            // holds unsaved reaches the record through its own save.
+            const documentHoldsRemote = normalizeContent(postApply) === normalizeContent(remote.content);
+            const recordedMine = documentHoldsRemote ? mine : postApply;
+            const conflicts = recordedMine === mine
+              ? decision.conflicts
+              : conflictHunksFor(base, recordedMine, remote.content);
+            await recordConflict(database, noteId, base, recordedMine, remote.content, conflicts);
             await storeBase();
           };
 
@@ -1138,7 +1221,7 @@ tags:
                  updated_at = excluded.updated_at`,
               [noteId, decision.base ?? base ?? "", guard.writebackCount, guard.windowStartedAt, now],
             );
-            await refreshOrClearConflict(database, noteId, decision.content);
+            await followConflict(database, noteId, dbMine, decision.content);
             didLocalWrite = true;
           } else if (decision.action === "write") {
             await database.exec(
@@ -1146,15 +1229,15 @@ tags:
               [decision.content, now, noteId],
             );
             await storeBase();
-            await refreshOrClearConflict(database, noteId, decision.content);
+            await followConflict(database, noteId, dbMine, decision.content);
             didLocalWrite = true;
           } else if (decision.action === "adopt") {
             // Local and server hold the remote body; nothing is pending.
             await settleMergeBase(database, noteId, decision.base ?? postApply);
-            await refreshOrClearConflict(database, noteId, postApply);
+            await followConflict(database, noteId, dbMine, postApply);
           } else if (decision.action === "keep") {
             await storeBase();
-            await refreshOrClearConflict(database, noteId, postApply);
+            await followConflict(database, noteId, dbMine, postApply);
           } else {
             await holdBothSides();
           }
@@ -1178,22 +1261,24 @@ tags:
    * locally the document is in step again and its merge base is dropped;
    * otherwise what was sent becomes the base for the edit still waiting.
    */
-  async function settleAcknowledgedUploads(database, sentContent, remoteNoteIds, uploadedVersion) {
+  async function settleAcknowledgedUploads(dbKey, database, sentContent, remoteNoteIds, uploadedVersion) {
     const acknowledged = [...sentContent].filter(([noteId]) => !remoteNoteIds.has(noteId));
     if (acknowledged.length === 0) return;
 
-    const stillPending = await ownContentChangedAfter(database, uploadedVersion);
-    await database.exec("BEGIN");
-    try {
-      for (const [noteId, sent] of acknowledged) {
-        if (stillPending.has(noteId)) await upsertMergeBase(database, noteId, sent.content);
-        else await settleMergeBase(database, noteId, sent.content);
+    await runExclusive(dbKey, async () => {
+      const stillPending = await ownContentChangedAfter(database, uploadedVersion);
+      await database.exec("BEGIN");
+      try {
+        for (const [noteId, sent] of acknowledged) {
+          if (stillPending.has(noteId)) await upsertMergeBase(database, noteId, sent.content);
+          else await settleMergeBase(database, noteId, sent.content);
+        }
+        await database.exec("COMMIT");
+      } catch (e) {
+        await database.exec("ROLLBACK");
+        throw e;
       }
-      await database.exec("COMMIT");
-    } catch (e) {
-      await database.exec("ROLLBACK");
-      throw e;
-    }
+    });
   }
 
   async function fetchMembershipPages() {
@@ -1504,7 +1589,7 @@ tags:
         });
         if (didLocalWrite) entry.syncPending = true;
       }
-      await settleAcknowledgedUploads(entry.db, sentContent, remoteNoteIds, outgoing.uploadedVersion);
+      await settleAcknowledgedUploads(entry.dbKey, entry.db, sentContent, remoteNoteIds, outgoing.uploadedVersion);
 
       // The clock is persisted only after every remote row and merge base has
       // committed successfully.
@@ -1793,5 +1878,7 @@ tags:
     sendWebSocketMessage,
     setCollabRemoteGuard,
     captureMergeBase,
+    followLocalBodyWrite,
+    holdUnsavedText,
   };
 });

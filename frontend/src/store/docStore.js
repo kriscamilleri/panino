@@ -132,6 +132,7 @@ ${DOCUMENT_COLUMNS}
             FROM notes
             LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
             ORDER BY datetime(notes.updated_at) DESC
+            LIMIT ?
         `;
     try {
       const groups = [];
@@ -141,7 +142,10 @@ ${DOCUMENT_COLUMNS}
           groups.push({
             dbKey: entry.dbKey,
             name: entry.kind === 'space' ? entry.name : null,
-            rows: await syncStore.repository(entry.dbKey).execute(query),
+            // The newest `limit` overall are among the newest `limit` of each
+            // database, so each query is bounded; unbounded, it read every
+            // Document body in the library on each dashboard refresh.
+            rows: await syncStore.repository(entry.dbKey).execute(query, [limit]),
           });
         } catch (error) {
           console.error(`Failed to query recent Documents for ${entry.dbKey}:`, error);
@@ -175,10 +179,11 @@ ${DOCUMENT_COLUMNS}
             LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
             WHERE notes.folder_id IS ?
             ORDER BY datetime(notes.updated_at) DESC
+            LIMIT ?
         `;
     try {
       const entry = syncStore.databases.get(dbKey);
-      const results = await syncStore.repository(dbKey).execute(query, [folderId ?? null]);
+      const results = await syncStore.repository(dbKey).execute(query, [folderId ?? null, limit]);
       return mergeDashboardRows([
         { dbKey, name: entry?.kind === 'space' ? entry.name : null, rows: results },
       ], { limit }).map(normalizeRecentDocument);
@@ -224,6 +229,9 @@ ${DOCUMENT_COLUMNS}
       // acknowledged, so only documents with edits in flight have one.
       await syncStore.repository(dbKey).transaction(async (repo) => {
         await syncStore.captureMergeBase(dbKey, repo, fileId);
+        // A stored conflict for this Document follows the text being written,
+        // so resolving it later compares against this save, not the one before.
+        await syncStore.followLocalBodyWrite(dbKey, repo, fileId, newContent);
         await repo.exec(
           "UPDATE notes SET content = ?, updated_at = ? WHERE id = ?",
           [newContent, now, fileId],

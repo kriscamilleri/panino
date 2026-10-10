@@ -63,6 +63,20 @@ export const useConflictStore = defineStore('conflictStore', () => {
         };
     }
 
+    /**
+     * Store text the editor holds unsaved as this device's side of a
+     * Document's conflict.
+     *
+     * @param {string} noteId
+     * @param {string} dbKey
+     * @param {string} text
+     * @returns {Promise<boolean>} true when the record changed
+     */
+    async function holdUnsavedText(noteId, dbKey, text) {
+        if (!dbKey) throw new Error('Database scope is required to update a conflict.');
+        return syncStore.holdUnsavedText(dbKey, noteId, text);
+    }
+
     async function resolveConflict(conflict, content) {
         if (!conflict?.noteId) throw new Error('A conflict record is required.');
         if (!conflict.dbKey) throw new Error('Database scope is required to resolve a conflict.');
@@ -136,6 +150,7 @@ export const useConflictStore = defineStore('conflictStore', () => {
         count,
         loadConflicts,
         loadConflict,
+        holdUnsavedText,
         resolveConflict,
         hasConflict,
         clearDatabase,

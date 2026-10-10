@@ -104,10 +104,103 @@ describe("Editor.vue conflict wiring (COLLAB-01)", () => {
     expect(editorSource).toContain('data-testid="editor-save-status"');
   });
 
-  it("suppresses the debounced DB write while a conflict is active", () => {
+  it("suppresses the debounced DB write while the editor's own conflict is being decided", () => {
     expect(editorSource).toMatch(
-      /if\s*\(conflict\.value\s*\|\|\s*persistedConflict\.value\)\s*\{\s*debouncedSyncToDB\.cancel\(\);\s*return;\s*\}/s,
+      /if\s*\(conflict\.value\)\s*\{\s*debouncedSyncToDB\.cancel\(\);\s*return;\s*\}/s,
     );
+  });
+
+  it("does not hold writes for a stored conflict record", () => {
+    // Holding them made everything typed after the banner appeared unsaveable,
+    // with no indication, and the resolver then discarded it.
+    expect(editorSource).not.toMatch(/if\s*\(conflict\.value\s*\|\|\s*persistedConflict\.value\)/);
+  });
+
+  it("saves what was pending when the user leaves a document, instead of dropping it", () => {
+    const switchBody = editorSource.slice(
+      editorSource.indexOf("function handleDocumentSwitch("),
+      editorSource.indexOf("watch(", editorSource.indexOf("function handleDocumentSwitch(")),
+    );
+    expect(switchBody).toContain("debouncedSyncToDB.flush()");
+    expect(switchBody).not.toContain("debouncedSyncToDB.cancel()");
+    expect(editorSource).toMatch(/onUnmounted\(\(\) => \{[^}]*debouncedSyncToDB\.flush\(\)/s);
+  });
+
+  it("saves to the document and database the save was scheduled for", () => {
+    expect(editorSource).toContain("pendingSave = { id, text, dbKey: file.value?.dbKey }");
+    expect(editorSource).toContain("docStore.updateFileContent(save.id, save.text, save.dbKey)");
+  });
+
+  it("does not take keyboard focus when a remote change is adopted", () => {
+    expect(editorSource).toContain("const hadFocus = document.activeElement === getTextareaElement();");
+    expect(editorSource).toContain("if (hadFocus) ta.focus();");
+  });
+
+  it("makes the Document read-only while a stored conflict is unresolved", () => {
+    // The record can hold one body that exists nowhere else. Editing on would
+    // create a third version, so the pause is what keeps resolving lossless.
+    expect(editorSource).toMatch(
+      /const editingPaused = computed\(\(\) => Boolean\(\s*file\.value\?\.id && conflictStore\.hasConflict\(file\.value\.id, file\.value\.dbKey\),\s*\)\);/s,
+    );
+    expect(editorSource).toContain("if (textarea) textarea.readOnly = editingPaused.value;");
+    expect(editorSource).toContain("watch(editingPaused, applyEditingPaused);");
+    // A re-created editor (theme change, reopened Document) starts paused too.
+    const initBody = editorSource.slice(editorSource.indexOf("function initEditor()"), editorSource.indexOf("function getEditorTheme("));
+    expect(initBody).toContain("applyEditingPaused();");
+    expect(editorSource).toContain('data-testid="editor-conflict-paused"');
+  });
+
+  it("blocks edits that do not come from the keyboard while paused", () => {
+    const guarded = (name, endMarker) => editorSource.slice(
+      editorSource.indexOf(`function ${name}(`),
+      editorSource.indexOf(endMarker, editorSource.indexOf(`function ${name}(`)),
+    );
+    expect(guarded("insertAtCursor", "const start")).toContain("editingBlocked()");
+    expect(guarded("insertFormat", "const start")).toContain("editingBlocked()");
+    expect(guarded("replaceNext", "textarea.value = newText")).toContain("editingBlocked()");
+    expect(guarded("replaceAll", "textarea.value = newText")).toContain("editingBlocked()");
+    expect(guarded("performUndo", "historyStore.undo")).toContain("editingBlocked()");
+    expect(guarded("performRedo", "historyStore.redo")).toContain("editingBlocked()");
+    expect(guarded("uploadImage", "isUploading.value = true")).toContain("editingBlocked()");
+    expect(guarded("wrapWithRecord", "historyStore.record")).toContain("editingBlocked()");
+  });
+
+  it("puts text typed before the pause into the conflict instead of leaving it out", () => {
+    const settle = editorSource.slice(
+      editorSource.indexOf("async function settleUnsavedText("),
+      editorSource.indexOf("async function openResolution("),
+    );
+    // Held against a remote change: it is this device's side of the conflict.
+    expect(settle).toMatch(/if \(conflict\.value\) \{\s*await conflictStore\.holdUnsavedText\(noteId, dbKey, contentDraft\.value\);/s);
+    // Otherwise it is saved, and the record follows the save.
+    expect(settle).toContain("await debouncedSyncToDB.flush();");
+    expect(settle).toContain("await reloadPersistedConflict(noteId);");
+
+    const open = editorSource.slice(
+      editorSource.indexOf("async function openResolution("),
+      editorSource.indexOf("function bindLiveEditor("),
+    );
+    expect(open.indexOf("await settleUnsavedText(id)")).toBeGreaterThan(-1);
+    expect(open.indexOf("await settleUnsavedText(id)")).toBeLessThan(open.indexOf("showResolution.value = true"));
+    expect(editorSource).toContain('@click="openResolution"');
+  });
+
+  it("saves, rather than drops, anything still pending when a resolution is applied", () => {
+    const applyBody = editorSource.slice(
+      editorSource.indexOf("async function applyPersistedResolution("),
+      editorSource.indexOf("ui.addToast('Document changes resolved.'"),
+    );
+    expect(applyBody).not.toContain("debouncedSyncToDB.cancel()");
+    expect(applyBody.indexOf("await debouncedSyncToDB.flush()"))
+      .toBeLessThan(applyBody.indexOf("await conflictStore.resolveConflict("));
+  });
+
+  it("ends the in-editor conflict when a stored conflict is resolved", () => {
+    const applyBody = editorSource.slice(
+      editorSource.indexOf("async function applyPersistedResolution("),
+      editorSource.indexOf("ui.addToast('Document changes resolved.'"),
+    );
+    expect(applyBody).toContain("clearConflict();");
   });
 
   it("watches both document id and content, not id alone", () => {

@@ -31,6 +31,7 @@ const harness = vi.hoisted(() => ({
   loadGlobals: vi.fn(async () => {}),
   toasts: [],
   drafts: new Map(),
+  editorBases: new Map(),
 }));
 
 vi.mock('@/vendor/crsqlite-wasm/index.js', () => ({
@@ -42,7 +43,10 @@ vi.mock('@/store/globalVariablesStore', () => ({
   useGlobalVariablesStore: () => ({ loadGlobals: harness.loadGlobals }),
 }));
 vi.mock('@/store/draftStore', () => ({
-  useDraftStore: () => ({ getDraft: (id) => harness.drafts.get(id) }),
+  useDraftStore: () => ({
+    getDraft: (id) => harness.drafts.get(id),
+    getBase: (id) => harness.editorBases.get(id),
+  }),
 }));
 vi.mock('@/store/uiStore', () => ({
   useUiStore: () => ({ addToast: (message, type) => harness.toasts.push({ message, type }) }),
@@ -107,13 +111,16 @@ function localDatabase(seed = {}) {
       if (sql.includes('FROM notes WHERE id IN')) {
         return [...state.bodies].map(([id, content]) => ({ id, content }));
       }
+      if (sql.includes('FROM notes WHERE id = ?')) {
+        return state.bodies.has(params[0]) ? [{ content: state.bodies.get(params[0]) }] : [];
+      }
       if (sql.includes('FROM note_sync_base WHERE note_id')) {
         const base = state.bases.get(params[0]);
         return base ? [base] : [];
       }
       if (sql.includes('FROM note_conflicts WHERE note_id')) {
         const held = state.conflicts.get(params[0]);
-        return held ? [{ base_content: held.base, mine_content: held.mine }] : [];
+        return held ? [{ base_content: held.base, mine_content: held.mine, theirs_content: held.theirs }] : [];
       }
       if (sql.includes("PRAGMA table_info('notes')")) return [{ name: 'pinned' }];
       if (sql.includes("PRAGMA table_info('images')")) return [{ name: 'size_bytes' }, { name: 'sha256' }];
@@ -220,6 +227,7 @@ beforeEach(() => {
   vi.useRealTimers();
   harness.toasts.length = 0;
   harness.drafts.clear();
+  harness.editorBases.clear();
   harness.auth.refreshToken = vi.fn(async () => false);
   FakeWebSocket.instances = [];
   vi.stubGlobal('WebSocket', FakeWebSocket);
@@ -338,15 +346,79 @@ describe('a remote body arrives', () => {
     expect(database.state.conflicts.get(NOTE)).toMatchObject({ mine: MINE, theirs: REMOTE });
   });
 
+  it('ignores the stale draft of a document that is no longer being edited', async () => {
+    // The laptop opened this document earlier and moved on; the draft store
+    // still holds what the editor showed then. The phone has edited it twice
+    // since, and the first of those edits was already adopted here. The old
+    // draft differs from the stored body, but it is not unsaved work.
+    const afterFirstPhoneEdit = `${BASE}phone, first edit\n`;
+    const afterSecondPhoneEdit = `${afterFirstPhoneEdit}phone, second edit\n`;
+    const database = localDatabase({ body: afterFirstPhoneEdit, dbVersion: 4, colVersion: 4, own: false });
+    harness.drafts.set(NOTE, BASE);
+    harness.editorBases.set(NOTE, BASE);
+    serverReplies({ changes: [remoteBody(afterSecondPhoneEdit, 5)], clock: 41 });
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+
+    await store.sync();
+
+    expect(database.state.bodies.get(NOTE)).toBe(afterSecondPhoneEdit);
+    expect(database.state.conflicts.size).toBe(0);
+    expect(database.state.localWrites).toEqual([]);
+  });
+
   it('uses the unsaved editor draft as the local side', async () => {
     const database = localDatabase({ body: BASE, dbVersion: 4, colVersion: 2, base: BASE, own: false });
     harness.drafts.set(NOTE, MINE);
+    harness.editorBases.set(NOTE, BASE);
     serverReplies({ changes: [remoteBody(REMOTE, 5)], clock: 41 });
     const store = await startStore(database, { pushCursor: 4, clock: 30 });
 
     await store.sync();
 
     expect(database.state.conflicts.get(NOTE)).toMatchObject({ mine: MINE, theirs: REMOTE });
+  });
+
+  it('records the stored body, not the unsaved draft, as this side after a local win', async () => {
+    // One recorded side must be the Document's stored text. The draft reaches
+    // the record through the editor's own save, which the record then follows.
+    const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3, base: BASE });
+    harness.drafts.set(NOTE, `${MINE}still typing\n`);
+    harness.editorBases.set(NOTE, MINE);
+    serverReplies({ changes: [remoteBody(REMOTE, 2)], clock: 41 });
+    const store = await startStore(database, { pushCursor: 8, clock: 30 });
+
+    await store.sync();
+
+    expect(database.state.bodies.get(NOTE)).toBe(MINE);
+    expect(database.state.conflicts.get(NOTE)).toMatchObject({ mine: MINE, theirs: REMOTE });
+  });
+
+  it('keeps the displaced remote body when the document later moves on after a local win', async () => {
+    // This device won, so the record's `theirs` is the only copy of the other
+    // device's text. A later body that builds on this device's text must not
+    // be taken as proof that nothing is held any more.
+    const database = localDatabase({ body: MINE, dbVersion: 4, colVersion: 4, base: MINE, own: false });
+    database.state.conflicts.set(NOTE, { base: BASE, mine: MINE, theirs: REMOTE });
+    const newer = `${MINE}\ngamma\n`;
+    serverReplies({ changes: [remoteBody(newer, 5)], clock: 41 });
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+
+    await store.sync();
+
+    expect(database.state.bodies.get(NOTE)).toBe(newer);
+    expect(database.state.conflicts.get(NOTE)).toMatchObject({ base: BASE, mine: newer, theirs: REMOTE });
+  });
+
+  it('drops the conflict once the document contains the held body', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 4, colVersion: 4, base: MINE, own: false });
+    database.state.conflicts.set(NOTE, { base: BASE, mine: MINE, theirs: REMOTE });
+    serverReplies({ changes: [remoteBody(MERGED, 5)], clock: 41 });
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+
+    await store.sync();
+
+    expect(database.state.bodies.get(NOTE)).toBe(MERGED);
+    expect(database.state.conflicts.size).toBe(0);
   });
 
   it('does not discard a held conflict when the document later moves on', async () => {
@@ -437,6 +509,106 @@ describe('reconnecting', () => {
     expect(harness.toasts).toHaveLength(1);
     expect(harness.toasts[0].message).toContain('too many Panino tabs or devices');
     expect(store.syncEnabled).toBe(true);
+  });
+});
+
+describe('a local save of a document with a stored conflict', () => {
+  const save = async (store, database, next) => {
+    await store.repository(PERSONAL_KEY).transaction(async (tx) => {
+      await store.followLocalBodyWrite(PERSONAL_KEY, tx, NOTE, next);
+      await tx.exec('UPDATE notes SET content = ?, updated_at = ? WHERE id = ?', [next, 'now', NOTE]);
+    });
+    return database.state.conflicts.get(NOTE);
+  };
+
+  async function storeWith(seed, conflict) {
+    const database = localDatabase(seed);
+    if (conflict) database.state.conflicts.set(NOTE, conflict);
+    serverReplies({ changes: [], clock: 30 });
+    return { database, store: await startStore(database, { pushCursor: 4, clock: 30 }) };
+  }
+
+  it('moves the remote side when the document held the remote body', async () => {
+    const { database, store } = await storeWith(
+      { body: REMOTE, dbVersion: 4, colVersion: 4, own: false },
+      { base: BASE, mine: MINE, theirs: REMOTE },
+    );
+    const next = `${REMOTE}one more line\n`;
+
+    expect(await save(store, database, next)).toMatchObject({ base: BASE, mine: MINE, theirs: next });
+  });
+
+  it('moves this side when the document held this device\'s body, keeping the displaced one', async () => {
+    const { database, store } = await storeWith(
+      { body: MINE, dbVersion: 4, colVersion: 4, own: false },
+      { base: BASE, mine: MINE, theirs: REMOTE },
+    );
+    const next = `${MINE}one more line\n`;
+
+    expect(await save(store, database, next)).toMatchObject({ base: BASE, mine: next, theirs: REMOTE });
+  });
+
+  it('settles the conflict when the saved text contains the held body', async () => {
+    const { database, store } = await storeWith(
+      { body: REMOTE, dbVersion: 4, colVersion: 4, own: false },
+      { base: BASE, mine: MINE, theirs: REMOTE },
+    );
+
+    expect(await save(store, database, MERGED)).toBeUndefined();
+  });
+
+  it('gives up neither body when it cannot tell which one the document replaced', async () => {
+    const unrelated = 'restored from somewhere else\n';
+    const { database, store } = await storeWith(
+      { body: unrelated, dbVersion: 4, colVersion: 4, own: false },
+      { base: BASE, mine: MINE, theirs: REMOTE },
+    );
+
+    expect(await save(store, database, `${unrelated}and edited\n`)).toMatchObject({ mine: MINE, theirs: REMOTE });
+  });
+
+  it('reads nothing extra for a document without a conflict', async () => {
+    const { database, store } = await storeWith({ body: BASE, dbVersion: 4, colVersion: 4, own: false });
+    database.execO.mockClear();
+
+    await save(store, database, MINE);
+
+    expect(database.execO.mock.calls.filter(([sql]) => sql.includes('FROM notes'))).toEqual([]);
+  });
+});
+
+describe('unsaved editor text and a stored conflict', () => {
+  async function storeWith(conflict) {
+    const database = localDatabase({ body: REMOTE, dbVersion: 4, colVersion: 4, own: false });
+    if (conflict) database.state.conflicts.set(NOTE, conflict);
+    serverReplies({ changes: [], clock: 30 });
+    return { database, store: await startStore(database, { pushCursor: 4, clock: 30 }) };
+  }
+
+  it('becomes this device\'s side of the conflict', async () => {
+    const { database, store } = await storeWith({ base: BASE, mine: MINE, theirs: REMOTE });
+    const typed = `${MINE}typed while the conflict was being recorded\n`;
+
+    await expect(store.holdUnsavedText(PERSONAL_KEY, NOTE, typed)).resolves.toBe(true);
+
+    expect(database.state.conflicts.get(NOTE)).toMatchObject({ base: BASE, mine: typed, theirs: REMOTE });
+  });
+
+  it('changes nothing when the text is already one of the two bodies', async () => {
+    const { database, store } = await storeWith({ base: BASE, mine: MINE, theirs: REMOTE });
+
+    await expect(store.holdUnsavedText(PERSONAL_KEY, NOTE, MINE)).resolves.toBe(false);
+    await expect(store.holdUnsavedText(PERSONAL_KEY, NOTE, REMOTE)).resolves.toBe(false);
+
+    expect(database.state.conflicts.get(NOTE)).toEqual({ base: BASE, mine: MINE, theirs: REMOTE });
+  });
+
+  it('does nothing for a document without a conflict', async () => {
+    const { database, store } = await storeWith(null);
+
+    await expect(store.holdUnsavedText(PERSONAL_KEY, NOTE, MINE)).resolves.toBe(false);
+
+    expect(database.state.conflicts.size).toBe(0);
   });
 });
 

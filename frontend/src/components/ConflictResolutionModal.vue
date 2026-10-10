@@ -143,8 +143,10 @@ const canApply = computed(() => {
     return conflictRegions.value.every((region) => ['mine', 'theirs'].includes(decisions.value[region.index]));
 });
 
+// A string key, not an array: a fresh array is "changed" on every evaluation,
+// which wiped the user's choices whenever unrelated data refreshed.
 watch(
-    () => [props.show, props.conflict.updatedAt, props.conflict.mergeAttempts],
+    () => `${props.show}|${props.conflict.updatedAt}|${props.conflict.mergeAttempts}`,
     () => {
         decisions.value = {};
         wholeChoice.value = null;

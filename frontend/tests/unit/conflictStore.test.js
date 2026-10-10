@@ -26,6 +26,7 @@ describe("conflictStore (COLLAB-02 §6.2)", () => {
             // Stands in for the real capture: records one statement so its
             // position relative to the body write can be asserted.
             captureMergeBase: vi.fn(async (_dbKey, tx) => { await tx.exec("CAPTURE MERGE BASE"); }),
+            holdUnsavedText: vi.fn(async () => true),
             execute: vi.fn(async (sql) => {
                 if (sql.includes("base_content")) {
                     return [{
@@ -165,6 +166,14 @@ describe("conflictStore (COLLAB-02 §6.2)", () => {
         await expect(store.resolveConflict(conflict, "resolved")).rejects.toThrow("base write failed");
         expect(database.exec).toHaveBeenLastCalledWith("ROLLBACK");
         expect(store.hasConflict("note-a", DB_KEY)).toBe(true);
+    });
+
+    it("stores unsaved editor text through the sync store, in the Document's own database", async () => {
+        const store = useConflictStore();
+
+        await expect(store.holdUnsavedText("note-a", DB_KEY, "typed")).resolves.toBe(true);
+        expect(syncStore.holdUnsavedText).toHaveBeenCalledWith(DB_KEY, "note-a", "typed");
+        await expect(store.holdUnsavedText("note-a", undefined, "typed")).rejects.toThrow(/Database scope/);
     });
 
     it("clears all conflicts", async () => {

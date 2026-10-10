@@ -25,5 +25,9 @@ export function hasDocumentContentChanged(persistedContent, nextContent) {
 export function classifyEditorConflict({ mine, base, theirs }) {
   if (!hasDocumentContentChanged(theirs, base)) return "ignore";
   if (!hasDocumentContentChanged(mine, base)) return "adopt";
+  // The editor already shows exactly the incoming text (its own save came
+  // back, or both sides made the same change). That is agreement; adopting
+  // only moves the base forward.
+  if (!hasDocumentContentChanged(mine, theirs)) return "adopt";
   return "conflict";
 }

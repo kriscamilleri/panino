@@ -108,7 +108,12 @@ export const useStructureStore = defineStore('structureStore', () => {
 
   async function loadRootItems() {
     if (!syncStore.isInitialized || !syncStore.personalDbKey) return;
-    nodeDbIndex.value = new Map();
+    // The index is added to, never rebuilt, here. This query returns root rows
+    // only, while expanded folders keep showing their children; resetting the
+    // index made every nested node unknown, so dragging one failed with
+    // "Database scope is required" until its folder was collapsed and reopened.
+    // Entries are removed with their node (deleteItem) or database
+    // (clearDatabaseScope).
     const personalRows = await syncStore.repository(syncStore.personalDbKey).execute(ROOT_QUERY);
     const personalItems = indexRows(personalRows, syncStore.personalDbKey, { visibility: 'Private' });
     const spaceRoots = [...syncStore.databases.values()]
@@ -218,6 +223,11 @@ export const useStructureStore = defineStore('structureStore', () => {
     }
     await syncStore.repository(dbKey).transaction(async (repo) => {
       await repo.exec(type === 'folder' ? 'DELETE FROM folders WHERE id = ?' : 'DELETE FROM notes WHERE id = ?', [id]);
+      if (type !== 'folder') {
+        // Client-local recovery rows have no foreign key to notes by design.
+        await repo.exec('DELETE FROM note_sync_base WHERE note_id = ?', [id]);
+        await repo.exec('DELETE FROM note_conflicts WHERE note_id = ?', [id]);
+      }
     });
     nodeDbIndex.value.delete(id);
     if (selectedFileId.value === id || selectedFolderId.value === id) {

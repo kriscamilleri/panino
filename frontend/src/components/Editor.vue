@@ -142,6 +142,7 @@
         <template v-if="persistedConflict">
           <p class="font-medium">Some document changes need your review.</p>
           <p class="text-sm">{{ persistedConflictSummary }}</p>
+          <p class="text-sm" data-testid="editor-conflict-paused">Editing is paused on this device until you resolve them.</p>
         </template>
         <template v-else>
           <p class="font-medium">This document was updated elsewhere.</p>
@@ -154,7 +155,7 @@
           size="sm"
           variant="secondary"
           data-testid="editor-conflict-resolve"
-          @click="showResolution = true"
+          @click="openResolution"
         >Resolve</BaseButton>
         <template v-else>
           <BaseButton
@@ -376,9 +377,36 @@ const isApplyingResolution = ref(false);
 const isProgrammaticUpdate = ref(false);
 
 /* ───── debounced save ───── */
-const debouncedSyncToDB = debounce((id, text) => {
-  docStore.updateFileContent(id, text, file.value?.dbKey);
-}, 500);
+// The pending save carries the document and database it was scheduled for.
+// Reading them when the timer fires is wrong once the user has moved on: the
+// selected document is then a different one, or none.
+let pendingSave = null;
+
+function runPendingSave() {
+  const save = pendingSave;
+  pendingSave = null;
+  if (!save) return Promise.resolve();
+  return docStore.updateFileContent(save.id, save.text, save.dbKey).catch((error) => {
+    console.error('[Editor] Saving the Document failed:', error);
+    ui.addToast('Your latest changes could not be saved. Keep this Document open and try typing again.', 'error');
+  });
+}
+
+const schedulePendingSave = debounce(runPendingSave, 500);
+
+function debouncedSyncToDB(id, text) {
+  pendingSave = { id, text, dbKey: file.value?.dbKey };
+  schedulePendingSave();
+}
+debouncedSyncToDB.cancel = () => {
+  pendingSave = null;
+  schedulePendingSave.cancel();
+};
+/** Save now what the debounce was still waiting to save. */
+debouncedSyncToDB.flush = () => {
+  schedulePendingSave.cancel();
+  return runPendingSave();
+};
 
 /* ───── History Setup ───── */
 const isHistoryAction = ref(false)
@@ -440,7 +468,7 @@ function handleNativeInput(e) {
 
 /* ───── History Methods ───── */
 function performUndo() {
-  if (!file.value) return;
+  if (!file.value || editingBlocked()) return;
   if (collabBinding.value && collabActive.value) {
     collabBinding.value.undo();
     return;
@@ -450,7 +478,7 @@ function performUndo() {
 }
 
 function performRedo() {
-  if (!file.value) return;
+  if (!file.value || editingBlocked()) return;
   if (collabBinding.value && collabActive.value) {
     collabBinding.value.redo();
     return;
@@ -474,7 +502,7 @@ function applyHistoryState(state) {
     contentDraft.value = state.text;
     if (file.value) {
       draftStore.setDraft(file.value.id, state.text);
-      debouncedSyncToDB(file.value.id, state.text);
+      if (!conflict.value) debouncedSyncToDB(file.value.id, state.text);
     }
 
     // 3. Restore Cursor
@@ -495,7 +523,7 @@ function applyHistoryState(state) {
 // Pass the current cursor position
 function wrapWithRecord(fn) {
   return (...args) => {
-    if (!file.value) return;
+    if (!file.value || editingBlocked()) return;
 
     if (collabActive.value) {
       fn(...args);
@@ -542,8 +570,13 @@ function handleInput(value) {
     // must not schedule a database write.
     if (isProgrammaticUpdate.value) return;
 
-    // While diverged, local writes are held and never reach the database.
-    if (conflict.value || persistedConflict.value) {
+    // While the editor itself has diverged from a remote change, local writes
+    // are held until the user picks a side. A stored conflict record does not
+    // hold them: the Document stays editable, its saves keep the record in
+    // step, and resolving later merges against what was typed meanwhile.
+    // Holding here made everything typed after the banner appeared unsaveable,
+    // with nothing on screen saying so.
+    if (conflict.value) {
       debouncedSyncToDB.cancel();
       return;
     }
@@ -591,6 +624,7 @@ function initEditor() {
     if (textarea) {
       textarea.addEventListener('paste', handlePaste);
       textarea.addEventListener('input', handleNativeInput);
+      applyEditingPaused();
       // Keydown is handled by OverType config, or add manually if OverType consumes it:
       // textarea.addEventListener('keydown', handleKeydown);
     }
@@ -701,12 +735,15 @@ function setEditorValue(text, { preserveCursor = true } = {}) {
     const length = text.length;
     const start = Math.min(selStart, length);
     const end = Math.min(selEnd, length);
+    // Restore the caret only if the editor had the keyboard. Focusing it
+    // regardless pulled the user out of a search or rename field mid-word,
+    // and the rest of what they typed landed in the Document.
+    const hadFocus = document.activeElement === getTextareaElement();
     nextTick(() => {
       const ta = getTextareaElement();
-      if (ta) {
-        ta.focus();
-        ta.setSelectionRange(start, end);
-      }
+      if (!ta) return;
+      if (hadFocus) ta.focus();
+      if (document.activeElement === ta) ta.setSelectionRange(start, end);
     });
   }
 }
@@ -722,6 +759,9 @@ function adoptRemote(fileId, theirs) {
   draftStore.setDraft(fileId, normalized);
   draftStore.setBase(fileId, normalized);
   setEditorValue(normalized, { preserveCursor: true });
+  // Without this entry the next undo skips to the text from before the
+  // adoption and saves it, removing the other device's edit.
+  historyStore.record(fileId, normalized, getTextareaElement()?.selectionStart ?? 0);
 }
 
 function enterConflict(fileId, theirs) {
@@ -768,12 +808,21 @@ function classifyRemoteContent(fileId, theirs) {
   }
 }
 
-function handleDocumentSwitch(newId) {
+function handleDocumentSwitch(newId, oldId) {
   if (collabActive.value && collabStore.noteId !== newId) collabStore.leave();
+  // Save what the debounce was still holding for the document being left.
+  // Cancelling it here lost everything typed since the last half-second pause.
+  // While a conflict is being decided nothing is pending, so nothing is saved.
+  void debouncedSyncToDB.flush();
+  if (oldId && oldId !== newId) {
+    // The draft store would otherwise keep this document's last editor text
+    // for the life of the tab.
+    draftStore.clearDraft(oldId);
+    draftStore.clearBase(oldId);
+  }
   clearConflict();
   persistedConflict.value = null;
   showResolution.value = false;
-  debouncedSyncToDB.cancel();
   debouncedRecord.cancel();
 
   if (newId) {
@@ -812,10 +861,64 @@ watch(
       return;
     }
     const loaded = await conflictStore.loadConflict(noteId, file.value?.dbKey);
-    if (file.value?.id === noteId) persistedConflict.value = loaded;
+    if (file.value?.id !== noteId) return;
+    persistedConflict.value = loaded;
+    await settleUnsavedText(noteId);
   },
   { immediate: true },
 );
+
+/* ───── editing pause while a stored conflict is unresolved ───── */
+// A stored conflict keeps the only copy of one side's text, and it can hold
+// one such copy. Editing on before deciding would create a third version, so
+// the Document is read-only on this device until the conflict is resolved.
+const editingPaused = computed(() => Boolean(
+  file.value?.id && conflictStore.hasConflict(file.value.id, file.value.dbKey),
+));
+
+function applyEditingPaused() {
+  const textarea = getTextareaElement();
+  if (textarea) textarea.readOnly = editingPaused.value;
+}
+
+watch(editingPaused, applyEditingPaused);
+
+/** For edits that do not come from the keyboard: toolbar, replace, undo, images. */
+let lastBlockedNotice = 0;
+
+function editingBlocked() {
+  if (!editingPaused.value) return false;
+  // One notice per burst: a held key or repeated toolbar clicks would otherwise
+  // stack toasts over the Resolve dialog's own buttons.
+  if (Date.now() - lastBlockedNotice > 5000) {
+    lastBlockedNotice = Date.now();
+    ui.addToast('Resolve the document changes before editing this Document.', 'info');
+  }
+  return true;
+}
+
+/**
+ * Text typed before the pause took effect must not stay outside the record.
+ * Text the editor is holding against a remote change becomes this device's
+ * side of the conflict; anything else still waiting is saved normally, and
+ * the record follows that save.
+ */
+async function settleUnsavedText(noteId) {
+  const dbKey = file.value?.dbKey;
+  if (conflict.value) {
+    await conflictStore.holdUnsavedText(noteId, dbKey, contentDraft.value);
+  } else {
+    await debouncedSyncToDB.flush();
+  }
+  await reloadPersistedConflict(noteId);
+}
+
+async function openResolution() {
+  const id = file.value?.id;
+  if (!id) return;
+  await settleUnsavedText(id);
+  if (file.value?.id === id && persistedConflict.value) showResolution.value = true;
+}
 
 function bindLiveEditor() {
   collabBinding.value?.destroy();
@@ -885,11 +988,14 @@ watch(
   ([newId, newContent], oldValue) => {
     const oldId = oldValue ? oldValue[0] : undefined;
     if (newId !== oldId) {
-      handleDocumentSwitch(newId);
+      handleDocumentSwitch(newId, oldId);
       return;
     }
     if (newId) {
       classifyRemoteContent(newId, newContent ?? '');
+      // A save or a remote change may have updated this document's conflict
+      // record; show the current one.
+      if (persistedConflict.value) void reloadPersistedConflict(newId);
     }
   },
   { immediate: true },
@@ -932,23 +1038,40 @@ const persistedConflictSummary = computed(() => {
   return 'This document is too large for per-region comparison. Choose the complete version to keep.';
 });
 
+async function reloadPersistedConflict(noteId) {
+  const dbKey = file.value?.dbKey;
+  const loaded = await conflictStore.loadConflict(noteId, dbKey);
+  // A save can settle the conflict (the new text contains the held body);
+  // the markers in the tree and the pause then have to go too.
+  if (!loaded && conflictStore.hasConflict(noteId, dbKey)) await conflictStore.loadConflicts();
+  if (file.value?.id === noteId) persistedConflict.value = loaded;
+}
+
 async function applyPersistedResolution(content) {
   const activeConflict = persistedConflict.value;
   const id = file.value?.id;
   if (!activeConflict || !id || activeConflict.noteId !== id) return;
 
   isApplyingResolution.value = true;
-  debouncedSyncToDB.cancel();
   try {
+    // Nothing should still be waiting to save here. If something is, save it:
+    // the record then changes, this resolution is refused as out of date, and
+    // the dialog reloads with that text included.
+    await debouncedSyncToDB.flush();
     await conflictStore.resolveConflict(activeConflict, content);
     contentDraft.value = content;
     draftStore.setDraft(id, content);
     draftStore.setBase(id, content);
     file.value.content = content;
     setEditorValue(content, { preserveCursor: true });
+    historyStore.record(id, content, getTextareaElement()?.selectionStart ?? 0);
     docStore.structureStore.markContentChanged();
     persistedConflict.value = null;
     showResolution.value = false;
+    // The in-editor conflict (if a remote change also arrived mid-typing) is
+    // answered by this resolution too. Left set, saving stayed suspended and
+    // the banner offered a stale "theirs".
+    clearConflict();
     ui.addToast('Document changes resolved.', 'success');
   } catch (error) {
     if (error?.code === 'CONFLICT_STALE') {
@@ -993,6 +1116,7 @@ async function uploadImage(fileObj, options = {}) {
     uploadError.value = 'You must be logged in to upload images.';
     return;
   }
+  if (editingBlocked()) return;
   isUploading.value = true;
   uploadError.value = '';
   try {
@@ -1043,7 +1167,7 @@ function getTextareaElement() {
 
 function insertAtCursor(text) {
   const textarea = getTextareaElement();
-  if (!textarea || !editorInstance.value) return;
+  if (!textarea || !editorInstance.value || editingBlocked()) return;
 
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
@@ -1073,7 +1197,7 @@ function insertAtCursor(text) {
 
 function insertFormat(prefix, suffix) {
   const textarea = getTextareaElement();
-  if (!textarea || !editorInstance.value) return;
+  if (!textarea || !editorInstance.value || editingBlocked()) return;
 
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
@@ -1192,6 +1316,7 @@ function replaceNext(term, repl) {
 
   // If current selection matches the search term, replace it
   if (selectedText === term) {
+    if (editingBlocked()) return;
     const currentText = textarea.value;
     const beforeSelection = currentText.slice(0, start);
     const afterSelection = currentText.slice(end);
@@ -1224,6 +1349,7 @@ function replaceAll(term, repl) {
   const newText = currentText.replaceAll(term, repl);
 
   if (currentText !== newText) {
+    if (editingBlocked()) return;
     // Update textarea
     textarea.value = newText;
 
@@ -1247,8 +1373,8 @@ const insertImagesFromLibraryWrapped = wrapWithRecord(insertImagesFromLibrary);
 const insertTextWrapped = wrapWithRecord(insertText);
 
 // Helper wrappers for button enabling state
-const canUndo = computed(() => file.value ? historyStore.canUndo(file.value.id) : false);
-const canRedo = computed(() => file.value ? historyStore.canRedo(file.value.id) : false);
+const canUndo = computed(() => file.value && !editingPaused.value ? historyStore.canUndo(file.value.id) : false);
+const canRedo = computed(() => file.value && !editingPaused.value ? historyStore.canRedo(file.value.id) : false);
 
 /* ───── expose methods for parent components ───── */
 const exposedMethods = {
@@ -1285,6 +1411,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (collabActive.value) collabStore.leave();
+  void debouncedSyncToDB.flush();
   destroyEditor();
   editorStore.clearEditorRef();
 });

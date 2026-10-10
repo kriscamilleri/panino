@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { containsLinesInOrder, planRemoteContent, resolveServerValue, supersedes } from '@/utils/syncMerge.js';
+import {
+  containsLinesInOrder,
+  planConflictAfterChange,
+  planRemoteContent,
+  resolveServerValue,
+  supersedes,
+} from '@/utils/syncMerge.js';
 
 const BASE = 'title\n\nalpha\n\nbeta\n';
 const MINE = 'title\n\nalpha edited here\n\nbeta\n';
@@ -212,5 +218,74 @@ describe('planRemoteContent: one side already contains the other', () => {
       expect(result.content).toContain('gamma');
       expect(result.content).toContain('epsilon');
     }
+  });
+});
+
+describe('planConflictAfterChange', () => {
+  // A record made after a remote win: the Document holds REMOTE, MINE is held.
+  const remoteWon = { base: BASE, mine: MINE, theirs: REMOTE, previous: REMOTE };
+  // A record made after a local win: the Document holds MINE, REMOTE is held.
+  const localWon = { base: BASE, mine: MINE, theirs: REMOTE, previous: MINE };
+  const after = (record, next) => planConflictAfterChange({ ...record, next });
+
+  it('keeps the record when the document did not change', () => {
+    expect(after(remoteWon, REMOTE)).toEqual({ action: 'keep' });
+    expect(after(localWon, MINE)).toEqual({ action: 'keep' });
+  });
+
+  it('moves the side that was the document and never the held one', () => {
+    const laterRemote = `${REMOTE}gamma\n`;
+    expect(after(remoteWon, laterRemote)).toMatchObject({ action: 'update', mine: MINE, theirs: laterRemote });
+
+    const laterMine = `${MINE}gamma\n`;
+    expect(after(localWon, laterMine)).toMatchObject({ action: 'update', mine: laterMine, theirs: REMOTE });
+  });
+
+  it('reports the regions the two bodies still disagree on', () => {
+    const plan = after(localWon, 'title\n\nalpha edited here\n\nbeta edited here too\n');
+    expect(plan.action).toBe('update');
+    expect(plan.conflicts).toHaveLength(1);
+    expect(plan.conflicts[0].theirsLines).toEqual(['beta edited there']);
+  });
+
+  it('clears once the document is the held body', () => {
+    expect(after(remoteWon, MINE)).toEqual({ action: 'clear' });
+    expect(after(localWon, REMOTE)).toEqual({ action: 'clear' });
+  });
+
+  it('clears once the document contains what the held body changed', () => {
+    expect(after(remoteWon, MERGED)).toEqual({ action: 'clear' });
+    expect(after(localWon, MERGED)).toEqual({ action: 'clear' });
+  });
+
+  it('does not take a later edit of the same side as containing the other side', () => {
+    // After a local win, a newer version of this device's own text says
+    // nothing about the displaced remote body.
+    const plan = after(localWon, `${MINE}\nmore of mine\n`);
+    expect(plan).toMatchObject({ action: 'update', theirs: REMOTE });
+  });
+
+  it('gives up neither body when the replaced text is neither of them', () => {
+    const record = { base: BASE, mine: MINE, theirs: REMOTE, previous: 'something else\n' };
+    expect(after(record, 'something else again\n')).toEqual({ action: 'keep' });
+    expect(after(record, MINE)).toEqual({ action: 'keep' });
+    expect(after(record, MERGED)).toEqual({ action: 'clear' });
+  });
+
+  it('replaces a body it cannot place only with text that plainly contains it', () => {
+    const added = `${BASE}added by mine\n`;
+    const record = { base: BASE, mine: added, theirs: CLASH, previous: 'something else\n' };
+    const next = `${added}and more\n`;
+    expect(after(record, next)).toMatchObject({ action: 'update', mine: next, theirs: CLASH });
+  });
+
+  it('clears a record whose two bodies are the same', () => {
+    expect(after({ base: BASE, mine: MINE, theirs: MINE, previous: MINE }, `${MINE}x\n`)).toEqual({ action: 'clear' });
+  });
+
+  it('compares line endings loosely', () => {
+    const crlf = REMOTE.replace(/\n/g, '\r\n');
+    expect(after({ ...remoteWon, previous: crlf }, crlf)).toEqual({ action: 'keep' });
+    expect(after({ ...remoteWon, previous: crlf }, `${REMOTE}gamma\n`)).toMatchObject({ action: 'update', mine: MINE });
   });
 });

@@ -260,6 +260,76 @@ export function planRemoteContent({
 }
 
 /**
+ * Decide what happens to a stored conflict when the Document's stored text is
+ * replaced, by a local save or by a body arriving from another replica.
+ *
+ * A conflict record holds two bodies. One of them is the Document's stored
+ * text; the other exists nowhere else and is what the record is for. Which is
+ * which depends on who won last-writer-wins when the conflict was recorded:
+ * after a remote win the stored text is `theirs` and `mine` is held, after a
+ * local win it is the other way round and `theirs` is the body this replica's
+ * upload displaced on the server. The side that matches `previous` is the one
+ * that follows the Document; the other is never overwritten.
+ *
+ * - `keep`    leave the record as it is
+ * - `clear`   the new text already contains the held body; nothing is left to decide
+ * - `update`  store `mine` and `theirs` (one of them is `next`) with `conflicts`
+ *
+ * @param {{
+ *   base: string | null | undefined,
+ *   mine: string | null | undefined,
+ *   theirs: string | null | undefined,
+ *   previous: string | null | undefined,
+ *   next: string | null | undefined,
+ * }} parts `previous` and `next` are the Document's stored text before and after the change
+ * @returns {{
+ *   action: 'keep' | 'clear' | 'update',
+ *   mine?: string,
+ *   theirs?: string,
+ *   conflicts?: Array<{ baseLines: string[], mineLines: string[], theirsLines: string[] }>,
+ * }}
+ */
+export function planConflictAfterChange({ base, mine, theirs, previous, next }) {
+    const nb = normalizeContent(base);
+    const nm = normalizeContent(mine);
+    const nt = normalizeContent(theirs);
+    const np = normalizeContent(previous);
+    const nn = normalizeContent(next);
+
+    /** True when `text` already holds everything `body` changed from the base. */
+    const covers = (text, body) => {
+        if (text === body || supersedes(nb, body, text)) return true;
+        const merge = mergeContent({ base: nb, mine: body, theirs: text });
+        return merge.status === 'clean' && normalizeContent(merge.content) === text;
+    };
+    const update = (sides) => {
+        const merge = mergeContent({ base: nb, ...sides });
+        return { action: 'update', ...sides, conflicts: merge.status === 'conflict' ? merge.conflicts : [] };
+    };
+
+    if (nm === nt) return { action: 'clear' };
+    if (nn === np) return { action: 'keep' };
+
+    const documentSide = np === nm ? 'mine' : np === nt ? 'theirs' : null;
+    if (documentSide === null) {
+        // Neither recorded body is the text being replaced, so there is no
+        // telling which one is held. Give one up only where the new text
+        // already contains it.
+        if (nn === nm || nn === nt) return { action: 'keep' };
+        const coversMine = covers(nn, nm);
+        const coversTheirs = covers(nn, nt);
+        if (coversMine && coversTheirs) return { action: 'clear' };
+        if (coversMine) return update({ mine: nn, theirs: nt });
+        if (coversTheirs) return update({ mine: nm, theirs: nn });
+        return { action: 'keep' };
+    }
+
+    const held = documentSide === 'mine' ? nt : nm;
+    if (covers(nn, held)) return { action: 'clear' };
+    return update(documentSide === 'mine' ? { mine: nn, theirs: nt } : { mine: nm, theirs: nn });
+}
+
+/**
  * Rolling write-back oscillation guard (COLLAB-02 §6.3). The first write-back
  * starts the window; the fourth within 60 seconds is suppressed. Elapsing the
  * window resets the count.
