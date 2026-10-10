@@ -61,6 +61,71 @@ export function toBufferLike(v) {
   return null;
 }
 
+const PACKED_INTEGER = 1;
+const PACKED_FLOAT = 2;
+const PACKED_TEXT = 3;
+const PACKED_BLOB = 4;
+const PACKED_NULL = 5;
+
+/**
+ * True when `value` is a well-formed CR-SQLite packed primary key: a column
+ * count followed, per column, by a type byte (low three bits the SQLite type,
+ * the rest the width of the integer that follows) and its payload, with no
+ * bytes left over.
+ *
+ * This is checked before a change reaches `crsql_changes` because the
+ * extension unpacks the key in native code and aborts the whole process on a
+ * malformed one — a single bad request would take the API down for everyone.
+ */
+export function isValidPackedPrimaryKey(value) {
+  if (!Buffer.isBuffer(value) || value.length < 2) return false;
+
+  const columnCount = value[0];
+  if (columnCount < 1) return false;
+
+  let offset = 1;
+  for (let column = 0; column < columnCount; column += 1) {
+    if (offset >= value.length) return false;
+    const typeByte = value[offset];
+    offset += 1;
+    const type = typeByte & 0x07;
+    const width = typeByte >> 3;
+
+    if (type === PACKED_NULL) {
+      if (width !== 0) return false;
+    } else if (type === PACKED_FLOAT) {
+      if (width !== 0) return false;
+      offset += 8;
+    } else if (type === PACKED_INTEGER) {
+      if (width > 8) return false;
+      offset += width;
+    } else if (type === PACKED_TEXT || type === PACKED_BLOB) {
+      if (width > 4 || offset + width > value.length) return false;
+      let length = 0;
+      for (let i = 0; i < width; i += 1) length = length * 256 + value[offset + i];
+      offset += width + length;
+    } else {
+      return false;
+    }
+    if (offset > value.length) return false;
+  }
+
+  return offset === value.length;
+}
+
+/** Resolve a client-supplied primary key to its packed bytes, or null. */
+function resolvePackedPrimaryKey(db, pk) {
+  try {
+    const parsed = JSON.parse(pk);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return db.prepare("SELECT crsql_pack_columns(?) as pk").get(parsed[0]).pk;
+    }
+  } catch {
+    // Not a JSON key array; fall through to the byte forms.
+  }
+  return toBufferLike(pk);
+}
+
 export function toSiteIdBlob(v) {
   const buf = toBufferLike(v);
   if (!buf) return null;
@@ -206,6 +271,16 @@ router.post("/sync", (req, res, next) => {
   let mergeChange = null;
   try {
     if (changes.length) {
+      // Resolve and check every key before the first row is merged, so a
+      // malformed batch is refused whole and never reaches the extension.
+      const packedKeys = changes.map((change) => resolvePackedPrimaryKey(db, change?.pk));
+      if (!packedKeys.every(isValidPackedPrimaryKey)) {
+        return res.status(400).json({
+          error: "Change batch contains a malformed primary key",
+          code: "INVALID_CHANGE",
+        });
+      }
+
       const noteMutations = extractNoteMutations(changes);
       const insertSQL = `
         INSERT INTO crsql_changes

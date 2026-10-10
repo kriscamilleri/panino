@@ -36,6 +36,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
  * Create and configure the Express app with WebSocket support
  * @returns {Object} { app, server, wss, clients }
  */
+const MAX_WS_MESSAGE_BYTES = 1024 * 1024;
+
 export function createApp() {
     const app = express();
 
@@ -46,11 +48,26 @@ export function createApp() {
     });
 
     const server = createServer(app); // Create an HTTP server
-    const wss = new WebSocketServer({ server }); // Create a WebSocket server
+    // Clients send nothing on this socket; it only carries the server's sync
+    // notices. Without maxPayload the library buffers frames of up to 100 MiB.
+    const wss = new WebSocketServer({ server, maxPayload: MAX_WS_MESSAGE_BYTES });
 
     const clients = new Map();
 
+    // The `ws` library emits "error" on a socket when a peer breaks the
+    // protocol (a malformed frame, an oversized one). An EventEmitter with no
+    // "error" listener throws, and nothing catches it: one such frame, from a
+    // client that has not even authenticated, exited the whole process. The
+    // listener is attached before anything else for that reason; the library
+    // closes the socket itself afterwards.
+    wss.on('error', (error) => {
+        console.error('[websocket] server error:', error?.code || 'unknown error');
+    });
+
     wss.on('connection', (ws, req) => {
+        ws.on('error', (error) => {
+            console.warn('[websocket] socket error:', error?.code || 'unknown error');
+        });
         console.log('WebSocket client connected');
         const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
         const token = params.get('token');
