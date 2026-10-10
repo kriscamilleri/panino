@@ -209,7 +209,7 @@ describe("POST /sync (shared spaces)", () => {
       .send({ since: 0, siteId, changes: [] });
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ changes: [], clock: 0, skipped: 0 });
+    expect(response.body).toEqual({ changes: [], clock: 0, skipped: 0, contentMergeWriteback: false });
     expect(response.body).not.toHaveProperty("membershipVersion");
   });
 

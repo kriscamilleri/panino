@@ -17,6 +17,38 @@ describe('qualified PDF image parsing', () => {
         )).toEqual({ imageId, spaceId });
     });
 
+    it('accepts absolute links only on a configured origin', () => {
+        const saved = {
+            INTERNAL_API_URL: process.env.INTERNAL_API_URL,
+            PUBLIC_API_BASE_URL: process.env.PUBLIC_API_BASE_URL,
+            FRONTEND_URL: process.env.FRONTEND_URL,
+        };
+        try {
+            delete process.env.INTERNAL_API_URL;
+            delete process.env.PUBLIC_API_BASE_URL;
+            delete process.env.FRONTEND_URL;
+            expect(parseInternalImageSource(`https://notes.example/api/images/${imageId}`)).toBeNull();
+
+            // Production serves the API under the frontend's own origin.
+            process.env.FRONTEND_URL = 'https://notes.example';
+            expect(parseInternalImageSource(`https://notes.example/api/images/${imageId}?token=signed`))
+                .toEqual({ imageId, spaceId: null });
+            expect(parseInternalImageSource(`https://attacker.test/api/images/${imageId}`)).toBeNull();
+
+            process.env.FRONTEND_URL = 'not a url';
+            expect(parseInternalImageSource(`https://notes.example/api/images/${imageId}`)).toBeNull();
+
+            process.env.PUBLIC_API_BASE_URL = 'http://localhost:8000';
+            expect(parseInternalImageSource(`http://localhost:8000/images/${imageId}`))
+                .toEqual({ imageId, spaceId: null });
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+        }
+    });
+
     it('rejects external lookalikes and noncanonical query strings', () => {
         expect(parseInternalImageSource(`https://attacker.test/images/${imageId}`)).toBeNull();
         expect(parseInternalImageSource(`/images/${imageId}?space=${spaceId}&other=1`)).toBeNull();

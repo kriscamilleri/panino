@@ -175,16 +175,32 @@ function isPrivateIp(ip) {
     return false;
 }
 
+const INTERNAL_IMAGE_ORIGIN_VARIABLES = ['INTERNAL_API_URL', 'PUBLIC_API_BASE_URL', 'FRONTEND_URL'];
+
+/** Origin of a configured URL, or null when it is unset or malformed. */
+function originOf(value) {
+    if (!value) return null;
+    try {
+        return new URL(value).origin;
+    } catch {
+        return null;
+    }
+}
+
 export function parseInternalImageSource(source) {
     try {
         const decodedSource = String(source).replace(/&amp;/gi, '&');
         const relative = decodedSource.startsWith('/');
         const parsed = new URL(decodedSource, 'http://panino-internal.invalid');
         if (!relative) {
-            const allowedOrigins = new Set([
-                process.env.INTERNAL_API_URL,
-                process.env.PUBLIC_API_BASE_URL,
-            ].filter(Boolean).map((value) => new URL(value).origin));
+            // In production the API is served under the frontend's own origin
+            // (`/api`), so an absolute link to one of the user's images carries
+            // FRONTEND_URL's origin. Without it, such links fall through to the
+            // external fetcher, are blocked as loopback/private, and the image
+            // is dropped from the PDF.
+            const allowedOrigins = new Set(INTERNAL_IMAGE_ORIGIN_VARIABLES
+                .map((name) => originOf(process.env[name]))
+                .filter(Boolean));
             if (!allowedOrigins.has(parsed.origin)) return null;
         }
         const match = /^\/(?:api\/)?images\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i

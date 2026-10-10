@@ -50,6 +50,76 @@ const SPACE_CHANGE_ALLOWLIST = {
   ]),
 };
 
+const PACKED_INTEGER = 1;
+const PACKED_FLOAT = 2;
+const PACKED_TEXT = 3;
+const PACKED_BLOB = 4;
+const PACKED_NULL = 5;
+
+/**
+ * True when `value` is a well-formed CR-SQLite packed primary key: a column
+ * count followed, per column, by a type byte (low three bits the SQLite type,
+ * the rest the width of the integer that follows) and its payload, with no
+ * bytes left over.
+ *
+ * This is checked before a change reaches `crsql_changes` because the
+ * extension unpacks the key in native code and aborts the whole process on a
+ * malformed one — a single bad request would take the API down for everyone.
+ */
+export function isValidPackedPrimaryKey(value) {
+  if (!Buffer.isBuffer(value) || value.length < 2) return false;
+
+  const columnCount = value[0];
+  if (columnCount < 1) return false;
+
+  let offset = 1;
+  for (let column = 0; column < columnCount; column += 1) {
+    if (offset >= value.length) return false;
+    const typeByte = value[offset];
+    offset += 1;
+    const type = typeByte & 0x07;
+    const width = typeByte >> 3;
+
+    if (type === PACKED_NULL) {
+      if (width !== 0) return false;
+    } else if (type === PACKED_FLOAT) {
+      if (width !== 0) return false;
+      offset += 8;
+    } else if (type === PACKED_INTEGER) {
+      if (width > 8) return false;
+      offset += width;
+    } else if (type === PACKED_TEXT || type === PACKED_BLOB) {
+      if (width > 4 || offset + width > value.length) return false;
+      let length = 0;
+      for (let i = 0; i < width; i += 1) length = length * 256 + value[offset + i];
+      offset += width + length;
+    } else {
+      return false;
+    }
+    if (offset > value.length) return false;
+  }
+
+  return offset === value.length;
+}
+
+/** Resolve a client-supplied primary key to its packed bytes, or null. */
+function resolvePackedPrimaryKey(db, pk) {
+  try {
+    const parsed = JSON.parse(pk);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return db.prepare("SELECT crsql_pack_columns(?) as pk").get(parsed[0]).pk;
+    }
+  } catch {
+    // Not a JSON key array; fall through to the byte forms.
+  }
+  return toBufferLike(pk);
+}
+
+/** Server-owned switch for automatic content-merge write-back; off unless set to "true". */
+export function isContentMergeWritebackEnabled() {
+  return process.env.CONTENT_MERGE_WRITEBACK_ENABLED === "true";
+}
+
 function isTombstoneCid(cid) {
   return cid == null || cid === "" || String(cid) === "-1";
 }
@@ -330,7 +400,41 @@ router.post("/sync", (req, res, next) => {
   let mergeAttempted = false;
   let mergeChange = null;
   try {
+    // Read what other replicas changed since `since` BEFORE merging this
+    // request's upload. Read afterwards, a value this upload overwrites has
+    // already disappeared from crsql_changes (only the winning column version
+    // is listed, and it is now the requester's own, which is filtered out), so
+    // the requester would never learn that it replaced an edit it had not
+    // seen. The pre-merge read is a superset of the post-merge one: it adds
+    // exactly those displaced rows, which lose again when the requester
+    // applies them and are therefore harmless to clients that ignore them.
+    // The handler is synchronous, so no other request can interleave between
+    // this read, the merge below, and the clock read after it.
+    const mySiteBlob = toSiteIdBlob(siteId);
+    const remote = db
+      .prepare(
+        `
+      SELECT "table", hex(pk) as pk, cid, val, col_version, db_version,
+             hex(site_id) AS site_id, seq, cl
+      FROM crsql_changes
+      WHERE db_version > ?
+        AND (? IS NULL OR site_id != ?)
+      ORDER BY db_version ASC
+    `,
+      )
+      .all(since, mySiteBlob, mySiteBlob);
+
     if (changes.length) {
+      // Resolve and check every key before the first row is merged, so a
+      // malformed batch is refused whole and never reaches the extension.
+      const packedKeys = changes.map((change) => resolvePackedPrimaryKey(db, change?.pk));
+      if (!packedKeys.every(isValidPackedPrimaryKey)) {
+        return res.status(400).json({
+          error: "Change batch contains a malformed primary key",
+          code: "INVALID_CHANGE",
+        });
+      }
+
       const noteMutations = extractNoteMutations(changes);
       const insertSQL = `
         INSERT INTO crsql_changes
@@ -351,22 +455,8 @@ router.post("/sync", (req, res, next) => {
         // which is the structural fix; this is the safety net.
         db.prepare("PRAGMA defer_foreign_keys = ON").run();
 
-        for (const ch of rows) {
-          let pkBytes;
-          try {
-            const parsed = JSON.parse(ch.pk);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              const pkValue = parsed[0];
-              const packResult = db
-                .prepare("SELECT crsql_pack_columns(?) as pk")
-                .get(pkValue);
-              pkBytes = packResult.pk;
-            } else {
-              pkBytes = toBufferLike(ch.pk);
-            }
-          } catch {
-            pkBytes = toBufferLike(ch.pk);
-          }
+        for (const [index, ch] of rows.entries()) {
+          const pkBytes = packedKeys[index];
 
           const row = {
             table: toSqliteScalar(ch.table),
@@ -438,20 +528,6 @@ router.post("/sync", (req, res, next) => {
       }
     }
 
-    const mySiteBlob = toSiteIdBlob(siteId);
-    const remote = db
-      .prepare(
-        `
-      SELECT "table", hex(pk) as pk, cid, val, col_version, db_version,
-             hex(site_id) AS site_id, seq, cl
-      FROM crsql_changes
-      WHERE db_version > ?
-        AND (? IS NULL OR site_id != ?)
-      ORDER BY db_version ASC
-    `,
-      )
-      .all(since, mySiteBlob, mySiteBlob);
-
     const clockRow = db
       .prepare(`SELECT max(db_version) as version FROM crsql_changes`)
       .get();
@@ -461,6 +537,10 @@ router.post("/sync", (req, res, next) => {
       changes: remote,
       clock: newClock,
       skipped: 0,
+      // Clients merge concurrent body edits automatically only while this is
+      // true in the same successful response; absent or false means "hold both
+      // sides for the user" (COLLAB-00 §4, COLLAB-02 §4.1).
+      contentMergeWriteback: isContentMergeWritebackEnabled(),
     };
     if (isSpaceSync) {
       // Computed after the merge and remote-changes query so a metadata
