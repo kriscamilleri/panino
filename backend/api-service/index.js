@@ -14,7 +14,7 @@ import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { backupPublicRoutes, backupRoutes } from './backup.js';
-import { closeAllConnections, initDb } from './db.js';
+import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 import { attachWebSocketHandlers } from './websocket.js';
 import { spaceRoutes, startSpaceDeletionJob } from './spaces.js';
@@ -89,6 +89,14 @@ export function createApp() {
     app.use(pdfRoutes); // Mount the new PDF route
     app.use(backupRoutes);
     app.use(revisionRoutes);
+
+    // A handler that did not catch a "database is locked" error: answer with a
+    // retryable 503 rather than Express's generic 500. Everything else keeps
+    // the default handling.
+    app.use((err, req, res, next) => {
+        if (!res.headersSent && isDatabaseBusyError(err)) return respondDatabaseBusy(res);
+        return next(err);
+    });
 
     return { app, server, wss, clients, collabManager };
 }

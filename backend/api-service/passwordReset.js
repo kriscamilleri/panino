@@ -2,7 +2,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { getAuthDb } from './db.js';
+import { getAuthDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { sendPasswordResetEmail } from './mailer.js';
 
 export const passwordResetRoutes = express.Router();
@@ -32,6 +32,7 @@ passwordResetRoutes.post('/forgot-password', async (req, res) => {
         // Always return a success message to prevent email enumeration
         res.json({ message: 'If an account with that email exists, a password reset link has been sent.' });
     } catch (error) {
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Forgot password error:', error);
         res.status(500).json({ error: 'Internal server error.' });
     }
@@ -63,6 +64,7 @@ passwordResetRoutes.post('/reset-password', async (req, res) => {
 
         res.json({ message: 'Password has been reset successfully.' });
     } catch (error) {
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Reset password error:', error);
         res.status(500).json({ error: 'Internal server error.' });
     }

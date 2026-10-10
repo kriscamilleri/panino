@@ -16,19 +16,47 @@ export const MINIMUM_CLIENT_SCHEMA_VERSION = 1;
 export const SPACES_SCHEMA_VERSION = 3;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Both the shared auth (`_users.db`) and shared spaces (`_spaces.db`) metadata
-// connections are long-lived, process-wide singletons that can be queried or
-// written from concurrent requests (e.g. a space-invariant check writing to
-// `_spaces.db` while another request reads `_users.db` to resolve an actor).
-// Without a busy timeout, SQLITE_BUSY surfaces immediately on any lock
-// contention instead of retrying briefly, so both connections get a bounded
-// `busy_timeout` right after opening/initializing, before being cached or
-// used elsewhere. 30s (rather than a shorter value) absorbs realistic
-// contention bursts against these two shared singleton files under heavy
-// concurrent load (e.g. many parallel test-suite workers or requests
-// hitting the same physical file at once) while still bounding worst-case
-// request latency instead of hanging indefinitely.
-export const METADATA_DB_BUSY_TIMEOUT_MS = 30_000;
+// Lock waits on the shared metadata databases (`_users.db`, `_spaces.db`).
+//
+// better-sqlite3 is synchronous. While one statement waits for a lock, the
+// whole process waits with it: every other request, every WebSocket message,
+// every timer. A `busy_timeout` is therefore not a per-request courtesy but a
+// bound on how long ANYTHING outside this process (the backup tool, a repair
+// script, an operator's sqlite3 session, a second API process) can freeze the
+// API by holding a lock. With 30 seconds, one held write lock on `_users.db`
+// was measured freezing unrelated `/sync` requests for the full duration.
+//
+// So the wait is kept short in the running service, and a request that still
+// finds the database locked fails fast with a retryable 503 instead of holding
+// up everyone else. The test suite is the exception: its workers are separate
+// processes sharing the same two files, and a long wait there only slows the
+// worker that is waiting.
+const SERVICE_BUSY_TIMEOUT_MS = 250;
+const TEST_BUSY_TIMEOUT_MS = 30_000;
+const MAX_BUSY_TIMEOUT_MS = 60_000;
+
+export function resolveMetadataBusyTimeoutMs(env = process.env) {
+  const raw = env.METADATA_DB_BUSY_TIMEOUT_MS;
+  const configured = raw === undefined || raw === "" ? NaN : Number(raw);
+  if (Number.isFinite(configured) && configured >= 0) {
+    return Math.min(Math.floor(configured), MAX_BUSY_TIMEOUT_MS);
+  }
+  return env.NODE_ENV === "test" ? TEST_BUSY_TIMEOUT_MS : SERVICE_BUSY_TIMEOUT_MS;
+}
+
+export const METADATA_DB_BUSY_TIMEOUT_MS = resolveMetadataBusyTimeoutMs();
+
+/** True for SQLite's "another connection holds the lock" family of errors. */
+export function isDatabaseBusyError(error) {
+  const code = String(error?.code || "");
+  return code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED");
+}
+
+/** The response for a request that found a database locked: retry shortly. */
+export function respondDatabaseBusy(res) {
+  res.set("Retry-After", "1");
+  return res.status(503).json({ error: "Temporarily unavailable", code: "DATABASE_BUSY" });
+}
 
 const dbConnections = new Map();
 
@@ -1005,9 +1033,34 @@ export function getAuthDb() {
   const db = new Database(dbPath);
   db.exec(AUTH_SCHEMA);
   db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
+  enableWriteAheadLog(db, "_users.db");
 
   dbConnections.set(key, db);
   return db;
+}
+
+/**
+ * Put a metadata database in WAL mode, as the content databases already are.
+ * In WAL mode a reader never waits for a writer and a writer never waits for a
+ * reader, so logins, token refreshes and WebSocket handshakes (all reads) are
+ * unaffected by a backup or an operator session holding the file. Only a
+ * second WRITER can still make this process wait, and then only for
+ * `busy_timeout`.
+ *
+ * The mode is stored in the file and survives restarts and older builds.
+ * Switching needs the file to itself for an instant; if something else has it
+ * open the switch is skipped and tried again at the next start, because a
+ * database in the old mode still works and must not stop the service starting.
+ */
+function enableWriteAheadLog(db, label) {
+  try {
+    const mode = db.pragma("journal_mode = wal", { simple: true });
+    if (String(mode).toLowerCase() !== "wal") {
+      console.warn(`[db] ${label} stayed in ${mode} journal mode; will retry at next start.`);
+    }
+  } catch (error) {
+    console.warn(`[db] could not switch ${label} to WAL (${error?.code || "unknown"}); will retry at next start.`);
+  }
 }
 
 export function initializeSpacesDb(db) {

@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { URLSearchParams } from 'url';
-import { getAuthDb, getUserDb } from './db.js';
+import { getAuthDb, getUserDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 
 export const signupRoutes = express.Router();
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
@@ -68,6 +68,7 @@ signupRoutes.post('/signup', async (req, res) => {
         if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
             return res.status(409).json({ error: 'User with this email already exists' });
         }
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Signup error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }

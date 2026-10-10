@@ -495,7 +495,17 @@ export function attachWebSocketHandlers(wss, clients, jwtSecret) {
       if (err) return ws.close(1008, "Invalid token");
 
       const userId = payload.user_id;
-      if (!getAuthDb().prepare("SELECT 1 FROM users WHERE id = ?").get(userId)) {
+      let knownUser;
+      try {
+        knownUser = getAuthDb().prepare("SELECT 1 FROM users WHERE id = ?").get(userId);
+      } catch (error) {
+        // An exception here would leave the `connection` listener and take the
+        // whole process down. A locked or unreadable auth database is a reason
+        // to ask this client to come back, not to stop serving everyone.
+        console.error("[websocket] handshake user lookup failed:", error?.code || "unknown error");
+        return ws.close(1013, "Try again later");
+      }
+      if (!knownUser) {
         return ws.close(1008, "Invalid token");
       }
       if (countConnectionsForUser(clients, userId) >= MAX_CONNECTIONS_PER_USER) {

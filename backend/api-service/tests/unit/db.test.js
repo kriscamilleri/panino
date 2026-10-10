@@ -26,6 +26,8 @@ import {
   ensureImagesSchema,
   ensureNotesSchema,
   METADATA_DB_BUSY_TIMEOUT_MS,
+  isDatabaseBusyError,
+  resolveMetadataBusyTimeoutMs,
 } from "../../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -240,6 +242,39 @@ describe("Database Initialization", () => {
 
     expect(authDb.pragma("busy_timeout", { simple: true })).toBe(METADATA_DB_BUSY_TIMEOUT_MS);
     expect(spacesDb.pragma("busy_timeout", { simple: true })).toBe(METADATA_DB_BUSY_TIMEOUT_MS);
+  });
+
+  it("keeps both metadata databases in WAL mode so readers never wait for a writer", () => {
+    expect(getAuthDb().pragma("journal_mode", { simple: true })).toBe("wal");
+    expect(getSpacesDb().pragma("journal_mode", { simple: true })).toBe("wal");
+  });
+
+  it("waits only briefly for a lock in the running service, and long only under test", () => {
+    // The driver is synchronous: a lock wait freezes every request, not just
+    // the one waiting. A held lock on `_users.db` with a 30 s wait was measured
+    // stalling unrelated /sync requests for its whole duration.
+    expect(resolveMetadataBusyTimeoutMs({ NODE_ENV: "production" })).toBe(250);
+    expect(resolveMetadataBusyTimeoutMs({ NODE_ENV: "development" })).toBe(250);
+    expect(resolveMetadataBusyTimeoutMs({})).toBe(250);
+    expect(resolveMetadataBusyTimeoutMs({ NODE_ENV: "test" })).toBe(30_000);
+  });
+
+  it("honours an explicit timeout but never an unbounded or malformed one", () => {
+    expect(resolveMetadataBusyTimeoutMs({ NODE_ENV: "production", METADATA_DB_BUSY_TIMEOUT_MS: "1000" })).toBe(1000);
+    expect(resolveMetadataBusyTimeoutMs({ NODE_ENV: "production", METADATA_DB_BUSY_TIMEOUT_MS: "0" })).toBe(0);
+    expect(resolveMetadataBusyTimeoutMs({ NODE_ENV: "production", METADATA_DB_BUSY_TIMEOUT_MS: "900000" })).toBe(60_000);
+    for (const bad of ["", "abc", "-5", "NaN"]) {
+      expect(resolveMetadataBusyTimeoutMs({ NODE_ENV: "production", METADATA_DB_BUSY_TIMEOUT_MS: bad })).toBe(250);
+    }
+  });
+
+  it("recognises lock errors and nothing else", () => {
+    for (const code of ["SQLITE_BUSY", "SQLITE_BUSY_SNAPSHOT", "SQLITE_BUSY_TIMEOUT", "SQLITE_LOCKED", "SQLITE_LOCKED_SHAREDCACHE"]) {
+      expect(isDatabaseBusyError({ code })).toBe(true);
+    }
+    for (const error of [null, undefined, {}, { code: "SQLITE_CONSTRAINT" }, { code: "ENOENT" }, new Error("database is locked")]) {
+      expect(isDatabaseBusyError(error)).toBe(false);
+    }
   });
 });
 
