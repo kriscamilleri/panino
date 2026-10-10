@@ -615,8 +615,60 @@ function ensureTemplatesSchema(db) {
   }
 }
 
+const NOTE_REVISION_COLUMNS = `id, note_id, title, content_gzip, type, content_sha256,
+  uncompressed_bytes, compressed_bytes, created_at, actor_user_id, actor_kind`;
+
+const NOTE_REVISIONS_TABLE_SQL = `
+  CREATE TABLE note_revisions (
+    id TEXT PRIMARY KEY NOT NULL,
+    note_id TEXT NOT NULL,
+    title TEXT,
+    content_gzip BLOB NOT NULL,
+    type TEXT NOT NULL DEFAULT 'auto',
+    content_sha256 TEXT NOT NULL,
+    uncompressed_bytes INTEGER NOT NULL,
+    compressed_bytes INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    actor_user_id TEXT,
+    actor_kind TEXT,
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+  );`;
+
+/**
+ * A rebuild of `note_revisions` that died after renaming the table leaves the
+ * history in `note_revisions_old` while the schema bootstrap has since created
+ * an empty `note_revisions`. Bring the rows back and remove the leftover.
+ * Revisions of documents that no longer exist are not restored: they would
+ * violate the cascade foreign key, and the cascade would have removed them.
+ */
+function recoverInterruptedRevisionRebuild(db) {
+  const leftover = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'note_revisions_old'")
+    .get();
+  if (!leftover) return;
+
+  const oldColumns = new Set(
+    db.prepare("PRAGMA table_info('note_revisions_old')").all().map((column) => column.name),
+  );
+  const source = NOTE_REVISION_COLUMNS.split(",")
+    .map((name) => name.trim())
+    .map((name) => (oldColumns.has(name) ? name : `NULL AS ${name}`))
+    .join(", ");
+
+  db.transaction(() => {
+    db.exec(`
+      INSERT OR IGNORE INTO note_revisions (${NOTE_REVISION_COLUMNS})
+      SELECT ${source} FROM note_revisions_old
+      WHERE note_id IN (SELECT id FROM notes);
+      DROP TABLE note_revisions_old;
+    `);
+  })();
+  console.warn("[db] Recovered note revisions left behind by an interrupted table rebuild.");
+}
+
 export function ensureNoteRevisionsSchema(db) {
   try {
+    recoverInterruptedRevisionRebuild(db);
     const cols = db.prepare("PRAGMA table_info('note_revisions')").all();
     if (!cols || cols.length === 0) {
       // BASE_SCHEMA creates the table with the correct (cascade) FK and the
@@ -640,11 +692,16 @@ export function ensureNoteRevisionsSchema(db) {
 
     if (!needsFkMigration && !hasActorColumns) {
       // Already has the cascade FK from an earlier repair/initializer run;
-      // just add the two backend-only actor columns in place.
-      db.exec(`
-        ALTER TABLE note_revisions ADD COLUMN actor_user_id TEXT;
-        ALTER TABLE note_revisions ADD COLUMN actor_kind TEXT;
-      `);
+      // just add the two backend-only actor columns in place. Each is added
+      // only if missing: a process that died between the two statements
+      // otherwise fails here on "duplicate column" at every later open, and
+      // that user's database can never be opened again.
+      if (!columnNames.has("actor_user_id")) {
+        db.exec("ALTER TABLE note_revisions ADD COLUMN actor_user_id TEXT");
+      }
+      if (!columnNames.has("actor_kind")) {
+        db.exec("ALTER TABLE note_revisions ADD COLUMN actor_kind TEXT");
+      }
       return;
     }
 
@@ -671,40 +728,34 @@ export function ensureNoteRevisionsSchema(db) {
       hasActorColumns ? "actor_kind" : "NULL AS actor_kind",
     ].join(", ");
 
-    db.exec(`
-      PRAGMA foreign_keys = OFF;
-      ALTER TABLE note_revisions RENAME TO note_revisions_old;
-      CREATE TABLE note_revisions (
-        id TEXT PRIMARY KEY NOT NULL,
-        note_id TEXT NOT NULL,
-        title TEXT,
-        content_gzip BLOB NOT NULL,
-        type TEXT NOT NULL DEFAULT 'auto',
-        content_sha256 TEXT NOT NULL,
-        uncompressed_bytes INTEGER NOT NULL,
-        compressed_bytes INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        actor_user_id TEXT,
-        actor_kind TEXT,
-        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
-      );
-      INSERT INTO note_revisions (
-        id, note_id, title, content_gzip, type, content_sha256,
-        uncompressed_bytes, compressed_bytes, created_at,
-        actor_user_id, actor_kind
-      )
-      SELECT ${sourceColumns} FROM note_revisions_old;
-      -- The renamed table still owns the old named indexes, which would make
-      -- CREATE INDEX IF NOT EXISTS silently skip re-creation. Drop them first.
-      DROP INDEX IF EXISTS idx_note_revisions_note_created;
-      DROP INDEX IF EXISTS idx_note_revisions_note_type_created;
-      CREATE INDEX IF NOT EXISTS idx_note_revisions_note_created
-        ON note_revisions(note_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_note_revisions_note_type_created
-        ON note_revisions(note_id, type, created_at DESC);
-      DROP TABLE note_revisions_old;
-      PRAGMA foreign_keys = ON;
-    `);
+    // SQLite ignores PRAGMA foreign_keys inside a transaction, so it is
+    // switched around one. Everything between runs as a single transaction: a
+    // process that dies midway leaves the original table as it was. Run as
+    // separate statements, a death after the rename left `note_revisions_old`
+    // behind, the next start created an empty `note_revisions`, and the
+    // revision history was gone without an error.
+    db.pragma("foreign_keys = OFF");
+    try {
+      db.transaction(() => {
+        db.exec(`
+          ALTER TABLE note_revisions RENAME TO note_revisions_old;
+          ${NOTE_REVISIONS_TABLE_SQL}
+          INSERT INTO note_revisions (${NOTE_REVISION_COLUMNS})
+          SELECT ${sourceColumns} FROM note_revisions_old;
+          -- The renamed table still owns the old named indexes, which would make
+          -- CREATE INDEX IF NOT EXISTS silently skip re-creation. Drop them first.
+          DROP INDEX IF EXISTS idx_note_revisions_note_created;
+          DROP INDEX IF EXISTS idx_note_revisions_note_type_created;
+          CREATE INDEX IF NOT EXISTS idx_note_revisions_note_created
+            ON note_revisions(note_id, created_at DESC);
+          CREATE INDEX IF NOT EXISTS idx_note_revisions_note_type_created
+            ON note_revisions(note_id, type, created_at DESC);
+          DROP TABLE note_revisions_old;
+        `);
+      })();
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
   } catch (err) {
     console.error("[db] Failed to ensure note_revisions schema:", err);
     throw err;
@@ -1121,7 +1172,15 @@ export function getSpacesDb() {
 
 export function initDb() {
   getAuthDb();
-  getSpacesDb();
+  try {
+    getSpacesDb();
+  } catch (error) {
+    // Shared spaces are optional and off by default; personal Documents do not
+    // use this database at all. A file that cannot be created or migrated must
+    // not keep every user out. It is left unopened, so anything that needs it
+    // tries again and fails closed for that request only.
+    console.error("[db] Shared-space metadata database is unavailable:", error?.code || error?.message || "unknown");
+  }
   if (process.env.LIVE_SESSIONS_ENABLED === "true") {
     for (const dbKey of listUuidDatabaseFiles(SPACES_DB_DIR, "space")) {
       try {

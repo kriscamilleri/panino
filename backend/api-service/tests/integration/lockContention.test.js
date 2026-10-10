@@ -104,3 +104,73 @@ describe('a locked database', () => {
         expect(response.body).toEqual({ error: 'Temporarily unavailable', code: 'DATABASE_BUSY' });
     });
 });
+
+describe('a client that breaks the WebSocket protocol', () => {
+    let app;
+    let server;
+    let port;
+
+    beforeAll(async () => {
+        ({ app, server } = createTestApp());
+        await new Promise((resolve) => server.listen(0, resolve));
+        port = server.address().port;
+    });
+
+    afterAll(() => new Promise((resolve) => server.close(resolve)));
+
+    /** Upgrade by hand, with no token, then write raw bytes as the first frame. */
+    async function sendRawFrame(frame) {
+        const net = await import('node:net');
+        const crypto = await import('node:crypto');
+        return new Promise((resolve) => {
+            const socket = net.connect(port, '127.0.0.1', () => {
+                socket.write([
+                    'GET / HTTP/1.1',
+                    `Host: 127.0.0.1:${port}`,
+                    'Upgrade: websocket',
+                    'Connection: Upgrade',
+                    `Sec-WebSocket-Key: ${crypto.randomBytes(16).toString('base64')}`,
+                    'Sec-WebSocket-Version: 13',
+                    '', '',
+                ].join('\r\n'));
+            });
+            let upgraded = false;
+            socket.on('data', (chunk) => {
+                if (!upgraded && chunk.toString().startsWith('HTTP/1.1 101')) {
+                    upgraded = true;
+                    socket.write(frame);
+                }
+            });
+            socket.on('close', () => resolve(upgraded));
+            socket.on('error', () => resolve(upgraded));
+            setTimeout(() => { socket.destroy(); resolve(upgraded); }, 1500);
+        });
+    }
+
+    it('survives a malformed frame from an unauthenticated connection', async () => {
+        // FIN with all three reserved bits set and no extension negotiated. The
+        // `ws` library reports this as an "error" event on the socket; with no
+        // listener that event was an uncaught exception that exited the process
+        // for every user. If the listener is missing this test takes the worker
+        // down with it.
+        const upgraded = await sendRawFrame(Buffer.from([0xf1, 0x81, 0x00, 0x00, 0x00, 0x00, 0x41]));
+        expect(upgraded).toBe(true);
+
+        const stillServing = await request(app).get('/me');
+        expect([401, 403]).toContain(stillServing.status);
+    });
+
+    it('refuses a frame larger than the message limit before buffering it', async () => {
+        // A masked binary frame header announcing 2 MiB. Without maxPayload the
+        // library would accept up to 100 MiB before any application limit ran.
+        const header = Buffer.alloc(14);
+        header[0] = 0x82;
+        header[1] = 0x80 | 127;
+        header.writeBigUInt64BE(BigInt(2 * 1024 * 1024), 2);
+        const upgraded = await sendRawFrame(header);
+        expect(upgraded).toBe(true);
+
+        const stillServing = await request(app).get('/me');
+        expect([401, 403]).toContain(stillServing.status);
+    });
+});

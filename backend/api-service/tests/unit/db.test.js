@@ -529,6 +529,80 @@ describe("CRDT Tables", () => {
   });
 });
 
+describe("ensureNoteRevisionsSchema: interrupted migrations", () => {
+  const NOTE = "note-rev-crash";
+  const insertNote = (db) => db
+    .prepare("INSERT INTO notes (id, title, content, created_at, updated_at) VALUES (?, 'T', 'c', 'now', 'now')")
+    .run(NOTE);
+  const revisionColumns = (db, table = "note_revisions") =>
+    db.prepare(`PRAGMA table_info('${table}')`).all().map((column) => column.name);
+
+  it("finishes an actor-column migration that stopped after the first column", () => {
+    // The two columns were added by one multi-statement exec. A process that
+    // died between them left only the first; re-running then failed on
+    // "duplicate column" at every later open, locking the user out for good.
+    const db = getTestDb("rev-half-columns", { inMemory: true });
+    db.exec("ALTER TABLE note_revisions DROP COLUMN actor_kind");
+    expect(revisionColumns(db)).toContain("actor_user_id");
+    expect(revisionColumns(db)).not.toContain("actor_kind");
+
+    expect(() => ensureNoteRevisionsSchema(db)).not.toThrow();
+    expect(revisionColumns(db)).toEqual(expect.arrayContaining(["actor_user_id", "actor_kind"]));
+    expect(() => ensureNoteRevisionsSchema(db)).not.toThrow();
+  });
+
+  it("restores the history left behind by a rebuild that stopped after the rename", () => {
+    // Old layout in `note_revisions_old`, and the empty table the schema
+    // bootstrap created on the next start: before, the history stayed orphaned.
+    const db = getTestDb("rev-orphaned-rebuild", { inMemory: true });
+    insertNote(db);
+    db.exec(`
+      CREATE TABLE note_revisions_old (
+        id TEXT PRIMARY KEY NOT NULL, note_id TEXT NOT NULL, title TEXT,
+        content_gzip BLOB NOT NULL, type TEXT NOT NULL DEFAULT 'auto',
+        content_sha256 TEXT NOT NULL, uncompressed_bytes INTEGER NOT NULL,
+        compressed_bytes INTEGER NOT NULL, created_at TEXT NOT NULL
+      );
+      INSERT INTO note_revisions_old VALUES ('rev-kept', '${NOTE}', 'T', x'00', 'manual', 'sha', 1, 1, 'then');
+      INSERT INTO note_revisions_old VALUES ('rev-of-deleted-note', 'gone', 'T', x'00', 'auto', 'sha', 1, 1, 'then');
+    `);
+
+    ensureNoteRevisionsSchema(db);
+
+    expect(db.prepare("SELECT id, type, actor_user_id FROM note_revisions").all())
+      .toEqual([{ id: "rev-kept", type: "manual", actor_user_id: null }]);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'note_revisions_old'").get()).toBeUndefined();
+    expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+  });
+
+  it("rebuilds a legacy table in one transaction and leaves foreign keys on", () => {
+    const db = getTestDb("rev-legacy-rebuild", { inMemory: true });
+    insertNote(db);
+    db.pragma("foreign_keys = OFF");
+    db.exec(`
+      DROP TABLE note_revisions;
+      CREATE TABLE note_revisions (
+        id TEXT PRIMARY KEY NOT NULL, note_id TEXT NOT NULL, title TEXT,
+        content_gzip BLOB NOT NULL, type TEXT NOT NULL DEFAULT 'auto',
+        content_sha256 TEXT NOT NULL, uncompressed_bytes INTEGER NOT NULL,
+        compressed_bytes INTEGER NOT NULL, created_at TEXT NOT NULL,
+        FOREIGN KEY (note_id) REFERENCES notes(id)
+      );
+      INSERT INTO note_revisions VALUES ('rev-legacy', '${NOTE}', 'T', x'00', 'auto', 'sha', 1, 1, 'then');
+    `);
+    db.pragma("foreign_keys = ON");
+
+    ensureNoteRevisionsSchema(db);
+
+    expect(db.prepare("SELECT id FROM note_revisions").all()).toEqual([{ id: "rev-legacy" }]);
+    expect(revisionColumns(db)).toEqual(expect.arrayContaining(["actor_user_id", "actor_kind"]));
+    expect(db.prepare("PRAGMA foreign_key_list('note_revisions')").all()[0].on_delete).toBe("CASCADE");
+    expect(db.inTransaction).toBe(false);
+    expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'note_revisions_old'").get()).toBeUndefined();
+  });
+});
+
 describe("ensureNoteRevisionsSchema", () => {
   // Returns the on_delete action for the note_revisions -> notes FK, or null
   // if no such FK is present.

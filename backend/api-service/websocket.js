@@ -484,7 +484,19 @@ export function attachWebSocketHandlers(wss, clients, jwtSecret) {
   const collabManager = createCollabSessionManager({
     poke: (dbKey, excludeSiteId) => pokeSpaceSubscribers(clients, dbKey, excludeSiteId),
   });
+  // The `ws` library emits "error" on a socket when a peer breaks the protocol
+  // (a malformed frame, an oversized one). An EventEmitter with no "error"
+  // listener throws, and nothing catches it: one such frame, from a client that
+  // has not even authenticated, exited the whole process. The listener is
+  // attached before anything else for that reason; the library closes the
+  // socket itself afterwards.
+  wss.on("error", (error) => {
+    console.error("[websocket] server error:", error?.code || "unknown error");
+  });
   wss.on("connection", (ws, req) => {
+    ws.on("error", (error) => {
+      console.warn("[websocket] socket error:", error?.code || "unknown error");
+    });
     const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
     const token = params.get("token");
     const siteId = params.get("siteId");

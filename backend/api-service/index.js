@@ -16,7 +16,7 @@ import { passwordResetRoutes } from './passwordReset.js';
 import { backupPublicRoutes, backupRoutes } from './backup.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
-import { attachWebSocketHandlers } from './websocket.js';
+import { attachWebSocketHandlers, MAX_MESSAGE_BYTES } from './websocket.js';
 import { spaceRoutes, startSpaceDeletionJob } from './spaces.js';
 import { spaceTransferRoutes } from './spaceTransfer.js';
 import { startCollabRecoveryJob } from './collab.js';
@@ -55,7 +55,9 @@ export function createApp() {
     });
 
     const server = createServer(app); // Create an HTTP server
-    const wss = new WebSocketServer({ server }); // Create a WebSocket server
+    // Without maxPayload the library buffers frames of up to 100 MiB before the
+    // message handler can apply its own 1 MiB limit.
+    const wss = new WebSocketServer({ server, maxPayload: MAX_MESSAGE_BYTES });
 
     const clients = new Map();
 
