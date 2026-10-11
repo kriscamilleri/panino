@@ -26,6 +26,7 @@ import {
   serializeConflictHunks,
 } from "@panino/content-merge";
 import { v4 as uuidv4 } from "uuid";
+import { deleteLocalDatabase, purgeCachedSpaceResponses } from "@/utils/localDatabaseStorage";
 import {
   clockStorageKey,
   isStorageQuotaError,
@@ -39,6 +40,7 @@ import {
 } from "@/utils/syncRegistry";
 import {
   createDatabaseKey,
+  legacySpaceDatabaseName,
   localDatabaseName,
   parseDatabaseKey,
 } from "@/utils/databaseKey";
@@ -156,6 +158,9 @@ export const useSyncStore = defineStore("syncStore", () => {
   let reconnectTimer = null;
   let stableConnectionTimer = null;
   let reconnectAttempts = 0;
+  // Resubscriptions after the server refused a subscribe request; reset by an
+  // accepted one, so a server that keeps refusing is not asked for ever.
+  let subscribeRetries = 0;
   let hasShownConnectionLimitNotice = false;
   let shouldReconnect = false;
   const webSocketListeners = new Set();
@@ -224,9 +229,65 @@ export const useSyncStore = defineStore("syncStore", () => {
     return repository(dbKey).exec(sql, params);
   }
 
+  /** The signed-in account, which a space's local file is named after. */
+  function accountUserId() {
+    return personalDbKey.value ? parseDatabaseKey(personalDbKey.value).id : null;
+  }
+
+  const membershipCacheKey = () => `panino_spaces:${accountUserId()}`;
+
+  /** The space list as last received, so a start without a connection can open what this device holds. */
+  function readCachedMembership() {
+    try {
+      const cached = JSON.parse(localStorage.getItem(membershipCacheKey()) || "null");
+      return Array.isArray(cached?.spaces) ? cached : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeCachedMembership(spaces) {
+    try {
+      if (!spaces) localStorage.removeItem(membershipCacheKey());
+      else {
+        localStorage.setItem(membershipCacheKey(), JSON.stringify({
+          spaces: spaces.map(({ spaceId, name, role, members }) => ({ spaceId, name, role, members: members || [] })),
+        }));
+      }
+    } catch {
+      // A convenience for offline starts; never worth failing a refresh over.
+    }
+  }
+
+  /**
+   * Remove everything a space left on this device: its database, its sync
+   * positions and its cached responses. Access to it has ended (removal,
+   * leaving, deletion) or the user asked for the local copy to go.
+   */
+  async function wipeLocalSpace(dbKey) {
+    const { kind, id } = parseDatabaseKey(dbKey);
+    if (kind !== "space") return;
+    localStorage.removeItem(clockStorageKey(dbKey));
+    localStorage.removeItem(pushCursorStorageKey(dbKey));
+    const account = accountUserId();
+    for (const filename of [account && localDatabaseName(dbKey, account), legacySpaceDatabaseName(dbKey)]) {
+      if (!filename) continue;
+      try {
+        await deleteLocalDatabase(filename);
+      } catch (error) {
+        console.warn("[syncStore] Could not delete a local space database", error?.name || error);
+      }
+    }
+    try {
+      await purgeCachedSpaceResponses(id);
+    } catch (error) {
+      console.warn("[syncStore] Could not clear cached responses for a space", error?.name || error);
+    }
+  }
+
   async function openDatabaseEntry({ dbKey, name, role = null, members = [] }) {
     const { kind } = parseDatabaseKey(dbKey);
-    const database = markRaw(await sqlite.value.open(localDatabaseName(dbKey)));
+    const database = markRaw(await sqlite.value.open(localDatabaseName(dbKey, accountUserId())));
     database.exec(DB_SCHEMA);
     await ensureNotesSchema(database);
     await ensureImagesSchema(database);
@@ -776,6 +837,9 @@ tags:
         // Reconnect websocket and sync
         connectWebSocket();
         sync();
+        // Spaces that could not be loaded or opened while offline are tried
+        // again now; this used to need a click on Retry for each one.
+        void requestMembershipRefresh().catch(reportMembershipRefreshFailure);
       } else if (auth.isAuthenticated && !syncEnabled.value) {
         // User is authenticated but sync was disabled while offline
         const { useUiStore } = await import("./uiStore");
@@ -1348,6 +1412,10 @@ tags:
       // Revocation removes the handle from the active registry even if close races.
     }
     databases.value.delete(dbKey);
+    // Closing alone left the whole replica on disk: every Document, a second
+    // copy of each body, and edits that were never uploaded. Those came back,
+    // and were uploaded, if the member was invited again.
+    await wipeLocalSpace(dbKey);
   }
 
   async function bootstrapSpaces(spaces) {
@@ -1374,9 +1442,22 @@ tags:
           role: space.role,
           members: space.members || [],
         });
-        await syncDatabase(entry);
+        try {
+          await syncDatabase(entry);
+        } catch (error) {
+          // A space this device has synced before is already here. Without a
+          // connection it opens with what it has, like the personal library;
+          // only a space that has never been downloaded has nothing to show.
+          const heldLocally = getClock(dbKey) > 0 && !isStorageQuotaError(error) && error?.code !== "SESSION_EXPIRED";
+          if (!heldLocally) throw error;
+          entry.status = "sync-error";
+          entry.error = "Sync failed. Local changes are safe and will retry.";
+        }
         subscribeInitializedDatabases();
       } catch (error) {
+        // Without this the only trace of a failed space was a generic message
+        // in the tree.
+        console.warn(`[syncStore] Could not open ${dbKey}:`, error?.message || error);
         const existing = databases.value.get(dbKey);
         if (existing?.db) {
           try { await existing.db.close(); } catch { /* discard below */ }
@@ -1427,13 +1508,29 @@ tags:
     if (!isInitialized.value || !personalDbKey.value) return;
     if (membershipRefreshPromise) return membershipRefreshPromise;
     membershipRefreshPromise = (async () => {
-      const snapshot = await fetchMembershipPages();
+      let snapshot;
+      try {
+        snapshot = await fetchMembershipPages();
+      } catch (error) {
+        // No answer from the server. On a cold start nothing is open yet, so
+        // open the spaces this device was last told about and already holds;
+        // otherwise they were simply absent until the next successful load.
+        const cached = readCachedMembership();
+        const anyOpen = [...databases.value.values()].some((entry) => entry.kind === "space");
+        if (!cached?.spaces.length || anyOpen) throw error;
+        sharedSpacesAvailable.value = true;
+        await bootstrapSpaces(cached.spaces);
+        if (!bootstrap) await useDocStore().refreshData();
+        return;
+      }
       if (!snapshot) {
         sharedSpacesAvailable.value = false;
         liveSessionsAvailable.value = false;
         pendingSpaceDeletions.value = [];
+        writeCachedMembership(null);
         return;
       }
+      writeCachedMembership(snapshot.spaces);
       sharedSpacesAvailable.value = true;
       liveSessionsAvailable.value = snapshot.liveSessions;
       pendingSpaceDeletions.value = snapshot.pendingDeletion;
@@ -1803,6 +1900,7 @@ tags:
       let msg;
       try { msg = JSON.parse(event.data); } catch { return; }
       notifyWebSocketListeners(msg);
+      if (msg.type === "subscribe" && msg.ok === true) subscribeRetries = 0;
       if (msg.type === "sync") {
         const target = msg.payload?.dbKey || personalDbKey.value;
         if (databases.value.has(target)) void sync(target);
@@ -1835,8 +1933,16 @@ tags:
         msg.type === "subscribe" &&
         msg.error?.code === "SPACE_NOT_FOUND"
       ) {
+        // The server refuses the whole request when one database in it is no
+        // longer ours. After dropping that one, the rest still have to be
+        // subscribed; otherwise the socket stays connected with no
+        // subscriptions and no space receives live updates until a reload.
         try {
           await requestMembershipRefresh();
+          if (subscribeRetries < 3) {
+            subscribeRetries += 1;
+            subscribeInitializedDatabases();
+          }
         } catch (error) {
           reportMembershipRefreshFailure(error);
         }

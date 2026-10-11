@@ -13,7 +13,7 @@
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
         <ImageLibraryModal
             :show="ui.showImageLibraryModal"
-            :db-key="docStore.selectedDbKey"
+            :db-key="docStore.selectedDbKey || undefined"
             @close="ui.closeImageLibraryModal()"
             @insert-selected="handleInsertSelectedImages"
             data-testid="homepage-image-library-modal"
