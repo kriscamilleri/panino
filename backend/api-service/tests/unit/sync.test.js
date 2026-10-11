@@ -1,6 +1,6 @@
 // Unit tests for sync.js utility functions
 import { describe, it, expect } from 'vitest';
-import { toBufferLike, toSiteIdBlob } from '../../sync.js';
+import { isValidPackedPrimaryKey, toBufferLike, toSiteIdBlob } from '../../sync.js';
 
 describe('toBufferLike', () => {
     it('should convert Buffer to Buffer', () => {
@@ -99,4 +99,47 @@ describe('toSiteIdBlob', () => {
         expect(result.length).toBe(16);
         expect(result).toEqual(buf.subarray(0, 16));
     });
+});
+
+describe('isValidPackedPrimaryKey', () => {
+  const textKey = (text) => {
+    const bytes = Buffer.from(text, 'utf8');
+    return Buffer.concat([Buffer.from([1, (1 << 3) | 3, bytes.length]), bytes]);
+  };
+
+  it('accepts a single text column, the shape every Panino table uses', () => {
+    expect(isValidPackedPrimaryKey(textKey('33333333-3333-4333-8333-333333333333'))).toBe(true);
+    expect(isValidPackedPrimaryKey(textKey('note-1'))).toBe(true);
+  });
+
+  it('accepts the other column types CR-SQLite can pack', () => {
+    expect(isValidPackedPrimaryKey(Buffer.from([1, (1 << 3) | 1, 7]))).toBe(true); // integer 7
+    expect(isValidPackedPrimaryKey(Buffer.from([1, 5]))).toBe(true); // null
+    expect(isValidPackedPrimaryKey(Buffer.from([1, 2, 0, 0, 0, 0, 0, 0, 0, 0]))).toBe(true); // float
+    expect(isValidPackedPrimaryKey(Buffer.from([2, (1 << 3) | 3, 1, 0x61, (1 << 3) | 4, 2, 0, 1]))).toBe(true); // text + blob
+  });
+
+  it('rejects values that are not packed keys at all', () => {
+    expect(isValidPackedPrimaryKey(null)).toBe(false);
+    expect(isValidPackedPrimaryKey('note-1')).toBe(false);
+    expect(isValidPackedPrimaryKey(Buffer.alloc(0))).toBe(false);
+    expect(isValidPackedPrimaryKey(Buffer.from([0]))).toBe(false);
+    expect(isValidPackedPrimaryKey(Buffer.from('note-1', 'utf8'))).toBe(false);
+  });
+
+  it('rejects truncated, overlong and unknown-type payloads', () => {
+    const valid = textKey('note-1');
+    expect(isValidPackedPrimaryKey(valid.subarray(0, valid.length - 1))).toBe(false);
+    expect(isValidPackedPrimaryKey(Buffer.concat([valid, Buffer.from([0])]))).toBe(false);
+    expect(isValidPackedPrimaryKey(Buffer.from([1, (1 << 3) | 3, 200, 0x61]))).toBe(false); // length past the end
+    expect(isValidPackedPrimaryKey(Buffer.from([1, (9 << 3) | 1, 1, 2, 3, 4, 5, 6, 7, 8, 9]))).toBe(false); // 9-byte integer
+    expect(isValidPackedPrimaryKey(Buffer.from([1, 6]))).toBe(false); // no such type
+    expect(isValidPackedPrimaryKey(Buffer.from([2, (1 << 3) | 3, 1, 0x61]))).toBe(false); // second column missing
+  });
+
+  it('rejects the bytes a hex key string decodes to when read as base64', () => {
+    // A client that sends hex(pk) used to reach the extension as garbage and abort the process.
+    const hex = textKey('33333333-3333-4333-8333-333333333333').toString('hex').toUpperCase();
+    expect(isValidPackedPrimaryKey(Buffer.from(hex, 'base64'))).toBe(false);
+  });
 });

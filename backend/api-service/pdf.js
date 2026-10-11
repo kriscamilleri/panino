@@ -25,19 +25,18 @@ import express from 'express';
 import puppeteer from 'puppeteer';
 import { JSDOM } from 'jsdom';
 import DOMPurify from 'dompurify';
-import path from 'path';
 import fs from 'fs';
 import { promises as dns } from 'dns';
-import { fileURLToPath } from 'url';
-import { getUserDb } from './db.js';
+import { getDb } from './db.js';
+import { resolveSpaceAccess } from './spaces.js';
+import { resolveStoredImagePath } from './spaceStorage.js';
+import { parseInternalImageLink } from './imageLinks.js';
 import { PDFDocument } from 'pdf-lib';
 
 export const pdfRoutes = express.Router();
 
 const window = new JSDOM('').window;
 const purify = DOMPurify(window);
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 const CONFIG = {
     EXTERNAL_IMAGE_TIMEOUT: 10000,
@@ -177,15 +176,35 @@ function isPrivateIp(ip) {
     return false;
 }
 
-function getInternalImageAsDataUri(imageId, userId) {
+/**
+ * An image link the PDF renderer may embed from this installation's own
+ * storage, or null. Stricter than the shared parser: a link carrying any
+ * parameter other than `space` and `token` is left to the external path.
+ */
+export function parseInternalImageSource(source) {
+    const link = parseInternalImageLink(source);
+    if (!link || link.extraParameters) return null;
+    return { imageId: link.imageId, spaceId: link.spaceId };
+}
+
+function getInternalImageAsDataUri(source, userId) {
     try {
-        const db = getUserDb(userId);
-        const image = db.prepare('SELECT mime_type, path FROM images WHERE id = ? AND user_id = ?').get(imageId, userId);
+        const target = parseInternalImageSource(source);
+        if (!target) return null;
+        let dbKey = `user:${userId}`;
+        if (target.spaceId) {
+            const access = resolveSpaceAccess(target.spaceId, userId);
+            if (!access) return null;
+            dbKey = `space:${access.spaceId}`;
+        }
+        const db = getDb(dbKey);
+        const image = target.spaceId
+            ? db.prepare('SELECT mime_type, path FROM images WHERE id = ?').get(target.imageId)
+            : db.prepare('SELECT mime_type, path FROM images WHERE id = ? AND user_id = ?').get(target.imageId, userId);
 
         if (!image?.path) return null;
-
-        const absolutePath = path.join(UPLOADS_DIR, image.path);
-        if (!absolutePath.startsWith(UPLOADS_DIR) || !fs.existsSync(absolutePath)) return null;
+        const absolutePath = resolveStoredImagePath(dbKey, image.path);
+        if (!absolutePath || !fs.existsSync(absolutePath)) return null;
 
         const buffer = fs.readFileSync(absolutePath);
         return `data:${image.mime_type};base64,${buffer.toString('base64')}`;
@@ -285,16 +304,15 @@ async function embedImagesAsDataUri(html, userId) {
             return { original: fullMatch, replacement: fullMatch };
         }
 
-        const internalMatch = src.match(/\/(?:api\/)?images\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i) ||
-            src.match(/\/(?:api\/)?images\/([a-f0-9-]{32,})/i);
+        const internalMatch = parseInternalImageSource(src);
         if (internalMatch) {
-            const dataUri = getInternalImageAsDataUri(internalMatch[1], userId);
+            const dataUri = getInternalImageAsDataUri(src, userId);
             if (dataUri) {
                 const sizeKB = Math.round(dataUri.length / 1024);
-                log(`  Image ${idx + 1}: Internal ${internalMatch[1]} converted (${sizeKB}KB)`);
+                log(`  Image ${idx + 1}: Internal ${internalMatch.imageId} converted (${sizeKB}KB)`);
                 return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
             }
-            log(`  Image ${idx + 1}: Internal lookup ${internalMatch[1]} failed - falling back to external/cleanup`);
+            log(`  Image ${idx + 1}: Internal lookup ${internalMatch.imageId} failed - falling back to external/cleanup`);
         }
 
         if (src.startsWith('http://') || src.startsWith('https://')) {
@@ -616,4 +634,3 @@ async function generatePdf(req, res) {
         }
     }
 }
-

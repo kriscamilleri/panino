@@ -176,15 +176,12 @@ echo "$ENV_CONTENT" > "$ENV_PATH"
 # 3. Build frontend
 ################################################################################
 
-echo "==> Installing NPM dependencies in ./frontend ..."
-if ! (cd "$FRONTEND_PATH" && npm ci); then
-  echo "ERROR during frontend dependencies installation"
-  exit 1
-fi
-
-echo "==> Running production build in ./frontend ..."
-if ! (cd "$FRONTEND_PATH" && NODE_ENV=production npm run build); then
-  echo "ERROR during frontend build"
+# The steps live in scripts/build-frontend.sh so CI runs exactly what a deploy
+# runs. They used to be inlined here and installed ./frontend only; the build
+# then failed on the server because the shared content-merge package's own
+# dependency was never installed there.
+if ! "$PROJECT_ROOT/scripts/build-frontend.sh"; then
+  echo "ERROR during frontend install or build; nothing was published" >&2
   exit 1
 fi
 

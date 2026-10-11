@@ -2,7 +2,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { getAuthDb, getUserDbSizeBytes } from './db.js';
+import { getAuthDb, getUserDbSizeBytes, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 
 export const authRoutes = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
@@ -59,6 +59,7 @@ authRoutes.post('/login', (req, res) => {
             }
         });
     } catch (error) {
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Login error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -83,6 +84,7 @@ authRoutes.post('/refresh', authenticateToken, (req, res) => {
 
         res.json({ token, user_id: user.id });
     } catch (error) {
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Token refresh error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -100,6 +102,7 @@ authRoutes.get('/me', authenticateToken, (req, res) => {
             database_size_bytes: getUserDbSizeBytes(req.user.user_id)
         });
     } catch (error) {
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Get me error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
@@ -131,6 +134,7 @@ authRoutes.post('/me/password', authenticateToken, (req, res) => {
 
         res.json({ message: 'Password updated successfully.' });
     } catch (error) {
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Password update error:', error);
         res.status(500).json({ error: 'Internal server error.' });
     }

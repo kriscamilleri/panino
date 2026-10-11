@@ -11,11 +11,9 @@
                 :class="getToastClass(toast.type)"
                 class="min-w-[200px] max-w-sm px-4 py-3 rounded-lg shadow-lg flex items-start justify-between"
                 role="alert"
-            > <!-- HTML is already sanitized before it reaches here -->
-                <div
-                    class="flex-1 pr-2"
-                    v-html="toast.message"
-                /> <button
+            >
+                <div class="flex-1 pr-2">{{ toast.message }}</div>
+                <button
                     @click="ui.removeToast(toast.id)"
                     class="text-lg leading-none focus:outline-none"
                     :class="getButtonClass(toast.type)"
@@ -24,8 +22,19 @@
         </TransitionGroup>
     </div>
 </template>
-<script setup>import { useUiStore } from '@/store/uiStore';
+<script setup>
+import { onMounted } from 'vue';
+import { useUiStore } from '@/store/uiStore';
+import { takeDeferredToasts } from '@/utils/deferredToasts';
+
 const ui = useUiStore()
+
+// Show messages queued by a flow that reloaded the page (see deferredToasts.js).
+onMounted(() => {
+    for (const toast of takeDeferredToasts(window.sessionStorage)) {
+        ui.addToast(toast.message, toast.type, toast.duration);
+    }
+});
 
 function getToastClass(type) {
     switch (type) {

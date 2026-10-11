@@ -363,6 +363,7 @@ import { ref, computed, markRaw } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import { isMarkdownFile } from '@/utils/importUtils'
+import { queueDeferredToasts } from '@/utils/deferredToasts'
 import { Upload, AlertCircle, FileText, FolderOpen, Archive, Braces, Image } from 'lucide-vue-next'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
@@ -584,8 +585,8 @@ function buildImportToastMessage(result) {
     return parts.length ? `Import complete: ${parts.join(', ')}.` : 'Nothing changed during import.'
 }
 
-function showSkippedItemsToast(result) {
-    if (!result?.skippedItems?.length) return
+function buildSkippedItemsToastMessage(result) {
+    if (!result?.skippedItems?.length) return null
 
     const preview = result.skippedItems
         .slice(0, 3)
@@ -594,7 +595,14 @@ function showSkippedItemsToast(result) {
     const remaining = result.skippedItems.length - 3
     const suffix = remaining > 0 ? `; +${remaining} more` : ''
 
-    uiStore.addToast(`Skipped ${result.skippedItems.length} item(s): ${preview}${suffix}`, 'warning', 8000)
+    return `Skipped ${result.skippedItems.length} item(s): ${preview}${suffix}`
+}
+
+function buildImportToasts(result) {
+    const toasts = [{ message: buildImportToastMessage(result), type: 'success', duration: 5000 }]
+    const skipped = buildSkippedItemsToastMessage(result)
+    if (skipped) toasts.push({ message: skipped, type: 'warning', duration: 8000 })
+    return toasts
 }
 
 function shouldReloadAfterImport(result) {
@@ -647,9 +655,15 @@ async function doImport(importOptions = {}) {
             }
         }
 
+        const willReload = shouldReloadAfterImport(result)
         if (result) {
-            uiStore.addToast(buildImportToastMessage(result), 'success')
-            showSkippedItemsToast(result)
+            const toasts = buildImportToasts(result)
+            // The reload below would discard in-memory toasts before they can be
+            // read, so in that case they are queued and shown after it.
+            const queued = willReload ? queueDeferredToasts(window.sessionStorage, toasts) : 0
+            if (queued === 0) {
+                toasts.forEach(toast => uiStore.addToast(toast.message, toast.type, toast.duration))
+            }
         }
 
         emit('import-success')
@@ -657,7 +671,7 @@ async function doImport(importOptions = {}) {
         activeMode.value = null
         resetSelections()
 
-        if (shouldReloadAfterImport(result)) {
+        if (willReload) {
             window.location.reload()
         }
     } catch (err) {

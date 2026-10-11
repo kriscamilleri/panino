@@ -10,3 +10,24 @@
 export function hasDocumentContentChanged(persistedContent, nextContent) {
   return (persistedContent ?? "") !== (nextContent ?? "");
 }
+
+/**
+ * Classifies a remote content change for an open editor as `adopt`, `ignore`,
+ * or `conflict` (COLLAB-01 §4.2).
+ *
+ * - `adopt`: the editor is clean — remote content should replace the textarea.
+ * - `ignore`: remote content equals the base — nothing meaningful changed.
+ * - `conflict`: the editor and the remote side both diverged from the base.
+ *
+ * @param {{ mine: string | null | undefined, base: string | null | undefined, theirs: string | null | undefined }} parts
+ * @returns {'adopt' | 'ignore' | 'conflict'}
+ */
+export function classifyEditorConflict({ mine, base, theirs }) {
+  if (!hasDocumentContentChanged(theirs, base)) return "ignore";
+  if (!hasDocumentContentChanged(mine, base)) return "adopt";
+  // The editor already shows exactly the incoming text (its own save came
+  // back, or both sides made the same change). That is agreement; adopting
+  // only moves the base forward.
+  if (!hasDocumentContentChanged(mine, theirs)) return "adopt";
+  return "conflict";
+}

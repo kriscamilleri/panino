@@ -22,3 +22,26 @@ describe('ImportModal document with linked images', () => {
         expect(source).toContain('linkedSourceDirectory.value');
     });
 });
+
+describe('ImportModal result messages', () => {
+    it('queues result toasts for after the reload instead of losing them', () => {
+        // The dialog reloads the page right after a successful import. Toasts
+        // added only to the in-memory store vanish with that reload.
+        const queueIndex = source.indexOf('queueDeferredToasts(window.sessionStorage, toasts)');
+        const reloadIndex = source.indexOf('window.location.reload()');
+
+        expect(queueIndex).toBeGreaterThan(-1);
+        expect(reloadIndex).toBeGreaterThan(queueIndex);
+        expect(source).toContain('const willReload = shouldReloadAfterImport(result)');
+    });
+
+    it('includes the skipped-item warning in the queued messages', () => {
+        expect(source).toContain('const skipped = buildSkippedItemsToastMessage(result)');
+        expect(source).toContain("toasts.push({ message: skipped, type: 'warning', duration: 8000 })");
+    });
+
+    it('still shows the messages immediately when no reload follows or queuing fails', () => {
+        expect(source).toContain('if (queued === 0) {');
+        expect(source).toContain('toasts.forEach(toast => uiStore.addToast(toast.message, toast.type, toast.duration))');
+    });
+});

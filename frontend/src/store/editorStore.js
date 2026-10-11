@@ -137,10 +137,24 @@ export const useEditorStore = defineStore('editorStore', () => {
         if (editorRef.value?.redo) editorRef.value.redo()
     }
 
+    /** Save now what the editor's debounce is still holding. Resolves once written. */
+    async function flushPendingSave() {
+        if (editorRef.value && typeof editorRef.value.flushPendingSave === 'function') {
+            await editorRef.value.flushPendingSave()
+        }
+    }
+
+    /** True while the editor holds text it will not save until the user picks a side. */
+    function isHoldingChanges() {
+        return Boolean(editorRef.value?.isHoldingChanges?.())
+    }
+
     return {
         editorRef,
         setEditorRef,
         clearEditorRef,
+        flushPendingSave,
+        isHoldingChanges,
         insertFormat,
         insertList,
         insertLink,

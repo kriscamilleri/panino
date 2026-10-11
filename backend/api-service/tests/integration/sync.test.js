@@ -190,6 +190,48 @@ describe("POST /sync", () => {
     expect(response.status).toBe(403);
   });
 
+  it("refuses a malformed primary key instead of handing it to the extension", async () => {
+    const siteId = generateSiteId("d");
+    const change = (pk, title) => ({
+      table: "notes",
+      pk,
+      cid: "title",
+      val: title,
+      col_version: 1,
+      db_version: 1,
+      site_id: siteId,
+      cl: 1,
+      seq: 0,
+    });
+
+    // hex(pk) is not a form the server decodes: it is read as base64 and the
+    // resulting bytes are not a packed key. CR-SQLite unpacks keys in native
+    // code and aborted the whole process on them.
+    const id = Buffer.from("33333333-3333-4333-8333-333333333333", "utf8");
+    const hexKey = Buffer.concat([Buffer.from([1, (1 << 3) | 3, id.length]), id]).toString("hex").toUpperCase();
+    const response = await request(app)
+      .post("/sync")
+      .set("Authorization", `Bearer ${testToken}`)
+      .send({
+        since: 0,
+        siteId,
+        changes: [change('["well-formed-note"]', "must not be merged"), change(hexKey, "x")],
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ code: "INVALID_CHANGE" });
+    // The batch is refused whole, including the well-formed row before it.
+    const db = getUserDb(testUser.userId);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM notes").get().n).toBe(0);
+
+    // The server is still serving.
+    const next = await request(app)
+      .post("/sync")
+      .set("Authorization", `Bearer ${testToken}`)
+      .send({ since: 0, siteId, changes: [] });
+    expect(next.status).toBe(200);
+  });
+
   it("should handle empty changes array", async () => {
     const siteId = generateSiteId("e");
 

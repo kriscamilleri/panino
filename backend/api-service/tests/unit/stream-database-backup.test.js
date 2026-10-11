@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import {
+  BACKUP_MANIFEST_PATH,
+  CONTAINER_DATA_DIRS,
+  resolveDataDir,
+  createTarHeader,
   createProgressReporter,
   createDatabaseTar,
   listDatabaseFiles,
@@ -56,29 +60,127 @@ describe("stream database backup", () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
+  it("targets the production Compose volume mount paths", () => {
+    const backupScript = fs.readFileSync(
+      new URL("../../../../scripts/production-database-backup/backup-production-databases.sh", import.meta.url),
+      "utf8",
+    );
+    const compose = fs.readFileSync(new URL("../../../../docker-compose.yml", import.meta.url), "utf8");
+
+    expect(compose).toContain("api-data:/app/backend/api-service/data");
+    expect(compose).toContain("uploads-data:/app/backend/api-service/uploads");
+    // The producer looks in the mounted path first, then in the path the
+    // previous image used. The wrapper pins neither: pinned to the new path it
+    // could not back up the container that is running just before this layout
+    // is deployed, which is the backup that deploy depends on.
+    expect(CONTAINER_DATA_DIRS).toEqual(["/app/backend/api-service/data", "/app/data"]);
+    expect(backupScript).not.toMatch(/-e DB_DIR=\/app/);
+    expect(backupScript).not.toMatch(/-e UPLOADS_DIR=\/app/);
+    expect(backupScript).toContain("PANINO_CONTAINER_DB_DIR");
+  });
+
+  describe("finding the data volume in the container", () => {
+    const layout = (name) => {
+      const dir = path.join(tempDir, name);
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    };
+
+    it("uses the current mount when it holds the auth database", () => {
+      const current = layout("current");
+      const previous = layout("previous");
+      fs.writeFileSync(path.join(current, "_users.db"), "");
+      fs.writeFileSync(path.join(previous, "_users.db"), "");
+
+      expect(resolveDataDir(undefined, [current, previous])).toBe(current);
+    });
+
+    it("falls back to the previous layout on a container that predates the move", () => {
+      const previous = layout("previous");
+      fs.writeFileSync(path.join(previous, "_users.db"), "");
+
+      expect(resolveDataDir(undefined, [path.join(tempDir, "absent"), previous])).toBe(previous);
+    });
+
+    it("lets an explicit directory win, and names the current mount when nothing is found", () => {
+      expect(resolveDataDir("/somewhere/else", [layout("current")])).toBe("/somewhere/else");
+      expect(resolveDataDir("", [path.join(tempDir, "a"), path.join(tempDir, "b")])).toBe(path.join(tempDir, "a"));
+    });
+  });
+
+  it("archives an estate from before shared spaces existed as a full backup", async () => {
+    const authDb = new Database(path.join(tempDir, "_users.db"));
+    authDb.exec("CREATE TABLE users (id TEXT PRIMARY KEY)");
+    authDb.close();
+    const userDb = new Database(path.join(tempDir, "user-A.db"));
+    userDb.exec("CREATE TABLE notes (id TEXT PRIMARY KEY)");
+    userDb.close();
+    // The uploads volume holds personal images only; none of them is archived.
+    const uploadsDir = path.join(tempDir, "uploads");
+    fs.mkdirSync(path.join(uploadsDir, "user-A"), { recursive: true });
+    fs.writeFileSync(path.join(uploadsDir, "user-A", "image.png"), "personal");
+
+    const entries = parseTar(await collect(createDatabaseTar(tempDir, tempDir, () => {}, {}, uploadsDir)));
+
+    expect([...entries.keys()]).toEqual(["data/user-A.db", "data/_users.db", BACKUP_MANIFEST_PATH]);
+    expect(JSON.parse(entries.get(BACKUP_MANIFEST_PATH).toString("utf8"))).toMatchObject({
+      scope: "full",
+      spacesMetadata: false,
+      spaces: [],
+    });
+  });
+
+  it("still refuses a full backup of space content without its metadata database", async () => {
+    const spaceId = "11111111-1111-4111-8111-111111111111";
+    new Database(path.join(tempDir, "_users.db")).close();
+    fs.mkdirSync(path.join(tempDir, "spaces"));
+    new Database(path.join(tempDir, "spaces", `${spaceId}.db`)).close();
+
+    await expect(collect(createDatabaseTar(tempDir, tempDir))).rejects.toThrow("Full backup requires data/_spaces.db");
+  });
+
   it("lists only regular .db files in stable order", () => {
     fs.writeFileSync(path.join(tempDir, "z.db"), "");
     fs.writeFileSync(path.join(tempDir, "_users.db"), "");
+    fs.writeFileSync(path.join(tempDir, "_spaces.db"), "");
     fs.writeFileSync(path.join(tempDir, "z.db-wal"), "");
     fs.mkdirSync(path.join(tempDir, "directory.db"));
+    const spacesDir = path.join(tempDir, "spaces");
+    fs.mkdirSync(spacesDir);
+    fs.writeFileSync(
+      path.join(spacesDir, "11111111-1111-4111-8111-111111111111.db"),
+      "",
+    );
 
-    expect(listDatabaseFiles(tempDir)).toEqual(["_users.db", "z.db"]);
+    expect(listDatabaseFiles(tempDir)).toEqual([
+      "_spaces.db",
+      "spaces/11111111-1111-4111-8111-111111111111.db",
+      "z.db",
+      "_users.db",
+    ]);
+  });
+
+  it("rejects unsafe nested tar paths", () => {
+    expect(() => createTarHeader("../data/_users.db", 0, 0)).toThrow(/Unsafe/);
+    expect(() => createTarHeader("/data/_users.db", 0, 0)).toThrow(/Unsupported/);
+    expect(() => createTarHeader("data\\_users.db", 0, 0)).toThrow(/Unsupported/);
   });
 
   // Selection exists so a narrow diagnostic pull (DX-10 step 8) does not copy the whole
   // estate — including the auth database — onto a workstation.
   describe("database selection", () => {
     beforeEach(() => {
-      for (const name of ["_users.db", "user-a.db", "user-b.db"]) {
+      for (const name of ["_spaces.db", "_users.db", "user-a.db", "user-b.db"]) {
         fs.writeFileSync(path.join(tempDir, name), "");
       }
     });
 
     it("takes every database when no selection is given", () => {
       expect(listDatabaseFiles(tempDir)).toEqual([
-        "_users.db",
+        "_spaces.db",
         "user-a.db",
         "user-b.db",
+        "_users.db",
       ]);
     });
 
@@ -90,6 +192,7 @@ describe("stream database backup", () => {
     it("excludes the auth database when asked", () => {
       const exclude = parseDatabaseSelector("_users.db");
       expect(listDatabaseFiles(tempDir, { exclude })).toEqual([
+        "_spaces.db",
         "user-a.db",
         "user-b.db",
       ]);
@@ -126,9 +229,10 @@ describe("stream database backup", () => {
     it("describes databases with metadata only, no content", () => {
       const described = describeDatabases(tempDir);
       expect(described.map((entry) => entry.name)).toEqual([
-        "_users.db",
+        "_spaces.db",
         "user-a.db",
         "user-b.db",
+        "_users.db",
       ]);
       for (const entry of described) {
         expect(entry).toHaveProperty("sizeBytes");
@@ -151,6 +255,10 @@ describe("stream database backup", () => {
   });
 
   it("archives valid snapshots including committed WAL changes", async () => {
+    const spacesDb = new Database(path.join(tempDir, "_spaces.db"));
+    spacesDb.exec("CREATE TABLE spaces (id TEXT PRIMARY KEY)");
+    spacesDb.close();
+
     const authDb = new Database(path.join(tempDir, "_users.db"));
     authDb.exec("CREATE TABLE users (id TEXT PRIMARY KEY)");
     authDb.prepare("INSERT INTO users (id) VALUES (?)").run("user-A");
@@ -167,10 +275,15 @@ describe("stream database backup", () => {
 
     const archive = await collect(createDatabaseTar(tempDir, tempDir));
     const entries = parseTar(archive);
-    expect([...entries.keys()]).toEqual(["_users.db", "user-A.db"]);
+    expect([...entries.keys()]).toEqual([
+      "data/_spaces.db",
+      "data/user-A.db",
+      "data/_users.db",
+      BACKUP_MANIFEST_PATH,
+    ]);
 
     const authSnapshotPath = path.join(tempDir, "restored-auth.db");
-    fs.writeFileSync(authSnapshotPath, entries.get("_users.db"));
+    fs.writeFileSync(authSnapshotPath, entries.get("data/_users.db"));
     const authSnapshot = new Database(authSnapshotPath);
     expect(authSnapshot.prepare("SELECT id FROM users").pluck().all()).toEqual([
       "user-A",
@@ -178,7 +291,7 @@ describe("stream database backup", () => {
     authSnapshot.close();
 
     const userSnapshotPath = path.join(tempDir, "restored-user.db");
-    fs.writeFileSync(userSnapshotPath, entries.get("user-A.db"));
+    fs.writeFileSync(userSnapshotPath, entries.get("data/user-A.db"));
     const userSnapshot = new Database(userSnapshotPath);
     expect(
       userSnapshot
@@ -189,6 +302,92 @@ describe("stream database backup", () => {
     userDb.close();
   });
 
+  it("archives shared-space databases and uploads with a hashed path manifest", async () => {
+    const spaceId = "11111111-1111-4111-8111-111111111111";
+    const spacesDb = new Database(path.join(tempDir, "_spaces.db"));
+    spacesDb.exec("CREATE TABLE spaces (id TEXT PRIMARY KEY)");
+    spacesDb.close();
+    const authDb = new Database(path.join(tempDir, "_users.db"));
+    authDb.exec("CREATE TABLE users (id TEXT PRIMARY KEY)");
+    authDb.close();
+    fs.mkdirSync(path.join(tempDir, "spaces"));
+    const contentDb = new Database(path.join(tempDir, "spaces", `${spaceId}.db`));
+    contentDb.exec("CREATE TABLE notes (id TEXT PRIMARY KEY, content TEXT)");
+    contentDb.close();
+
+    const uploadsDir = path.join(tempDir, "uploads-root");
+    const uploadRoot = path.join(uploadsDir, "spaces", spaceId);
+    fs.mkdirSync(uploadRoot, { recursive: true });
+    fs.writeFileSync(path.join(uploadRoot, "asset.png"), "image bytes");
+
+    const archive = await collect(
+      createDatabaseTar(tempDir, tempDir, () => {}, {}, uploadsDir),
+    );
+    const entries = parseTar(archive);
+    expect([...entries.keys()]).toEqual([
+      "data/_spaces.db",
+      `data/spaces/${spaceId}.db`,
+      `uploads/spaces/${spaceId}/asset.png`,
+      "data/_users.db",
+      BACKUP_MANIFEST_PATH,
+    ]);
+
+    const manifest = JSON.parse(entries.get(BACKUP_MANIFEST_PATH).toString("utf8"));
+    expect(manifest).toMatchObject({
+      format: "panino-production-backup",
+      version: 2,
+      scope: "full",
+      spaces: [{
+        spaceId,
+        databasePath: `data/spaces/${spaceId}.db`,
+        uploadsPrefix: `uploads/spaces/${spaceId}/`,
+      }],
+    });
+    expect(manifest.entries.map((entry) => entry.path)).toEqual([
+      "data/_spaces.db",
+      `data/spaces/${spaceId}.db`,
+      `uploads/spaces/${spaceId}/asset.png`,
+      "data/_users.db",
+    ]);
+    expect(manifest.entries.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256))).toBe(true);
+  });
+
+  it("refuses symbolic links in shared-space uploads", async () => {
+    const spaceId = "11111111-1111-4111-8111-111111111111";
+    for (const name of ["_spaces.db", "_users.db"]) {
+      const db = new Database(path.join(tempDir, name));
+      db.exec("CREATE TABLE marker (id TEXT PRIMARY KEY)");
+      db.close();
+    }
+    fs.mkdirSync(path.join(tempDir, "spaces"));
+    const contentDb = new Database(path.join(tempDir, "spaces", `${spaceId}.db`));
+    contentDb.exec("CREATE TABLE notes (id TEXT PRIMARY KEY)");
+    contentDb.close();
+    const uploadRoot = path.join(tempDir, "uploads", "spaces", spaceId);
+    fs.mkdirSync(uploadRoot, { recursive: true });
+    fs.writeFileSync(path.join(tempDir, "outside.png"), "outside");
+    fs.symlinkSync(path.join(tempDir, "outside.png"), path.join(uploadRoot, "linked.png"));
+
+    await expect(collect(
+      createDatabaseTar(tempDir, tempDir, () => {}, {}, path.join(tempDir, "uploads")),
+    )).rejects.toThrow(/symbolic link/);
+  });
+
+  it("refuses an upload root without its shared-space database", async () => {
+    const orphanSpaceId = "33333333-3333-4333-8333-333333333333";
+    for (const name of ["_spaces.db", "_users.db"]) {
+      const db = new Database(path.join(tempDir, name));
+      db.exec("CREATE TABLE marker (id TEXT PRIMARY KEY)");
+      db.close();
+    }
+    const uploadsDir = path.join(tempDir, "uploads");
+    fs.mkdirSync(path.join(uploadsDir, "spaces", orphanSpaceId), { recursive: true });
+
+    await expect(collect(
+      createDatabaseTar(tempDir, tempDir, () => {}, {}, uploadsDir),
+    )).rejects.toThrow(/upload root has no database/);
+  });
+
   it("fails before writing an archive when no databases exist", async () => {
     await expect(collect(createDatabaseTar(tempDir, tempDir))).rejects.toThrow(
       `No database files found in ${tempDir}`,
@@ -196,6 +395,13 @@ describe("stream database backup", () => {
   });
 
   it("reports per-database progress without user database filenames", async () => {
+    const spacesDb = new Database(path.join(tempDir, "_spaces.db"));
+    spacesDb.exec("CREATE TABLE spaces (id TEXT PRIMARY KEY)");
+    spacesDb.close();
+    const authDb = new Database(path.join(tempDir, "_users.db"));
+    authDb.exec("CREATE TABLE users (id TEXT PRIMARY KEY)");
+    authDb.close();
+
     const db = new Database(path.join(tempDir, "sensitive-user-id.db"));
     db.exec("CREATE TABLE notes (id TEXT PRIMARY KEY, body TEXT)");
     db.prepare("INSERT INTO notes VALUES (?, ?)").run("note-A", "content");

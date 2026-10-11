@@ -221,7 +221,9 @@ const printStylesConfig = {
   resetStyles: () => markdownStore.resetPrintStyles(),
   onBack: () => {
     if (docStore.selectedFileId) {
-      router.push({ name: 'doc', params: { fileId: docStore.selectedFileId } });
+      // Without the database scope the route falls back to the personal library
+      // and a Space Document cannot be reopened.
+      router.push({ name: 'doc', params: { fileId: docStore.selectedFileId }, query: { dbKey: docStore.selectedDbKey } });
     } else {
       router.push('/');
     }

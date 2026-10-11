@@ -4,6 +4,56 @@ import request from 'supertest';
 import { createTestApp, setupTestUser, cleanupTestUser, getTestToken } from '../testHelpers.js';
 
 import { readFileSync } from 'node:fs';
+import { parseInternalImageSource } from '../../pdf.js';
+
+describe('qualified PDF image parsing', () => {
+    const imageId = '11111111-1111-4111-8111-111111111111';
+    const spaceId = '22222222-2222-4222-8222-222222222222';
+
+    it('accepts canonical relative personal and space images after HTML entity encoding', () => {
+        expect(parseInternalImageSource(`/images/${imageId}`)).toEqual({ imageId, spaceId: null });
+        expect(parseInternalImageSource(
+            `/images/${imageId}?space=${spaceId}&amp;token=signed`,
+        )).toEqual({ imageId, spaceId });
+    });
+
+    it('accepts absolute links only on a configured origin', () => {
+        const saved = {
+            INTERNAL_API_URL: process.env.INTERNAL_API_URL,
+            PUBLIC_API_BASE_URL: process.env.PUBLIC_API_BASE_URL,
+            FRONTEND_URL: process.env.FRONTEND_URL,
+        };
+        try {
+            delete process.env.INTERNAL_API_URL;
+            delete process.env.PUBLIC_API_BASE_URL;
+            delete process.env.FRONTEND_URL;
+            expect(parseInternalImageSource(`https://notes.example/api/images/${imageId}`)).toBeNull();
+
+            // Production serves the API under the frontend's own origin.
+            process.env.FRONTEND_URL = 'https://notes.example';
+            expect(parseInternalImageSource(`https://notes.example/api/images/${imageId}?token=signed`))
+                .toEqual({ imageId, spaceId: null });
+            expect(parseInternalImageSource(`https://attacker.test/api/images/${imageId}`)).toBeNull();
+
+            process.env.FRONTEND_URL = 'not a url';
+            expect(parseInternalImageSource(`https://notes.example/api/images/${imageId}`)).toBeNull();
+
+            process.env.PUBLIC_API_BASE_URL = 'http://localhost:8000';
+            expect(parseInternalImageSource(`http://localhost:8000/images/${imageId}`))
+                .toEqual({ imageId, spaceId: null });
+        } finally {
+            for (const [name, value] of Object.entries(saved)) {
+                if (value === undefined) delete process.env[name];
+                else process.env[name] = value;
+            }
+        }
+    });
+
+    it('rejects external lookalikes and noncanonical query strings', () => {
+        expect(parseInternalImageSource(`https://attacker.test/images/${imageId}`)).toBeNull();
+        expect(parseInternalImageSource(`/images/${imageId}?space=${spaceId}&other=1`)).toBeNull();
+    });
+});
 
 // `poc/` is a proof of concept and is not part of the production image. pdf.js used to read
 // `poc/print-defaults.json` two directories up, which always threw ENOENT in production and

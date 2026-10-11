@@ -5,17 +5,25 @@
   >
     <div
       v-if="ui.showMetadata"
-      class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
+      class="p-2 bg-gray-50 text-gray-700 text-sm border-b border-gray-200"
       data-testid="editor-metadata-container"
     >
-      <div class="flex gap-4">
+      <div class="flex min-w-0 flex-wrap gap-x-4 gap-y-1">
         <div class="flex items-center gap-2">
           <span class="font-medium">Name:</span>
           <span data-testid="editor-metadata-name">{{ file.title || file.name }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Type:</span>
-          <span data-testid="editor-metadata-type">file</span>
+          <span data-testid="editor-metadata-type">Document</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="font-medium">Visibility:</span>
+          <span data-testid="editor-metadata-visibility">{{ file.visibility || 'Private' }}</span>
+        </div>
+        <div v-if="file.spaceName" class="flex items-center gap-2">
+          <span class="font-medium">Space:</span>
+          <span data-testid="editor-metadata-space">{{ file.spaceName }}</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="font-medium">Last Updated:</span>
@@ -42,6 +50,67 @@
     </div>
 
     <div
+      v-if="isSharedDocument"
+      class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2"
+      data-testid="collab-status"
+    >
+      <template v-if="!collabActive">
+        <span class="pn-meta">Solo editing</span>
+        <!-- Only where the server offers live sessions. Shown regardless, it
+             failed on click and left an error over every Document. -->
+        <BaseButton
+          v-if="syncStore.liveSessionsAvailable"
+          size="sm"
+          variant="secondary"
+          :disabled="!syncOnline"
+          data-testid="collab-start"
+          @click="startCollaboration"
+        >Collaborate</BaseButton>
+      </template>
+      <template v-else>
+        <span
+          class="pn-meta"
+          :class="{ 'text-amber-600': collabStatus === 'reconnecting', 'text-red-600': collabStatus === 'dropped' }"
+        >{{ collabStatusLabel }}</span>
+        <AvatarStack
+          v-if="collabParticipants.length"
+          :users="collabParticipants"
+          size="sm"
+          data-testid="collab-participants"
+        />
+        <span class="pn-meta">{{ collabUnacked }} unsaved {{ collabUnacked === 1 ? 'change' : 'changes' }}</span>
+        <div class="ml-auto flex items-center gap-2">
+          <BaseButton
+            size="sm"
+            :disabled="collabStatus !== 'live' || collabUnacked > 0"
+            data-testid="collab-commit"
+            @click="showCollabSave = true"
+          >Save version</BaseButton>
+          <BaseButton size="sm" variant="ghost" data-testid="collab-leave" @click="leaveCollaboration">Leave</BaseButton>
+        </div>
+      </template>
+    </div>
+
+    <div
+      v-if="collabLastError"
+      class="pn-alert pn-alert-warning rounded-none"
+      :data-testid="collabStatus === 'dropped' ? 'collab-readonly-notice' : 'collab-error'"
+    >{{ collabLastError }}</div>
+
+    <BaseModal
+      :show="showCollabSave"
+      title="Save document version"
+      :close-on-backdrop="false"
+      @close="showCollabSave = false"
+    >
+      <p>This saves the session's agreed text as a normal document version for everyone in this space.</p>
+      <template #footer>
+        <BaseButton variant="secondary" @click="showCollabSave = false">Cancel</BaseButton>
+        <BaseButton data-testid="collab-commit-confirm" @click="confirmCollabSave">Save version</BaseButton>
+      </template>
+    </BaseModal>
+
+    <div
       v-if="ui.showStats"
       class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
       data-testid="editor-stats-display"
@@ -58,12 +127,111 @@
         <span class="font-medium">Lines:</span>
         <span data-testid="editor-stats-lines">{{ lineCount }}</span>
       </div>
+      <div class="flex items-center gap-1 ml-auto">
+        <span
+          data-testid="editor-save-status"
+          class="pn-meta"
+          :class="{ 'text-amber-600': isDirty }"
+        >{{ saveStatusLabel }}</span>
+      </div>
     </div>
+
+    <div
+      v-if="persistedConflict || conflict"
+      class="pn-alert pn-alert-warning mt-0 rounded-none"
+      data-testid="editor-conflict-banner"
+    >
+      <div class="flex-1">
+        <template v-if="persistedConflict">
+          <p class="font-medium">Some document changes need your review.</p>
+          <p class="text-sm">{{ persistedConflictSummary }}</p>
+          <p class="text-sm" data-testid="editor-conflict-paused">Editing is paused on this device until you resolve them.</p>
+        </template>
+        <template v-else>
+          <p class="font-medium">This document was updated elsewhere.</p>
+          <p class="text-sm">Your unsaved changes are being held.</p>
+        </template>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <BaseButton
+          v-if="persistedConflict"
+          size="sm"
+          variant="secondary"
+          data-testid="editor-conflict-resolve"
+          @click="openResolution"
+        >Resolve</BaseButton>
+        <template v-else>
+          <BaseButton
+            size="sm"
+            variant="secondary"
+            data-testid="editor-conflict-keep-mine"
+            @click="keepMine"
+          >Keep mine</BaseButton>
+          <BaseButton
+            size="sm"
+            variant="secondary"
+            data-testid="editor-conflict-use-theirs"
+            @click="useTheirs"
+          >Use theirs</BaseButton>
+          <BaseButton
+            size="sm"
+            variant="ghost"
+            data-testid="editor-conflict-compare"
+            @click="openCompare"
+          >Compare</BaseButton>
+        </template>
+      </div>
+    </div>
+
+    <BaseModal
+      :show="showCompare"
+      title="Compare versions"
+      size="lg"
+      :close-on-backdrop="false"
+      close-testid="editor-conflict-compare-close"
+      @close="showCompare = false"
+    >
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 h-[60vh]">
+        <div class="min-h-0 flex flex-col">
+          <h4 class="pn-title-sub mb-2">Remote changes</h4>
+          <DiffView :old-text="compareBase" :new-text="compareTheirs" />
+        </div>
+        <div class="min-h-0 flex flex-col">
+          <h4 class="pn-title-sub mb-2">Your changes</h4>
+          <DiffView :old-text="compareBase" :new-text="compareMine" />
+        </div>
+      </div>
+      <template #footer>
+        <BaseButton
+          size="md"
+          variant="secondary"
+          @click="showCompare = false"
+        >Close</BaseButton>
+      </template>
+    </BaseModal>
+
+    <ConflictResolutionModal
+      v-if="persistedConflict"
+      :show="showResolution"
+      :conflict="persistedConflict"
+      :applying="isApplyingResolution"
+      @close="showResolution = false"
+      @apply="applyPersistedResolution"
+    />
+
+    <ConflictResolutionModal
+      v-if="collabConflict"
+      :show="showCollabConflict"
+      :conflict="collabConflict"
+      @close="showCollabConflict = false"
+      @apply="applyCollabResolution"
+    />
 
     <div class="flex-1 flex flex-col min-h-0 mt-0">
       <div
         ref="editorContainerRef"
         class="flex-1 bg-white mt-0 p-0"
+        :class="{ 'opacity-60': collabStatus === 'dropped' }"
         data-testid="editor-container"
       ></div>
     </div>
@@ -73,7 +241,7 @@
     v-else
     data-testid="editor-no-file"
   >
-    <p class="text-gray-500 mt-3 ml-3">No file selected</p>
+    <p class="text-gray-500 mt-3 ml-3">No Document selected</p>
   </div>
 </template>
 
@@ -113,7 +281,7 @@
 </style>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, markRaw, shallowRef } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
@@ -122,8 +290,18 @@ import { useAuthStore } from '@/store/authStore';
 import { useEditorStore } from '@/store/editorStore';
 import { useHistoryStore } from '@/store/historyStore';
 import { useThemeStore } from '@/store/themeStore';
+import { useConflictStore } from '@/store/conflictStore';
+import { useSyncStore } from '@/store/syncStore';
+import { useCollabSessionStore } from '@/store/collabSessionStore';
 import { useOverTypePatches } from '@/composables/useOverTypePatches';
-import { hasDocumentContentChanged } from '@/utils/documentPersistence';
+import { hasDocumentContentChanged, classifyEditorConflict } from '@/utils/documentPersistence';
+import BaseButton from '@/components/BaseButton.vue';
+import BaseModal from '@/components/BaseModal.vue';
+import DiffView from '@/components/DiffView.vue';
+import ConflictResolutionModal from '@/components/ConflictResolutionModal.vue';
+import AvatarStack from '@/components/AvatarStack.vue';
+import { YTextareaBinding } from '@/utils/yTextareaBinding';
+import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';
 
 useOverTypePatches();
@@ -152,10 +330,38 @@ const authStore = useAuthStore();
 const editorStore = useEditorStore();
 const historyStore = useHistoryStore(); // <--- INIT STORE
 const themeStore = useThemeStore();
+const conflictStore = useConflictStore();
+const syncStore = useSyncStore();
+const collabStore = useCollabSessionStore();
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
 
-const { selectedFile: file } = storeToRefs(docStore);
+const { selectedFile: file, isSaving, isDirty } = storeToRefs(docStore);
+const {
+  status: collabStatus,
+  participants: collabParticipants,
+  lastError: collabLastError,
+  ydoc: collabYdoc,
+  isActive: collabActive,
+  unackedCount: collabUnacked,
+  conflict: collabConflict,
+} = storeToRefs(collabStore);
+// Never a deep ref. Vue would hand back a reactive proxy of the binding, and
+// Yjs's undo manager, reached through that proxy, compares proxied objects
+// with the real ones and finds nothing to undo: in the running app undo and
+// redo did nothing at all during a live session.
+const collabBinding = shallowRef(null);
+const showCollabSave = ref(false);
+const showCollabConflict = ref(false);
+const syncOnline = computed(() => syncStore.isOnline);
+const isSharedDocument = computed(() => file.value?.dbKey?.startsWith('space:'));
+const collabStatusLabel = computed(() => ({
+  opening: 'Joining live session…',
+  live: 'Live session',
+  reconnecting: 'Reconnecting…',
+  committing: 'Saving version…',
+  dropped: 'Live session disconnected',
+}[collabStatus.value] || 'Solo editing'));
 
 /* ───── upload state ───── */
 const isUploading = ref(false);
@@ -164,10 +370,50 @@ const uploadError = ref('');
 /* ───── reactive draft ───── */
 const contentDraft = ref('');
 
+/* ───── editor conflict safety (COLLAB-01) ───── */
+// Non-null while the open document has diverged from a remote edit:
+// `{ theirs: string }` holds the remote body we have not adopted.
+const conflict = ref(null);
+const showCompare = ref(false);
+const persistedConflict = ref(null);
+const showResolution = ref(false);
+const isApplyingResolution = ref(false);
+// Set while the editor value is being changed programmatically (adoption or
+// resolution), so the resulting onChange does not schedule a DB write or
+// re-enter classification.
+const isProgrammaticUpdate = ref(false);
+
 /* ───── debounced save ───── */
-const debouncedSyncToDB = debounce((id, text) => {
-  docStore.updateFileContent(id, text);
-}, 500);
+// The pending save carries the document and database it was scheduled for.
+// Reading them when the timer fires is wrong once the user has moved on: the
+// selected document is then a different one, or none.
+let pendingSave = null;
+
+function runPendingSave() {
+  const save = pendingSave;
+  pendingSave = null;
+  if (!save) return Promise.resolve();
+  return docStore.updateFileContent(save.id, save.text, save.dbKey).catch((error) => {
+    console.error('[Editor] Saving the Document failed:', error);
+    ui.addToast('Your latest changes could not be saved. Keep this Document open and try typing again.', 'error');
+  });
+}
+
+const schedulePendingSave = debounce(runPendingSave, 500);
+
+function debouncedSyncToDB(id, text) {
+  pendingSave = { id, text, dbKey: file.value?.dbKey };
+  schedulePendingSave();
+}
+debouncedSyncToDB.cancel = () => {
+  pendingSave = null;
+  schedulePendingSave.cancel();
+};
+/** Save now what the debounce was still waiting to save. */
+debouncedSyncToDB.flush = () => {
+  schedulePendingSave.cancel();
+  return runPendingSave();
+};
 
 /* ───── History Setup ───── */
 const isHistoryAction = ref(false)
@@ -202,7 +448,7 @@ function handleKeydown(e) {
 // This runs on every keystroke via the native event listener
 // This runs on every keystroke via the native event listener
 function handleNativeInput(e) {
-  if (isHistoryAction.value || !file.value) return;
+  if (isHistoryAction.value || !file.value || collabActive.value) return;
 
   const textarea = e.target;
   const val = textarea.value;
@@ -229,13 +475,21 @@ function handleNativeInput(e) {
 
 /* ───── History Methods ───── */
 function performUndo() {
-  if (!file.value) return;
+  if (!file.value || editingBlocked()) return;
+  if (collabBinding.value && collabActive.value) {
+    collabBinding.value.undo();
+    return;
+  }
   const previousState = historyStore.undo(file.value.id);
   if (previousState) applyHistoryState(previousState);
 }
 
 function performRedo() {
-  if (!file.value) return;
+  if (!file.value || editingBlocked()) return;
+  if (collabBinding.value && collabActive.value) {
+    collabBinding.value.redo();
+    return;
+  }
   const nextState = historyStore.redo(file.value.id);
   if (nextState) applyHistoryState(nextState);
 }
@@ -255,7 +509,7 @@ function applyHistoryState(state) {
     contentDraft.value = state.text;
     if (file.value) {
       draftStore.setDraft(file.value.id, state.text);
-      debouncedSyncToDB(file.value.id, state.text);
+      if (!conflict.value) debouncedSyncToDB(file.value.id, state.text);
     }
 
     // 3. Restore Cursor
@@ -276,7 +530,12 @@ function applyHistoryState(state) {
 // Pass the current cursor position
 function wrapWithRecord(fn) {
   return (...args) => {
-    if (!file.value) return;
+    if (!file.value || editingBlocked()) return;
+
+    if (collabActive.value) {
+      fn(...args);
+      return;
+    }
 
     const textarea = getTextareaElement();
     const cursor = textarea ? textarea.selectionEnd : 0;
@@ -300,6 +559,35 @@ function handleInput(value) {
 
   if (file.value) {
     draftStore.setDraft(file.value.id, value);
+
+    // A live session owns persistence. The textarea binding emits a compact
+    // Yjs edit; ordinary local database saving and COLLAB-01/02 are paused.
+    if (collabActive.value) {
+      debouncedSyncToDB.cancel();
+      const textarea = getTextareaElement();
+      collabStore.sendAwareness({
+        cursor: textarea?.selectionStart,
+        selection: textarea?.selectionEnd,
+        idle: false,
+      });
+      return;
+    }
+
+    // A programmatic setValue (adoption/resolution) refreshes bookkeeping but
+    // must not schedule a database write.
+    if (isProgrammaticUpdate.value) return;
+
+    // While the editor itself has diverged from a remote change, local writes
+    // are held until the user picks a side. A stored conflict record does not
+    // hold them: the Document stays editable, its saves keep the record in
+    // step, and resolving later merges against what was typed meanwhile.
+    // Holding here made everything typed after the banner appeared unsaveable,
+    // with nothing on screen saying so.
+    if (conflict.value) {
+      debouncedSyncToDB.cancel();
+      return;
+    }
+
     if (hasDocumentContentChanged(file.value.content, value)) {
       debouncedSyncToDB(file.value.id, value);
     } else {
@@ -343,6 +631,7 @@ function initEditor() {
     if (textarea) {
       textarea.addEventListener('paste', handlePaste);
       textarea.addEventListener('input', handleNativeInput);
+      applyEditingPaused();
       // Keydown is handled by OverType config, or add manually if OverType consumes it:
       // textarea.addEventListener('keydown', handleKeydown);
     }
@@ -398,6 +687,8 @@ function getEditorTheme(theme) {
 }
 
 function destroyEditor() {
+  collabBinding.value?.destroy();
+  collabBinding.value = null;
   // Remove paste event listener
   const textarea = getTextareaElement();
   if (textarea) {
@@ -426,20 +717,134 @@ watch(() => file.value, (newFile) => {
   }
 });
 
-/* ───── watch for file changes ───── */
-watch(() => file.value?.id, (newId) => {
+/* ───── watch for file changes (id + content, ordered) ───── */
+function setEditorValue(text, { preserveCursor = true } = {}) {
+  const textarea = getTextareaElement();
+  const selStart = textarea ? textarea.selectionStart : 0;
+  const selEnd = textarea ? textarea.selectionEnd : 0;
+
+  isProgrammaticUpdate.value = true;
+  try {
+    if (editorInstance.value) {
+      editorInstance.value.setValue(text);
+    } else {
+      contentDraft.value = text;
+      return;
+    }
+  } finally {
+    // Clear the guard after OverType's onChange has had a chance to run. It may
+    // fire synchronously or on the next tick; the timeout covers both.
+    nextTick(() => { isProgrammaticUpdate.value = false; });
+    setTimeout(() => { isProgrammaticUpdate.value = false; }, 0);
+  }
+
+  if (preserveCursor) {
+    const length = text.length;
+    const start = Math.min(selStart, length);
+    const end = Math.min(selEnd, length);
+    // Restore the caret only if the editor had the keyboard. Focusing it
+    // regardless pulled the user out of a search or rename field mid-word,
+    // and the rest of what they typed landed in the Document.
+    const hadFocus = document.activeElement === getTextareaElement();
+    nextTick(() => {
+      const ta = getTextareaElement();
+      if (!ta) return;
+      if (hadFocus) ta.focus();
+      if (document.activeElement === ta) ta.setSelectionRange(start, end);
+    });
+  }
+}
+
+function clearConflict() {
+  conflict.value = null;
+  showCompare.value = false;
+}
+
+function adoptRemote(fileId, theirs) {
+  const normalized = theirs ?? '';
+  contentDraft.value = normalized;
+  draftStore.setDraft(fileId, normalized);
+  draftStore.setBase(fileId, normalized);
+  setEditorValue(normalized, { preserveCursor: true });
+  // Without this entry the next undo skips to the text from before the
+  // adoption and saves it, removing the other device's edit.
+  historyStore.record(fileId, normalized, getTextareaElement()?.selectionStart ?? 0);
+}
+
+function enterConflict(fileId, theirs) {
+  conflict.value = { theirs: theirs ?? '' };
+  // Hold local writes; the actual fix is that nothing reaches the database
+  // until the user resolves.
+  debouncedSyncToDB.cancel();
+}
+
+async function keepMine() {
+  const id = file.value?.id;
+  if (!id) return;
+  const mine = contentDraft.value;
+  draftStore.setBase(id, mine);
+  draftStore.setDraft(id, mine);
+  clearConflict();
+  await docStore.updateFileContent(id, mine, file.value.dbKey);
+}
+
+async function useTheirs() {
+  const id = file.value?.id;
+  if (!id) return;
+  const theirs = conflict.value?.theirs ?? '';
+  draftStore.setBase(id, theirs);
+  draftStore.setDraft(id, theirs);
+  clearConflict();
+  setEditorValue(theirs, { preserveCursor: true });
+}
+
+function openCompare() {
+  showCompare.value = true;
+}
+
+function classifyRemoteContent(fileId, theirs) {
+  if (collabActive.value && collabStore.noteId === fileId) return;
+  const mine = contentDraft.value;
+  const base = draftStore.getBase(fileId) ?? '';
+  const action = classifyEditorConflict({ mine, base, theirs });
+
+  if (action === 'adopt') {
+    adoptRemote(fileId, theirs);
+  } else if (action === 'conflict') {
+    enterConflict(fileId, theirs);
+  }
+}
+
+function handleDocumentSwitch(newId, oldId) {
+  if (collabActive.value && collabStore.noteId !== newId) collabStore.leave();
+  // Save what the debounce was still holding for the document being left.
+  // Cancelling it here lost everything typed since the last half-second pause.
+  // While a conflict is being decided nothing is pending, so nothing is saved.
+  void debouncedSyncToDB.flush();
+  if (oldId && oldId !== newId) {
+    // The draft store would otherwise keep this document's last editor text
+    // for the life of the tab.
+    draftStore.clearDraft(oldId);
+    draftStore.clearBase(oldId);
+  }
+  clearConflict();
+  persistedConflict.value = null;
+  showResolution.value = false;
+  debouncedRecord.cancel();
+
   if (newId) {
-    const newContent = file.value.content ?? '';
+    const newContent = file.value?.content ?? '';
 
     // Initialize history for this file (keeps existing stack if revisited)
     historyStore.initialize(newId, newContent);
 
     contentDraft.value = newContent;
     draftStore.setDraft(newId, newContent);
+    draftStore.setBase(newId, newContent);
 
     // If editor exists, update its value
     if (editorInstance.value) {
-      editorInstance.value.setValue(newContent);
+      setEditorValue(newContent, { preserveCursor: false });
     } else {
       // If no editor, initialize it (will happen on next tick after DOM updates)
       nextTick(() => {
@@ -449,21 +854,282 @@ watch(() => file.value?.id, (newId) => {
   } else {
     contentDraft.value = '';
     if (editorInstance.value) {
-      editorInstance.value.setValue('');
+      setEditorValue('', { preserveCursor: false });
     }
   }
-}, { immediate: true });
+}
+
+watch(
+  () => [file.value?.id, conflictStore.conflictedNoteIds],
+  async ([noteId]) => {
+    if (!noteId || !conflictStore.hasConflict(noteId, file.value?.dbKey)) {
+      persistedConflict.value = null;
+      showResolution.value = false;
+      return;
+    }
+    const loaded = await conflictStore.loadConflict(noteId, file.value?.dbKey);
+    if (file.value?.id !== noteId) return;
+    persistedConflict.value = loaded;
+    await settleUnsavedText(noteId);
+  },
+  { immediate: true },
+);
+
+/* ───── editing pause while a stored conflict is unresolved ───── */
+// A stored conflict keeps the only copy of one side's text, and it can hold
+// one such copy. Editing on before deciding would create a third version, so
+// the Document is read-only on this device until the conflict is resolved.
+const editingPaused = computed(() => Boolean(
+  file.value?.id && conflictStore.hasConflict(file.value.id, file.value.dbKey),
+));
+
+function applyEditingPaused() {
+  const textarea = getTextareaElement();
+  if (textarea) textarea.readOnly = editingPaused.value || collabStatus.value === 'dropped';
+}
+
+watch(editingPaused, applyEditingPaused);
+
+/** For edits that do not come from the keyboard: toolbar, replace, undo, images. */
+let lastBlockedNotice = 0;
+
+function editingBlocked() {
+  if (!editingPaused.value) return false;
+  // One notice per burst: a held key or repeated toolbar clicks would otherwise
+  // stack toasts over the Resolve dialog's own buttons.
+  if (Date.now() - lastBlockedNotice > 5000) {
+    lastBlockedNotice = Date.now();
+    ui.addToast('Resolve the document changes before editing this Document.', 'info');
+  }
+  return true;
+}
+
+/**
+ * Text typed before the pause took effect must not stay outside the record.
+ * Text the editor is holding against a remote change becomes this device's
+ * side of the conflict; anything else still waiting is saved normally, and
+ * the record follows that save.
+ */
+async function settleUnsavedText(noteId) {
+  const dbKey = file.value?.dbKey;
+  if (conflict.value) {
+    await conflictStore.holdUnsavedText(noteId, dbKey, contentDraft.value);
+  } else {
+    await debouncedSyncToDB.flush();
+  }
+  await reloadPersistedConflict(noteId);
+}
+
+async function openResolution() {
+  const id = file.value?.id;
+  if (!id) return;
+  await settleUnsavedText(id);
+  if (file.value?.id === id && persistedConflict.value) showResolution.value = true;
+}
+
+function bindLiveEditor() {
+  collabBinding.value?.destroy();
+  collabBinding.value = null;
+  const textarea = getTextareaElement();
+  const ytext = collabYdoc.value?.getText('content');
+  if (!textarea || !ytext || !collabActive.value) return;
+  // Only the Document the session is for. A session whose answer arrived after
+  // another Document was selected must not take over that Document's editor.
+  if (collabStore.noteId !== file.value?.id) return;
+  collabBinding.value = markRaw(new YTextareaBinding({
+    textarea,
+    ytext,
+    origin: collabStore.localOrigin,
+    applyValue: (value) => setEditorValue(value, { preserveCursor: false }),
+  }));
+  const value = ytext.toString();
+  contentDraft.value = value;
+  setEditorValue(value, { preserveCursor: true });
+}
+
+async function startCollaboration() {
+  if (!isSharedDocument.value || !file.value?.id) return;
+  // The Document this was asked for. The awaits below include a network round
+  // trip, and the selection can change meanwhile.
+  const { id, dbKey } = file.value;
+  debouncedSyncToDB.cancel();
+  if (isDirty.value) await docStore.updateFileContent(id, contentDraft.value, dbKey);
+  // Admission reads the durable server Document as the Yjs base. Flush any
+  // local solo edit/creation first so starting collaboration cannot silently
+  // reopen an older body or fail because the new Document is not uploaded yet.
+  await syncStore.sync(dbKey);
+  if (file.value?.id !== id) return;
+  collabStore.open(dbKey.slice('space:'.length), id);
+}
+
+function confirmCollabSave() {
+  if (collabStore.saveVersion()) showCollabSave.value = false;
+}
+
+function leaveCollaboration() {
+  collabBinding.value?.destroy();
+  collabBinding.value = null;
+  collabStore.leave();
+  showCollabSave.value = false;
+}
+
+function applyCollabResolution(content) {
+  // The server applies the answer for everyone and the dialog closes when it
+  // says so; nothing is changed here.
+  if (!collabStore.resolveConflict(content)) {
+    ui.addToast('Your answer could not be sent. Check the connection and try again.', 'error');
+  }
+}
+
+/**
+ * A session has ended for this editor: left, saved and closed, or access
+ * ended. The textarea still shows the session's text, while the editor's base
+ * and undo history describe the Document from before the session. Left like
+ * that, the session's own save arrived as a "changed elsewhere" conflict, one
+ * undo reverted the whole session for everyone, and the next keystroke saved
+ * the unsaved session text as a solo edit. Start again from the stored body
+ * (COLLAB-05 §6.4); the session's save then arrives as an ordinary update.
+ */
+function resetAfterSession(noteId) {
+  if (!noteId || file.value?.id !== noteId) return;
+  const stored = file.value.content ?? '';
+  contentDraft.value = stored;
+  draftStore.setDraft(noteId, stored);
+  draftStore.setBase(noteId, stored);
+  historyStore.clear(noteId);
+  historyStore.initialize(noteId, stored);
+  clearConflict();
+  setEditorValue(stored, { preserveCursor: true });
+}
+
+let sessionNoteId = null;
+watch(() => collabStore.noteId, (id) => { if (id) sessionNoteId = id; });
+
+watch(collabYdoc, () => nextTick(bindLiveEditor));
+
+watch(collabStatus, (status, previous) => {
+  // Read-only, not disabled: the notice says the text remains to copy, and a
+  // disabled textarea cannot be selected from.
+  applyEditingPaused();
+  if (status === 'idle') {
+    collabBinding.value?.destroy();
+    collabBinding.value = null;
+    if (previous && previous !== 'idle') resetAfterSession(sessionNoteId);
+    sessionNoteId = null;
+  } else if (status === 'live' && !collabBinding.value) {
+    nextTick(bindLiveEditor);
+  }
+});
+
+watch(collabConflict, (value) => {
+  showCollabConflict.value = Boolean(value);
+});
+
+watch(
+  () => [file.value?.id, file.value?.content],
+  ([newId, newContent], oldValue) => {
+    const oldId = oldValue ? oldValue[0] : undefined;
+    if (newId !== oldId) {
+      handleDocumentSwitch(newId, oldId);
+      return;
+    }
+    if (newId) {
+      classifyRemoteContent(newId, newContent ?? '');
+      // A save or a remote change may have updated this document's conflict
+      // record; show the current one.
+      if (persistedConflict.value) void reloadPersistedConflict(newId);
+    }
+  },
+  { immediate: true },
+);
 
 watch(() => themeStore.theme, () => {
   if (!editorInstance.value) return;
   destroyEditor();
-  nextTick(initEditor);
+  nextTick(() => {
+    initEditor();
+    // The editor was rebuilt; a live session has to be attached to the new
+    // textarea. Without this the bar still said "Live session" while typing
+    // was neither sent nor saved and remote edits stopped appearing.
+    if (collabActive.value) nextTick(bindLiveEditor);
+  });
 });
 
 /* ───── stats ───── */
 const wordCount = computed(() => (contentDraft.value ? contentDraft.value.trim().split(/\s+/).filter(Boolean).length : 0));
 const characterCount = computed(() => contentDraft.value.length);
 const lineCount = computed(() => (contentDraft.value ? contentDraft.value.split('\n').length : 0));
+
+/* ───── persistence indicator (COLLAB-01) ───── */
+const saveStatusLabel = computed(() => {
+  if (isSaving.value) return 'Saving…';
+  if (isDirty.value) return 'Unsaved changes';
+  return 'Saved';
+});
+
+/* ───── conflict compare (COLLAB-01) ───── */
+const compareBase = computed(() => (file.value ? draftStore.getBase(file.value.id) ?? '' : ''));
+const compareTheirs = computed(() => conflict.value?.theirs ?? '');
+const compareMine = computed(() => contentDraft.value);
+const persistedConflictSummary = computed(() => {
+  if (!persistedConflict.value) return '';
+  const plan = buildConflictResolutionPlan({
+    base: persistedConflict.value.baseContent,
+    mine: persistedConflict.value.mineContent,
+    theirs: persistedConflict.value.theirsContent,
+  });
+  if (plan.status === 'conflict') {
+    const count = plan.regions.filter((region) => region.type === 'conflict').length;
+    return `Some changes merged automatically. ${count} ${count === 1 ? 'region needs' : 'regions need'} a decision.`;
+  }
+  if (plan.status === 'clean') return 'The changes can be combined automatically. Review the result before applying it.';
+  return 'This document is too large for per-region comparison. Choose the complete version to keep.';
+});
+
+async function reloadPersistedConflict(noteId) {
+  const dbKey = file.value?.dbKey;
+  const loaded = await conflictStore.loadConflict(noteId, dbKey);
+  // A save can settle the conflict (the new text contains the held body);
+  // the markers in the tree and the pause then have to go too.
+  if (!loaded && conflictStore.hasConflict(noteId, dbKey)) await conflictStore.loadConflicts();
+  if (file.value?.id === noteId) persistedConflict.value = loaded;
+}
+
+async function applyPersistedResolution(content) {
+  const activeConflict = persistedConflict.value;
+  const id = file.value?.id;
+  if (!activeConflict || !id || activeConflict.noteId !== id) return;
+
+  isApplyingResolution.value = true;
+  try {
+    // Nothing should still be waiting to save here. If something is, save it:
+    // the record then changes, this resolution is refused as out of date, and
+    // the dialog reloads with that text included.
+    await debouncedSyncToDB.flush();
+    await conflictStore.resolveConflict(activeConflict, content);
+    contentDraft.value = content;
+    draftStore.setDraft(id, content);
+    draftStore.setBase(id, content);
+    file.value.content = content;
+    setEditorValue(content, { preserveCursor: true });
+    historyStore.record(id, content, getTextareaElement()?.selectionStart ?? 0);
+    docStore.structureStore.markContentChanged();
+    persistedConflict.value = null;
+    showResolution.value = false;
+    // The in-editor conflict (if a remote change also arrived mid-typing) is
+    // answered by this resolution too. Left set, saving stayed suspended and
+    // the banner offered a stale "theirs".
+    clearConflict();
+    ui.addToast('Document changes resolved.', 'success');
+  } catch (error) {
+    if (error?.code === 'CONFLICT_STALE') {
+      persistedConflict.value = await conflictStore.loadConflict(id, file.value?.dbKey);
+    }
+    ui.addToast(error?.message || 'Could not apply the document resolution.', 'error');
+  } finally {
+    isApplyingResolution.value = false;
+  }
+}
 
 /* ───── paste-images & upload helper ───── */
 async function handlePaste(event) {
@@ -498,6 +1164,7 @@ async function uploadImage(fileObj, options = {}) {
     uploadError.value = 'You must be logged in to upload images.';
     return;
   }
+  if (editingBlocked()) return;
   isUploading.value = true;
   uploadError.value = '';
   try {
@@ -512,7 +1179,10 @@ async function uploadImage(fileObj, options = {}) {
     const formData = new FormData();
     formData.append('image', fileObj, uploadFilename);
 
-    const response = await fetch(`${imageServiceUrl}/images`, {
+    const imageTarget = file.value?.dbKey?.startsWith('space:')
+      ? `?space=${encodeURIComponent(file.value.dbKey.slice('space:'.length))}`
+      : '';
+    const response = await fetch(`${imageServiceUrl}/images${imageTarget}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${authStore.token}`
@@ -545,7 +1215,7 @@ function getTextareaElement() {
 
 function insertAtCursor(text) {
   const textarea = getTextareaElement();
-  if (!textarea || !editorInstance.value) return;
+  if (!textarea || !editorInstance.value || editingBlocked()) return;
 
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
@@ -575,7 +1245,7 @@ function insertAtCursor(text) {
 
 function insertFormat(prefix, suffix) {
   const textarea = getTextareaElement();
-  if (!textarea || !editorInstance.value) return;
+  if (!textarea || !editorInstance.value || editingBlocked()) return;
 
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
@@ -694,6 +1364,7 @@ function replaceNext(term, repl) {
 
   // If current selection matches the search term, replace it
   if (selectedText === term) {
+    if (editingBlocked()) return;
     const currentText = textarea.value;
     const beforeSelection = currentText.slice(0, start);
     const afterSelection = currentText.slice(end);
@@ -726,6 +1397,7 @@ function replaceAll(term, repl) {
   const newText = currentText.replaceAll(term, repl);
 
   if (currentText !== newText) {
+    if (editingBlocked()) return;
     // Update textarea
     textarea.value = newText;
 
@@ -749,8 +1421,8 @@ const insertImagesFromLibraryWrapped = wrapWithRecord(insertImagesFromLibrary);
 const insertTextWrapped = wrapWithRecord(insertText);
 
 // Helper wrappers for button enabling state
-const canUndo = computed(() => file.value ? historyStore.canUndo(file.value.id) : false);
-const canRedo = computed(() => file.value ? historyStore.canRedo(file.value.id) : false);
+const canUndo = computed(() => file.value && !editingPaused.value ? historyStore.canUndo(file.value.id) : false);
+const canRedo = computed(() => file.value && !editingPaused.value ? historyStore.canRedo(file.value.id) : false);
 
 /* ───── expose methods for parent components ───── */
 const exposedMethods = {
@@ -769,6 +1441,9 @@ const exposedMethods = {
   replaceNext,
   replaceAll,
 
+  flushPendingSave: () => debouncedSyncToDB.flush(),
+  isHoldingChanges: () => Boolean(conflict.value),
+
   undo: performUndo,
   redo: performRedo,
   canUndo,
@@ -786,6 +1461,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (collabActive.value) collabStore.leave();
+  void debouncedSyncToDB.flush();
   destroyEditor();
   editorStore.clearEditorRef();
 });

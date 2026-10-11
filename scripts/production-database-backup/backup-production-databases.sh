@@ -141,6 +141,20 @@ fi
 
 printf -v remote_app_dir_list_q "%q" "${PANINO_REMOTE_APP_DIR:-}"
 
+# The producer finds the data volume inside the container by itself: it is mounted at
+# /app/backend/api-service/data now and was at /app/data before the image layout changed,
+# and the backup that matters most is the one taken across that change. Set these only
+# to override that detection.
+remote_dir_env=""
+if [[ -n "${PANINO_CONTAINER_DB_DIR:-}" ]]; then
+  printf -v container_db_dir_q "%q" "$PANINO_CONTAINER_DB_DIR"
+  remote_dir_env+=" -e DB_DIR=$container_db_dir_q"
+fi
+if [[ -n "${PANINO_CONTAINER_UPLOADS_DIR:-}" ]]; then
+  printf -v container_uploads_dir_q "%q" "$PANINO_CONTAINER_UPLOADS_DIR"
+  remote_dir_env+=" -e UPLOADS_DIR=$container_uploads_dir_q"
+fi
+
 # --list returns metadata only — names, sizes, mtimes — and copies no database content. It
 # exists because --only needs discoverable names, and the alternative is an ad-hoc `ls`
 # inside the production container, which reaches into a directory AGENTS.md §3 marks
@@ -153,8 +167,7 @@ if [ -z \"\$container\" ]; then \
 fi && \
 docker exec -i \
   -e PANINO_STREAM_BACKUP_RUN=1 \
-  -e PANINO_BACKUP_LIST=1 \
-  -e DB_DIR=/app/data \
+  -e PANINO_BACKUP_LIST=1$remote_dir_env \
   \"\$container\" node --input-type=module -"
 
   "${ssh_command[@]}" "$SSH_USER@$SSH_HOST" "$list_command" < "$PRODUCER"
@@ -212,8 +225,7 @@ if [ -z \"\$container\" ]; then \
   echo 'Production api-service container is not running' >&2; exit 1; \
 fi && \
 docker exec -i \
-  -e PANINO_STREAM_BACKUP_RUN=1 \
-  -e DB_DIR=/app/data \
+  -e PANINO_STREAM_BACKUP_RUN=1$remote_dir_env \
   -e PANINO_BACKUP_TMP_DIR=/dev/shm \
   -e PANINO_BACKUP_PROGRESS=1$selection_env \
   \"\$container\" node --input-type=module -"
@@ -233,10 +245,16 @@ gzip -t -- "$partial_path" || {
 
 database_count="$(
   tar -tzf "$partial_path" |
-    awk '/^[^/]+\.db$/ { count += 1 } END { print count + 0 }'
+    awk '/^data\/(spaces\/)?[^/]+\.db$/ { count += 1 } END { print count + 0 }'
 )"
 [[ "$database_count" -gt 0 ]] || {
   echo "Received archive contains no database snapshots" >&2
+  exit 1
+}
+
+tar -tzf "$partial_path" |
+  awk '$0 == "panino-backup-manifest.json" { found = 1 } END { exit !found }' || {
+  echo "Received archive contains no production backup manifest" >&2
   exit 1
 }
 

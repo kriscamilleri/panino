@@ -5,7 +5,8 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import fetch from 'node-fetch';
 import { URLSearchParams } from 'url';
-import { getAuthDb, getUserDb } from './db.js';
+import { getAuthDb, getUserDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
+import { normalizeAccountEmail } from './accountEmail.js';
 
 export const signupRoutes = express.Router();
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
@@ -24,7 +25,8 @@ async function verifyTurnstile(token) {
 
 // POST /signup
 signupRoutes.post('/signup', async (req, res) => {
-    const { name, email, password, 'cf-turnstile-response': turnstileToken } = req.body;
+    const { name, password, 'cf-turnstile-response': turnstileToken } = req.body;
+    const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
     if (!email || !password || !name) {
         return res.status(400).json({ error: 'Name, email, and password are required' });
     }
@@ -35,6 +37,13 @@ signupRoutes.post('/signup', async (req, res) => {
 
     try {
         const db = getAuthDb();
+        // The unique index compares bytes, so "Alice@corp.com" could be
+        // registered beside "alice@corp.com". Mail treats them as one address.
+        const taken = db.prepare('SELECT 1 FROM users WHERE lower(trim(email)) = ?')
+            .get(normalizeAccountEmail(email));
+        if (taken) {
+            return res.status(409).json({ error: 'User with this email already exists' });
+        }
         const password_hash = bcrypt.hashSync(password, 10);
         const userId = uuidv4();
         const createdAt = new Date().toISOString();
@@ -68,6 +77,7 @@ signupRoutes.post('/signup', async (req, res) => {
         if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
             return res.status(409).json({ error: 'User with this email already exists' });
         }
+        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
         console.error('Signup error:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
