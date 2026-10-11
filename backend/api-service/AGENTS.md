@@ -15,6 +15,8 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `auth.js` | `POST /login`, `POST /refresh`, `GET /me`, `POST /me/password`, `authenticateToken` middleware | Mixed |
 | `signup.js` | `POST /signup` with Turnstile CAPTCHA verification | Public |
 | `passwordReset.js` | `POST /forgot-password`, `POST /reset-password` | Public |
+| `emailVerification.js` | "Verify my email": `POST /account/email-verification` mails a link to the account's stored address; `POST /account/email-verification/confirm` takes the token and must come from the same account's session. 404 unless shared spaces are enabled | Authenticated |
+| `accountEmail.js` | Whether an account's address is verified, marking it so, address normalization and the one-mailbox check | — |
 | `sync.js` | `POST /sync` — bidirectional CR-SQLite change set exchange; optional flag-gated `space` UUID routes the batch at a shared-space content DB behind membership + an exact table/column allowlist (Phase 2; no public space routes yet) | Authenticated |
 | `image.js` | `POST /images` (upload), `GET /images/:id` (serve) | Authenticated |
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
@@ -25,7 +27,7 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `spaceStorage.js` | UUID/path-contained shared-space upload-root resolution and retained upload-tree deletion | Trusted server callers |
 | `websocket.js` | COLLAB-00 v1 subscribe/unsubscribe envelope (`{v:1,type:'subscribe',requestId,payload:{databases:[{dbKey,siteId}]}}` / `{v:1,type:'unsubscribe',requestId,payload:{dbKeys:[...]}}`, success response payload `{subscriptions,membershipVersion}`) layered over the legacy handshake; per-connection subscription state, atomic/idempotent (un)subscribe validation, membership re-check on every subscribe and poke, `pokePersonalClients()`/`pokeSpaceSubscribers()` targeted sync notifications with site-id self-exclusion, backpressure/connection-limit guards | Authenticated (JWT at handshake) |
 | `db-repair.js` | Orphan-clock detection and repair helpers used by the incident tooling | — |
-| `mailer.js` | Nodemailer transport, `sendPasswordResetEmail()` | — |
+| `mailer.js` | Nodemailer transport, `sendPasswordResetEmail()`, `sendSpaceInviteEmail()`, `sendEmailVerificationEmail()` | — |
 
 `scripts/repair-orphan-image-clocks.mjs` is the operator-facing CLI wrapper around
 `db-repair.js`. Do not run it against production without reading
@@ -39,7 +41,7 @@ first — it defaults to a dry run and requires `--apply` to mutate anything.
 1. Public routes: `signupRoutes`, `passwordResetRoutes`
 2. Mixed routes: `authRoutes` (login is public, /me and /refresh need auth)
 3. `authenticateToken` middleware (all routes after this require auth)
-4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `imageRoutes`, `pdfRoutes`
+4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `emailVerificationRoutes`, `spaceTransferRoutes`, `imageRoutes`, `pdfRoutes`
 
 ---
 
@@ -159,6 +161,7 @@ tests/
 └── integration/
     ├── auth.test.js               # POST /login, token validation end-to-end
     ├── backup.test.js             # GitHub backup flow
+    ├── emailVerification.test.js  # Verify my email: request, confirm, who may confirm, limits
     ├── image.test.js              # Image upload, retrieval, and orphan prune
     ├── me.test.js                 # GET /me, POST /me/password
     ├── passwordReset.test.js

@@ -27,7 +27,8 @@ that window. Vite logs no requests, so whether it was fetched is unknown. I did 
   password that file holds.
 - The dev server is now started by absolute path with the frontend directory as its root and
   bound to 127.0.0.1. Checked: `/prd-server.env` returns the app's `index.html`, and the `/@fs/`
-  path to the real file returns 403.
+  path to the real file returns 403. (That start command was still wrong in another way: see the
+  correction under Tests.)
 
 ## Progress
 
@@ -85,6 +86,11 @@ Not changed:
 | `npm run test:shared` | 25 passed |
 | `npm run test:fe` | 707 passed (54 files; the two spike files no longer run by default) |
 | `npm run test:be` | 413 passed (29 files) |
+
+> **Correction, later the same day.** The flag-on rows below, and the flags-off reruns, were driven
+> against an **unstyled** app: the dev server was started outside the frontend directory and
+> generated no CSS. All were rerun on the styled app with the same results; see
+> `2026-10-11_16-30_verify-email-and-copy-or-move.md`.
 
 Scripted Chromium against an isolated stack (own ports, own Docker volumes, disposable accounts):
 

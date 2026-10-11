@@ -566,9 +566,11 @@ these points. The current rules are in `docs/architecture/data-model.md`.
 
 1. **An account's email address is not proof of anything (§3.2, §8).** Sign-up does not verify it.
    Listing invitations by address and accepting by invitation id are limited to accounts whose
-   address is verified (`users.email_verified_at`, set by a completed password reset). The mailed
-   link remains the main route and needs no verification. An explicit "verify my email" flow would
-   make the invitation list useful to more accounts and is not built.
+   address is verified (`users.email_verified_at`). The mailed invitation link needs no
+   verification. An account verifies its address with "Verify my email" on the Spaces page: a link
+   is mailed to it and must be confirmed while signed in to the same account, so that someone who
+   registered another person's address gains nothing when that person clicks. A completed password
+   reset verifies it too.
 2. **Invitation email is rate-limited and takes one mailbox (§8).** 20 per owner per hour, 50
    pending per space.
 3. **SVG images are served sandboxed (§4.4, §8).** Uploading them is still allowed.
@@ -576,7 +578,9 @@ these points. The current rules are in `docs/architecture/data-model.md`.
    writes; a transfer can be cancelled before the Document is copied; it is refused during a live
    session, over the destination's image quota, over 2 MiB or 100 images; verification no longer
    depends on the source images still existing; the client confirms the source is uploaded first.
-   Revision history is not moved, and the dialog now says it is deleted with the source.
+   Dropping a Document into another database asks **copy or move** (§5.4 describes only a move).
+   Revision history is never copied. A copy leaves the original and its history where they are; a
+   move deletes both, and the dialog says so before either button is pressed.
 5. **Deletion can be cancelled (§3.4)** by the owner inside the retention period. The phase-0
    authorization matrix has this as row 15; it had no route.
 6. **Integrity is checked per space on each mutation**, not across all spaces.

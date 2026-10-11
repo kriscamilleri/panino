@@ -54,10 +54,10 @@ revoked or expired a month ago are removed.
 address it is given, so an account whose address merely matches proves nothing.
 `GET /space-invitations` and `POST /space-invitations/:inviteId/accept` therefore work only for an
 account with `users.email_verified_at` set, and the list response says which case applies
-(`emailVerified`). The only thing that sets it today is completing a password reset, whose link is
-mailed to the stored address. Accepting through the mailed link does not: the owner who created
-the invitation is shown the same link. Everyone else accepts through the link, which remains the
-main route.
+(`emailVerified`). Two things set it: "verify my email" (below, under the authentication
+database) and completing a password reset, whose link is mailed to the stored address. Accepting
+through the mailed invitation link does not: the owner who created the invitation is shown the
+same link. An unverified account can always accept through the link.
 
 Schema v3 adds server-owned cross-database transfer checkpoints. A transfer records the actor,
 source/destination database keys and Document ids, source content hash/timestamp, stable image-id
@@ -69,10 +69,21 @@ also removes images it had copied. Finished transfers are dropped after 30 days 
 after 90. A transfer is refused for a Document over 2 MiB, with more than 100 images, that would
 take the destination past its image quota, or that is open in a live session.
 
+**A transfer is a copy or a move, and the caller must say which** (`mode` on
+`POST /space-transfers`; there is no default, because one of the two deletes a Document). A copy
+ends at `kept_both` as soon as the destination is verified and never touches the source, its
+revision history or its images. A move goes on to delete the source and ends at `complete`. The
+choice is stored on the row (`space_transfers.keep_source`) and read from there on every resume,
+so retrying an interrupted copy cannot turn it into a move, and `delete-source` is refused for a
+copy. `keep_source` was added without raising the metadata schema version: a build that does not
+know the column still opens the database, and the rows it writes default to a move, which is what
+that build does.
+
 Image links are recognised in every form the editor writes (`imageLinks.js`): `/images/<id>`,
 `/api/images/<id>` in production, and an absolute URL on a configured origin in development. A
-rebound link keeps the form it had. The copy starts with one revision; the source's history is not
-moved and is deleted with the source.
+rebound link keeps the form it had. The destination Document starts with one revision. Revision
+history is never copied, because it can hold text its author removed before sharing: it stays with
+the source, and a move deletes it with the source. The dialog that asks "copy or move" says so.
 
 All lifecycle routes fail closed unless `SHARED_SPACES_ENABLED=true`. The authenticated,
 paginated `GET /spaces` registry returns only active memberships, a membership version, the
@@ -106,11 +117,28 @@ directly ran its scripts in the application's origin.
 ```sql
 users (id TEXT PRIMARY KEY, name, email, password_hash, created_at, email_verified_at)
 password_resets (token_hash TEXT PRIMARY KEY, user_id, expires_at)
+email_verifications (token_hash TEXT PRIMARY KEY, user_id, email, expires_at, created_at)
 ```
 
 `email_verified_at` is set when the account holder has demonstrably received mail at the address
 (`accountEmail.js`). Sign-up trims the address and refuses one that differs from an existing
 account's only by case or surrounding spaces.
+
+**Verify my email** (`emailVerification.js`; the routes exist only while `SHARED_SPACES_ENABLED`
+is on, since a verified address matters to nothing else yet):
+
+- `POST /account/email-verification` mails a link to the account's stored address, never to one
+  in the request. Three requests an hour per account, counted whether or not the mail went out.
+  The token is 256 random bits, stored only as its SHA-256 hash, valid for 24 hours.
+- `POST /account/email-verification/confirm` takes the token **and the session of the account
+  that asked**. The token alone is deliberately not enough. Anyone can register someone else's
+  address and ask for this mail; if the mailbox's real holder could verify by clicking, that
+  stranger's account would become verified for an address it does not hold, which is the takeover
+  verification exists to prevent. The real holder cannot sign in to that account, so their click
+  changes nothing. Another account's link is refused and left usable; a link issued for an
+  address the account no longer has is refused; confirming spends every outstanding link.
+- The page behind the link (`/#/verify-email/<token>`) verifies only on an explicit button, so a
+  mail scanner following the link verifies nothing.
 
 The `users` table in this database is separate from the per-user CRR `users` table.
 
