@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { getAuthDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { sendPasswordResetEmail } from './mailer.js';
+import { markAccountEmailVerified } from './accountEmail.js';
 
 export const passwordResetRoutes = express.Router();
 
@@ -61,6 +62,9 @@ passwordResetRoutes.post('/reset-password', async (req, res) => {
         const newPasswordHash = bcrypt.hashSync(newPassword, 10);
         db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(newPasswordHash, resetRequest.user_id);
         db.prepare('DELETE FROM password_resets WHERE token_hash = ?').run(tokenHash);
+        // The link was mailed to the account's address, so whoever used it
+        // receives mail there.
+        markAccountEmailVerified(resetRequest.user_id);
 
         res.json({ message: 'Password has been reset successfully.' });
     } catch (error) {

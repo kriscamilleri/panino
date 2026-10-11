@@ -88,6 +88,12 @@ function addAuthUser(id, email = `${id}@example.test`, name = "Test User") {
     .run(id, email, name, "2026-01-01T00:00:00.000Z");
 }
 
+/** As a completed password reset does: the account holder received mail at its address. */
+function verifyEmail(userId) {
+  authDb.prepare("UPDATE users SET email_verified_at = ? WHERE id = ?")
+    .run("2026-01-02T00:00:00.000Z", userId);
+}
+
 function versionFor(userId) {
   return spacesDb
     .prepare("SELECT version FROM space_user_versions WHERE user_id = ?")
@@ -103,7 +109,8 @@ beforeEach(() => {
     id TEXT PRIMARY KEY NOT NULL,
     email TEXT,
     name TEXT,
-    created_at TEXT
+    created_at TEXT,
+    email_verified_at TEXT
   )`);
   contentDb.exec(`CREATE TABLE users (
     id TEXT PRIMARY KEY NOT NULL,
@@ -641,6 +648,8 @@ describe("Phase 5 lifecycle", () => {
   });
 
   it("lists invitations for the matching account and accepts one by public id", () => {
+    verifyEmail(EDITOR_ID);
+    verifyEmail(OTHER_ID);
     const space = createSpace(OWNER_ID, "Writers");
     const now = new Date("2026-08-18T20:00:00.000Z");
     const created = createSpaceInvite({
@@ -675,6 +684,149 @@ describe("Phase 5 lifecycle", () => {
     });
     expect(getSpaceMembership(space.spaceId, EDITOR_ID)?.role).toBe("editor");
     expect(listPendingSpaceInvitations({ actorUserId: EDITOR_ID, now })).toEqual([]);
+  });
+
+  it("does not let an unverified account find or accept an invitation by its address", () => {
+    // Sign-up never checks the address. Whoever registers the invited address
+    // first (here: nobody has verified it) must still need the mailed link.
+    const space = createSpace(OWNER_ID, "Writers");
+    const now = new Date("2026-08-18T20:00:00.000Z");
+    const created = createSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      email: "editor@example.test",
+      now,
+      tokenFactory: () => "a".repeat(64),
+    });
+
+    expect(listPendingSpaceInvitations({ actorUserId: EDITOR_ID, now })).toEqual([]);
+    expect(() => acceptPendingSpaceInvitation({ actorUserId: EDITOR_ID, inviteId: created.invite.id, now }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_INVALID" }));
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)).toBeNull();
+
+    // The mailed link still works, and using it is not proof of the mailbox:
+    // the same link is shown to the owner who created it.
+    acceptSpaceInvite({ actorUserId: EDITOR_ID, token: "a".repeat(64), now });
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)?.role).toBe("editor");
+    expect(authDb.prepare("SELECT email_verified_at AS at FROM users WHERE id = ?").get(EDITOR_ID).at).toBeNull();
+  });
+
+  it("does not let a differently capitalised copy of the invited address take the invitation", () => {
+    const squatter = "44444444-4444-4444-8444-444444444444";
+    addAuthUser(squatter, "Editor@Example.test", "Squatter");
+    spacesDb.prepare("INSERT INTO space_user_versions (user_id, version) VALUES (?, 1)").run(squatter);
+    const space = createSpace(OWNER_ID, "Writers");
+    const now = new Date("2026-08-18T20:00:00.000Z");
+    const created = createSpaceInvite({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      email: "editor@example.test",
+      now,
+      tokenFactory: () => "b".repeat(64),
+    });
+
+    expect(listPendingSpaceInvitations({ actorUserId: squatter, now })).toEqual([]);
+    expect(() => acceptPendingSpaceInvitation({ actorUserId: squatter, inviteId: created.invite.id, now }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_INVALID" }));
+    expect(getSpaceMembership(space.spaceId, squatter)).toBeNull();
+  });
+
+  it("accepts only a single mailbox as an invitation address", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    const invite = (email) => () => createSpaceInvite({ actorUserId: OWNER_ID, spaceId: space.spaceId, email });
+    for (const email of [
+      "one@example.test, two@example.test",
+      "one@example.test;two@example.test",
+      "one@example.test two@example.test",
+      "Someone <one@example.test>",
+      "one@example.test\nBcc: two@example.test",
+      "one@@example.test",
+      "one@example",
+      "@example.test",
+      `${"a".repeat(250)}@example.test`,
+    ]) {
+      expect(invite(email), email).toThrowError(expect.objectContaining({ code: "INVALID_INVITE_EMAIL" }));
+    }
+    expect(spacesDb.prepare("SELECT COUNT(*) AS n FROM space_invites").get().n).toBe(0);
+    expect(invite("  New.Person+tag@Sub.Example.test ")().invite.email).toBe("new.person+tag@sub.example.test");
+  });
+
+  it("limits how many invitation emails one owner can cause per hour, across all their spaces", () => {
+    process.env.SPACE_INVITES_PER_HOUR = "3";
+    try {
+      const first = createSpace(OWNER_ID, "Writers");
+      const second = createSpace(OWNER_ID, "Editors");
+      const start = Date.parse("2026-08-18T20:00:00.000Z");
+      const send = (spaceId, n, at) => createSpaceInvite({
+        actorUserId: OWNER_ID, spaceId, email: `person${n}@example.test`, now: new Date(at),
+      });
+      send(first.spaceId, 1, start);
+      send(second.spaceId, 2, start + 1000);
+      const third = send(first.spaceId, 3, start + 2000);
+
+      expect(() => send(second.spaceId, 4, start + 3000))
+        .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_RATE_LIMIT" }));
+      // Resending is sending.
+      expect(() => resendSpaceInvite({
+        actorUserId: OWNER_ID, spaceId: first.spaceId, inviteId: third.invite.id, now: new Date(start + 4000),
+      })).toThrowError(expect.objectContaining({ code: "SPACE_INVITE_RATE_LIMIT" }));
+      // The refused attempts changed nothing.
+      expect(spacesDb.prepare("SELECT COUNT(*) AS n FROM space_invites WHERE revoked_at IS NULL").get().n).toBe(3);
+
+      // An hour after the first one, there is room again.
+      expect(send(second.spaceId, 4, start + 60 * 60 * 1000 + 1).invite.email).toBe("person4@example.test");
+    } finally {
+      delete process.env.SPACE_INVITES_PER_HOUR;
+    }
+  });
+
+  it("limits pending invitations per space, but lets an existing one be renewed", () => {
+    process.env.SPACE_PENDING_INVITE_LIMIT = "2";
+    try {
+      const space = createSpace(OWNER_ID, "Writers");
+      const send = (email) => createSpaceInvite({ actorUserId: OWNER_ID, spaceId: space.spaceId, email });
+      send("one@example.test");
+      send("two@example.test");
+
+      expect(() => send("three@example.test"))
+        .toThrowError(expect.objectContaining({ code: "SPACE_INVITE_LIMIT" }));
+      expect(send("two@example.test").invite.email).toBe("two@example.test");
+    } finally {
+      delete process.env.SPACE_PENDING_INVITE_LIMIT;
+    }
+  });
+
+  it("refuses to hand a space to a member who already owns the maximum", () => {
+    process.env.SPACE_OWNER_LIMIT = "1";
+    try {
+      const space = createSpace(OWNER_ID, "Writers");
+      createSpace(EDITOR_ID, "Their own");
+      addEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
+
+      expect(() => transferSpaceOwnership({ actorUserId: OWNER_ID, spaceId: space.spaceId, targetUserId: EDITOR_ID }))
+        .toThrowError(expect.objectContaining({ code: "SPACE_OWNER_LIMIT" }));
+      expect(getSpaceMembership(space.spaceId, OWNER_ID)?.role).toBe("owner");
+    } finally {
+      delete process.env.SPACE_OWNER_LIMIT;
+    }
+  });
+
+  it("answers an ownership request the same for an unknown user and for a non-member", () => {
+    // It used to look the target account up before checking the caller, so
+    // anyone could ask whether a user id exists.
+    const space = createSpace(OWNER_ID, "Writers");
+    const unknown = "55555555-5555-4555-8555-555555555555";
+    const attempt = (actorUserId, targetUserId) => {
+      try {
+        transferSpaceOwnership({ actorUserId, spaceId: space.spaceId, targetUserId });
+        return "transferred";
+      } catch (error) { return error.code; }
+    };
+
+    expect(attempt(OTHER_ID, unknown)).toBe("SPACE_NOT_FOUND");
+    expect(attempt(OTHER_ID, EDITOR_ID)).toBe("SPACE_NOT_FOUND");
+    expect(attempt(OWNER_ID, unknown)).toBe("SPACE_MEMBER_NOT_FOUND");
+    expect(attempt(OWNER_ID, EDITOR_ID)).toBe("SPACE_MEMBER_NOT_FOUND");
   });
 
   it("rejects wrong-account and expired invite acceptance without adding membership", () => {

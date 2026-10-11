@@ -35,6 +35,15 @@
         <div v-else-if="spacesStore.pendingInvitationsError" class="pn-alert pn-alert-error mt-4">
           {{ spacesStore.pendingInvitationsError }}
         </div>
+        <div
+          v-else-if="!spacesStore.pendingInvitations.length && spacesStore.invitationsEmailVerified === false"
+          class="pn-panel-muted mt-4 p-4 pn-body"
+          data-testid="pending-space-invitations-unverified"
+        >
+          To accept an invitation, open the link in the invitation email while signed in here.
+          Invitations are listed on this page only once this account's email address has been
+          confirmed, which happens the first time you reset your password by email.
+        </div>
         <div v-else-if="!spacesStore.pendingInvitations.length" class="pn-panel-muted mt-4 p-4 pn-body">
           No pending invitations.
         </div>

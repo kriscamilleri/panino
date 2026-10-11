@@ -16,6 +16,10 @@ export const useSpacesStore = defineStore("spacesStore", () => {
   const pendingInvitations = ref([]);
   const pendingInvitationsLoading = ref(false);
   const pendingInvitationsError = ref("");
+  // The server lists invitations only for an account whose address is
+  // verified; for any other the list is empty by rule and the mailed link is
+  // the way in. Null until the first answer.
+  const invitationsEmailVerified = ref(null);
   const syncStore = useSyncStore();
   const authStore = useAuthStore();
 
@@ -64,6 +68,7 @@ export const useSpacesStore = defineStore("spacesStore", () => {
     try {
       const result = await request("/space-invitations");
       pendingInvitations.value = result.invitations || [];
+      invitationsEmailVerified.value = result.emailVerified ?? null;
       return pendingInvitations.value;
     } catch (failure) {
       pendingInvitationsError.value = failure.message;
@@ -204,6 +209,7 @@ export const useSpacesStore = defineStore("spacesStore", () => {
     pendingInvitations,
     pendingInvitationsLoading,
     pendingInvitationsError,
+    invitationsEmailVerified,
     loadPendingInvitations,
     loadDetail,
     createSpace,

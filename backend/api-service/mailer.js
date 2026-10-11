@@ -48,10 +48,15 @@ function escapeHtml(value) {
 export async function sendSpaceInviteEmail(to, token, spaceName) {
     const inviteLink = buildSpaceInviteUrl(token);
     const safeLink = escapeHtml(inviteLink);
-    const safeSpaceName = escapeHtml(spaceName);
+    // The name is chosen by the inviter. Keep it on one line.
+    const plainSpaceName = String(spaceName).replace(/\s+/g, ' ').trim();
+    const safeSpaceName = escapeHtml(plainSpaceName);
+    spaceName = plainSpaceName;
     const mailOptions = {
         from: `Panino <${SMTP_FROM}>`,
-        to,
+        // An address object, never a string: a string is parsed as a list, so
+        // "a@x.com, b@y.com" would be two recipients.
+        to: { name: '', address: to },
         subject: 'You were invited to a Panino space',
         text: `You were invited to collaborate in “${spaceName}”. Open this link while signed in to the invited email address: ${inviteLink}\n\nThis invitation expires in 7 days.`,
         html: `<p>You were invited to collaborate in <strong>${safeSpaceName}</strong>.</p><p><a href="${safeLink}">Accept invitation</a></p><p>Sign in with the invited email address. This invitation expires in 7 days.</p>`,

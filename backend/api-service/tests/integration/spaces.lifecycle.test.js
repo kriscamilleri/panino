@@ -9,7 +9,7 @@ vi.mock("../../mailer.js", () => ({
 }));
 
 import { sendSpaceInviteEmail } from "../../mailer.js";
-import { deleteTestDb, getSpacesDb } from "../../db.js";
+import { deleteTestDb, getAuthDb, getSpacesDb } from "../../db.js";
 import { addEditorMember, createSpace } from "../../spaces.js";
 import {
   cleanupTestUser,
@@ -66,6 +66,14 @@ describe("shared-space lifecycle routes", () => {
   });
 
   const auth = (user) => ({ Authorization: `Bearer ${getTestToken(user.userId)}` });
+
+  /** Complete a real password reset for the account: the only proof of its mailbox. */
+  async function verifyByPasswordReset(user) {
+    const token = crypto.randomBytes(32).toString("hex");
+    getAuthDb().prepare("INSERT INTO password_resets (token_hash, user_id, expires_at) VALUES (?, ?, ?)")
+      .run(crypto.createHash("sha256").update(token).digest("hex"), user.userId, new Date(Date.now() + 60000).toISOString());
+    await request(app).post("/reset-password").send({ token, newPassword: user.password }).expect(200);
+  }
 
   async function createViaApi(name = "Writers") {
     const response = await request(app)
@@ -141,7 +149,72 @@ describe("shared-space lifecycle routes", () => {
       .expect(400, { error: "Invitation is invalid or expired", code: "SPACE_INVITE_INVALID" });
   });
 
+  it("keeps an invitation out of reach of an account that only claims the invited address", async () => {
+    const space = await createViaApi("Editorial");
+    const invitedAddress = `invited-${Date.now()}@example.test`;
+    const invited = await request(app)
+      .post(`/spaces/${space.id}/invitations`)
+      .set(auth(owner))
+      .send({ email: invitedAddress })
+      .expect(201);
+
+    // The attacker registers the address itself (its owner has no account yet).
+    const signup = await request(app)
+      .post("/signup")
+      .send({ name: "Not Them", email: invitedAddress, password: "password123" })
+      .expect(201);
+    const attacker = { Authorization: `Bearer ${signup.body.token}` };
+    try {
+      await request(app).get("/space-invitations").set(attacker)
+        .expect(200, { invitations: [], emailVerified: false });
+      await request(app).post(`/space-invitations/${invited.body.invitation.id}/accept`).set(attacker)
+        .expect(400, { error: "Invitation is invalid or expired", code: "SPACE_INVITE_INVALID" });
+      await request(app).get(`/spaces/${space.id}`).set(attacker).expect(404);
+
+      // A differently capitalised copy cannot be registered beside it.
+      await request(app)
+        .post("/signup")
+        .send({ name: "Also Not Them", email: `  ${invitedAddress.toUpperCase()} `, password: "password123" })
+        .expect(409);
+    } finally {
+      getSpacesDb().prepare("DELETE FROM space_user_versions WHERE user_id = ?").run(signup.body.user.id);
+      cleanupTestUser(signup.body.user.id);
+    }
+  });
+
+  it("refuses an invitation address that names more than one mailbox, and sends nothing", async () => {
+    const space = await createViaApi();
+    await request(app)
+      .post(`/spaces/${space.id}/invitations`)
+      .set(auth(owner))
+      .send({ email: "one@example.test, two@example.test" })
+      .expect(400)
+      .expect((response) => expect(response.body.code).toBe("INVALID_INVITE_EMAIL"));
+    expect(sendSpaceInviteEmail).not.toHaveBeenCalled();
+  });
+
+  it("answers 429 with Retry-After once an owner has sent too many invitations", async () => {
+    process.env.SPACE_INVITES_PER_HOUR = "2";
+    try {
+      const space = await createViaApi();
+      const invite = (n) => request(app)
+        .post(`/spaces/${space.id}/invitations`)
+        .set(auth(owner))
+        .send({ email: `person${n}-${Date.now()}@example.test` });
+      await invite(1).expect(201);
+      await invite(2).expect(201);
+      const refused = await invite(3).expect(429);
+      expect(refused.body.code).toBe("SPACE_INVITE_RATE_LIMIT");
+      expect(Number(refused.headers["retry-after"])).toBeGreaterThan(0);
+      expect(sendSpaceInviteEmail).toHaveBeenCalledTimes(2);
+    } finally {
+      delete process.env.SPACE_INVITES_PER_HOUR;
+    }
+  });
+
   it("lists and accepts invitations for the signed-in account on Manage Spaces", async () => {
+    await verifyByPasswordReset(editor);
+    await verifyByPasswordReset(outsider);
     const space = await createViaApi("Editorial");
     const invited = await request(app)
       .post(`/spaces/${space.id}/invitations`)
@@ -152,7 +225,7 @@ describe("shared-space lifecycle routes", () => {
     await request(app)
       .get("/space-invitations")
       .set(auth(outsider))
-      .expect(200, { invitations: [] });
+      .expect(200, { invitations: [], emailVerified: true });
     const pending = await request(app)
       .get("/space-invitations")
       .set(auth(editor))
@@ -178,7 +251,7 @@ describe("shared-space lifecycle routes", () => {
     await request(app)
       .get("/space-invitations")
       .set(auth(editor))
-      .expect(200, { invitations: [] });
+      .expect(200, { invitations: [], emailVerified: true });
     await request(app).get(`/spaces/${space.id}`).set(auth(editor)).expect(200);
   });
 

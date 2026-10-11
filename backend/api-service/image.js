@@ -34,6 +34,31 @@ const ALLOWED_MIME_TO_EXTENSIONS = new Map([
     ['image/svg+xml', ['.svg']],
 ]);
 
+/**
+ * Headers for serving a stored image from the application's own origin.
+ *
+ * An SVG is a document: opened on its own (the preview's "open image in new
+ * tab") it runs its scripts in this origin, where the session token is
+ * readable. In a shared space the uploader and the viewer are different
+ * people. The sandbox policy makes the response an inert document with an
+ * opaque origin; inside an <img> nothing changes.
+ *
+ * The stored type is not trusted either. A personal images row is written
+ * through /sync and copied by a Document transfer, so it can claim to be
+ * text/html. Anything outside the upload allow-list is sent as a download.
+ */
+export function setImageResponseHeaders(res, storedMimeType) {
+    const mimeType = String(storedMimeType || '').toLowerCase();
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    if (isAllowedMime(mimeType)) {
+        res.set('Content-Type', mimeType);
+    } else {
+        res.set('Content-Type', 'application/octet-stream');
+        res.set('Content-Disposition', 'attachment');
+    }
+}
+
 function normalizeExt(filename) {
     const ext = path.extname(filename || '').toLowerCase();
     return ext.startsWith('.') ? ext : `.${ext}`;
@@ -552,7 +577,7 @@ imageRoutes.get('/images/:id', (req, res) => {
             return res.status(404).json({ error: 'Image file not found on server' });
         }
 
-        res.set('Content-Type', image.mime_type);
+        setImageResponseHeaders(res, image.mime_type);
         res.set('Cache-Control', target.isSpace ? 'private, no-store' : 'public, max-age=31536000');
         res.sendFile(absolutePath);
     } catch (error) {

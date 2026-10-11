@@ -185,6 +185,68 @@ describe('Image management API', () => {
         expect(image.sha256).toBe(crypto.createHash('sha256').update(TEST_PNG_BUFFER).digest('hex'));
     });
 
+    it('serves an SVG as an inert document, so opening it cannot run its script in this origin', async () => {
+        // In a shared space the uploader and the viewer are different people,
+        // and the preview offers "open image in new tab".
+        const space = createTestSpace();
+        const scripted = path.join(FIXTURES_DIR, 'scripted.svg');
+        fs.writeFileSync(scripted, '<svg xmlns="http://www.w3.org/2000/svg"><script>fetch("/steal?"+localStorage.jwt_token)</script></svg>');
+        try {
+            const upload = await request(app)
+                .post(`/images?space=${space.spaceId}`)
+                .set('Authorization', `Bearer ${getTestToken(otherUser.userId)}`)
+                .attach('image', scripted)
+                .expect(201);
+
+            const served = await request(app)
+                .get(`/images/${upload.body.id}?space=${space.spaceId}`)
+                .set('Authorization', `Bearer ${getTestToken(user.userId)}`)
+                .expect(200);
+
+            expect(served.headers['content-type']).toContain('image/svg+xml');
+            expect(served.headers['x-content-type-options']).toBe('nosniff');
+            const policy = served.headers['content-security-policy'];
+            expect(policy).toContain("default-src 'none'");
+            expect(policy).toMatch(/(^|;\s*)sandbox(;|$)/);
+            expect(policy).not.toContain('allow-scripts');
+        } finally {
+            fs.rmSync(scripted, { force: true });
+        }
+    });
+
+    it('sends the same protective headers for personal images', async () => {
+        const token = getTestToken(user.userId);
+        const upload = await request(app)
+            .post('/images')
+            .set('Authorization', `Bearer ${token}`)
+            .attach('image', path.join(FIXTURES_DIR, 'test-image.png'))
+            .expect(201);
+
+        const served = await request(app).get(`/images/${upload.body.id}`).set('Authorization', `Bearer ${token}`).expect(200);
+
+        expect(served.headers['content-type']).toContain('image/png');
+        expect(served.headers['x-content-type-options']).toBe('nosniff');
+        expect(served.headers['content-security-policy']).toContain('sandbox');
+    });
+
+    it('never serves a stored type outside the upload allow-list as a page', async () => {
+        // A personal images row arrives through /sync, so its type is whatever
+        // the client wrote, and a Document transfer copies it into a space.
+        const token = getTestToken(user.userId);
+        const upload = await request(app)
+            .post('/images')
+            .set('Authorization', `Bearer ${token}`)
+            .attach('image', path.join(FIXTURES_DIR, 'test-image.png'))
+            .expect(201);
+        getUserDb(user.userId).prepare('UPDATE images SET mime_type = ? WHERE id = ?').run('text/html', upload.body.id);
+
+        const served = await request(app).get(`/images/${upload.body.id}`).set('Authorization', `Bearer ${token}`).expect(200);
+
+        expect(served.headers['content-type']).toContain('application/octet-stream');
+        expect(served.headers['content-disposition']).toContain('attachment');
+        expect(served.headers['x-content-type-options']).toBe('nosniff');
+    });
+
     it('rejects non-allowlisted MIME types', async () => {
         const token = getTestToken(user.userId);
 

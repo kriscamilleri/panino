@@ -948,7 +948,8 @@ const AUTH_SCHEMA = `
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    email_verified_at TEXT
   );
   CREATE TABLE IF NOT EXISTS password_resets (
     token_hash TEXT PRIMARY KEY,
@@ -1085,6 +1086,14 @@ export function getAuthDb() {
   db.exec(AUTH_SCHEMA);
   db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
   enableWriteAheadLog(db, "_users.db");
+  // When the address was proven to reach the account holder (accountEmail.js).
+  // Older builds ignore the column. If it cannot be added right now the service
+  // still starts, and every account simply counts as unverified until it can.
+  try {
+    addColumnIfMissing(db, "users", "email_verified_at", "TEXT");
+  } catch (error) {
+    console.warn(`[db] could not add users.email_verified_at (${error?.code || "unknown"}); will retry at next start.`);
+  }
 
   dbConnections.set(key, db);
   return db;

@@ -9,12 +9,17 @@ import {
   getSpacesDb,
 } from "./db.js";
 import { buildSpaceInviteUrl, sendSpaceInviteEmail } from "./mailer.js";
+import { isAccountEmailVerified } from "./accountEmail.js";
 import { deleteSpaceUploads } from "./spaceStorage.js";
 
 const ALLOWED_ROLES = new Set(["owner", "editor"]);
 const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const DELETE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const SPACE_DELETE_SWEEP_MS = 60 * 60 * 1000;
+const INVITE_RATE_WINDOW_MS = 60 * 60 * 1000;
+// One mailbox: no spaces, no list separators, no display-name or routing
+// syntax. Everything a mail library could read as "more than one recipient".
+const SINGLE_ADDRESS_PATTERN = /^[^\s@<>()[\],;:\\"]+@[^\s@<>()[\],;:\\"]+\.[^\s@<>()[\],;:\\"]+$/;
 
 function positiveLimit(name, fallback) {
   const value = Number(process.env[name]);
@@ -27,7 +32,8 @@ export function normalizeInviteEmail(value) {
 
 function requireInviteEmail(value) {
   const email = normalizeInviteEmail(value);
-  if (!email || email.length > 320 || !email.includes("@")) {
+  // "Contains an @" let `a@x.com, b@y.com` through, and the mailer sent to both.
+  if (!email || email.length > 254 || !SINGLE_ADDRESS_PATTERN.test(email)) {
     throw new SpaceRepositoryError(
       "INVALID_INVITE_EMAIL",
       "Enter a valid email address",
@@ -817,6 +823,31 @@ export function createSpaceInvite({
       );
     }
 
+    // Every invitation sends mail from this service's address. Without limits
+    // any account could use it as a relay: create a space, invite at will.
+    const pending = db.prepare(
+      `SELECT COUNT(*) AS count FROM space_invites
+        WHERE space_id = ? AND email != ?
+          AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?`,
+    ).get(spaceId, normalizedEmail, createdAt)?.count ?? 0;
+    if (pending >= positiveLimit("SPACE_PENDING_INVITE_LIMIT", 50)) {
+      throw new SpaceRepositoryError(
+        "SPACE_INVITE_LIMIT",
+        "This space has too many pending invitations",
+      );
+    }
+    const sentRecently = db.prepare(
+      `SELECT COUNT(*) AS count
+         FROM space_invites i JOIN spaces s ON s.id = i.space_id
+        WHERE s.owner_user_id = ? AND i.created_at > ?`,
+    ).get(actorUserId, new Date(now.getTime() - INVITE_RATE_WINDOW_MS).toISOString())?.count ?? 0;
+    if (sentRecently >= positiveLimit("SPACE_INVITES_PER_HOUR", 20)) {
+      throw new SpaceRepositoryError(
+        "SPACE_INVITE_RATE_LIMIT",
+        "Too many invitations were sent recently. Try again later.",
+      );
+    }
+
     db.prepare(
       `UPDATE space_invites SET revoked_at = ?
         WHERE space_id = ? AND email = ? AND used_at IS NULL AND revoked_at IS NULL`,
@@ -892,11 +923,17 @@ export function resendSpaceInvite({ actorUserId, spaceId, inviteId, now = new Da
 /**
  * Lists active, unexpired invitations addressed to the authenticated account.
  * Raw invitation tokens are never returned by this discovery endpoint.
+ *
+ * Only for an account whose address is verified. Sign-up does not check the
+ * address, so otherwise anyone could register an invited address (or a
+ * differently capitalised copy of it), find the invitation here and accept it
+ * without ever seeing the mailed link.
  */
 export function listPendingSpaceInvitations({ actorUserId, now = new Date() }) {
   requireEnabled();
   requireUuid(actorUserId, "actorUserId");
   const actor = requireUser(actorUserId);
+  if (!isAccountEmailVerified(actor.id)) return [];
   const actorEmail = normalizeInviteEmail(
     getAuthDb().prepare("SELECT email FROM users WHERE id = ?").get(actor.id)?.email,
   );
@@ -1033,13 +1070,18 @@ export function acceptSpaceInvite({ actorUserId, token, now = new Date() }) {
 
 /**
  * Accepts a discovered invitation by its public id after re-checking that the
- * authenticated account still owns the invited email address.
+ * authenticated account still owns the invited email address. "Owns" means
+ * verified (see listPendingSpaceInvitations); an unverified account must use
+ * the mailed link, and is told nothing more than for an unknown invitation.
  */
 export function acceptPendingSpaceInvitation({ actorUserId, inviteId, now = new Date() }) {
   requireEnabled();
   requireUuid(actorUserId, "actorUserId");
   requireUser(actorUserId);
   requireUuid(inviteId, "inviteId");
+  if (!isAccountEmailVerified(actorUserId)) {
+    throw new SpaceRepositoryError("SPACE_INVITE_INVALID", "Invitation is invalid or expired");
+  }
   return acceptSpaceInviteSelection({ actorUserId, inviteId, now });
 }
 
@@ -1049,9 +1091,10 @@ export function transferSpaceOwnership({ actorUserId, spaceId, targetUserId }) {
   requireUuid(actorUserId, "actorUserId");
   requireUuid(targetUserId, "targetUserId");
   requireUser(actorUserId);
-  requireUser(targetUserId);
   const db = getSpacesDb();
   return db.transaction(() => {
+    // Ownership is established before the target is looked at. Checking the
+    // target account first told any caller whether a user id exists.
     requireOwner(db, spaceId, actorUserId);
     if (actorUserId === targetUserId) {
       throw new SpaceRepositoryError("SPACE_OWNER_UNCHANGED", "Select another editor");
@@ -1061,6 +1104,16 @@ export function transferSpaceOwnership({ actorUserId, spaceId, targetUserId }) {
     ).get(spaceId, targetUserId);
     if (!target || target.role !== "editor") {
       throw new SpaceRepositoryError("SPACE_MEMBER_NOT_FOUND", "Editor not found");
+    }
+    // The limit on owned spaces applies however the space was acquired.
+    const targetOwned = db.prepare(
+      "SELECT COUNT(*) AS count FROM spaces WHERE owner_user_id = ?",
+    ).get(targetUserId)?.count ?? 0;
+    if (targetOwned >= positiveLimit("SPACE_OWNER_LIMIT", 20)) {
+      throw new SpaceRepositoryError(
+        "SPACE_OWNER_LIMIT",
+        "That member has reached the owned-space limit",
+      );
     }
     db.prepare(
       "UPDATE space_members SET role = 'editor' WHERE space_id = ? AND user_id = ? AND role = 'owner'",
@@ -1267,8 +1320,14 @@ async function publishLifecycleChange(req, result) {
 
 function lifecycleErrorResponse(res, error) {
   const code = error?.code || "SPACE_OPERATION_FAILED";
-  if (code === "SHARED_SPACES_DISABLED" || code === "SPACE_NOT_FOUND") {
+  // An account that no longer exists is answered like a space that does not:
+  // left unmapped it was a 500, which told callers the id was unknown.
+  if (code === "SHARED_SPACES_DISABLED" || code === "SPACE_NOT_FOUND" || code === "USER_NOT_FOUND") {
     return res.status(404).json({ error: "Not found", code: "SPACE_NOT_FOUND" });
+  }
+  if (code === "SPACE_INVITE_RATE_LIMIT") {
+    res.set("Retry-After", String(Math.ceil(INVITE_RATE_WINDOW_MS / 1000)));
+    return res.status(429).json({ error: error.message, code });
   }
   if (code === "SPACE_OWNER_REQUIRED") {
     return res.status(403).json({ error: "This action requires the space owner", code });
@@ -1294,6 +1353,7 @@ function lifecycleErrorResponse(res, error) {
     code === "SPACE_OWNER_LEAVE_DENIED" ||
     code === "SPACE_OWNER_UNCHANGED" ||
     code === "SPACE_OWNER_LIMIT" ||
+    code === "SPACE_INVITE_LIMIT" ||
     code === "SPACE_MEMBER_LIMIT" ||
     code === "SPACE_JOINED_LIMIT" ||
     code === "OWNED_SPACES_REMAIN"
@@ -1413,6 +1473,9 @@ spaceRoutes.get("/space-invitations", (req, res) => {
   try {
     return res.json({
       invitations: listPendingSpaceInvitations({ actorUserId: req.user.user_id }),
+      // False means the list is empty by rule, not because nothing is pending:
+      // the account must use the link in the invitation email.
+      emailVerified: isAccountEmailVerified(req.user.user_id),
     });
   } catch (error) {
     return lifecycleErrorResponse(res, error);
