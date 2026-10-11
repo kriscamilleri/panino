@@ -70,4 +70,102 @@ describe("production Y.Text textarea binding", () => {
     a.binding.undo();
     expect(text.toString()).toBe("root-B");
   });
+
+  /** Two participants, each with their own document, exchanging every update. */
+  function pair(initial) {
+    const docA = new Y.Doc();
+    docA.getText("content").insert(0, initial);
+    const docB = new Y.Doc();
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
+    docA.on("update", (update, origin) => { if (origin !== "net") Y.applyUpdate(docB, update, "net"); });
+    docB.on("update", (update, origin) => { if (origin !== "net") Y.applyUpdate(docA, update, "net"); });
+    const a = bind(docA.getText("content"), { id: "a" });
+    const b = bind(docB.getText("content"), { id: "b" });
+    return { a, b, textA: docA.getText("content"), textB: docB.getText("content"), docA, docB };
+  }
+  const apply = (value, edit) => value.slice(0, edit.index) + edit.insertText + value.slice(edit.index + edit.deleteCount);
+  const wellFormed = (value) => !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(value);
+
+  describe("characters made of two code units", () => {
+    // Most emoji are a surrogate pair, and emoji of the same range share the
+    // first half. A code-unit diff found a "common prefix" ending between the
+    // halves, and the edit then removed half of one character and half of the
+    // next: the shared text held two broken characters, for everyone.
+    it.each([
+      ["deleting the first of two emoji", "😀😁", "😁"],
+      ["deleting the second of two emoji", "😀😁", "😀"],
+      ["typing an emoji before another", "a😁", "a😀😁"],
+      ["typing an emoji after another", "😀", "😀😁"],
+      ["replacing one emoji with another", "x😀y", "x😁y"],
+      ["replacing a flag with another", "🇫🇷", "🇩🇪"],
+      ["deleting an emoji between text", "a😀b", "ab"],
+    ])("%s never splits a character", (_label, before, after) => {
+      const edit = contiguousTextEdit(before, after);
+
+      expect(apply(before, edit)).toBe(after);
+      expect(wellFormed(edit.insertText), JSON.stringify(edit)).toBe(true);
+      expect(wellFormed(before.slice(edit.index, edit.index + edit.deleteCount)), JSON.stringify(edit)).toBe(true);
+    });
+
+    it("reaches the other participant intact", () => {
+      const { a, b, textB } = pair("😀😁");
+      input(a.textarea, "😁");
+      expect(textB.toString()).toBe("😁");
+      expect(b.textarea.value).toBe("😁");
+      expect(wellFormed(b.textarea.value)).toBe(true);
+    });
+  });
+
+  describe("input-method composition", () => {
+    it("keeps the composition when another participant edits meanwhile, and merges afterwards", () => {
+      // A remote update used to replace the textarea's value mid-composition,
+      // discarding what was being composed. Android keyboards compose every word.
+      const { a, b, textA, textB } = pair("hello world");
+      a.textarea.dispatchEvent(new CompositionEvent("compositionstart"));
+      a.textarea.value = "hello world にほ";                        // composing at the end
+
+      input(b.textarea, "REMOTE hello world");                      // someone types at the start
+
+      expect(a.textarea.value).toBe("hello world にほ");            // untouched while composing
+      a.textarea.value = "hello world 日本";
+      a.textarea.dispatchEvent(new CompositionEvent("compositionend"));
+
+      expect(textA.toString()).toBe("REMOTE hello world 日本");
+      expect(textB.toString()).toBe("REMOTE hello world 日本");
+      expect(a.textarea.value).toBe("REMOTE hello world 日本");
+      expect(a.textarea.selectionStart).toBe("REMOTE hello world 日本".length);
+    });
+
+    it("places the composed text correctly when the remote edit was before it", () => {
+      const { a, b, textA } = pair("one two three");
+      a.textarea.dispatchEvent(new CompositionEvent("compositionstart"));
+      a.textarea.value = "one two X three";                         // composing in the middle
+      input(b.textarea, "ZERO one two three");
+      a.textarea.dispatchEvent(new CompositionEvent("compositionend"));
+
+      expect(textA.toString()).toBe("ZERO one two X three");
+    });
+
+    it("behaves as before when nothing arrived during the composition", () => {
+      const { a, textB } = pair("abc");
+      a.textarea.dispatchEvent(new CompositionEvent("compositionstart"));
+      a.textarea.value = "abcé";
+      a.textarea.dispatchEvent(new CompositionEvent("compositionend"));
+      expect(textB.toString()).toBe("abcé");
+    });
+  });
+
+  it("inserts a very large paste in pieces, each its own update, without breaking characters", () => {
+    const { a, textB, docA } = pair("start ");
+    const sizes = [];
+    docA.on("update", (update, origin) => { if (origin !== "net") sizes.push(update.length); });
+    const pasted = `${"😀".repeat(40_000)}${"x".repeat(150_000)}`;       // 230,000 code units
+
+    input(a.textarea, `start ${pasted}`);
+
+    expect(textB.toString()).toBe(`start ${pasted}`);
+    expect(sizes.length).toBeGreaterThan(1);
+    expect(Math.max(...sizes)).toBeLessThan(300 * 1024);
+    expect(wellFormed(textB.toString())).toBe(true);
+  });
 });

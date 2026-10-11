@@ -257,6 +257,18 @@ const SPACE_LOCAL_SCHEMA = `
     updated_at TEXT NOT NULL,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
   );
+  -- Updates accepted since the session's last full checkpoint, in order. An
+  -- accepted update is made durable by appending it here; rewriting the whole
+  -- document state for every keystroke cost time proportional to the Document
+  -- on the one thread that serves everyone.
+  CREATE TABLE IF NOT EXISTS collab_session_updates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    update_blob BLOB NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES collab_sessions(session_id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_collab_session_updates_session
+    ON collab_session_updates(session_id, id);
   CREATE TABLE IF NOT EXISTS collab_session_acks (
     session_id TEXT NOT NULL,
     participant_id TEXT NOT NULL,

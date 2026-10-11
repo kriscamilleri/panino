@@ -142,7 +142,7 @@ describe("Editor.vue conflict wiring (COLLAB-01)", () => {
     expect(editorSource).toMatch(
       /const editingPaused = computed\(\(\) => Boolean\(\s*file\.value\?\.id && conflictStore\.hasConflict\(file\.value\.id, file\.value\.dbKey\),\s*\)\);/s,
     );
-    expect(editorSource).toContain("if (textarea) textarea.readOnly = editingPaused.value;");
+    expect(editorSource).toContain("if (textarea) textarea.readOnly = editingPaused.value || collabStatus.value === 'dropped';");
     expect(editorSource).toContain("watch(editingPaused, applyEditingPaused);");
     // A re-created editor (theme change, reopened Document) starts paused too.
     const initBody = editorSource.slice(editorSource.indexOf("function initEditor()"), editorSource.indexOf("function getEditorTheme("));
@@ -243,5 +243,68 @@ describe("hasDocumentContentChanged remains a comparison primitive", () => {
     expect(hasDocumentContentChanged(null, "")).toBe(false);
     expect(hasDocumentContentChanged("# a", "# a")).toBe(false);
     expect(hasDocumentContentChanged("# a", "# b")).toBe(true);
+  });
+
+  describe("live sessions", () => {
+    const between = (start, end) => editorSource.slice(
+      editorSource.indexOf(start),
+      editorSource.indexOf(end, editorSource.indexOf(start) + start.length),
+    );
+
+    it("starts again from the stored body when a session ends", () => {
+      // Otherwise the session's own save arrives as a conflict, one undo
+      // reverts the whole session for everyone, and the next keystroke saves
+      // the unsaved session text as a solo edit.
+      const reset = between("function resetAfterSession(", "let sessionNoteId");
+      expect(reset).toContain("const stored = file.value.content ?? '';");
+      expect(reset).toContain("draftStore.setBase(noteId, stored);");
+      expect(reset).toContain("historyStore.clear(noteId);");
+      expect(reset).toContain("setEditorValue(stored, { preserveCursor: true });");
+      expect(reset).toContain("if (!noteId || file.value?.id !== noteId) return;");
+
+      const statusWatcher = between("watch(collabStatus, (status, previous) => {", "watch(collabConflict");
+      expect(statusWatcher).toContain("if (previous && previous !== 'idle') resetAfterSession(sessionNoteId);");
+    });
+
+    it("attaches a session only to the editor of the Document it is for", () => {
+      const bind = between("function bindLiveEditor() {", "async function startCollaboration()");
+      expect(bind).toContain("if (collabStore.noteId !== file.value?.id) return;");
+    });
+
+    it("joins for the Document that was on screen when Collaborate was clicked", () => {
+      const start = between("async function startCollaboration() {", "function confirmCollabSave()");
+      expect(start).toContain("const { id, dbKey } = file.value;");
+      expect(start.indexOf("if (file.value?.id !== id) return;")).toBeGreaterThan(start.indexOf("await syncStore.sync(dbKey);"));
+      expect(start).toContain("collabStore.open(dbKey.slice('space:'.length), id);");
+    });
+
+    it("attaches the session again after the editor is rebuilt for a theme change", () => {
+      const theme = between("watch(() => themeStore.theme, () => {", "/* ───── stats ───── */");
+      expect(theme).toContain("if (collabActive.value) nextTick(bindLiveEditor);");
+    });
+
+    it("leaves the text selectable when a session is dropped", () => {
+      expect(editorSource).toContain("textarea.readOnly = editingPaused.value || collabStatus.value === 'dropped';");
+      expect(editorSource).not.toMatch(/textarea\.disabled\s*=/);
+    });
+
+    it("offers Collaborate only where the server offers live sessions", () => {
+      expect(editorSource).toMatch(/<BaseButton\s+v-if="syncStore\.liveSessionsAvailable"[^>]*data-testid="collab-start"/s);
+    });
+
+    it("keeps the session binding out of Vue's reactivity", () => {
+      // Reached through a reactive proxy, Yjs's undo manager finds nothing to
+      // undo: in the running app undo and redo did nothing during a session.
+      // Unit tests of the binding cannot see this; only the browser run did.
+      expect(editorSource).toContain("const collabBinding = shallowRef(null);");
+      expect(editorSource).toContain("collabBinding.value = markRaw(new YTextareaBinding({");
+      expect(editorSource).not.toContain("const collabBinding = ref(");
+    });
+
+    it("lets the server apply a conflict answer", () => {
+      const apply = between("function applyCollabResolution(content) {", "function resetAfterSession(");
+      expect(apply).toContain("collabStore.resolveConflict(content)");
+      expect(apply).not.toContain("showCollabConflict.value = false");
+    });
   });
 });

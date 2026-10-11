@@ -1,12 +1,18 @@
 import { computed, markRaw, ref, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import * as Y from "yjs";
+import { v4 as uuidv4 } from "uuid";
 import { useSyncStore } from "./syncStore";
 import { useDocStore } from "./docStore";
 import { useUiStore } from "./uiStore";
 
 const RECONNECT_TIMEOUT_MS = 30_000;
 const SEND_BATCH_MS = 50;
+// Well inside the server's limit for one update (collabLimits.js), so several
+// buffered updates never merge into a message it would refuse.
+const MAX_UPDATE_BYTES = 500 * 1024;
+// Longer than the server's one-second rate window.
+const RESEND_DELAY_MS = 1100;
 
 function decode(value) {
   const binary = atob(value || "");
@@ -33,6 +39,13 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
   const ydoc = shallowRef(null);
   const localOrigin = markRaw({ name: "panino-collab-local" });
   const pending = new Map();
+  // This tab, for the server's sequence counting. A browser profile has one
+  // site id for all its tabs; two tabs in one session shared a counter and
+  // each lost the other's updates.
+  const clientId = uuidv4();
+  let openRequestId = null;
+  const cancelledOpens = new Set();
+  let resendTimer = null;
   let nextSeq = 1;
   let sendTimer = null;
   let reconnectTimer = null;
@@ -56,14 +69,52 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
   function flushUpdates() {
     clearTimeout(sendTimer);
     sendTimer = null;
-    if (!bufferedUpdates.length || !sessionId.value) return;
-    const update = Y.mergeUpdates(bufferedUpdates);
-    bufferedUpdates = [];
-    const seq = nextSeq++;
-    const encoded = encode(update);
-    pending.set(seq, encoded);
+    // While a refused update is waiting to be resent, later ones wait with it:
+    // the server takes sequence numbers strictly in order.
+    if (!bufferedUpdates.length || !sessionId.value || resendTimer) return;
+    while (bufferedUpdates.length) {
+      const group = [bufferedUpdates.shift()];
+      let size = group[0].length;
+      while (bufferedUpdates.length && size + bufferedUpdates[0].length <= MAX_UPDATE_BYTES) {
+        size += bufferedUpdates[0].length;
+        group.push(bufferedUpdates.shift());
+      }
+      const seq = nextSeq++;
+      const encoded = encode(group.length === 1 ? group[0] : Y.mergeUpdates(group));
+      pending.set(seq, encoded);
+      send("collab:update", { sessionId: sessionId.value, seq, update: encoded });
+    }
     setPendingCount();
-    send("collab:update", { sessionId: sessionId.value, seq, update: encoded });
+  }
+
+  /**
+   * Send again everything the server has not acknowledged, as one update under
+   * the lowest waiting sequence number. Updates are idempotent, so one merged
+   * update is as good as the originals, and it is one message: replayed one by
+   * one after a reconnect, a minute of typing exceeded the server's rate limit
+   * on arrival and the session was dropped.
+   */
+  function resendPending() {
+    if (!pending.size || !sessionId.value) return;
+    const ordered = [...pending.entries()].sort((a, b) => a[0] - b[0]);
+    const seq = ordered[0][0];
+    const update = ordered.length === 1
+      ? ordered[0][1]
+      : encode(Y.mergeUpdates(ordered.map(([, encoded]) => decode(encoded))));
+    pending.clear();
+    pending.set(seq, update);
+    nextSeq = seq + 1;
+    setPendingCount();
+    send("collab:update", { sessionId: sessionId.value, seq, update });
+  }
+
+  function scheduleResend() {
+    if (resendTimer) return;
+    resendTimer = setTimeout(() => {
+      resendTimer = null;
+      resendPending();
+      flushUpdates();
+    }, RESEND_DELAY_MS);
   }
 
   function observeLocalUpdates(doc) {
@@ -72,8 +123,12 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
     doc.on("update", onYUpdate);
   }
 
-  function onYUpdate(update, origin) {
-    if (origin !== localOrigin) return;
+  function onYUpdate(update, origin, doc, transaction) {
+    // Everything this tab did, not only what it typed. Undo and redo run with
+    // the undo manager as their origin; filtered on the typing origin alone
+    // they were applied here and never sent, and every later update from this
+    // tab then referred to text the server did not have.
+    if (!transaction?.local) return;
     bufferedUpdates.push(update);
     setPendingCount();
     if (!sendTimer) sendTimer = setTimeout(flushUpdates, SEND_BATCH_MS);
@@ -82,8 +137,10 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
   function resetDocument() {
     clearTimeout(sendTimer);
     clearTimeout(reconnectTimer);
+    clearTimeout(resendTimer);
     sendTimer = null;
     reconnectTimer = null;
+    resendTimer = null;
     if (observedDoc) observedDoc.off("update", onYUpdate);
     observedDoc = null;
     ydoc.value?.destroy();
@@ -97,6 +154,7 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
 
   function reset() {
     resetDocument();
+    openRequestId = null;
     status.value = "idle";
     sessionId.value = null;
     dbKey.value = null;
@@ -116,8 +174,8 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
     status.value = "opening";
     dbKey.value = `space:${spaceId}`;
     noteId.value = documentId;
-    const requestId = send("collab:open", { space: spaceId, noteId: documentId });
-    if (!requestId) {
+    openRequestId = send("collab:open", { space: spaceId, noteId: documentId, clientId });
+    if (!openRequestId) {
       status.value = "dropped";
       lastError.value = "The live connection is unavailable.";
       return false;
@@ -125,8 +183,34 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
     return true;
   }
 
+  function showConflict(payload) {
+    conflictHunks.value = payload.conflicts || [];
+    conflict.value = {
+      id: payload.conflictId || null,
+      baseContent: payload.baseContent || "",
+      mineContent: payload.mineContent || "",
+      theirsContent: payload.theirsContent || "",
+      updatedAt: payload.at,
+      mergeAttempts: 1,
+    };
+    lastError.value = "This version conflicts with an edit made outside the session.";
+  }
+
   function installState(payload) {
     if (!payload?.sessionId || !payload?.update) return;
+    if (sessionId.value && payload.sessionId !== sessionId.value) {
+      // The session this tab was in has been saved and closed while it was
+      // away, and this is a new one started from the saved Document. Updates
+      // made against the old one mean nothing in it.
+      if (pending.size || bufferedUpdates.length) {
+        send("collab:leave", { sessionId: payload.sessionId });
+        clearTimeout(reconnectTimer);
+        status.value = "dropped";
+        lastError.value = "The live session ended while this device was disconnected. What you typed since is still here to copy.";
+        return;
+      }
+      resetDocument();
+    }
     if (!ydoc.value) {
       ydoc.value = markRaw(new Y.Doc());
       observeLocalUpdates(ydoc.value);
@@ -134,15 +218,15 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
     Y.applyUpdate(ydoc.value, decode(payload.update), "server-state");
     sessionId.value = payload.sessionId;
     participants.value = payload.participants || [];
-    nextSeq = Math.max(nextSeq, (Number(payload.ack) || 0) + 1);
     status.value = "live";
     lastError.value = null;
     clearTimeout(reconnectTimer);
-    for (const [seq, update] of pending) {
-      if (seq > Number(payload.ack || 0)) send("collab:update", { sessionId: sessionId.value, seq, update });
-      else pending.delete(seq);
-    }
+    const acknowledged = Number(payload.ack) || 0;
+    for (const seq of [...pending.keys()]) if (seq <= acknowledged) pending.delete(seq);
+    if (pending.size) resendPending();
+    else nextSeq = acknowledged + 1;
     setPendingCount();
+    if (payload.conflict) showConflict(payload.conflict);
   }
 
   function acknowledge(seq) {
@@ -175,20 +259,67 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
     }
     if (message.type === "socket:open" && status.value === "reconnecting" && dbKey.value && noteId.value) {
       const space = dbKey.value.slice("space:".length);
-      send("collab:open", { space, noteId: noteId.value });
+      openRequestId = send("collab:open", { space, noteId: noteId.value, clientId });
       return;
     }
     if (!message.type?.startsWith("collab:")) return;
+
+    // The answer to a request to join. Only the answer to the request that is
+    // still wanted may open a session: the user may have left, or selected
+    // another Document, before it arrived, and the session then bound itself
+    // to whatever was on screen.
+    const answersOpen = message.type === "collab:state" || (message.type === "collab:open" && message.ok === false);
+    if (answersOpen) {
+      if (message.requestId && cancelledOpens.delete(message.requestId)) {
+        if (message.ok !== false && message.payload?.sessionId) {
+          send("collab:leave", { sessionId: message.payload.sessionId });
+        }
+        return;
+      }
+      if (!openRequestId || message.requestId !== openRequestId) return;
+      openRequestId = null;
+    }
+
     if (message.ok === false) {
+      const code = message.error?.code;
+      if (message.type === "collab:open") {
+        lastError.value = message.error?.message || "The live session request failed.";
+        status.value = "idle";
+        return;
+      }
+      // Refusals that mean "not now": the update is kept and sent again.
+      if (message.type === "collab:update" && (code === "RATE_LIMIT" || code === "SESSION_BUSY")) {
+        scheduleResend();
+        return;
+      }
+      if (message.type === "collab:commit") {
+        if (status.value === "committing") status.value = "live";
+        lastError.value = code === "SESSION_BUSY"
+          ? "A save is already in progress."
+          : "The version could not be saved. Your text is still in the session; try again.";
+        return;
+      }
+      if (message.type === "collab:resolve") {
+        if (code === "CONFLICT_RESOLVED") {
+          conflict.value = null;
+          conflictHunks.value = [];
+          lastError.value = null;
+        } else {
+          lastError.value = message.error?.message || "The conflict could not be resolved.";
+        }
+        return;
+      }
       lastError.value = message.error?.message || "The live session request failed.";
-      if (message.type === "collab:open") status.value = "idle";
-      else if (message.error?.code !== "SESSION_BUSY") status.value = "dropped";
+      status.value = "dropped";
       return;
     }
     const payload = message.payload || {};
+    if (message.type === "collab:state") {
+      installState(payload);
+      return;
+    }
     if (payload.sessionId && sessionId.value && payload.sessionId !== sessionId.value) return;
     switch (message.type) {
-      case "collab:state": installState(payload); break;
       case "collab:update":
         if (ydoc.value && payload.update) Y.applyUpdate(ydoc.value, decode(payload.update), "remote");
         break;
@@ -201,23 +332,29 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
         break;
       }
       case "collab:committing": status.value = "committing"; break;
+      case "collab:commit-failed":
+        // Someone's save did not go through; everyone was told it had started.
+        if (status.value === "committing") status.value = "live";
+        resendPending();
+        break;
       case "collab:committed":
         status.value = "live";
+        // Updates the server refused while it was saving go out again now.
+        resendPending();
         if (payload.result === "conflict") {
-          conflictHunks.value = payload.conflicts || [];
-          conflict.value = {
-            baseContent: payload.baseContent || "",
-            mineContent: payload.mineContent || "",
-            theirsContent: payload.theirsContent || "",
-            updatedAt: payload.at,
-            mergeAttempts: 1,
-          };
-          lastError.value = "This version conflicts with an edit made outside the session.";
+          showConflict(payload);
         } else {
           conflictHunks.value = [];
           conflict.value = null;
+          lastError.value = null;
           useUiStore().addToast(`${payload.by?.name || "A member"} saved a document version.`, "success");
         }
+        break;
+      case "collab:conflict-resolved":
+        conflictHunks.value = [];
+        conflict.value = null;
+        lastError.value = null;
+        useUiStore().addToast(`${payload.by?.name || "A member"} resolved the conflict. Save the version when ready.`, "success");
         break;
       case "collab:closed": void finishSession(payload.reason); break;
       default: break;
@@ -244,6 +381,9 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
 
   function leave() {
     if (sessionId.value) send("collab:leave", { sessionId: sessionId.value });
+    // Not joined yet: there is no session to leave, but an answer is on its
+    // way and must not be taken up when it arrives.
+    else if (openRequestId) cancelledOpens.add(openRequestId);
     reset();
   }
 
@@ -254,18 +394,20 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
     send("collab:awareness", { sessionId: sessionId.value, cursor, selection, idle });
   }
 
+  /**
+   * Send this participant's answer to a save conflict. The server applies it,
+   * once, for everyone, and the change comes back as an ordinary update. It
+   * used to be applied here by replacing the whole text, which deleted what
+   * others had typed since and doubled the Document when two answered at once.
+   */
   function resolveConflict(content) {
-    if (!ydoc.value || status.value === "dropped") return false;
-    const text = ydoc.value.getText("content");
-    ydoc.value.transact(() => {
-      if (text.length) text.delete(0, text.length);
-      if (content) text.insert(0, content);
-    }, localOrigin);
-    conflict.value = null;
-    conflictHunks.value = [];
-    lastError.value = null;
-    status.value = "live";
-    return true;
+    if (!sessionId.value || !conflict.value?.id || status.value === "dropped") return false;
+    flushUpdates();
+    return Boolean(send("collab:resolve", {
+      sessionId: sessionId.value,
+      conflictId: conflict.value.id,
+      content: content ?? "",
+    }));
   }
 
   function destroy() {

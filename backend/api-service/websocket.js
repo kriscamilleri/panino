@@ -14,7 +14,8 @@ import jwt from "jsonwebtoken";
 import { URL } from "url";
 import { getAuthDb, parseDbKey } from "./db.js";
 import { resolveSpaceAccess, getSpaceMembershipVersion } from "./spaces.js";
-import { COLLAB_LIMITS, createCollabSessionManager } from "./collab.js";
+import { createCollabSessionManager } from "./collab.js";
+import { COLLAB_LIMITS } from "./collabLimits.js";
 
 export const WS_PROTOCOL_VERSION = 1;
 
@@ -423,8 +424,10 @@ export function revokeSpaceSubscribers(clients, dbKey, userIds) {
   const revokedUsers = new Set(userIds || []);
   clients?.forEach((clientState, clientWs) => {
     if (!revokedUsers.has(clientState.userId)) return;
-    if (!clientState.subscriptions?.has(dbKey)) return;
+    // Live sessions first, and whether or not this socket is still subscribed:
+    // unsubscribing after joining must not keep a removed member in a session.
     clientState.collabManager?.revokeSocket(clientWs, clientState, dbKey);
+    if (!clientState.subscriptions?.has(dbKey)) return;
     clientState.subscriptions.delete(dbKey);
     safeSend(clientWs, {
       v: WS_PROTOCOL_VERSION,

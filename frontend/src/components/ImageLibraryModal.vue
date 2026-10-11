@@ -190,9 +190,10 @@ const PAGE_LIMIT = 25;
 
 const props = defineProps({
     show: Boolean,
+    // Null until a Document or folder is selected; the modal is closed then.
     dbKey: {
         type: String,
-        required: true,
+        default: null,
     },
 });
 

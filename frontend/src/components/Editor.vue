@@ -231,7 +231,7 @@
       <div
         ref="editorContainerRef"
         class="flex-1 bg-white mt-0 p-0"
-        :class="{ 'opacity-50 cursor-not-allowed': collabStatus === 'dropped' }"
+        :class="{ 'opacity-60': collabStatus === 'dropped' }"
         data-testid="editor-container"
       ></div>
     </div>
@@ -281,7 +281,7 @@
 </style>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, markRaw, shallowRef } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
@@ -346,7 +346,11 @@ const {
   unackedCount: collabUnacked,
   conflict: collabConflict,
 } = storeToRefs(collabStore);
-const collabBinding = ref(null);
+// Never a deep ref. Vue would hand back a reactive proxy of the binding, and
+// Yjs's undo manager, reached through that proxy, compares proxied objects
+// with the real ones and finds nothing to undo: in the running app undo and
+// redo did nothing at all during a live session.
+const collabBinding = shallowRef(null);
 const showCollabSave = ref(false);
 const showCollabConflict = ref(false);
 const syncOnline = computed(() => syncStore.isOnline);
@@ -881,7 +885,7 @@ const editingPaused = computed(() => Boolean(
 
 function applyEditingPaused() {
   const textarea = getTextareaElement();
-  if (textarea) textarea.readOnly = editingPaused.value;
+  if (textarea) textarea.readOnly = editingPaused.value || collabStatus.value === 'dropped';
 }
 
 watch(editingPaused, applyEditingPaused);
@@ -929,12 +933,15 @@ function bindLiveEditor() {
   const textarea = getTextareaElement();
   const ytext = collabYdoc.value?.getText('content');
   if (!textarea || !ytext || !collabActive.value) return;
-  collabBinding.value = new YTextareaBinding({
+  // Only the Document the session is for. A session whose answer arrived after
+  // another Document was selected must not take over that Document's editor.
+  if (collabStore.noteId !== file.value?.id) return;
+  collabBinding.value = markRaw(new YTextareaBinding({
     textarea,
     ytext,
     origin: collabStore.localOrigin,
     applyValue: (value) => setEditorValue(value, { preserveCursor: false }),
-  });
+  }));
   const value = ytext.toString();
   contentDraft.value = value;
   setEditorValue(value, { preserveCursor: true });
@@ -942,13 +949,17 @@ function bindLiveEditor() {
 
 async function startCollaboration() {
   if (!isSharedDocument.value || !file.value?.id) return;
+  // The Document this was asked for. The awaits below include a network round
+  // trip, and the selection can change meanwhile.
+  const { id, dbKey } = file.value;
   debouncedSyncToDB.cancel();
-  if (isDirty.value) await docStore.updateFileContent(file.value.id, contentDraft.value, file.value.dbKey);
+  if (isDirty.value) await docStore.updateFileContent(id, contentDraft.value, dbKey);
   // Admission reads the durable server Document as the Yjs base. Flush any
   // local solo edit/creation first so starting collaboration cannot silently
   // reopen an older body or fail because the new Document is not uploaded yet.
-  await syncStore.sync(file.value.dbKey);
-  collabStore.open(file.value.dbKey.slice('space:'.length), file.value.id);
+  await syncStore.sync(dbKey);
+  if (file.value?.id !== id) return;
+  collabStore.open(dbKey.slice('space:'.length), id);
 }
 
 function confirmCollabSave() {
@@ -963,20 +974,48 @@ function leaveCollaboration() {
 }
 
 function applyCollabResolution(content) {
-  if (collabStore.resolveConflict(content)) {
-    showCollabConflict.value = false;
-    ui.addToast('Conflict choices applied to the live session. Save the version when ready.', 'success');
+  // The server applies the answer for everyone and the dialog closes when it
+  // says so; nothing is changed here.
+  if (!collabStore.resolveConflict(content)) {
+    ui.addToast('Your answer could not be sent. Check the connection and try again.', 'error');
   }
 }
 
+/**
+ * A session has ended for this editor: left, saved and closed, or access
+ * ended. The textarea still shows the session's text, while the editor's base
+ * and undo history describe the Document from before the session. Left like
+ * that, the session's own save arrived as a "changed elsewhere" conflict, one
+ * undo reverted the whole session for everyone, and the next keystroke saved
+ * the unsaved session text as a solo edit. Start again from the stored body
+ * (COLLAB-05 §6.4); the session's save then arrives as an ordinary update.
+ */
+function resetAfterSession(noteId) {
+  if (!noteId || file.value?.id !== noteId) return;
+  const stored = file.value.content ?? '';
+  contentDraft.value = stored;
+  draftStore.setDraft(noteId, stored);
+  draftStore.setBase(noteId, stored);
+  historyStore.clear(noteId);
+  historyStore.initialize(noteId, stored);
+  clearConflict();
+  setEditorValue(stored, { preserveCursor: true });
+}
+
+let sessionNoteId = null;
+watch(() => collabStore.noteId, (id) => { if (id) sessionNoteId = id; });
+
 watch(collabYdoc, () => nextTick(bindLiveEditor));
 
-watch(collabStatus, (status) => {
-  const textarea = getTextareaElement();
-  if (textarea) textarea.disabled = status === 'dropped';
+watch(collabStatus, (status, previous) => {
+  // Read-only, not disabled: the notice says the text remains to copy, and a
+  // disabled textarea cannot be selected from.
+  applyEditingPaused();
   if (status === 'idle') {
     collabBinding.value?.destroy();
     collabBinding.value = null;
+    if (previous && previous !== 'idle') resetAfterSession(sessionNoteId);
+    sessionNoteId = null;
   } else if (status === 'live' && !collabBinding.value) {
     nextTick(bindLiveEditor);
   }
@@ -1007,7 +1046,13 @@ watch(
 watch(() => themeStore.theme, () => {
   if (!editorInstance.value) return;
   destroyEditor();
-  nextTick(initEditor);
+  nextTick(() => {
+    initEditor();
+    // The editor was rebuilt; a live session has to be attached to the new
+    // textarea. Without this the bar still said "Live session" while typing
+    // was neither sent nor saved and remote edits stopped appearing.
+    if (collabActive.value) nextTick(bindLiveEditor);
+  });
 });
 
 /* ───── stats ───── */
