@@ -425,7 +425,7 @@ export async function verifyStagedDirectory(stagingRoot) {
 
 /** Verify and atomically publish a fully validated staging directory. */
 export async function stageProductionRestore({ archivePath, checksumPath = `${archivePath}.sha256`, stagingDir }) {
-  if (!archivePath || !stagingDir) throw new Error("archivePath and stagingDir are required");
+  if (!archivePath || !stagingDir) throw new Error("An archive (--archive) and a staging directory (--staging-dir) are required");
   if (fs.existsSync(stagingDir)) throw new Error(`Staging target already exists: ${stagingDir}`);
   await verifyArchiveChecksum(archivePath, checksumPath);
   const parent = path.dirname(path.resolve(stagingDir));
@@ -490,7 +490,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToP
         `Restore directory is valid (${result.spaces} spaces, ${result.entries} files, snapshot ${result.createdAt}).\n`,
       );
     } else {
-      const result = await stageProductionRestore(options);
+      if (options.dataDir || options.uploadsDir) {
+        throw new Error("--archive takes only --staging-dir and --checksum");
+      }
+      // The flags are not the function's parameter names. Passing the parsed
+      // options straight through made the documented command fail with
+      // "archivePath and stagingDir are required", whatever it was given.
+      const result = await stageProductionRestore({
+        archivePath: options.archive,
+        checksumPath: options.checksum,
+        stagingDir: options.stagingDir,
+      });
       process.stdout.write(
         `Restore staged and validated at ${result.stagingDir} (${result.spaces} spaces, ${result.entries} files, snapshot ${result.createdAt}).\n` +
         "No live data was changed. Follow the deployment runbook for an approved maintenance-window swap.\n",

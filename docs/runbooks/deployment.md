@@ -212,6 +212,31 @@ membership versions force client refresh, and CR-SQLite converges slightly stale
 content after service resumes. See the fixed contract in
 [`docs/specs/proposed/collab-04-phase-0-design-artifacts.md`](../specs/proposed/collab-04-phase-0-design-artifacts.md) §5.
 
+## Rehearse a release on a copy of production
+
+Before a release that changes how databases are opened or migrated, run the new image against a
+copy of the real estate. Nothing here writes to production; the only production access is the
+backup itself.
+
+1. Take a fresh backup and stage it with the commands above. Staging is the first check: it is
+   the restore tool run on real data.
+2. Copy the staged `data/*.db` files into a working directory. Never run anything against the
+   staged set itself; it stays as validated.
+3. Run the new image on the working copy with **no network (`--network none`) and a `JWT_SECRET`
+   that is not production's**. This is not optional. A `/sync` from an account that has GitHub
+   backup configured starts that account's daily backup. With production's secret and a network,
+   a rehearsal would push real users' Documents to their repositories; with neither, the attempt
+   fails at decrypting the stored token and goes nowhere. Set `IMAGE_PRUNE_DISABLED=1` too: the
+   archive holds no personal images, so the copy's image rows have no files.
+4. Check that every database opens (`getDb` migrates and fails closed), that the API serves
+   `/me` and a full `/sync` pull for every account, and that the flag-gated routes answer 404.
+5. Start the previous release's image on the same working copy and repeat the pull. The counts
+   must match: that is the rollback.
+6. Compare each library's Documents, folders and images with the staged backup. They must be
+   identical; only schema is allowed to differ.
+
+The copy holds real user data. Report counts, never ids or text, and say where the copy was left.
+
 ## Routing
 
 - `/` serves the built frontend from Nginx.

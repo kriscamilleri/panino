@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import Database from "better-sqlite3";
 import { createDatabaseTar } from "../../../../scripts/production-database-backup/stream-database-backup.mjs";
@@ -15,6 +17,15 @@ import {
 const OWNER_ID = "11111111-1111-4111-8111-111111111111";
 const SPACE_ID = "22222222-2222-4222-8222-222222222222";
 const MANIFEST = "panino-backup-manifest.json";
+const RESTORE_TOOL = fileURLToPath(
+  new URL("../../../../scripts/production-database-backup/stage-production-restore.mjs", import.meta.url),
+);
+
+/** Run the restore tool as an operator does: as a command, with flags. */
+function runRestoreTool(...args) {
+  const result = spawnSync(process.execPath, [RESTORE_TOOL, ...args], { encoding: "utf8" });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+}
 
 /**
  * An estate as production holds it: every database in write-ahead-logging mode
@@ -356,6 +367,78 @@ describe("production restore staging", () => {
       await expect(verifyInstalledRestore({ manifestPath: "m", dataDir: tempDir })).rejects.toThrow(/are required/);
       await expect(verifyInstalledRestore({ manifestPath: "m", dataDir: tempDir, uploadsDir: path.join(tempDir, "absent") }))
         .rejects.toThrow(/Not a directory/);
+    });
+  });
+
+  describe("run as a command, as the runbook writes it", () => {
+    // Every other test calls the functions. The command the runbook documents
+    // had never been run: it passed the parsed flags straight to a function
+    // whose parameters have other names, and failed whatever it was given. The
+    // first real use, against a copy of production, found it.
+    it("stages an archive, rechecks the directory, and verifies an installed set", async () => {
+      const source = createWalSource(tempDir);
+      const archivePath = await writeArchive(tempDir, source);
+      const stagingDir = path.join(tempDir, "cli-stage");
+
+      const staged = runRestoreTool("--archive", archivePath, "--staging-dir", stagingDir);
+      expect(staged.stderr).toBe("");
+      expect(staged.status).toBe(0);
+      expect(staged.stdout).toContain(`Restore staged and validated at ${stagingDir} (1 spaces, 5 files`);
+      expect(staged.stdout).toContain("No live data was changed.");
+      expect(fs.existsSync(path.join(stagingDir, MANIFEST))).toBe(true);
+
+      const rechecked = runRestoreTool("--verify-dir", stagingDir);
+      expect(rechecked.status).toBe(0);
+      expect(rechecked.stdout).toContain("Restore directory is valid (1 spaces, 5 files");
+
+      const installed = install(tempDir, stagingDir, source);
+      const verified = runRestoreTool(
+        "--verify-installed", installed.manifestPath,
+        "--data-dir", installed.dataDir,
+        "--uploads-dir", installed.uploadsDir,
+      );
+      expect(verified.stderr).toBe("");
+      expect(verified.status).toBe(0);
+      expect(verified.stdout).toContain("Installed set matches the backup (1 spaces, 5 files");
+    });
+
+    it("takes the checksum from --checksum, and refuses the archive without one", async () => {
+      const archivePath = await writeArchive(tempDir, createSource(tempDir));
+      const elsewhere = path.join(tempDir, "sums");
+      fs.mkdirSync(elsewhere);
+      const checksumPath = path.join(elsewhere, "backup.tar.gz.sha256");
+      fs.renameSync(`${archivePath}.sha256`, checksumPath);
+
+      const without = runRestoreTool("--archive", archivePath, "--staging-dir", path.join(tempDir, "a"));
+      expect(without.status).toBe(1);
+      expect(fs.existsSync(path.join(tempDir, "a"))).toBe(false);
+
+      const given = runRestoreTool(
+        "--archive", archivePath, "--staging-dir", path.join(tempDir, "b"), "--checksum", checksumPath,
+      );
+      expect(given.stderr).toBe("");
+      expect(given.status).toBe(0);
+      expect(fs.existsSync(path.join(tempDir, "b", MANIFEST))).toBe(true);
+    });
+
+    it("fails with the usage text, and stages nothing, when the command is incomplete or mixed", async () => {
+      const archivePath = await writeArchive(tempDir, createSource(tempDir));
+      const target = path.join(tempDir, "never");
+
+      for (const args of [
+        ["--archive", archivePath],
+        ["--staging-dir", target],
+        ["--archive", archivePath, "--staging-dir"],
+        ["--archive", archivePath, "--staging-dir", target, "--frobnicate", "x"],
+        ["--archive", archivePath, "--staging-dir", target, "--data-dir", tempDir],
+        ["--verify-dir", target, "--archive", archivePath],
+      ]) {
+        const result = runRestoreTool(...args);
+        expect(result.status, args.join(" ")).toBe(1);
+        expect(result.stderr).toContain("Usage: stage-production-restore.mjs --archive PATH --staging-dir PATH");
+        expect(result.stdout).toBe("");
+      }
+      expect(fs.existsSync(target)).toBe(false);
     });
   });
 
