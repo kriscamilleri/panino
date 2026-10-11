@@ -73,7 +73,8 @@ async function fileSize(filePath) {
 /**
  * A live session keeps text that is not in `notes.content` yet. Copying the
  * stored body and deleting the Document would lose that text for everyone in
- * the session, so a Document cannot be moved while one is open or recoverable.
+ * the session, and a copy alone would silently leave it out, so a Document can
+ * be neither moved nor copied while one is open or recoverable.
  */
 function assertNoLiveSession(source, noteId) {
   // Sessions exist only for space Documents, and so does their table.
@@ -112,8 +113,19 @@ function publicTransfer(row) {
     updatedAt: row.updated_at,
     destinationConfirmedAt: row.destination_confirmed_at,
     sourceDeletedAt: row.source_deleted_at,
+    mode: transferMode(row),
     revisionHistoryTransferred: false,
   };
+}
+
+/**
+ * "copy" leaves the source Document, and its revision history, where it is;
+ * "move" deletes it once the copy is verified. Read from the row every time,
+ * never from the request that happens to be resuming it: a copy that was
+ * interrupted and retried must still be a copy.
+ */
+function transferMode(row) {
+  return row?.keep_source ? "copy" : "move";
 }
 
 function transferRow(actorUserId, transferId) {
@@ -432,7 +444,7 @@ export async function resumeSpaceTransfer(req, initialRow, { deleteSource = true
     if (!await sourceUnchanged(row, source)) {
       throw new TransferError(
         "TRANSFER_SOURCE_CHANGED",
-        "Source Document changed since this move began. Cancel it and start again, or keep both if a copy exists.",
+        `Source Document changed since this ${transferMode(row)} began. Cancel it and start again, or keep both if a copy exists.`,
         409,
       );
     }
@@ -449,6 +461,11 @@ export async function resumeSpaceTransfer(req, initialRow, { deleteSource = true
     });
     poke(req, destination.dbKey);
     row = transferRow(row.actor_user_id, row.id);
+    if (transferMode(row) === "copy") {
+      // The verified copy is the whole job.
+      updateTransfer(row.id, { status: "kept_both", last_error: null });
+      return transferRow(row.actor_user_id, row.id);
+    }
     if (!deleteSource) return row;
     return await deleteVerifiedSource(req, row);
   } catch (error) {
@@ -588,12 +605,18 @@ spaceTransferRoutes.post("/space-transfers", async (req, res) => {
     if (!validateUuid(req.body?.sourceNoteId)) {
       throw new TransferError("TRANSFER_SOURCE_INVALID", "Source Document is invalid");
     }
+    // No default. One of the two deletes a Document and its history, and
+    // that is not something to do because a field was left out.
+    const mode = req.body?.mode;
+    if (mode !== "move" && mode !== "copy") {
+      throw new TransferError("TRANSFER_MODE_INVALID", "Choose whether to copy or move the Document");
+    }
     const sourceNote = source.db.prepare(
       "SELECT id, content, updated_at FROM notes WHERE id = ?",
     ).get(req.body.sourceNoteId);
     if (!sourceNote) throw new TransferError("TRANSFER_NOT_FOUND", "Not found", 404);
     if (Buffer.byteLength(sourceNote.content || "", "utf8") > MAX_TRANSFER_CONTENT_BYTES) {
-      throw new TransferError("TRANSFER_SOURCE_TOO_LARGE", "This Document is too large to move between databases.", 413);
+      throw new TransferError("TRANSFER_SOURCE_TOO_LARGE", `This Document is too large to ${mode} between databases.`, 413);
     }
     assertNoLiveSession(source, sourceNote.id);
     const destinationFolderId = req.body?.destinationFolderId || null;
@@ -610,8 +633,8 @@ spaceTransferRoutes.post("/space-transfers", async (req, res) => {
          id, actor_user_id, source_db_key, destination_db_key,
          source_note_id, destination_note_id, destination_folder_id,
          source_updated_at, source_content_sha256, status,
-         image_map_json, warnings_json, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'checkpointed', '{}', '[]', ?, ?)`,
+         image_map_json, warnings_json, created_at, updated_at, keep_source
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'checkpointed', '{}', '[]', ?, ?, ?)`,
     ).run(
       transferId,
       actorUserId,
@@ -624,6 +647,7 @@ spaceTransferRoutes.post("/space-transfers", async (req, res) => {
       await contentHash(sourceNote.content),
       timestamp,
       timestamp,
+      mode === "copy" ? 1 : 0,
     );
     const result = await resumeSpaceTransfer(req, transferRow(actorUserId, transferId));
     return res.status(201).json({ transfer: publicTransfer(result) });
@@ -668,6 +692,11 @@ spaceTransferRoutes.post("/space-transfers/:transferId/delete-source", async (re
     if (!row) throw new TransferError("TRANSFER_NOT_FOUND", "Not found", 404);
     if (!["destination_confirmed", "recoverable_duplicate"].includes(row.status)) {
       throw new TransferError("TRANSFER_RECOVERY_INVALID", "This transfer cannot delete its source", 409);
+    }
+    // Keeping the original is what was asked for. Turning a copy into a move
+    // from a recovery button would delete its revision history unannounced.
+    if (transferMode(row) === "copy") {
+      throw new TransferError("TRANSFER_RECOVERY_INVALID", "This is a copy. Its original is kept.", 409);
     }
     const result = await deleteVerifiedSource(req, row);
     return res.json({ transfer: publicTransfer(result) });

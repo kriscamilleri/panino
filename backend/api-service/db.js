@@ -1254,6 +1254,11 @@ export function initializeSpacesDb(db) {
       ).run(3, new Date().toISOString());
     })();
   }
+  // Whether a transfer is a copy (1) or a move (0). Added without a schema
+  // version on purpose: a build that does not know the column still opens this
+  // database, and every row it writes gets the default, a move, which is what
+  // it does. A version bump would make that build refuse to start.
+  addColumnIfMissing(db, "space_transfers", "keep_source", "INTEGER NOT NULL DEFAULT 0");
 }
 
 export function getSpacesDb() {

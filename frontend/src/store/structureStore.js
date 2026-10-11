@@ -257,7 +257,7 @@ export const useStructureStore = defineStore('structureStore', () => {
       : requireDbKey(destinationDbKey);
     if (sourceDbKey !== targetDbKey) {
       if (type !== 'file') {
-        throw new Error('Folders cannot be moved between databases. Move Documents individually.');
+        throw new Error('Folders cannot be moved between databases. Copy or move Documents individually.');
       }
       const sourceRows = await syncStore.repository(sourceDbKey).execute(
         'SELECT title FROM notes WHERE id = ?',

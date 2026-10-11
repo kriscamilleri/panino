@@ -149,6 +149,29 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     db.close();
   });
 
+  it("adds the copy-or-move column to a version-three database without raising its version", () => {
+    const db = new Database(":memory:");
+    initializeSpacesDb(db);
+    // As a database written by the build before the column existed.
+    db.exec("ALTER TABLE space_transfers DROP COLUMN keep_source");
+    db.prepare(
+      `INSERT INTO space_transfers (
+         id, actor_user_id, source_db_key, destination_db_key, source_note_id, destination_note_id,
+         source_updated_at, source_content_sha256, status, created_at, updated_at
+       ) VALUES ('t', 'u', 'user:a', 'space:b', 'n', 'd', 'at', 'hash', 'checkpointed', 'at', 'at')`,
+    ).run();
+
+    initializeSpacesDb(db);
+    initializeSpacesDb(db);
+
+    // An older build refuses a database whose version is above its own, so
+    // the column must not carry one. Rows it wrote, and will write, are moves.
+    expect(db.prepare("SELECT MAX(version) AS version FROM spaces_schema_migrations").get().version)
+      .toBe(3);
+    expect(db.prepare("SELECT keep_source AS keepSource FROM space_transfers").get().keepSource).toBe(0);
+    db.close();
+  });
+
   it("upgrades version-one invitations with stable management ids", () => {
     const db = new Database(":memory:");
     db.exec(`
