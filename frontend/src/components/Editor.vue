@@ -1393,6 +1393,9 @@ const exposedMethods = {
   replaceNext,
   replaceAll,
 
+  flushPendingSave: () => debouncedSyncToDB.flush(),
+  isHoldingChanges: () => Boolean(conflict.value),
+
   undo: performUndo,
   redo: performRedo,
   canUndo,

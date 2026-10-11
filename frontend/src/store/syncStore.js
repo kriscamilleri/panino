@@ -1608,6 +1608,35 @@ tags:
     }
   }
 
+  /**
+   * Make sure the server holds everything this replica has written to one
+   * database, or say why not.
+   *
+   * For actions the server performs on its own copy, such as moving a Document
+   * to another database: whatever is still only on this device would be left
+   * out of the copy and then deleted with the source.
+   *
+   * @param {string} dbKey
+   * @returns {Promise<{ ok: true } | { ok: false, reason: 'sync-disabled' | 'offline' | 'sync-failed' | 'still-uploading' }>}
+   */
+  async function ensureUploaded(dbKey) {
+    const entry = requireEntry(dbKey);
+    if (!syncEnabled.value) return { ok: false, reason: "sync-disabled" };
+    if (!isOnline.value) return { ok: false, reason: "offline" };
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      for (let waited = 0; waited < 200 && isSyncing.value; waited += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      await sync(dbKey);
+      if (entry.status === "sync-error" || entry.status === "quota-error") {
+        return { ok: false, reason: "sync-failed" };
+      }
+      const outgoing = await readOutgoingChanges(entry.db, getPushCursor(dbKey));
+      if (outgoing.changes.length === 0 && !outgoing.hasMore) return { ok: true };
+    }
+    return { ok: false, reason: "still-uploading" };
+  }
+
   async function sync(dbKey = null) {
     const auth = useAuthStore();
     if (!syncEnabled.value || !isInitialized.value || !auth.isAuthenticated) return;
@@ -1862,6 +1891,7 @@ tags:
     initializeDB,
     resetDatabase,
     sync,
+    ensureUploaded,
     refreshMembership,
     requestMembershipRefresh,
     retryBootstrap,

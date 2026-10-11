@@ -612,6 +612,37 @@ describe('unsaved editor text and a stored conflict', () => {
   });
 });
 
+describe('confirming that the server has everything from this device', () => {
+  it('uploads what is waiting and reports success', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3, base: BASE });
+    const requests = serverReplies({ changes: [], clock: 41 });
+    const store = await startStore(database, { pushCursor: 8, clock: 30 });
+
+    await expect(store.ensureUploaded(PERSONAL_KEY)).resolves.toEqual({ ok: true });
+
+    expect(requests[0].changes.map((change) => change.val)).toEqual([MINE]);
+  });
+
+  it('reports a failing sync instead of pretending the upload happened', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3, base: BASE });
+    serverReplies({ status: 503 });
+    const store = await startStore(database, { pushCursor: 8, clock: 30 });
+
+    await expect(store.ensureUploaded(PERSONAL_KEY)).resolves.toEqual({ ok: false, reason: 'sync-failed' });
+  });
+
+  it('reports sync being off, without contacting the server', async () => {
+    const database = localDatabase({ body: MINE, dbVersion: 9, colVersion: 3, base: BASE });
+    const requests = serverReplies({ changes: [], clock: 41 });
+    const store = await startStore(database, { pushCursor: 8, clock: 30 });
+    store.setSyncEnabled(false);
+    requests.length = 0;
+
+    await expect(store.ensureUploaded(PERSONAL_KEY)).resolves.toEqual({ ok: false, reason: 'sync-disabled' });
+    expect(requests).toEqual([]);
+  });
+});
+
 describe('merge base capture', () => {
   const capture = (store) => store.captureMergeBase(PERSONAL_KEY, store.repository(PERSONAL_KEY), NOTE);
 

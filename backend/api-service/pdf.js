@@ -30,6 +30,7 @@ import { promises as dns } from 'dns';
 import { getDb } from './db.js';
 import { resolveSpaceAccess } from './spaces.js';
 import { resolveStoredImagePath } from './spaceStorage.js';
+import { parseInternalImageLink } from './imageLinks.js';
 import { PDFDocument } from 'pdf-lib';
 
 export const pdfRoutes = express.Router();
@@ -175,45 +176,15 @@ function isPrivateIp(ip) {
     return false;
 }
 
-const INTERNAL_IMAGE_ORIGIN_VARIABLES = ['INTERNAL_API_URL', 'PUBLIC_API_BASE_URL', 'FRONTEND_URL'];
-
-/** Origin of a configured URL, or null when it is unset or malformed. */
-function originOf(value) {
-    if (!value) return null;
-    try {
-        return new URL(value).origin;
-    } catch {
-        return null;
-    }
-}
-
+/**
+ * An image link the PDF renderer may embed from this installation's own
+ * storage, or null. Stricter than the shared parser: a link carrying any
+ * parameter other than `space` and `token` is left to the external path.
+ */
 export function parseInternalImageSource(source) {
-    try {
-        const decodedSource = String(source).replace(/&amp;/gi, '&');
-        const relative = decodedSource.startsWith('/');
-        const parsed = new URL(decodedSource, 'http://panino-internal.invalid');
-        if (!relative) {
-            // In production the API is served under the frontend's own origin
-            // (`/api`), so an absolute link to one of the user's images carries
-            // FRONTEND_URL's origin. Without it, such links fall through to the
-            // external fetcher, are blocked as loopback/private, and the image
-            // is dropped from the PDF.
-            const allowedOrigins = new Set(INTERNAL_IMAGE_ORIGIN_VARIABLES
-                .map((name) => originOf(process.env[name]))
-                .filter(Boolean));
-            if (!allowedOrigins.has(parsed.origin)) return null;
-        }
-        const match = /^\/(?:api\/)?images\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
-            .exec(parsed.pathname);
-        if (!match) return null;
-        const allowedParams = new Set(['space', 'token']);
-        if ([...parsed.searchParams.keys()].some((key) => !allowedParams.has(key))) return null;
-        const spaces = parsed.searchParams.getAll('space');
-        if (spaces.length > 1) return null;
-        return { imageId: match[1], spaceId: spaces[0] || null };
-    } catch {
-        return null;
-    }
+    const link = parseInternalImageLink(source);
+    if (!link || link.extraParameters) return null;
+    return { imageId: link.imageId, spaceId: link.spaceId };
 }
 
 function getInternalImageAsDataUri(source, userId) {

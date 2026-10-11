@@ -6,7 +6,8 @@
   >
     <p class="font-medium">Document transfer needs attention</p>
     <p class="mt-1 text-xs">
-      The destination copy is preserved. Revision history remains in the source database.
+      Nothing has been deleted. Revision history is not moved: it stays with the original and
+      is deleted with it.
     </p>
     <div
       v-for="transfer in store.recoverable"
@@ -40,6 +41,13 @@
           data-testid="document-transfer-delete-source"
           @click="run(transfer.id, 'deleteSource')"
         >Delete source</BaseButton>
+        <BaseButton
+          v-if="!canResolveDuplicate(transfer)"
+          variant="secondary"
+          :disabled="store.working"
+          data-testid="document-transfer-cancel"
+          @click="run(transfer.id, 'abandon')"
+        >Cancel move</BaseButton>
       </div>
     </div>
   </section>
@@ -60,11 +68,12 @@
         <strong>{{ store.pending?.destinationName }}</strong>?
       </p>
       <p class="rounded-md bg-amber-50 px-3 py-2 text-amber-900">
-        Revision history stays in the source database and will not appear on the moved copy.
+        Revision history is not moved. The copy starts a new history, and the original's history
+        is deleted with it.
       </p>
       <p>
-        Canonical images will be copied and verified first. Missing or noncanonical source images
-        are preserved in the Markdown and shown as warnings.
+        Images are copied and checked first. An image that is missing, or that belongs to a
+        different database, keeps its link and is listed as a warning.
       </p>
       <p v-if="store.error" class="text-red-600" role="alert">{{ store.error }}</p>
     </div>
@@ -129,7 +138,8 @@ async function run(id, action) {
   try {
     await store[action](id);
     await refreshTree();
-    ui.addToast(action === "keepBoth" ? "Both Documents were kept." : "Document transfer recovered.", "success");
+    const done = { keepBoth: "Both Documents were kept.", abandon: "The move was cancelled. The Document is where it was." };
+    ui.addToast(done[action] || "Document transfer recovered.", "success");
   } catch (error) {
     ui.addToast(error?.message || "Transfer recovery did not finish.", "warning");
   }

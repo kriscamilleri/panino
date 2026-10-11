@@ -1,18 +1,13 @@
 import { parseDbKey } from "./db.js";
+import { parseInternalImageLink } from "./imageLinks.js";
 import { toCanonicalImageUrl } from "./spaceStorage.js";
 
-const UUID_SOURCE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+// A label longer than this is not a label anyone wrote. Without a bound, each
+// "![" on a long line makes the expression scan to the end of that line.
+const MAX_LABEL_LENGTH = 1000;
 
 function normalizeReferenceLabel(value) {
   return String(value).trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function destinationPattern(dbKey) {
-  const parsed = parseDbKey(dbKey);
-  const qualifier = parsed.kind === "space"
-    ? `\\?space=${parsed.id}`
-    : "";
-  return new RegExp(`^/images/(${UUID_SOURCE})${qualifier}$`);
 }
 
 function lineOffsets(text) {
@@ -92,11 +87,29 @@ function excludedRanges(markdown) {
       ranges.push([line.offset + match.index, line.offset + match.index + match[0].length]);
     }
   }
-  return ranges;
+  // Sorted and merged, so a lookup is a binary search. A linear scan per match
+  // made a Document of many short code spans and image links quadratic, and
+  // the whole server waited for it.
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+    else merged.push([range[0], range[1]]);
+  }
+  return merged;
 }
 
 function isExcluded(index, ranges) {
-  return ranges.some(([start, end]) => index >= start && index < end);
+  let low = 0;
+  let high = ranges.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (index < ranges[middle][0]) high = middle - 1;
+    else if (index >= ranges[middle][1]) low = middle + 1;
+    else return true;
+  }
+  return false;
 }
 
 function isEscaped(text, index) {
@@ -107,7 +120,7 @@ function isEscaped(text, index) {
 
 function collectReferenceLabels(markdown, ranges) {
   const labels = new Set();
-  const expression = /!\[[^\]\n]*\]\[([^\]\n]+)\]/g;
+  const expression = new RegExp(`!\\[[^\\]\\n]{0,${MAX_LABEL_LENGTH}}\\]\\[([^\\]\\n]{1,${MAX_LABEL_LENGTH}})\\]`, "g");
   for (const match of markdown.matchAll(expression)) {
     if (!isExcluded(match.index, ranges) && !isEscaped(markdown, match.index)) {
       labels.add(normalizeReferenceLabel(match[1]));
@@ -125,15 +138,26 @@ function wrapDestination(original, replacement) {
 }
 
 /**
- * Rewrite canonical, same-origin Markdown image destinations only.
+ * Rebind the Markdown images of one database to their copies in another.
  * Everything outside the destination byte spans is returned unchanged.
+ *
+ * A link counts as an image of the source database in every form the editor
+ * writes (see `parseInternalImageLink`): `/images/<id>`, `/api/images/<id>`
+ * and an absolute URL on the API's origin. The first version recognised only
+ * the bare form, which no running frontend writes, so a transfer copied no
+ * images, warned about nothing and reported success. The rewritten link keeps
+ * the form it had.
+ *
+ * `noncanonicalImageIds` are internal image links that are left alone: they
+ * point into a different database than the source, or carry parameters this
+ * code does not understand.
  */
 export function rewriteCanonicalImageDestinations(markdown, {
   sourceDbKey,
   destinationDbKey,
   imageMap = {},
 } = {}) {
-  const sourcePattern = destinationPattern(sourceDbKey);
+  const source = parseDbKey(sourceDbKey);
   parseDbKey(destinationDbKey);
   const text = typeof markdown === "string" ? markdown : "";
   const ranges = excludedRanges(text);
@@ -144,14 +168,14 @@ export function rewriteCanonicalImageDestinations(markdown, {
   const noncanonicalImageIds = new Set();
 
   function consider(raw, start, end) {
-    const destination = unwrapDestination(raw);
-    const match = sourcePattern.exec(destination);
-    if (!match) {
-      const sameOrigin = new RegExp(`^/images/(${UUID_SOURCE})(?:\\?.*)?$`).exec(destination);
-      if (sameOrigin) noncanonicalImageIds.add(sameOrigin[1]);
+    const link = parseInternalImageLink(unwrapDestination(raw));
+    if (!link) return;
+    const inSourceDatabase = source.kind === "space" ? link.spaceId === source.id : link.spaceId === null;
+    if (!inSourceDatabase || link.extraParameters) {
+      noncanonicalImageIds.add(link.imageId);
       return;
     }
-    const sourceImageId = match[1];
+    const sourceImageId = link.imageId;
     sourceImageIds.add(sourceImageId);
     const destinationImageId = imageMap[sourceImageId];
     if (!destinationImageId) {
@@ -161,12 +185,16 @@ export function rewriteCanonicalImageDestinations(markdown, {
     replacements.push({
       start,
       end,
-      value: wrapDestination(raw, toCanonicalImageUrl(destinationImageId, destinationDbKey)),
+      // A session token has no place in stored Markdown; it is not carried over.
+      value: wrapDestination(raw, `${link.prefix}${toCanonicalImageUrl(destinationImageId, destinationDbKey)}`),
     });
   }
 
   // Inline image destinations, with an optional Markdown title after the URL.
-  const inline = /!\[[^\]\n]*\]\(\s*(<[^>\n]+>|[^\s)\n]+)(?=\s*(?:["'][^"'\n]*["']|\([^\n)]*\))?\s*\))/g;
+  const inline = new RegExp(
+    `!\\[[^\\]\\n]{0,${MAX_LABEL_LENGTH}}\\]\\(\\s*(<[^>\\n]+>|[^\\s)\\n]+)(?=\\s*(?:["'][^"'\\n]*["']|\\([^\\n)]*\\))?\\s*\\))`,
+    "g",
+  );
   for (const match of text.matchAll(inline)) {
     if (isExcluded(match.index, ranges) || isEscaped(text, match.index)) continue;
     const relative = match[0].indexOf(match[1]);

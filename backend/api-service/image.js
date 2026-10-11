@@ -149,6 +149,24 @@ function imageStats(target) {
     `).get(...scope.params);
 }
 
+/**
+ * How much image storage a database holds and may hold. Every path that adds
+ * image bytes has to ask, not only the upload route: a Document transfer copies
+ * images too, and used to grow a space past its limit unchecked.
+ *
+ * @param {string} dbKey `user:<uuid>` or `space:<uuid>`
+ * @param {import('better-sqlite3').Database} db that database's connection
+ * @returns {{ usedBytes: number, quotaBytes: number | null }} `quotaBytes` is null when unlimited
+ */
+export function imageStorageUsage(dbKey, db) {
+    const isSpace = dbKey.startsWith('space:');
+    const target = { db, isSpace, userId: isSpace ? null : dbKey.slice('user:'.length) };
+    return {
+        usedBytes: Number(imageStats(target)?.total_image_bytes || 0),
+        quotaBytes: isSpace ? SPACE_QUOTA_BYTES : QUOTA_BYTES,
+    };
+}
+
 function respondImageTargetError(res, error, event) {
     console.error('[images]', JSON.stringify({
         event,

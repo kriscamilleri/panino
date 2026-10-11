@@ -5,7 +5,9 @@ import path from "node:path";
 import { v4 as uuidv4, validate as validateUuid } from "uuid";
 import { contentHash } from "@panino/content-merge";
 import { getHealthyDb, getSpacesDb, parseDbKey } from "./db.js";
+import { imageStorageUsage } from "./image.js";
 import { rewriteCanonicalImageDestinations } from "./markdownImageRewriter.js";
+import { createRevisionSnapshot } from "./revision.js";
 import {
   resolveDatabaseUploadRoot,
   resolveStoredImagePath,
@@ -23,6 +25,13 @@ spaceTransferRoutes.use("/space-transfers", (req, res, next) => {
   if (isSharedSpacesEnabled()) return next();
   return res.status(404).json({ error: "Not found", code: "SPACE_NOT_FOUND" });
 });
+
+// A transfer reads, hashes and copies files and scans the whole Document, in a
+// process that serves everyone from one thread. These bound one request.
+const MAX_TRANSFER_CONTENT_BYTES = 2 * 1024 * 1024;
+const MAX_TRANSFER_IMAGES = 100;
+const FINISHED_TRANSFER_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const STALE_TRANSFER_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 const ACTIVE_STATUSES = new Set([
   "checkpointed",
@@ -44,8 +53,39 @@ function now() {
   return new Date().toISOString();
 }
 
-function sha256File(filePath) {
-  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+/** Streamed, so other requests are served between chunks. */
+async function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  for await (const chunk of fs.createReadStream(filePath)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+/** Size of a regular file, or null when it is not there. */
+async function fileSize(filePath) {
+  try {
+    const stat = await fs.promises.stat(filePath);
+    return stat.isFile() ? stat.size : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A live session keeps text that is not in `notes.content` yet. Copying the
+ * stored body and deleting the Document would lose that text for everyone in
+ * the session, so a Document cannot be moved while one is open or recoverable.
+ */
+function assertNoLiveSession(source, noteId) {
+  // Sessions exist only for space Documents, and so does their table.
+  if (source.kind !== "space") return;
+  const open = source.db.prepare("SELECT 1 FROM collab_sessions WHERE note_id = ?").get(noteId);
+  if (open) {
+    throw new TransferError(
+      "TRANSFER_SOURCE_IN_SESSION",
+      "This Document is open in a live session. Save the version and leave the session, then try again.",
+      409,
+    );
+  }
 }
 
 function safeJson(value, fallback) {
@@ -144,16 +184,15 @@ function loadImage(db, imageId) {
   ).get(imageId);
 }
 
-function verifiedImage(dbKey, db, imageId, expectedSha256, expectedSize) {
+async function verifiedImage(dbKey, db, imageId, expectedSha256, expectedSize) {
   const row = loadImage(db, imageId);
   if (!row || row.sha256 !== expectedSha256 || Number(row.size_bytes) !== Number(expectedSize)) return false;
   const filePath = resolveStoredImagePath(dbKey, row.path);
-  return Boolean(filePath && fs.existsSync(filePath)
-    && fs.statSync(filePath).size === Number(expectedSize)
-    && sha256File(filePath) === expectedSha256);
+  if (!filePath || await fileSize(filePath) !== Number(expectedSize)) return false;
+  return await sha256File(filePath) === expectedSha256;
 }
 
-function planImages(row, source, destination) {
+async function planImages(row, source, destination) {
   const initial = rewriteCanonicalImageDestinations(source.note.content, {
     sourceDbKey: source.dbKey,
     destinationDbKey: destination.dbKey,
@@ -171,16 +210,22 @@ function planImages(row, source, destination) {
     });
     warned.add(warningKey);
   }
+  if (initial.sourceImageIds.length > MAX_TRANSFER_IMAGES) {
+    throw new TransferError(
+      "TRANSFER_TOO_MANY_IMAGES",
+      `A Document with more than ${MAX_TRANSFER_IMAGES} images cannot be moved in one step.`,
+      409,
+    );
+  }
   for (const imageId of initial.sourceImageIds) {
     const image = loadImage(source.db, imageId);
     const sourcePath = image && resolveStoredImagePath(source.dbKey, image.path);
     const valid = Boolean(
       image
       && sourcePath
-      && fs.existsSync(sourcePath)
-      && Number(image.size_bytes) === fs.statSync(sourcePath).size
       && image.sha256
-      && image.sha256 === sha256File(sourcePath),
+      && Number(image.size_bytes) === await fileSize(sourcePath)
+      && image.sha256 === await sha256File(sourcePath),
     );
     if (!valid) {
       delete imageMap[imageId];
@@ -206,18 +251,33 @@ function planImages(row, source, destination) {
   return { imageMap, warnings };
 }
 
-function copyImages(row, source, destination, imageMap) {
+async function copyImages(row, source, destination, imageMap) {
   const destinationRoot = resolveDatabaseUploadRoot(destination.dbKey);
-  fs.mkdirSync(destinationRoot, { recursive: true });
+  await fs.promises.mkdir(destinationRoot, { recursive: true });
+
+  // The same limit an upload meets. Images an earlier attempt already copied
+  // are in the total and are not counted twice.
+  const { usedBytes, quotaBytes } = imageStorageUsage(destination.dbKey, destination.db);
+  const stillToCopy = Object.entries(imageMap)
+    .filter(([, destinationId]) => !loadImage(destination.db, destinationId))
+    .reduce((bytes, [sourceId]) => bytes + Number(loadImage(source.db, sourceId)?.size_bytes || 0), 0);
+  if (quotaBytes && usedBytes + stillToCopy > quotaBytes) {
+    throw new TransferError(
+      "TRANSFER_QUOTA_EXCEEDED",
+      "The destination does not have enough image storage left for this Document.",
+      413,
+    );
+  }
+
   for (const [sourceId, destinationId] of Object.entries(imageMap)) {
     const image = loadImage(source.db, sourceId);
     const sourcePath = image && resolveStoredImagePath(source.dbKey, image.path);
-    if (!image || !sourcePath || !fs.existsSync(sourcePath)) {
+    if (!image || !sourcePath || await fileSize(sourcePath) === null) {
       throw new TransferError("TRANSFER_SOURCE_IMAGE_CHANGED", "A source image changed during transfer", 409);
     }
     const existing = loadImage(destination.db, destinationId);
     if (existing) {
-      if (verifiedImage(destination.dbKey, destination.db, destinationId, image.sha256, image.size_bytes)) continue;
+      if (await verifiedImage(destination.dbKey, destination.db, destinationId, image.sha256, image.size_bytes)) continue;
       throw new TransferError("TRANSFER_DESTINATION_CONFLICT", "Destination image conflicts with this transfer", 409);
     }
 
@@ -228,12 +288,12 @@ function copyImages(row, source, destination, imageMap) {
     const destinationPath = resolveStoredImagePath(destination.dbKey, relativePath);
     if (!destinationPath) throw new Error("Destination image path escaped its root");
     const temporaryPath = path.join(destinationRoot, `.${destinationId}.${row.id}.tmp`);
-    fs.copyFileSync(sourcePath, temporaryPath);
-    if (fs.statSync(temporaryPath).size !== Number(image.size_bytes) || sha256File(temporaryPath) !== image.sha256) {
-      fs.unlinkSync(temporaryPath);
+    await fs.promises.copyFile(sourcePath, temporaryPath);
+    if (await fileSize(temporaryPath) !== Number(image.size_bytes) || await sha256File(temporaryPath) !== image.sha256) {
+      await fs.promises.unlink(temporaryPath);
       throw new Error("Destination image verification failed");
     }
-    fs.renameSync(temporaryPath, destinationPath);
+    await fs.promises.rename(temporaryPath, destinationPath);
     destination.db.prepare(
       `INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -248,7 +308,7 @@ function copyImages(row, source, destination, imageMap) {
       image.sha256,
       now(),
     );
-    if (!verifiedImage(destination.dbKey, destination.db, destinationId, image.sha256, image.size_bytes)) {
+    if (!await verifiedImage(destination.dbKey, destination.db, destinationId, image.sha256, image.size_bytes)) {
       throw new Error("Destination image verification failed");
     }
   }
@@ -285,22 +345,39 @@ function copyDocument(row, source, destination, imageMap) {
       source.note.created_at || now(),
       now(),
     );
+    // The source's history is not moved (it may hold text its author removed
+    // before sharing) and is deleted with the source. The copy at least starts
+    // with one revision of what arrived.
+    try {
+      createRevisionSnapshot(destination.db, {
+        noteId: row.destination_note_id,
+        title: source.note.title,
+        content: rewritten.content,
+        type: "auto",
+        ...(destination.kind === "space" ? { actorUserId: row.actor_user_id, actorKind: "system" } : {}),
+      });
+    } catch (error) {
+      console.error("[space-transfer] initial revision failed", error?.code || "unknown");
+    }
   }
 }
 
-function verifyDestination(row, destination, imageMap) {
+/**
+ * The destination Document exists and every copied image is intact.
+ *
+ * Each copied image row was written with the hash and size its source had and
+ * was checked against them at copy time, so the row is the record of what must
+ * be on disk. Comparing with the live source rows instead made this fail for
+ * ever once the source images were gone, for example after the user deleted
+ * the duplicate source by hand, and neither recovery action could then finish.
+ */
+async function verifyDestination(row, destination, imageMap) {
   const note = destination.db.prepare("SELECT id FROM notes WHERE id = ?").get(row.destination_note_id);
   if (!note) return false;
-  for (const [sourceId, destinationId] of Object.entries(imageMap)) {
-    const sourceDb = getHealthyDb(row.source_db_key, "space-transfer-verify-source");
-    const sourceImage = loadImage(sourceDb, sourceId);
-    if (!sourceImage || !verifiedImage(
-      destination.dbKey,
-      destination.db,
-      destinationId,
-      sourceImage.sha256,
-      sourceImage.size_bytes,
-    )) return false;
+  for (const destinationId of Object.values(imageMap)) {
+    const copied = loadImage(destination.db, destinationId);
+    if (!copied || !copied.sha256) return false;
+    if (!await verifiedImage(destination.dbKey, destination.db, destinationId, copied.sha256, copied.size_bytes)) return false;
   }
   return true;
 }
@@ -323,7 +400,7 @@ async function deleteVerifiedSource(req, row) {
   ).get(row.source_note_id);
   const destination = readDestination(row, row.actor_user_id);
   const imageMap = safeJson(row.image_map_json, {});
-  if (!verifyDestination(row, destination, imageMap)) {
+  if (!await verifyDestination(row, destination, imageMap)) {
     throw new TransferError("TRANSFER_DESTINATION_UNVERIFIED", "Destination verification must succeed before deleting the source", 409);
   }
   // Crash recovery: deletion may have committed in the source database before
@@ -337,6 +414,7 @@ async function deleteVerifiedSource(req, row) {
   if (!await sourceUnchanged(row, source)) {
     throw new TransferError("TRANSFER_SOURCE_CHANGED", "Source Document changed; keep both or retry from a new transfer", 409);
   }
+  assertNoLiveSession(source, row.source_note_id);
   source.db.prepare("DELETE FROM notes WHERE id = ?").run(row.source_note_id);
   const timestamp = now();
   updateTransfer(row.id, { status: "complete", source_deleted_at: timestamp, last_error: null });
@@ -352,13 +430,18 @@ export async function resumeSpaceTransfer(req, initialRow, { deleteSource = true
     const source = readSource(row, row.actor_user_id);
     const destination = readDestination(row, row.actor_user_id);
     if (!await sourceUnchanged(row, source)) {
-      throw new TransferError("TRANSFER_SOURCE_CHANGED", "Source Document changed; keep both or start a new transfer", 409);
+      throw new TransferError(
+        "TRANSFER_SOURCE_CHANGED",
+        "Source Document changed since this move began. Cancel it and start again, or keep both if a copy exists.",
+        409,
+      );
     }
-    const plan = planImages(row, source, destination);
+    assertNoLiveSession(source, row.source_note_id);
+    const plan = await planImages(row, source, destination);
     row = transferRow(row.actor_user_id, row.id);
-    copyImages(row, source, destination, plan.imageMap);
+    await copyImages(row, source, destination, plan.imageMap);
     copyDocument(row, source, destination, plan.imageMap);
-    if (!verifyDestination(row, destination, plan.imageMap)) throw new Error("Destination verification failed");
+    if (!await verifyDestination(row, destination, plan.imageMap)) throw new Error("Destination verification failed");
     updateTransfer(row.id, {
       status: "destination_confirmed",
       destination_confirmed_at: now(),
@@ -391,6 +474,59 @@ export async function resumeSpaceTransfer(req, initialRow, { deleteSource = true
   }
 }
 
+/**
+ * Finished transfers are only a record; unfinished ones nobody has touched for
+ * months point at Documents that have long since moved on. Neither was ever
+ * removed.
+ */
+function pruneTransfers(actorUserId, at = Date.now()) {
+  getSpacesDb().prepare(
+    `DELETE FROM space_transfers
+      WHERE actor_user_id = ?
+        AND ((status IN ('complete', 'kept_both') AND updated_at < ?) OR updated_at < ?)`,
+  ).run(
+    actorUserId,
+    new Date(at - FINISHED_TRANSFER_RETENTION_MS).toISOString(),
+    new Date(at - STALE_TRANSFER_RETENTION_MS).toISOString(),
+  );
+}
+
+/**
+ * Give up a transfer that has not produced a destination Document.
+ *
+ * Without this a transfer that failed early could never be left: once its
+ * source was edited every retry answered "source changed", and keeping both
+ * was refused because there was nothing to keep. Images this transfer already
+ * copied belong to no Document and are removed; if the caller can no longer
+ * reach the destination they are left for the orphan sweep.
+ */
+async function cancelTransfer(row) {
+  let destination = null;
+  try {
+    destination = authorizeDatabase(row.destination_db_key, row.actor_user_id, "space-transfer-cancel");
+  } catch (error) {
+    if (!(error instanceof TransferError) || error.status !== 404) throw error;
+  }
+  if (destination?.db.prepare("SELECT 1 FROM notes WHERE id = ?").get(row.destination_note_id)) {
+    throw new TransferError(
+      "TRANSFER_RECOVERY_INVALID",
+      "The Document was already copied. Keep both, or delete the source.",
+      409,
+    );
+  }
+  if (destination) {
+    for (const destinationId of Object.values(safeJson(row.image_map_json, {}))) {
+      const copied = loadImage(destination.db, destinationId);
+      if (!copied) continue;
+      const filePath = resolveStoredImagePath(destination.dbKey, copied.path);
+      destination.db.prepare("DELETE FROM images WHERE id = ?").run(destinationId);
+      if (filePath) await fs.promises.rm(filePath, { force: true });
+    }
+  }
+  getSpacesDb().prepare("DELETE FROM space_transfers WHERE id = ? AND actor_user_id = ?")
+    .run(row.id, row.actor_user_id);
+}
+
 function sendError(res, error) {
   const status = error instanceof TransferError ? error.status : 500;
   if (status >= 500) console.error("[space-transfer] operation failed", error?.code || error?.message);
@@ -401,6 +537,7 @@ function sendError(res, error) {
 
 spaceTransferRoutes.get("/space-transfers", (req, res) => {
   try {
+    pruneTransfers(req.user.user_id);
     const rows = getSpacesDb().prepare(
       `SELECT * FROM space_transfers
         WHERE actor_user_id = ? AND status NOT IN ('complete', 'kept_both')
@@ -455,6 +592,10 @@ spaceTransferRoutes.post("/space-transfers", async (req, res) => {
       "SELECT id, content, updated_at FROM notes WHERE id = ?",
     ).get(req.body.sourceNoteId);
     if (!sourceNote) throw new TransferError("TRANSFER_NOT_FOUND", "Not found", 404);
+    if (Buffer.byteLength(sourceNote.content || "", "utf8") > MAX_TRANSFER_CONTENT_BYTES) {
+      throw new TransferError("TRANSFER_SOURCE_TOO_LARGE", "This Document is too large to move between databases.", 413);
+    }
+    assertNoLiveSession(source, sourceNote.id);
     const destinationFolderId = req.body?.destinationFolderId || null;
     if (destinationFolderId && !validateUuid(destinationFolderId)) {
       throw new TransferError("TRANSFER_FOLDER_INVALID", "Destination folder is invalid");
@@ -502,7 +643,7 @@ spaceTransferRoutes.post("/space-transfers/:transferId/retry", async (req, res) 
   }
 });
 
-spaceTransferRoutes.post("/space-transfers/:transferId/keep-both", (req, res) => {
+spaceTransferRoutes.post("/space-transfers/:transferId/keep-both", async (req, res) => {
   try {
     const row = transferRow(req.user.user_id, req.params.transferId);
     if (!row) throw new TransferError("TRANSFER_NOT_FOUND", "Not found", 404);
@@ -511,7 +652,7 @@ spaceTransferRoutes.post("/space-transfers/:transferId/keep-both", (req, res) =>
     }
     authorizeDatabase(row.source_db_key, req.user.user_id, "space-transfer-keep-source");
     const destination = authorizeDatabase(row.destination_db_key, req.user.user_id, "space-transfer-keep-destination");
-    if (!verifyDestination(row, destination, safeJson(row.image_map_json, {}))) {
+    if (!await verifyDestination(row, destination, safeJson(row.image_map_json, {}))) {
       throw new TransferError("TRANSFER_DESTINATION_UNVERIFIED", "Destination verification has not completed", 409);
     }
     updateTransfer(row.id, { status: "kept_both", last_error: null });
@@ -530,6 +671,17 @@ spaceTransferRoutes.post("/space-transfers/:transferId/delete-source", async (re
     }
     const result = await deleteVerifiedSource(req, row);
     return res.json({ transfer: publicTransfer(result) });
+  } catch (error) {
+    return sendError(res, error);
+  }
+});
+
+spaceTransferRoutes.delete("/space-transfers/:transferId", async (req, res) => {
+  try {
+    const row = transferRow(req.user.user_id, req.params.transferId);
+    if (!row) throw new TransferError("TRANSFER_NOT_FOUND", "Not found", 404);
+    await cancelTransfer(row);
+    return res.status(204).end();
   } catch (error) {
     return sendError(res, error);
   }
