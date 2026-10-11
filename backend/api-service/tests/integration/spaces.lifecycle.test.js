@@ -337,5 +337,43 @@ describe("shared-space lifecycle routes", () => {
     await request(app).get(`/spaces/${created.spaceId}`).set(auth(editor)).expect(404);
     expect(getSpacesDb().prepare("SELECT status FROM spaces WHERE id = ?").get(created.spaceId))
       .toEqual({ status: "pending_delete" });
+
+    // The owner, and only the owner, is shown the pending deletion and can undo it.
+    const ownerList = await request(app).get("/spaces").set(auth(owner)).expect(200);
+    expect(ownerList.body.spaces).toEqual([]);
+    expect(ownerList.body.pendingDeletion).toEqual([
+      { id: created.spaceId, name: created.name, deleteAfter: response.body.deleteAfter },
+    ]);
+    const editorList = await request(app).get("/spaces").set(auth(editor)).expect(200);
+    expect(editorList.body.pendingDeletion).toEqual([]);
+    await request(app).post(`/spaces/${created.spaceId}/deletion-cancel`).set(auth(editor)).expect(403);
+    await request(app).post(`/spaces/${created.spaceId}/deletion-cancel`).set(auth(outsider))
+      .expect(404, { error: "Not found", code: "SPACE_NOT_FOUND" });
+
+    await request(app)
+      .post(`/spaces/${created.spaceId}/deletion-cancel`)
+      .set(auth(owner))
+      .expect(200, { space: { id: created.spaceId, name: created.name } });
+
+    await request(app).get(`/spaces/${created.spaceId}`).set(auth(owner)).expect(200);
+    await request(app).get(`/spaces/${created.spaceId}`).set(auth(editor)).expect(200);
+    const restored = await request(app).get("/spaces").set(auth(owner)).expect(200);
+    expect(restored.body.pendingDeletion).toEqual([]);
+    expect(restored.body.spaces.map((space) => space.spaceId)).toEqual([created.spaceId]);
+  });
+
+  it("tells the client whether live sessions are offered", async () => {
+    const before = process.env.LIVE_SESSIONS_ENABLED;
+    try {
+      delete process.env.LIVE_SESSIONS_ENABLED;
+      const off = await request(app).get("/spaces").set(auth(owner)).expect(200);
+      expect(off.body.capabilities).toEqual({ liveSessions: false });
+      process.env.LIVE_SESSIONS_ENABLED = "true";
+      const on = await request(app).get("/spaces").set(auth(owner)).expect(200);
+      expect(on.body.capabilities).toEqual({ liveSessions: true });
+    } finally {
+      if (before === undefined) delete process.env.LIVE_SESSIONS_ENABLED;
+      else process.env.LIVE_SESSIONS_ENABLED = before;
+    }
   });
 });

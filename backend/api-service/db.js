@@ -60,6 +60,74 @@ export function respondDatabaseBusy(res) {
 
 const dbConnections = new Map();
 
+// Content connections stay open between requests, because opening one loads the
+// extension and checks the schema. Left unbounded, every database ever touched
+// kept three file descriptors (main, -wal, -shm) for the life of the process,
+// and with shared spaces the number of databases is no longer one per user.
+//
+// The limit is soft. Only a connection nobody has asked for in the last minute
+// is closed: an asynchronous route (image upload, PDF, Document transfer) holds
+// the handle it was given across awaits, and closing that one under it would
+// fail the request. Every caller asks getDb() afresh per request, so a closed
+// connection is simply reopened.
+const DB_CACHE_LIMIT = (() => {
+  const configured = Number(process.env.DB_CONNECTION_CACHE_LIMIT);
+  return Number.isInteger(configured) && configured > 0 ? configured : 200;
+})();
+const DB_CACHE_MIN_IDLE_MS = 60_000;
+const dbLastUsed = new Map();
+
+const isContentKey = (key) => !key.startsWith("_");
+
+/**
+ * Close the least recently used content connections once more than `limit`
+ * are open, skipping any used within `minIdleMs`.
+ *
+ * @returns {number} connections closed
+ */
+export function evictIdleDbConnections({
+  limit = DB_CACHE_LIMIT,
+  minIdleMs = DB_CACHE_MIN_IDLE_MS,
+  now = Date.now(),
+} = {}) {
+  let open = 0;
+  for (const key of dbConnections.keys()) if (isContentKey(key)) open += 1;
+  if (open <= limit) return 0;
+
+  const idle = [...dbConnections.keys()]
+    .filter(isContentKey)
+    .map((key) => [key, dbLastUsed.get(key) ?? 0])
+    .filter(([, usedAt]) => now - usedAt >= minIdleMs)
+    .sort((a, b) => a[1] - b[1]);
+  let closed = 0;
+  for (const [key] of idle) {
+    if (open <= limit) break;
+    releaseDb(key);
+    open -= 1;
+    closed += 1;
+  }
+  return closed;
+}
+
+/** Close one cached connection as routine housekeeping (no health event logged). */
+function releaseDb(key) {
+  const db = dbConnections.get(key);
+  dbConnections.delete(key);
+  dbLastUsed.delete(key);
+  try {
+    db?.close();
+  } catch (error) {
+    console.error("[db] Failed to close an idle connection:", error?.code || "unknown");
+  }
+}
+
+/** How many content databases are open right now. */
+export function openContentDbCount() {
+  let open = 0;
+  for (const key of dbConnections.keys()) if (isContentKey(key)) open += 1;
+  return open;
+}
+
 const BASE_SCHEMA = `
   PRAGMA foreign_keys = ON;
 
@@ -807,8 +875,12 @@ function maskDbKey(dbKey) {
 
 export function getDb(dbKey) {
   const resolved = resolveDbPath(dbKey);
-  if (dbConnections.has(resolved.dbKey)) return dbConnections.get(resolved.dbKey);
+  if (dbConnections.has(resolved.dbKey)) {
+    dbLastUsed.set(resolved.dbKey, Date.now());
+    return dbConnections.get(resolved.dbKey);
+  }
 
+  evictIdleDbConnections({ limit: DB_CACHE_LIMIT - 1 });
   fs.mkdirSync(resolved.root, { recursive: true });
   const db = new Database(resolved.dbPath);
 
@@ -827,6 +899,7 @@ export function getDb(dbKey) {
   }
 
   dbConnections.set(resolved.dbKey, db);
+  dbLastUsed.set(resolved.dbKey, Date.now());
   return db;
 }
 
@@ -850,6 +923,7 @@ export function invalidateDb(dbKey, expectedDb = null, reason = "unknown") {
   }
 
   dbConnections.delete(canonicalKey);
+  dbLastUsed.delete(canonicalKey);
   let closed = false;
   try {
     cachedDb.close();
@@ -1193,7 +1267,11 @@ export function initDb() {
   if (process.env.LIVE_SESSIONS_ENABLED === "true") {
     for (const dbKey of listUuidDatabaseFiles(SPACES_DB_DIR, "space")) {
       try {
+        // Open only to run the migration, then close again. Keeping every
+        // space open from boot onwards is how a server with many spaces ran
+        // out of file descriptors before it had served a request.
         getDb(dbKey);
+        releaseDb(dbKey);
       } catch (error) {
         // Keep the service available for healthy spaces, but leave this key
         // uncached: collab admission will retry initialization and fail closed
@@ -1239,6 +1317,7 @@ export function closeAllConnections() {
     }
   }
   dbConnections.clear();
+  dbLastUsed.clear();
 }
 
 /**
@@ -1246,6 +1325,7 @@ export function closeAllConnections() {
  */
 export function clearConnectionCache() {
   dbConnections.clear();
+  dbLastUsed.clear();
 }
 
 function resolveTestDatabase(identifier) {
@@ -1297,6 +1377,7 @@ export function deleteTestDb(identifier) {
       console.error(`Error closing database for ${resolved.dbKey}:`, error);
     }
     dbConnections.delete(resolved.dbKey);
+    dbLastUsed.delete(resolved.dbKey);
   }
 
   [resolved.dbPath, `${resolved.dbPath}-wal`, `${resolved.dbPath}-shm`].forEach((filePath) => {

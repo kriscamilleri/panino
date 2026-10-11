@@ -64,6 +64,22 @@ export function toCanonicalImageUrl(imageId, dbKey) {
   return kind === "space" ? `${base}?space=${id}` : base;
 }
 
+/**
+ * Remove a space's uploads without holding up the process. The synchronous
+ * form below blocks for as long as the directory takes to delete, and the
+ * purge that calls this runs inside the API.
+ */
+export async function removeSpaceUploads(spaceId) {
+  const target = resolveSpaceUploadRoot(spaceId);
+  try {
+    await fs.promises.access(target);
+  } catch {
+    return { removed: false };
+  }
+  await fs.promises.rm(target, { recursive: true, force: false });
+  return { removed: true };
+}
+
 export function deleteSpaceUploads(spaceId) {
   const target = resolveSpaceUploadRoot(spaceId);
   if (!fs.existsSync(target)) return { removed: false };

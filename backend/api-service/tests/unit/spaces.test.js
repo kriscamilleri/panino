@@ -16,6 +16,7 @@ import {
   addEditorMember,
   assertSpacesInvariants,
   assertAccountDeletionAllowed,
+  cancelSpaceDeletion,
   createSpaceInvite,
   createSpace,
   getSpaceMembership,
@@ -29,6 +30,7 @@ import {
   removeEditorMember,
   requestSpaceDeletion,
   purgeExpiredSpaces,
+  pruneSpaceInvites,
   resendSpaceInvite,
   resolveSpaceAccess,
   revokeSpaceInvite,
@@ -486,27 +488,40 @@ describe("assertSpacesInvariants", () => {
     });
   });
 
-  it("is invoked inside createSpace/addEditorMember/removeEditorMember and rolls back the whole mutation on a pre-existing invariant violation", () => {
+  it("is invoked inside createSpace/addEditorMember/removeEditorMember and rolls back the whole mutation when that space is inconsistent", () => {
     const space = createSpace(OWNER_ID, "Guarded");
     addEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
 
-    // Corrupt an unrelated space's owner row directly (bypassing the
-    // repository) so the *next* mutation's pre-commit invariant sweep, which
-    // scans the whole _spaces.db, fails even though the mutation itself
-    // (removing an editor from a different, healthy space) is valid in
-    // isolation. This proves the checker runs inside these transactions and
-    // that any violation rolls back the entire mutation, not a partial one.
+    // Make this space inconsistent directly (bypassing the repository) in a
+    // way the mutation does not itself look at: an active space carrying a
+    // deletion date. Removing an editor is valid in isolation; the check that
+    // runs before commit is what refuses it, and nothing of the removal stays.
+    spacesDb
+      .prepare("UPDATE spaces SET delete_after = '2030-01-01T00:00:00.000Z' WHERE id = ?")
+      .run(space.spaceId);
+
+    expect(() =>
+      removeEditorMember(OWNER_ID, space.spaceId, EDITOR_ID),
+    ).toThrowError(expect.objectContaining({ code: "SPACE_INVARIANT_VIOLATION" }));
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)?.role).toBe("editor");
+  });
+
+  it("does not refuse a change to a healthy space because another space is inconsistent", () => {
+    // The check used to scan every space inside every write, so this one bad
+    // row made every mutation, for every user, answer 500.
+    const space = createSpace(OWNER_ID, "Healthy");
+    addEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
     const otherSpace = createSpace(OTHER_ID, "Unrelated");
     spacesDb
       .prepare("DELETE FROM space_members WHERE space_id = ? AND role = 'owner'")
       .run(otherSpace.spaceId);
 
-    expect(() =>
-      removeEditorMember(OWNER_ID, space.spaceId, EDITOR_ID),
-    ).toThrowError(expect.objectContaining({ code: "SPACE_INVARIANT_VIOLATION" }));
-    // The removal this call attempted rolled back: the editor membership is
-    // still present.
-    expect(getSpaceMembership(space.spaceId, EDITOR_ID)?.role).toBe("editor");
+    removeEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
+
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)).toBeNull();
+    // The full sweep, as restore tooling runs it, still finds the bad space.
+    expect(assertSpacesInvariants(spacesDb, { throwOnViolation: false }).violations)
+      .toEqual([expect.objectContaining({ code: "SPACE_OWNER_MISSING", spaceId: otherSpace.spaceId })]);
   });
 });
 
@@ -940,7 +955,84 @@ describe("Phase 5 lifecycle", () => {
     expect(assertAccountDeletionAllowed(OTHER_ID)).toBe(true);
   });
 
-  it("purges retained metadata only after the deadline and retries filesystem failures", () => {
+  it("lets the owner cancel a deletion inside the retention period, restoring access for everyone", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    addEditorMember(OWNER_ID, space.spaceId, EDITOR_ID);
+    const requested = new Date("2026-08-18T20:00:00.000Z");
+    requestSpaceDeletion({ actorUserId: OWNER_ID, spaceId: space.spaceId, now: requested });
+    const editorVersion = versionFor(EDITOR_ID);
+
+    // Only the owner, and only for a space that is actually pending.
+    expect(() => cancelSpaceDeletion({ actorUserId: EDITOR_ID, spaceId: space.spaceId, now: requested }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_OWNER_REQUIRED" }));
+    expect(() => cancelSpaceDeletion({ actorUserId: OTHER_ID, spaceId: space.spaceId, now: requested }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_NOT_FOUND" }));
+
+    const result = cancelSpaceDeletion({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      now: new Date("2026-09-01T00:00:00.000Z"),
+    });
+
+    expect(result.userIds).toEqual(expect.arrayContaining([OWNER_ID, EDITOR_ID]));
+    expect(spacesDb.prepare("SELECT status, delete_after AS deleteAfter FROM spaces WHERE id = ?").get(space.spaceId))
+      .toEqual({ status: "active", deleteAfter: null });
+    expect(resolveSpaceAccess(space.spaceId, OWNER_ID)?.role).toBe("owner");
+    expect(resolveSpaceAccess(space.spaceId, EDITOR_ID)?.role).toBe("editor");
+    // Members are told to refresh.
+    expect(versionFor(EDITOR_ID)).toBeGreaterThan(editorVersion);
+    // An active space has nothing to cancel.
+    expect(() => cancelSpaceDeletion({ actorUserId: OWNER_ID, spaceId: space.spaceId }))
+      .toThrowError(expect.objectContaining({ code: "SPACE_NOT_FOUND" }));
+  });
+
+  it("does not let a deletion be cancelled once the purge is due", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    requestSpaceDeletion({ actorUserId: OWNER_ID, spaceId: space.spaceId, now: new Date("2026-08-18T20:00:00.000Z") });
+
+    expect(() => cancelSpaceDeletion({
+      actorUserId: OWNER_ID,
+      spaceId: space.spaceId,
+      now: new Date("2026-09-17T20:00:00.000Z"),
+    })).toThrowError(expect.objectContaining({ code: "SPACE_NOT_FOUND" }));
+  });
+
+  it("checks only the space a change touched, so one bad row elsewhere does not fail everyone", () => {
+    const healthy = createSpace(OWNER_ID, "Healthy");
+    const broken = createSpace(EDITOR_ID, "Broken");
+    // As after a hand edit: this space's owner no longer exists.
+    authDb.prepare("DELETE FROM users WHERE id = ?").run(EDITOR_ID);
+    expect(assertSpacesInvariants(spacesDb, { throwOnViolation: false }).ok).toBe(false);
+
+    // Every mutation of the healthy space used to answer 500 from here on.
+    expect(renameSpace({ actorUserId: OWNER_ID, spaceId: healthy.spaceId, name: "Still fine" }).name).toBe("Still fine");
+    expect(assertSpacesInvariants(spacesDb, { throwOnViolation: false, spaceIds: [healthy.spaceId] }).ok).toBe(true);
+    expect(assertSpacesInvariants(spacesDb, { throwOnViolation: false, spaceIds: [broken.spaceId] }).violations)
+      .toEqual([expect.objectContaining({ code: "SPACE_MEMBER_USER_MISSING" })]);
+    expect(assertSpacesInvariants(spacesDb, { throwOnViolation: false, spaceIds: [] }).ok).toBe(true);
+  });
+
+  it("forgets invitations a month after they were used, revoked or expired", () => {
+    const space = createSpace(OWNER_ID, "Writers");
+    const sent = new Date("2026-08-01T00:00:00.000Z");
+    const invite = (email) => createSpaceInvite({ actorUserId: OWNER_ID, spaceId: space.spaceId, email, now: sent });
+    const used = invite("editor@example.test");
+    acceptSpaceInvite({ actorUserId: EDITOR_ID, token: used.token, now: new Date("2026-08-02T00:00:00.000Z") });
+    const revoked = invite("revoked@example.test");
+    revokeSpaceInvite({ actorUserId: OWNER_ID, spaceId: space.spaceId, inviteId: revoked.invite.id, now: new Date("2026-08-02T00:00:00.000Z") });
+    invite("expired@example.test");
+    const fresh = createSpaceInvite({
+      actorUserId: OWNER_ID, spaceId: space.spaceId, email: "fresh@example.test", now: new Date("2026-09-20T00:00:00.000Z"),
+    });
+
+    expect(pruneSpaceInvites({ now: new Date("2026-08-20T00:00:00.000Z") })).toBe(0);
+    expect(pruneSpaceInvites({ now: new Date("2026-09-21T00:00:00.000Z") })).toBe(3);
+    expect(spacesDb.prepare("SELECT invite_id AS id FROM space_invites").all()).toEqual([{ id: fresh.invite.id }]);
+    // Membership gained through a forgotten invitation is unaffected.
+    expect(getSpaceMembership(space.spaceId, EDITOR_ID)?.role).toBe("editor");
+  });
+
+  it("purges retained metadata only after the deadline and retries filesystem failures", async () => {
     const space = createSpace(OWNER_ID, "Writers");
     requestSpaceDeletion({
       actorUserId: OWNER_ID,
@@ -949,15 +1041,15 @@ describe("Phase 5 lifecycle", () => {
     });
     const removeContent = vi.fn();
     const removeUploads = vi.fn();
-    expect(purgeExpiredSpaces({
+    expect((await purgeExpiredSpaces({
       now: new Date("2026-09-17T19:59:59.999Z"),
       removeContent,
       removeUploads,
-    }).purged).toEqual([]);
+    })).purged).toEqual([]);
     expect(removeContent).not.toHaveBeenCalled();
 
     removeContent.mockImplementationOnce(() => { throw new Error("disk busy"); });
-    const failed = purgeExpiredSpaces({
+    const failed = await purgeExpiredSpaces({
       now: new Date("2026-09-17T20:00:00.000Z"),
       removeContent,
       removeUploads,
@@ -966,7 +1058,7 @@ describe("Phase 5 lifecycle", () => {
     expect(spacesDb.prepare("SELECT status FROM spaces WHERE id = ?").get(space.spaceId)?.status)
       .toBe("pending_delete");
 
-    const retried = purgeExpiredSpaces({
+    const retried = await purgeExpiredSpaces({
       now: new Date("2026-09-17T20:00:01.000Z"),
       removeContent,
       removeUploads,

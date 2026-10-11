@@ -135,6 +135,11 @@ export const useSyncStore = defineStore("syncStore", () => {
   const contentMergeWriteback = ref(false);
   const membershipVersion = ref(0);
   const sharedSpacesAvailable = ref(false);
+  // Told by the server with the space list, so a control for something the
+  // server does not offer is not shown at all.
+  const liveSessionsAvailable = ref(false);
+  // Spaces this account owns that are waiting out their retention period.
+  const pendingSpaceDeletions = ref([]);
   const bootstrapState = ref({
     status: "idle",
     currentDbKey: null,
@@ -1287,6 +1292,8 @@ tags:
     let cursor = null;
     let version = null;
     let minimumSchema = 0;
+    let pendingDeletion = [];
+    let liveSessions = false;
     do {
       const suffix = cursor ? `?limit=25&cursor=${encodeURIComponent(cursor)}` : "?limit=25";
       const response = await fetch(`${API_URL}/spaces${suffix}`, {
@@ -1302,9 +1309,11 @@ tags:
         throw new Error("Space membership changed during paginated discovery.");
       }
       minimumSchema = Math.max(minimumSchema, Number(page.minimum_client_schema) || 0);
+      if (Array.isArray(page.pendingDeletion)) pendingDeletion = page.pendingDeletion;
+      liveSessions = liveSessions || page.capabilities?.liveSessions === true;
       cursor = page.nextCursor || null;
     } while (cursor);
-    return { spaces, membershipVersion: version ?? 0, minimumSchema };
+    return { spaces, membershipVersion: version ?? 0, minimumSchema, pendingDeletion, liveSessions };
   }
 
   async function removeDatabase(dbKey, { notifyServer = true } = {}) {
@@ -1421,9 +1430,13 @@ tags:
       const snapshot = await fetchMembershipPages();
       if (!snapshot) {
         sharedSpacesAvailable.value = false;
+        liveSessionsAvailable.value = false;
+        pendingSpaceDeletions.value = [];
         return;
       }
       sharedSpacesAvailable.value = true;
+      liveSessionsAvailable.value = snapshot.liveSessions;
+      pendingSpaceDeletions.value = snapshot.pendingDeletion;
       if (snapshot.minimumSchema > 1) {
         bootstrapState.value = {
           status: "upgrade-required",
@@ -1878,6 +1891,8 @@ tags:
     personalDbKey,
     membershipVersion,
     sharedSpacesAvailable,
+    liveSessionsAvailable,
+    pendingSpaceDeletions,
     bootstrapState,
     isInitialized,
     syncEnabled,

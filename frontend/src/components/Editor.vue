@@ -56,7 +56,10 @@
     >
       <template v-if="!collabActive">
         <span class="pn-meta">Solo editing</span>
+        <!-- Only where the server offers live sessions. Shown regardless, it
+             failed on click and left an error over every Document. -->
         <BaseButton
+          v-if="syncStore.liveSessionsAvailable"
           size="sm"
           variant="secondary"
           :disabled="!syncOnline"

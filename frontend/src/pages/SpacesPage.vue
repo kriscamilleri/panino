@@ -26,6 +26,36 @@
         </form>
       </section>
 
+      <section
+        v-if="syncStore.pendingSpaceDeletions.length"
+        class="border-b border-gray-200 py-6"
+        data-testid="pending-space-deletions"
+      >
+        <h2 class="pn-title-modal">Spaces scheduled for deletion</h2>
+        <p class="pn-body mt-1">
+          Nobody can open these spaces now. Their Documents are kept until the date shown, and
+          cancelling brings the space back for every member.
+        </p>
+        <ul class="mt-4 space-y-3">
+          <li
+            v-for="space in syncStore.pendingSpaceDeletions"
+            :key="space.id"
+            class="pn-panel-muted flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div>
+              <h3 class="text-sm font-semibold text-gray-900">{{ space.name }}</h3>
+              <p class="pn-meta">Deleted for good on {{ formatDate(space.deleteAfter) }}</p>
+            </div>
+            <BaseButton
+              variant="secondary"
+              :disabled="pending"
+              :data-testid="`cancel-space-deletion-${space.id}`"
+              @click="cancelDeletion(space)"
+            >Cancel deletion</BaseButton>
+          </li>
+        </ul>
+      </section>
+
       <section class="border-b border-gray-200 py-6" data-testid="pending-space-invitations">
         <h2 class="pn-title-modal">Invitations to you</h2>
         <p class="pn-body mt-1">Accept an invitation to add its space to this device.</p>
@@ -324,6 +354,14 @@ async function perform(action, successMessage) {
   } finally {
     pending.value = false;
   }
+}
+
+async function cancelDeletion(space) {
+  const result = await perform(
+    () => spacesStore.cancelDeletion(space.id),
+    `${space.name} is back. Its members can open it again.`,
+  );
+  if (result && !selectedId.value) await selectSpace(space.id);
 }
 
 async function selectSpace(spaceId) {

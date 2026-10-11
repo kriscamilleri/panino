@@ -165,6 +165,16 @@ export const useSpacesStore = defineStore("spacesStore", () => {
     detail.value = null;
   }
 
+  /** Undo a deletion request while the space is still being retained. */
+  async function cancelDeletion(spaceId) {
+    const result = await request(
+      `/spaces/${encodeURIComponent(spaceId)}/deletion-cancel`,
+      { method: "POST" },
+    );
+    await refreshRegistry();
+    return result;
+  }
+
   async function requestDeletion(spaceId) {
     const result = await request(
       `/spaces/${encodeURIComponent(spaceId)}/deletion-request`,
@@ -221,6 +231,7 @@ export const useSpacesStore = defineStore("spacesStore", () => {
     transferOwnership,
     leaveSpace,
     requestDeletion,
+    cancelDeletion,
     acceptInvitation,
     acceptPendingInvitation,
     clearDetail,

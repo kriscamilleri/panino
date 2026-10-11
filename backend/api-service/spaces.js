@@ -10,7 +10,7 @@ import {
 } from "./db.js";
 import { buildSpaceInviteUrl, sendSpaceInviteEmail } from "./mailer.js";
 import { isAccountEmailVerified } from "./accountEmail.js";
-import { deleteSpaceUploads } from "./spaceStorage.js";
+import { removeSpaceUploads } from "./spaceStorage.js";
 
 const ALLOWED_ROLES = new Set(["owner", "editor"]);
 const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
@@ -225,21 +225,27 @@ function tableExists(db, name) {
  */
 export function assertSpacesInvariants(
   db,
-  { throwOnViolation = true, authDb = null } = {},
+  { throwOnViolation = true, authDb = null, spaceIds = null } = {},
 ) {
   const violations = [];
+  // A mutation names the spaces it touched and only those are checked. The
+  // unscoped sweep (restore tooling) reads every space; run inside each write
+  // it made every mutation cost grow with the number of spaces on the server,
+  // and one bad row anywhere failed every mutation for every user.
+  const scoped = Array.isArray(spaceIds);
+  const ids = scoped ? [...new Set(spaceIds)] : [];
+  const marks = ids.map(() => "?").join(",");
+  const only = (column) => (scoped ? ` AND ${column} IN (${marks})` : "");
+  const all = (sql, column) => (scoped && ids.length === 0 ? [] : db.prepare(`${sql}${only(column)}`).all(...ids));
 
   // 1 & 6: every space has exactly one owner membership agreeing with
   // spaces.owner_user_id; more than one is a duplicate-owner violation.
-  const spaces = db
-    .prepare("SELECT id, owner_user_id AS ownerUserId FROM spaces")
-    .all();
+  const spaces = all("SELECT id, owner_user_id AS ownerUserId FROM spaces WHERE 1 = 1", "id");
+  const ownersOf = db.prepare(
+    "SELECT user_id AS userId FROM space_members WHERE space_id = ? AND role = 'owner'",
+  );
   for (const space of spaces) {
-    const owners = db
-      .prepare(
-        "SELECT user_id AS userId FROM space_members WHERE space_id = ? AND role = 'owner'",
-      )
-      .all(space.id);
+    const owners = ownersOf.all(space.id);
     if (owners.length === 0) {
       violations.push({ code: "SPACE_OWNER_MISSING", spaceId: space.id });
     } else if (owners.length > 1) {
@@ -250,22 +256,18 @@ export function assertSpacesInvariants(
   }
 
   // 2: no orphaned space_members / space_invites rows.
-  const orphanMembers = db
-    .prepare(
-      "SELECT DISTINCT space_id AS spaceId FROM space_members WHERE space_id NOT IN (SELECT id FROM spaces)",
-    )
-    .all();
-  for (const row of orphanMembers) {
+  for (const row of all(
+    "SELECT DISTINCT space_id AS spaceId FROM space_members WHERE space_id NOT IN (SELECT id FROM spaces)",
+    "space_id",
+  )) {
     violations.push({ code: "SPACE_ORPHAN_MEMBER", spaceId: row.spaceId });
   }
 
   if (tableExists(db, "space_invites")) {
-    const orphanInvites = db
-      .prepare(
-        "SELECT DISTINCT space_id AS spaceId FROM space_invites WHERE space_id NOT IN (SELECT id FROM spaces)",
-      )
-      .all();
-    for (const row of orphanInvites) {
+    for (const row of all(
+      "SELECT DISTINCT space_id AS spaceId FROM space_invites WHERE space_id NOT IN (SELECT id FROM spaces)",
+      "space_id",
+    )) {
       violations.push({ code: "SPACE_ORPHAN_INVITE", spaceId: row.spaceId });
     }
   }
@@ -273,14 +275,8 @@ export function assertSpacesInvariants(
   // 3 & 5: every referenced user id (member or owner) must exist in the auth
   // DB, and must have a space_user_versions row (no gaps).
   const referencedUserIds = new Set([
-    ...db
-      .prepare("SELECT DISTINCT user_id AS userId FROM space_members")
-      .all()
-      .map((r) => r.userId),
-    ...db
-      .prepare("SELECT DISTINCT owner_user_id AS userId FROM spaces")
-      .all()
-      .map((r) => r.userId),
+    ...all("SELECT DISTINCT user_id AS userId FROM space_members WHERE 1 = 1", "space_id").map((r) => r.userId),
+    ...spaces.map((space) => space.ownerUserId),
   ]);
 
   if (referencedUserIds.size > 0) {
@@ -303,14 +299,12 @@ export function assertSpacesInvariants(
   }
 
   // 4: status/delete_after pairing.
-  const pairingViolations = db
-    .prepare(
-      `SELECT id AS spaceId FROM spaces
-        WHERE (status = 'pending_delete' AND delete_after IS NULL)
-           OR (status = 'active' AND delete_after IS NOT NULL)`,
-    )
-    .all();
-  for (const row of pairingViolations) {
+  for (const row of all(
+    `SELECT id AS spaceId FROM spaces
+      WHERE ((status = 'pending_delete' AND delete_after IS NULL)
+          OR (status = 'active' AND delete_after IS NOT NULL))`,
+    "id",
+  )) {
     violations.push({
       code: "SPACE_STATUS_DELETE_AFTER_MISMATCH",
       spaceId: row.spaceId,
@@ -405,7 +399,7 @@ export function createSpace(actorOrOptions, suppliedName) {
     ).run(spaceId, actorUserId, now);
     bumpUserVersion(db, actorUserId);
     ensureSpaceProfile(spaceId, actorUserId);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
   });
 
   try {
@@ -552,7 +546,23 @@ export function listSpaceMembershipPage({ userId, cursor = null, limit = 25 }) {
     membershipVersion: membershipVersion(db, userId),
     minimum_client_schema: MINIMUM_CLIENT_SCHEMA_VERSION,
     nextCursor: hasNextPage ? encodeSpaceCursor(spaces.at(-1)) : null,
+    // Only on the first page: spaces this account owns that are waiting out
+    // their retention period. They are in no other list, and the owner needs
+    // to see them to be able to cancel.
+    ...(decodedCursor ? {} : { pendingDeletion: listPendingDeletions(db, userId) }),
+    // What else the server offers, so the client does not have to show a
+    // control and find out by failing.
+    capabilities: { liveSessions: process.env.LIVE_SESSIONS_ENABLED === "true" },
   };
+}
+
+function listPendingDeletions(db, userId) {
+  return db.prepare(
+    `SELECT id, name, delete_after AS deleteAfter
+       FROM spaces
+      WHERE owner_user_id = ? AND status = 'pending_delete'
+      ORDER BY delete_after, id`,
+  ).all(userId);
 }
 
 export const spaceRoutes = express.Router();
@@ -626,7 +636,7 @@ export function addEditorMember(
        VALUES (?, ?, 'editor', ?, ?)`,
     ).run(spaceId, userId, actorUserId, now);
     bumpUsers(db, memberUserIds(db, spaceId));
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
   });
 
   try {
@@ -700,7 +710,7 @@ export function removeEditorMember(
       );
     }
     bumpUsers(db, [...memberUserIds(db, spaceId), userId]);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
   });
 
   remove();
@@ -743,7 +753,8 @@ export function getSpaceDetails({ actorUserId, spaceId }) {
               created_at AS createdAt
          FROM space_invites
         WHERE space_id = ? AND used_at IS NULL AND revoked_at IS NULL
-        ORDER BY created_at DESC`,
+        ORDER BY created_at DESC
+        LIMIT 200`,
     ).all(spaceId)
     : [];
 
@@ -779,7 +790,7 @@ export function renameSpace({ actorUserId, spaceId, name }) {
       "UPDATE spaces SET name = ?, updated_at = ? WHERE id = ? AND status = 'active'",
     ).run(normalizedName, new Date().toISOString(), spaceId);
     bumpUsers(db, userIds);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
     return { userIds, versions: versionsForUsers(db, userIds) };
   })();
   return { spaceId, name: normalizedName, ...changed };
@@ -860,7 +871,7 @@ export function createSpaceInvite({
     ).run(tokenHash, spaceId, normalizedEmail, expiresAt, createdAt, inviteId);
     const userIds = memberUserIds(db, spaceId);
     bumpUsers(db, userIds);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
     const spaceName = db.prepare("SELECT name FROM spaces WHERE id = ?").get(spaceId).name;
     return { userIds, versions: versionsForUsers(db, userIds), spaceName };
   })();
@@ -891,7 +902,7 @@ export function revokeSpaceInvite({ actorUserId, spaceId, inviteId, now = new Da
     }
     const userIds = memberUserIds(db, spaceId);
     bumpUsers(db, userIds);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
     return { spaceId, inviteId, userIds, versions: versionsForUsers(db, userIds) };
   })();
 }
@@ -957,7 +968,8 @@ export function listPendingSpaceInvitations({ actorUserId, now = new Date() }) {
             FROM space_members m
            WHERE m.space_id = i.space_id AND m.user_id = ?
         )
-      ORDER BY i.created_at DESC, i.invite_id`,
+      ORDER BY i.created_at DESC, i.invite_id
+      LIMIT 100`,
   ).all(actorEmail, now.toISOString(), actorUserId);
 }
 
@@ -1044,7 +1056,7 @@ function acceptSpaceInviteSelection({
       .run(acceptedAt, invite.inviteId);
     const userIds = memberUserIds(db, invite.spaceId);
     bumpUsers(db, userIds);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [invite.spaceId] });
     return {
       spaceId: invite.spaceId,
       userIds,
@@ -1126,7 +1138,7 @@ export function transferSpaceOwnership({ actorUserId, spaceId, targetUserId }) {
     ).run(targetUserId, new Date().toISOString(), spaceId);
     const userIds = memberUserIds(db, spaceId);
     bumpUsers(db, userIds);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
     return { spaceId, ownerUserId: targetUserId, userIds, versions: versionsForUsers(db, userIds) };
   })();
 }
@@ -1151,7 +1163,7 @@ export function leaveSpace({ actorUserId, spaceId }) {
     const remaining = memberUserIds(db, spaceId);
     const userIds = [...remaining, actorUserId];
     bumpUsers(db, userIds);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
     return { spaceId, revokedUserIds: [actorUserId], userIds, versions: versionsForUsers(db, userIds) };
   })();
 }
@@ -1176,7 +1188,7 @@ export function requestSpaceDeletion({ actorUserId, spaceId, now = new Date() })
         WHERE space_id = ? AND used_at IS NULL AND revoked_at IS NULL`,
     ).run(now.toISOString(), spaceId);
     bumpUsers(db, userIds);
-    assertSpacesInvariants(db);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
     return {
       spaceId,
       deleteAfter,
@@ -1187,10 +1199,63 @@ export function requestSpaceDeletion({ actorUserId, spaceId, now = new Date() })
   })();
 }
 
-export function purgeExpiredSpaces({
+/**
+ * Undo a deletion request while the space is still inside its retention
+ * period (authorization matrix row 15). Nothing has been removed yet, so the
+ * space, its members and its content come back as they were. Invitations that
+ * were pending when deletion was requested stay revoked.
+ */
+export function cancelSpaceDeletion({ actorUserId, spaceId, now = new Date() }) {
+  requireEnabled();
+  requireUuid(spaceId, "spaceId");
+  requireUuid(actorUserId, "actorUserId");
+  requireUser(actorUserId);
+  const db = getSpacesDb();
+  return db.transaction(() => {
+    const pending = db.prepare(
+      `SELECT s.name, s.delete_after AS deleteAfter, m.role
+         FROM spaces s JOIN space_members m ON m.space_id = s.id
+        WHERE s.id = ? AND m.user_id = ? AND s.status = 'pending_delete'`,
+    ).get(spaceId, actorUserId);
+    // Once the purge is due the space is as good as gone; say so the same way.
+    if (!pending || Date.parse(pending.deleteAfter) <= now.getTime()) {
+      throw new SpaceRepositoryError("SPACE_NOT_FOUND", "Space not found");
+    }
+    if (pending.role !== "owner") {
+      throw new SpaceRepositoryError(
+        "SPACE_OWNER_REQUIRED",
+        "Only the space owner may cancel its deletion",
+      );
+    }
+    db.prepare(
+      `UPDATE spaces SET status = 'active', delete_after = NULL, updated_at = ?
+        WHERE id = ? AND status = 'pending_delete'`,
+    ).run(now.toISOString(), spaceId);
+    const userIds = memberUserIds(db, spaceId);
+    bumpUsers(db, userIds);
+    assertSpacesInvariants(db, { spaceIds: [spaceId] });
+    return { spaceId, name: pending.name, userIds, versions: versionsForUsers(db, userIds) };
+  })();
+}
+
+/**
+ * Invitations that were used, revoked or expired a month ago are only a
+ * record. Nothing removed them short of the whole space being purged.
+ */
+export function pruneSpaceInvites({ now = new Date() } = {}) {
+  const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  return getSpacesDb().prepare(
+    `DELETE FROM space_invites
+      WHERE (used_at IS NOT NULL AND used_at < ?)
+         OR (revoked_at IS NOT NULL AND revoked_at < ?)
+         OR expires_at < ?`,
+  ).run(cutoff, cutoff, cutoff).changes;
+}
+
+export async function purgeExpiredSpaces({
   now = new Date(),
   removeContent = (spaceId) => deleteDb(`space:${spaceId}`),
-  removeUploads = deleteSpaceUploads,
+  removeUploads = removeSpaceUploads,
 } = {}) {
   const db = getSpacesDb();
   const due = db.prepare(
@@ -1204,7 +1269,7 @@ export function purgeExpiredSpaces({
   for (const { id: spaceId } of due) {
     try {
       removeContent(spaceId);
-      removeUploads(spaceId);
+      await removeUploads(spaceId);
       db.transaction(() => {
         const stillDue = db.prepare(
           `SELECT 1 FROM spaces
@@ -1214,7 +1279,7 @@ export function purgeExpiredSpaces({
         db.prepare("DELETE FROM space_invites WHERE space_id = ?").run(spaceId);
         db.prepare("DELETE FROM space_members WHERE space_id = ?").run(spaceId);
         db.prepare("DELETE FROM spaces WHERE id = ?").run(spaceId);
-        assertSpacesInvariants(db);
+        assertSpacesInvariants(db, { spaceIds: [spaceId] });
         purged.push(spaceId);
       })();
     } catch (error) {
@@ -1229,11 +1294,11 @@ export function purgeExpiredSpaces({
 
 export function startSpaceDeletionJob({ intervalMs = SPACE_DELETE_SWEEP_MS } = {}) {
   const timer = setInterval(() => {
-    try {
-      purgeExpiredSpaces();
-    } catch (error) {
-      console.error("[spaces] deletion sweep failed", { code: error?.code || "SWEEP_FAILED" });
-    }
+    purgeExpiredSpaces()
+      .then(() => pruneSpaceInvites())
+      .catch((error) => {
+        console.error("[spaces] deletion sweep failed", { code: error?.code || "SWEEP_FAILED" });
+      });
   }, intervalMs);
   timer.unref?.();
   return timer;
@@ -1548,6 +1613,19 @@ spaceRoutes.post("/spaces/:spaceId/leave", async (req, res) => {
     });
     await publishLifecycleChange(req, result);
     return res.status(204).end();
+  } catch (error) {
+    return lifecycleErrorResponse(res, error);
+  }
+});
+
+spaceRoutes.post("/spaces/:spaceId/deletion-cancel", async (req, res) => {
+  try {
+    const result = cancelSpaceDeletion({
+      actorUserId: req.user.user_id,
+      spaceId: req.params.spaceId,
+    });
+    await publishLifecycleChange(req, result);
+    return res.json({ space: { id: result.spaceId, name: result.name } });
   } catch (error) {
     return lifecycleErrorResponse(res, error);
   }

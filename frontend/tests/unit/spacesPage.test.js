@@ -24,12 +24,18 @@ const harness = vi.hoisted(() => ({
   transferOwnership: vi.fn(),
   leaveSpace: vi.fn(),
   requestDeletion: vi.fn(),
+  cancelDeletion: vi.fn(async () => ({ space: {} })),
+  invitationsEmailVerified: true,
+  pendingSpaceDeletions: [],
   addToast: vi.fn(),
 }));
 
 vi.mock("@/store/spacesStore", () => ({ useSpacesStore: () => harness }));
 vi.mock("@/store/syncStore", () => ({
-  useSyncStore: () => ({ sharedSpacesAvailable: true }),
+  useSyncStore: () => ({
+    sharedSpacesAvailable: true,
+    get pendingSpaceDeletions() { return harness.pendingSpaceDeletions; },
+  }),
 }));
 vi.mock("@/store/uiStore", () => ({ useUiStore: () => ({ addToast: harness.addToast }) }));
 vi.mock("vue-router", () => ({ useRoute: () => ({ query: {} }) }));
@@ -51,6 +57,9 @@ const global = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  harness.pendingSpaceDeletions = [];
+  harness.invitationsEmailVerified = true;
+  harness.pendingInvitations = [];
   harness.spaces = [{
     id: SPACE_ID,
     name: "Writers",
@@ -159,5 +168,38 @@ describe("SpacesPage", () => {
       .toBeUndefined();
     expect(wrapper.text()).toContain("retained for 30 days");
     expect(wrapper.text()).toContain("cannot be recalled");
+  });
+
+  it("shows the owner a space awaiting deletion and cancels on request", async () => {
+    // Without this a deletion could not be undone: the space was in no list.
+    harness.pendingSpaceDeletions = [{ id: SPACE_ID, name: "Writers", deleteAfter: "2026-11-10T00:00:00.000Z" }];
+    const wrapper = mount(SpacesPage, { global });
+    await nextTick();
+    // Mounting loads the selected space, and buttons are disabled meanwhile.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const section = wrapper.get('[data-testid="pending-space-deletions"]');
+    expect(section.text()).toContain("Writers");
+    expect(section.text()).toContain("Deleted for good on");
+
+    await wrapper.get(`[data-testid="cancel-space-deletion-${SPACE_ID}"]`).trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(harness.cancelDeletion).toHaveBeenCalledWith(SPACE_ID);
+  });
+
+  it("shows no deletion section when nothing is pending", async () => {
+    const wrapper = mount(SpacesPage, { global });
+    await nextTick();
+    expect(wrapper.find('[data-testid="pending-space-deletions"]').exists()).toBe(false);
+  });
+
+  it("explains an empty invitation list to an account whose address is not confirmed", async () => {
+    harness.invitationsEmailVerified = false;
+    const wrapper = mount(SpacesPage, { global });
+    await nextTick();
+
+    expect(wrapper.get('[data-testid="pending-space-invitations-unverified"]').text())
+      .toContain("open the link in the invitation email");
   });
 });

@@ -20,6 +20,8 @@ import {
   deleteTestDb,
   closeAllConnections,
   clearConnectionCache,
+  evictIdleDbConnections,
+  openContentDbCount,
   invalidateUserDb,
   getHealthyUserDb,
   ensureNoteRevisionsSchema,
@@ -490,6 +492,56 @@ describe("Connection Management", () => {
     ).toBe(0);
     // The poisoned handle must be gone from the cache, not merely bypassed.
     expect(getUserDb(healthyUserIdPoisoned)).toBe(healthy);
+  });
+});
+
+describe("Connection cache", () => {
+  const userIds = [uuidv4(), uuidv4(), uuidv4()];
+
+  afterEach(() => {
+    for (const id of userIds) deleteTestDb(`user:${id}`);
+  });
+
+  it("closes the least recently used content connections beyond the limit, and reopens on demand", () => {
+    const [oldest, middle, newest] = userIds;
+    const first = getDb(`user:${oldest}`);
+    first.prepare("INSERT INTO notes (id, user_id, title, content) VALUES ('n', ?, 't', 'kept on disk')").run(oldest);
+    getDb(`user:${middle}`);
+    getDb(`user:${newest}`);
+    const before = openContentDbCount();
+
+    // A minute later nobody has asked for any of them; room for one fewer than are open.
+    const closed = evictIdleDbConnections({ limit: before - 2, now: Date.now() + 61_000 });
+
+    expect(closed).toBe(2);
+    expect(openContentDbCount()).toBe(before - 2);
+    expect(first.open).toBe(false);
+    // Asking again reopens it, with its data.
+    const reopened = getDb(`user:${oldest}`);
+    expect(reopened).not.toBe(first);
+    expect(reopened.prepare("SELECT content FROM notes WHERE id = 'n'").get().content).toBe("kept on disk");
+  });
+
+  it("never closes a connection that was used within the last minute", () => {
+    // An asynchronous route holds the handle it was given across awaits.
+    const held = getDb(`user:${userIds[0]}`);
+    getDb(`user:${userIds[1]}`);
+
+    expect(evictIdleDbConnections({ limit: 0 })).toBe(0);
+    expect(held.open).toBe(true);
+    expect(held.prepare("SELECT 1 AS ok").get().ok).toBe(1);
+  });
+
+  it("leaves the authentication and space metadata connections alone", () => {
+    const auth = getAuthDb();
+    const spaces = getSpacesDb();
+    getDb(`user:${userIds[0]}`);
+
+    evictIdleDbConnections({ limit: 0, minIdleMs: 0, now: Date.now() + 1 });
+
+    expect(auth.open).toBe(true);
+    expect(spaces.open).toBe(true);
+    expect(getAuthDb()).toBe(auth);
   });
 });
 
