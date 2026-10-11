@@ -16,26 +16,62 @@ const INSERT_CHUNK_LENGTH = 64 * 1024;
  * one and the first half of the next: the shared text ended up holding two
  * broken characters, for everyone. The boundaries are therefore moved off the
  * middle of a pair.
+ *
+ * `caret` is where the caret is after the change. Typing "a" between two "a"s
+ * gives the same text wherever the new one is said to be, and without the
+ * caret it was always placed after its equal neighbours. The text is the same
+ * either way, but the position decides how the edit merges with someone
+ * else's, so the change is anchored to end at the caret whenever that fits.
+ *
+ * @param {string} previousValue
+ * @param {string} nextValue
+ * @param {number} [caret] caret offset in `nextValue`, when the selection is collapsed
  */
-export function contiguousTextEdit(previousValue, nextValue) {
+export function contiguousTextEdit(previousValue, nextValue, caret) {
   const before = String(previousValue ?? "");
   const after = String(nextValue ?? "");
+
+  /** The edit left between a common prefix and a common suffix of these lengths. */
+  const between = (prefix, suffix) => {
+    let start = prefix;
+    let tail = suffix;
+    if (start > 0 && isHighSurrogate(before.charCodeAt(start - 1))) start -= 1;
+    if (tail > 0 && isLowSurrogate(before.charCodeAt(before.length - tail))) tail -= 1;
+    return {
+      index: start,
+      deleteCount: before.length - start - tail,
+      insertText: after.slice(start, after.length - tail),
+    };
+  };
+
   let prefix = 0;
   const sharedLength = Math.min(before.length, after.length);
   while (prefix < sharedLength && before[prefix] === after[prefix]) prefix += 1;
-  if (prefix > 0 && isHighSurrogate(before.charCodeAt(prefix - 1))) prefix -= 1;
   let suffix = 0;
   while (
     suffix < before.length - prefix
     && suffix < after.length - prefix
     && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
   ) suffix += 1;
-  if (suffix > 0 && isLowSurrogate(before.charCodeAt(before.length - suffix))) suffix -= 1;
-  return {
-    index: prefix,
-    deleteCount: before.length - prefix - suffix,
-    insertText: after.slice(prefix, after.length - suffix),
-  };
+  const smallest = between(prefix, suffix);
+
+  // The same change, placed so that it ends at the caret. Used only when it is
+  // no larger than the smallest one: a caret that is somewhere else (a value
+  // set from code, a replacement the browser made elsewhere) must not turn a
+  // one-letter edit into deleting and retyping a stretch of unchanged text.
+  if (Number.isInteger(caret) && caret >= 0 && caret <= after.length) {
+    const tail = after.length - caret;
+    if (tail <= before.length && before.endsWith(after.slice(caret))) {
+      let anchoredPrefix = 0;
+      const limit = Math.min(before.length, after.length) - tail;
+      while (anchoredPrefix < limit && before[anchoredPrefix] === after[anchoredPrefix]) anchoredPrefix += 1;
+      const anchored = between(anchoredPrefix, tail);
+      if (anchored.deleteCount === smallest.deleteCount && anchored.insertText.length === smallest.insertText.length) {
+        return anchored;
+      }
+    }
+  }
+  return smallest;
 }
 
 export function transformOffset(offset, delta) {
@@ -139,8 +175,14 @@ export class YTextareaBinding {
     }
   }
 
+  /** The caret, when there is one place it can mean. */
+  caret() {
+    const { selectionStart, selectionEnd } = this.textarea;
+    return selectionStart === selectionEnd ? selectionStart : undefined;
+  }
+
   applyLocalInput() {
-    const edit = contiguousTextEdit(this.previousValue, this.textarea.value);
+    const edit = contiguousTextEdit(this.previousValue, this.textarea.value, this.caret());
     if (!edit.deleteCount && !edit.insertText) return;
     this.replace(edit.index, edit.deleteCount, edit.insertText);
     this.previousValue = this.ytext.toString();
@@ -154,7 +196,7 @@ export class YTextareaBinding {
    */
   applyComposedInput() {
     const { ytext, textarea } = this;
-    const edit = contiguousTextEdit(this.previousValue, textarea.value);
+    const edit = contiguousTextEdit(this.previousValue, textarea.value, this.caret());
     let index = edit.index;
     for (const delta of this.remoteDeltasDuringComposition) index = transformOffset(index, delta);
     this.remoteDeltasDuringComposition = [];

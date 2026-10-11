@@ -168,4 +168,20 @@ describe("production Y.Text textarea binding", () => {
     expect(Math.max(...sizes)).toBeLessThan(300 * 1024);
     expect(wellFormed(textB.toString())).toBe(true);
   });
+
+  describe("where a keystroke is placed", () => {
+    it("puts a typed character where the caret is, not where an equal neighbour is", () => {
+      // "aa" with the caret between the two, typing "a": all three placements
+      // give "aaa"; only one of them is where the user typed.
+      expect(contiguousTextEdit("aa", "aaa", 2)).toEqual({ index: 1, deleteCount: 0, insertText: "a" });
+      expect(contiguousTextEdit("aa", "aaa", 1)).toEqual({ index: 0, deleteCount: 0, insertText: "a" });
+      expect(contiguousTextEdit("aa", "aaa", 3)).toEqual({ index: 2, deleteCount: 0, insertText: "a" });
+      // A deletion ends with the caret where the text was removed.
+      expect(contiguousTextEdit("aaa", "aa", 1)).toEqual({ index: 1, deleteCount: 1, insertText: "" });
+      expect(contiguousTextEdit("aaa", "aa", 0)).toEqual({ index: 0, deleteCount: 1, insertText: "" });
+      // Without a caret, or with one that does not fit the change, it still works.
+      expect(contiguousTextEdit("aa", "aaa")).toMatchObject({ deleteCount: 0, insertText: "a" });
+      expect(contiguousTextEdit("abc", "abXc", 0)).toEqual({ index: 2, deleteCount: 0, insertText: "X" });
+    });
+  });
 });
