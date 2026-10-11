@@ -13,6 +13,7 @@ import { imageRoutes, startImageOrphanPruneJob } from './image.js';
 import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
+import { emailVerificationRoutes } from './emailVerification.js';
 import { backupPublicRoutes, backupRoutes } from './backup.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
@@ -86,6 +87,7 @@ export function createApp() {
     app.use(authenticateToken);
     app.use(syncRoutes);
     app.use(spaceRoutes);
+    app.use(emailVerificationRoutes);
     app.use(spaceTransferRoutes);
     app.use(imageRoutes);
     app.use(pdfRoutes); // Mount the new PDF route

@@ -67,12 +67,26 @@
         </div>
         <div
           v-else-if="!spacesStore.pendingInvitations.length && spacesStore.invitationsEmailVerified === false"
-          class="pn-panel-muted mt-4 p-4 pn-body"
+          class="pn-panel-muted mt-4 p-4"
           data-testid="pending-space-invitations-unverified"
         >
-          To accept an invitation, open the link in the invitation email while signed in here.
-          Invitations are listed on this page only once this account's email address has been
-          confirmed, which happens the first time you reset your password by email.
+          <p class="pn-body">
+            Invitations are listed here once this account's email address<template
+              v-if="spacesStore.accountEmail"
+            > ({{ spacesStore.accountEmail }})</template> is verified. Until then, open the link in
+            an invitation email while signed in here.
+          </p>
+          <p v-if="verificationSent" class="pn-body mt-3" data-testid="email-verification-sent">
+            Verification email sent. Open the link in it in this browser, then come back to this
+            page. The link expires in 24 hours.
+          </p>
+          <BaseButton
+            class="mt-3"
+            variant="secondary"
+            :disabled="pending"
+            data-testid="send-email-verification"
+            @click="sendEmailVerification"
+          >{{ verificationSent ? "Send again" : "Verify my email" }}</BaseButton>
         </div>
         <div v-else-if="!spacesStore.pendingInvitations.length" class="pn-panel-muted mt-4 p-4 pn-body">
           No pending invitations.
@@ -284,7 +298,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { MailPlus, Plus } from "lucide-vue-next";
 import { useRoute } from "vue-router";
 import AccountLayout from "@/components/AccountLayout.vue";
@@ -308,6 +322,7 @@ const inviteEmail = ref("");
 const invitationUrls = ref(new Map());
 const confirmationName = ref("");
 const pending = ref(false);
+const verificationSent = ref(false);
 const confirm = reactive({ kind: "", member: null });
 
 const isOwner = computed(() => isSpaceOwner(spacesStore.detail?.space));
@@ -338,6 +353,16 @@ onMounted(() => {
   if (selectedId.value) void selectSpace(selectedId.value);
 });
 
+// The verification link usually opens in another tab. Coming back to this one
+// should show the invitations without a reload.
+function refreshInvitationsOnReturn() {
+  if (document.visibilityState !== "visible") return;
+  if (spacesStore.invitationsEmailVerified !== false) return;
+  void spacesStore.loadPendingInvitations().catch(() => {});
+}
+onMounted(() => document.addEventListener("visibilitychange", refreshInvitationsOnReturn));
+onBeforeUnmount(() => document.removeEventListener("visibilitychange", refreshInvitationsOnReturn));
+
 function formatDate(value) {
   return value ? new Date(value).toLocaleDateString() : "Unknown";
 }
@@ -367,6 +392,22 @@ async function cancelDeletion(space) {
 async function selectSpace(spaceId) {
   selectedId.value = spaceId;
   await perform(() => spacesStore.loadDetail(spaceId));
+}
+
+async function sendEmailVerification() {
+  const result = await perform(() => spacesStore.requestEmailVerification());
+  if (!result) return;
+  if (result.emailVerified) {
+    uiStore.addToast("This account's email address is already verified.", "success");
+    return;
+  }
+  verificationSent.value = true;
+  uiStore.addToast(
+    spacesStore.accountEmail
+      ? `Verification email sent to ${spacesStore.accountEmail}.`
+      : "Verification email sent.",
+    "success",
+  );
 }
 
 async function acceptPendingInvitation(invitation) {

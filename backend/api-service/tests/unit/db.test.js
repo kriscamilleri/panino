@@ -211,6 +211,7 @@ describe("Database Initialization", () => {
 
     expect(tableNames).toContain("users");
     expect(tableNames).toContain("password_resets");
+    expect(tableNames).toContain("email_verifications");
 
     const spacesDb = getSpacesDb();
     const spaceTables = spacesDb

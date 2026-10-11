@@ -8,6 +8,11 @@ export function buildSpaceInviteUrl(token) {
     return `${baseUrl}/#/spaces/invitations/${token}`;
 }
 
+export function buildEmailVerificationUrl(token) {
+    const baseUrl = (FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    return `${baseUrl}/#/verify-email/${token}`;
+}
+
 const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
     port: parseInt(SMTP_PORT || '587', 10),
@@ -67,6 +72,31 @@ export async function sendSpaceInviteEmail(to, token, spaceName) {
         return true;
     } catch (error) {
         console.error('[mailer] Failed to send a space invitation:', error?.message || 'unknown error');
+        return false;
+    }
+}
+
+/**
+ * Mail the link that proves the account's address reaches its holder.
+ * Resolves to whether the message was handed to the mail server.
+ */
+export async function sendEmailVerificationEmail(to, token) {
+    const link = buildEmailVerificationUrl(token);
+    const safeLink = escapeHtml(link);
+    const mailOptions = {
+        from: `Panino <${SMTP_FROM}>`,
+        // An address object, never a string (see sendSpaceInviteEmail).
+        to: { name: '', address: to },
+        subject: 'Verify your email address for Panino',
+        text: `Someone signed in to a Panino account that uses this email address asked to verify it.\n\nOpen this link in the browser where you are signed in to Panino, then choose Verify email address: ${link}\n\nThe link expires in 24 hours and works only while signed in to that account. If you did not ask for this, ignore this email; nothing changes.`,
+        html: `<p>Someone signed in to a Panino account that uses this email address asked to verify it.</p><p><a href="${safeLink}">Verify this email address</a></p><p>Open the link in the browser where you are signed in to Panino. It expires in 24 hours and works only while signed in to that account. If you did not ask for this, ignore this email; nothing changes.</p>`,
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        return true;
+    } catch (error) {
+        console.error('[mailer] Failed to send an email verification:', error?.message || 'unknown error');
         return false;
     }
 }

@@ -15,6 +15,7 @@ import { pinia } from "./pinia";
 import RevisionHistoryPage from "@/pages/RevisionHistoryPage.vue";
 import SpacesPage from "@/pages/SpacesPage.vue";
 import AcceptSpaceInvitePage from "@/pages/AcceptSpaceInvitePage.vue";
+import VerifyEmailPage from "@/pages/VerifyEmailPage.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -87,6 +88,11 @@ export const router = createRouter({
       component: AcceptSpaceInvitePage,
     },
     {
+      path: "/verify-email/:token?",
+      name: "verify-email",
+      component: VerifyEmailPage,
+    },
+    {
       path: "/images",
       name: "images",
       component: ImageManagerPage,
@@ -148,7 +154,7 @@ router.beforeEach(async (to, from, next) => {
   if (
     authStore.isAuthenticated &&
     !syncStore.isInitialized &&
-    to.name !== "space-invitation"
+    !["space-invitation", "verify-email"].includes(to.name)
   ) {
     if (to.name !== "loading") {
       return next({

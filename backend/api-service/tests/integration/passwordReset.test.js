@@ -8,7 +8,8 @@ import { getAuthDb } from '../../db.js';
 // Mock the mailer module
 vi.mock('../../mailer.js', () => ({
     sendPasswordResetEmail: vi.fn(),
-    sendSpaceInviteEmail: vi.fn()
+    sendSpaceInviteEmail: vi.fn(),
+    sendEmailVerificationEmail: vi.fn()
 }));
 
 import { sendPasswordResetEmail } from '../../mailer.js';

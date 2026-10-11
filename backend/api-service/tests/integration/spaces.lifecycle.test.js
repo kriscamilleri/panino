@@ -6,6 +6,7 @@ vi.mock("../../mailer.js", () => ({
   buildSpaceInviteUrl: (token) => `http://localhost:5173/#/spaces/invitations/${token}`,
   sendPasswordResetEmail: vi.fn(),
   sendSpaceInviteEmail: vi.fn().mockResolvedValue(true),
+  sendEmailVerificationEmail: vi.fn().mockResolvedValue(true),
 }));
 
 import { sendSpaceInviteEmail } from "../../mailer.js";

@@ -9,7 +9,7 @@ import {
   getSpacesDb,
 } from "./db.js";
 import { buildSpaceInviteUrl, sendSpaceInviteEmail } from "./mailer.js";
-import { isAccountEmailVerified } from "./accountEmail.js";
+import { isAccountEmailVerified, isSingleMailboxAddress } from "./accountEmail.js";
 import { removeSpaceUploads } from "./spaceStorage.js";
 
 const ALLOWED_ROLES = new Set(["owner", "editor"]);
@@ -17,9 +17,6 @@ const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const DELETE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const SPACE_DELETE_SWEEP_MS = 60 * 60 * 1000;
 const INVITE_RATE_WINDOW_MS = 60 * 60 * 1000;
-// One mailbox: no spaces, no list separators, no display-name or routing
-// syntax. Everything a mail library could read as "more than one recipient".
-const SINGLE_ADDRESS_PATTERN = /^[^\s@<>()[\],;:\\"]+@[^\s@<>()[\],;:\\"]+\.[^\s@<>()[\],;:\\"]+$/;
 
 function positiveLimit(name, fallback) {
   const value = Number(process.env[name]);
@@ -33,7 +30,7 @@ export function normalizeInviteEmail(value) {
 function requireInviteEmail(value) {
   const email = normalizeInviteEmail(value);
   // "Contains an @" let `a@x.com, b@y.com` through, and the mailer sent to both.
-  if (!email || email.length > 254 || !SINGLE_ADDRESS_PATTERN.test(email)) {
+  if (!email || !isSingleMailboxAddress(email)) {
     throw new SpaceRepositoryError(
       "INVALID_INVITE_EMAIL",
       "Enter a valid email address",

@@ -10,6 +10,11 @@ export function spaceErrorMessage(code, fallback = "Unable to complete the space
     SPACE_OWNER_LIMIT: "You have reached the owned-space limit.",
     SPACE_MEMBER_LIMIT: "This space has reached its member limit.",
     SPACE_JOINED_LIMIT: "This account has reached its joined-space limit.",
+    EMAIL_VERIFICATION_INVALID:
+      "This verification link is invalid or has expired. A link works only while signed in to the account that asked for it.",
+    EMAIL_VERIFICATION_RATE_LIMIT: "Too many verification emails were requested. Try again in an hour.",
+    EMAIL_VERIFICATION_NOT_SENT: "The verification email could not be sent. Try again later.",
+    EMAIL_VERIFICATION_UNAVAILABLE: "This account's email address cannot receive mail.",
   };
   return messages[code] || fallback;
 }

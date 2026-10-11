@@ -22,6 +22,7 @@ export const useSpacesStore = defineStore("spacesStore", () => {
   const invitationsEmailVerified = ref(null);
   const syncStore = useSyncStore();
   const authStore = useAuthStore();
+  const accountEmail = computed(() => authStore.user?.email || "");
 
   const spaces = computed(() => [...syncStore.databases.values()]
     .filter((entry) => entry.kind === "space")
@@ -206,6 +207,27 @@ export const useSpacesStore = defineStore("spacesStore", () => {
     return result;
   }
 
+  /**
+   * Asks the server to mail a verification link to this account's address.
+   * Resolves to `{ emailVerified, emailSent }`; an already verified account
+   * gets no mail.
+   */
+  async function requestEmailVerification() {
+    const result = await request("/account/email-verification", { method: "POST" });
+    if (result?.emailVerified) await loadPendingInvitations().catch(() => {});
+    return result;
+  }
+
+  /** Verifies this account's address with the token from the mailed link. */
+  async function confirmEmailVerification(token) {
+    const result = await request("/account/email-verification/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    });
+    invitationsEmailVerified.value = true;
+    return result;
+  }
+
   function clearDetail() {
     detail.value = null;
     error.value = "";
@@ -220,6 +242,9 @@ export const useSpacesStore = defineStore("spacesStore", () => {
     pendingInvitationsLoading,
     pendingInvitationsError,
     invitationsEmailVerified,
+    accountEmail,
+    requestEmailVerification,
+    confirmEmailVerification,
     loadPendingInvitations,
     loadDetail,
     createSpace,

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { enableAutoUnmount, mount } from "@vue/test-utils";
 import { nextTick } from "vue";
 
 const SPACE_ID = "22222222-2222-4222-8222-222222222222";
@@ -26,6 +26,8 @@ const harness = vi.hoisted(() => ({
   requestDeletion: vi.fn(),
   cancelDeletion: vi.fn(async () => ({ space: {} })),
   invitationsEmailVerified: true,
+  accountEmail: "reader@example.com",
+  requestEmailVerification: vi.fn(async () => ({ emailVerified: false, emailSent: true })),
   pendingSpaceDeletions: [],
   addToast: vi.fn(),
 }));
@@ -54,6 +56,10 @@ const global = {
     BaseModal: { props: ["show"], template: "<div v-if='show'><slot /><slot name='footer' /></div>" },
   },
 };
+
+// The page listens on `document`; a page left mounted would answer the next
+// test's events.
+enableAutoUnmount(afterEach);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -194,12 +200,69 @@ describe("SpacesPage", () => {
     expect(wrapper.find('[data-testid="pending-space-deletions"]').exists()).toBe(false);
   });
 
-  it("explains an empty invitation list to an account whose address is not confirmed", async () => {
+  it("explains an empty invitation list to an account whose address is not verified", async () => {
     harness.invitationsEmailVerified = false;
     const wrapper = mount(SpacesPage, { global });
     await nextTick();
 
-    expect(wrapper.get('[data-testid="pending-space-invitations-unverified"]').text())
-      .toContain("open the link in the invitation email");
+    const hint = wrapper.get('[data-testid="pending-space-invitations-unverified"]').text();
+    expect(hint).toContain("reader@example.com");
+    expect(hint).toContain("open the link in an invitation email");
+    expect(wrapper.find('[data-testid="email-verification-sent"]').exists()).toBe(false);
+  });
+
+  it("sends a verification email on request and says where to look", async () => {
+    harness.invitationsEmailVerified = false;
+    harness.requestEmailVerification.mockResolvedValue({ emailVerified: false, emailSent: true });
+    const wrapper = mount(SpacesPage, { global });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await wrapper.get('[data-testid="send-email-verification"]').trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(harness.requestEmailVerification).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('[data-testid="email-verification-sent"]').text()).toContain("Open the link");
+    expect(wrapper.get('[data-testid="send-email-verification"]').text()).toBe("Send again");
+    expect(harness.addToast).toHaveBeenCalledWith(
+      "Verification email sent to reader@example.com.",
+      "success",
+    );
+  });
+
+  it("reports a verification email that could not be sent and offers no false comfort", async () => {
+    harness.invitationsEmailVerified = false;
+    harness.requestEmailVerification.mockRejectedValue(
+      new Error("The verification email could not be sent. Try again later."),
+    );
+    const wrapper = mount(SpacesPage, { global });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await wrapper.get('[data-testid="send-email-verification"]').trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(wrapper.find('[data-testid="email-verification-sent"]').exists()).toBe(false);
+    expect(harness.addToast).toHaveBeenCalledWith(
+      "The verification email could not be sent. Try again later.",
+      "error",
+    );
+  });
+
+  it("reloads the invitations when the tab is shown again while the address is unverified", async () => {
+    harness.invitationsEmailVerified = false;
+    const wrapper = mount(SpacesPage, { global, attachTo: document.body });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    harness.loadPendingInvitations.mockClear();
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(harness.loadPendingInvitations).toHaveBeenCalledTimes(1);
+
+    harness.invitationsEmailVerified = true;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(harness.loadPendingInvitations).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+    harness.invitationsEmailVerified = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(harness.loadPendingInvitations).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,10 +5,11 @@ import { getAuthDb } from "./db.js";
  * Whether an account's email address has been proven to reach its holder.
  *
  * Sign-up stores whatever address is typed and never checks it, so an account
- * email on its own says nothing about who owns the mailbox. The only proof this
- * service has today is a completed password reset: the reset link is mailed to
- * the stored address. An invitation link is not proof, because the same link is
- * also shown to the space owner who created it.
+ * email on its own says nothing about who owns the mailbox. Two things prove
+ * it: confirming the link mailed by "verify my email" while signed in to the
+ * account (emailVerification.js), and a completed password reset, whose link
+ * is mailed to the stored address. An invitation link is not proof, because
+ * the same link is also shown to the space owner who created it.
  *
  * Anything that grants access because "the account's address matches" must ask
  * here first. A database that could not be given the column yet reports every
@@ -41,4 +42,13 @@ export function markAccountEmailVerified(userId, now = new Date()) {
 /** The form in which two addresses are the same address: trimmed, lower case. */
 export function normalizeAccountEmail(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+// One mailbox: no spaces, no list separators, no display-name or routing
+// syntax. Everything a mail library could read as "more than one recipient".
+const SINGLE_ADDRESS_PATTERN = /^[^\s@<>()[\],;:\\"]+@[^\s@<>()[\],;:\\"]+\.[^\s@<>()[\],;:\\"]+$/;
+
+/** Whether a value is one deliverable-looking address and nothing more. */
+export function isSingleMailboxAddress(value) {
+  return typeof value === "string" && value.length <= 254 && SINGLE_ADDRESS_PATTERN.test(value);
 }

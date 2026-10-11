@@ -116,6 +116,53 @@ describe("spacesStore", () => {
     expect(harness.sync.requestMembershipRefresh).toHaveBeenCalledOnce();
   });
 
+  it("asks for a verification email without sending an address, and reports the answer", async () => {
+    harness.auth.user = { email: "reader@example.com" };
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(200, { emailVerified: false, emailSent: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const store = useSpacesStore();
+
+    expect(store.accountEmail).toBe("reader@example.com");
+    await expect(store.requestEmailVerification()).resolves.toEqual({ emailVerified: false, emailSent: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/account\/email-verification$/);
+    expect(options.method).toBe("POST");
+    expect(options.body).toBeUndefined();
+  });
+
+  it("loads the invitations when the server says the address is already verified", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(200, { emailVerified: true, emailSent: false }))
+      .mockResolvedValueOnce(response(200, { invitations: [{ id: "invite" }], emailVerified: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const store = useSpacesStore();
+
+    await store.requestEmailVerification();
+    expect(store.invitationsEmailVerified).toBe(true);
+    expect(store.pendingInvitations).toEqual([{ id: "invite" }]);
+  });
+
+  it("verifies with the mailed token and maps a refused link to product copy", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(400, { error: "raw", code: "EMAIL_VERIFICATION_INVALID" }))
+      .mockResolvedValueOnce(response(200, { emailVerified: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const store = useSpacesStore();
+
+    await expect(store.confirmEmailVerification("bad")).rejects.toMatchObject({
+      code: "EMAIL_VERIFICATION_INVALID",
+      message: expect.stringContaining("invalid or has expired"),
+    });
+    expect(store.invitationsEmailVerified).toBeNull();
+
+    await store.confirmEmailVerification("a".repeat(64));
+    expect(store.invitationsEmailVerified).toBe(true);
+    const [url, options] = fetchMock.mock.calls[1];
+    expect(url).toMatch(/\/account\/email-verification\/confirm$/);
+    expect(JSON.parse(options.body)).toEqual({ token: "a".repeat(64) });
+  });
+
   it("removes the revoked local scope before refreshing after leave", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 204 })));
     const store = useSpacesStore();
