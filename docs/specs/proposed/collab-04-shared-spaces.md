@@ -556,3 +556,33 @@ Say so in the sharing UI; do not imply remote erasure.
   sync failures by database key, transfer age/failure, live-session recovery failures, snapshot
   storage, and space storage quota. Alert thresholds and the backup/restore drill belong in the
   operations runbook.
+
+---
+
+## 10) Amendments from verification (2026-10-11)
+
+A review of the implementation, followed by two-account browser runs with the flag on, changed
+these points. The current rules are in `docs/architecture/data-model.md`.
+
+1. **An account's email address is not proof of anything (§3.2, §8).** Sign-up does not verify it.
+   Listing invitations by address and accepting by invitation id are limited to accounts whose
+   address is verified (`users.email_verified_at`, set by a completed password reset). The mailed
+   link remains the main route and needs no verification. An explicit "verify my email" flow would
+   make the invitation list useful to more accounts and is not built.
+2. **Invitation email is rate-limited and takes one mailbox (§8).** 20 per owner per hour, 50
+   pending per space.
+3. **SVG images are served sandboxed (§4.4, §8).** Uploading them is still allowed.
+4. **Moving between databases (§5.4):** image links are recognised in the forms the editor actually
+   writes; a transfer can be cancelled before the Document is copied; it is refused during a live
+   session, over the destination's image quota, over 2 MiB or 100 images; verification no longer
+   depends on the source images still existing; the client confirms the source is uploaded first.
+   Revision history is not moved, and the dialog now says it is deleted with the source.
+5. **Deletion can be cancelled (§3.4)** by the owner inside the retention period. The phase-0
+   authorization matrix has this as row 15; it had no route.
+6. **Integrity is checked per space on each mutation**, not across all spaces.
+7. **Local replicas (§5.1):** deleted from the device when access ends; named per account.
+8. **Connection cache (§9):** bounded, least-recently-used, idle for a minute before closing.
+
+Not done: consent before receiving ownership (the spec does not require it; the recipient's
+owned-space limit is now enforced); hiding from an owner that an invited address already belongs to
+a member; preserving the local body of a Document deleted on another device.

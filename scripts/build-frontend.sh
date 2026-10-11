@@ -11,8 +11,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# A full install, development dependencies included: with --omit=dev this script
+# removed the shared package's test runner from a developer's checkout, and the
+# next `npm run test:shared` failed for no visible reason.
 echo "==> Installing the shared content-merge package's dependencies in ./shared ..."
-(cd "$ROOT/shared" && npm ci --omit=dev)
+(cd "$ROOT/shared" && npm ci)
 
 echo "==> Installing NPM dependencies in ./frontend ..."
 (cd "$ROOT/frontend" && npm ci)

@@ -436,3 +436,28 @@ and confirm the client replays it. These cases belong in the runbook, not just t
   states rather than adding indicators.
 - **Awareness message volume.** Cursor updates at keystroke rate across *n* participants is *n²*
   messages. Throttle awareness to ~10/s and never persist it.
+
+---
+
+## 10) Amendments from verification (2026-10-11)
+
+A review of the implementation, followed by browser runs with two accounts and two tabs, changed
+these points. The current rules are in `docs/architecture/live-sessions.md`.
+
+1. **Save conflicts are answered once, by the server (§5.3).** Clients send `collab:resolve`
+   and never rewrite the shared text. The session base moves when a conflict is answered.
+2. **A merged save changes the session's document in place (§5.3).** It is never replaced.
+3. **Participants are counted per tab (§5.1):** `clientId` in `collab:open`.
+4. **Durability is an update log plus checkpoints (§5.2),** not a full rewrite per update.
+5. **Undo/redo (§6.3):** sent like any edit. The binding must stay out of Vue's reactivity, or the
+   undo manager does nothing at all; `collabUndo.test.js` from §8 does not exist, and the cases are
+   covered in `collabSession.test.js` and by the browser run.
+6. **Leaving resets the editor (§6.4)** from the stored body, including undo history.
+7. **Reconnect (§5.2):** one merged update; rate and busy refusals are retried.
+8. **Limits (§5.1):** updates up to 700 KiB, 200 sessions per process.
+9. **Text handling (§6.2):** surrogate pairs, input-method composition and CRLF bodies.
+
+Unchanged and worth knowing: two people typing at the same position at the same instant get their
+letters mixed. That is how a character-level CRDT behaves, and the first browser check written for
+two tabs mistook it for data loss.
+

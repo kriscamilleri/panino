@@ -85,6 +85,12 @@ the change takes effect on the next sync without a client release, and setting i
 Document's own images only from relative paths or from absolute links on one of the configured
 origins; an absolute link on any other origin is treated as external.
 
+Enabling `SHARED_SPACES_ENABLED` adds these optional limits (defaults in brackets):
+`SPACE_INVITES_PER_HOUR` (20 per owner), `SPACE_PENDING_INVITE_LIMIT` (50 per space),
+`SPACE_OWNER_LIMIT` (20), `SPACE_MEMBER_LIMIT` (100), `SPACE_IMAGE_QUOTA_BYTES` (1 GiB per space)
+and `DB_CONNECTION_CACHE_LIMIT` (200 open content databases). Invitations are sent through the
+same SMTP account as password resets, so `SMTP_*` and `FRONTEND_URL` must be correct first.
+
 Live sessions also require shared spaces. Enable them only after a full backup and the isolated
 two-account checks in `live-session-recovery.md`. Turning off the live flag rejects new sessions;
 sessions already held by the process remain eligible to reconnect and save while they drain.
