@@ -264,7 +264,7 @@ function remember(value) {
 
 function locationOf(doc) {
     if (doc.folderId) return doc.folderName
-    return doc.spaceName || 'Inbox'
+    return doc.spaceName || 'No folder'
 }
 
 function open(doc) {

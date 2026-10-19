@@ -31,19 +31,6 @@
 
             <main class="ph-folders-list">
                 <template v-if="tab === 'mine'">
-                    <button
-                        type="button"
-                        class="ph-row ph-folders-inbox"
-                        data-testid="phone-folders-inbox"
-                        @click="router.push({ name: 'home', query: { filter: 'inbox' } })"
-                    >
-                        <Inbox
-                            class="h-5 w-5"
-                            aria-hidden="true"
-                        />
-                        <span class="ph-folders-name">Inbox</span>
-                        <span class="ph-muted">{{ inboxCount }}</span>
-                    </button>
                     <SwipeRow
                         v-for="folder in topFolders"
                         :key="folder.id"
@@ -95,7 +82,7 @@
                     <p
                         v-if="loaded && !topFolders.length"
                         class="ph-muted ph-folders-empty"
-                    >No folders yet. Notes wait in the Inbox until you make one.</p>
+                    >No folders yet. Notes you take without one are on Home.</p>
                 </template>
 
                 <template v-else>
@@ -189,7 +176,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Inbox, Folder, FolderPlus, Users, Pencil, Trash2, Settings2 } from 'lucide-vue-next'
+import { ArrowLeft, Folder, FolderPlus, Users, Pencil, Trash2, Settings2 } from 'lucide-vue-next'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import SwipeRow from '@/components/phone/SwipeRow.vue'
@@ -214,7 +201,6 @@ const ui = useUiStore()
 const { isPhone } = useViewport()
 
 const folders = ref([])
-const inboxCount = ref(0)
 const loaded = ref(false)
 const promptingFolder = ref(false)
 const newFolderName = ref('')
@@ -237,12 +223,7 @@ watch(isPhone, (phone) => { if (!phone) router.replace({ name: 'home' }) }, { im
 watch(() => [syncStore.isInitialized, docStore.contentVersion], async () => {
     if (!syncStore.isInitialized || !syncStore.personalDbKey) return
     try {
-        const [list, count] = await Promise.all([
-            docStore.listFolders(syncStore.personalDbKey),
-            docStore.countInbox(),
-        ])
-        folders.value = list
-        inboxCount.value = count
+        folders.value = await docStore.listFolders(syncStore.personalDbKey)
     } catch (error) {
         console.warn('[PhoneAllFolders] Could not load folders:', error)
     } finally {
@@ -348,13 +329,8 @@ async function deleteFolder() {
     white-space: nowrap;
 }
 
-.ph-folders-inbox,
 .ph-folders-space {
     border-bottom: 1px solid var(--ph-line);
-}
-
-.ph-folders-inbox {
-    background: var(--ph-accent-soft);
 }
 
 .ph-folders-empty {

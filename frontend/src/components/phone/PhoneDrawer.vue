@@ -143,7 +143,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { StickyNote, Inbox, Pin, Users, Folder, FolderTree, FolderPlus, Settings } from 'lucide-vue-next'
+import { StickyNote, Pin, Users, Folder, FolderTree, FolderPlus, Settings } from 'lucide-vue-next'
 import PromptModal from '@/components/PromptModal.vue'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -167,7 +167,6 @@ const { sync } = usePhoneStatus()
 
 const panelRef = ref(null)
 const folders = ref([])
-const inboxCount = ref(0)
 const promptingFolder = ref(false)
 const newFolderName = ref('')
 const dragX = ref(0)
@@ -178,7 +177,6 @@ const homeFilter = computed(() => (route.name === 'home' ? route.query.filter ||
 
 const primaryItems = computed(() => [
     { key: 'all', label: 'All notes', icon: StickyNote, active: homeFilter.value === 'all', go: () => goHome() },
-    { key: 'inbox', label: 'Inbox', icon: Inbox, count: inboxCount.value, active: homeFilter.value === 'inbox', go: () => goHome('inbox') },
     { key: 'pinned', label: 'Pinned', icon: Pin, active: homeFilter.value === 'pinned', go: () => goHome('pinned') },
     { key: 'shared', label: 'Shared with me', icon: Users, active: false, go: () => go({ name: 'folders', query: { tab: 'shared' } }) },
 ])
@@ -192,12 +190,7 @@ const shownFolders = computed(() => folders.value
 watch(() => [props.open, docStore.contentVersion], async ([open]) => {
     if (!open || !syncStore.personalDbKey) return
     try {
-        const [list, count] = await Promise.all([
-            docStore.listFolders(syncStore.personalDbKey),
-            docStore.countInbox(),
-        ])
-        folders.value = list
-        inboxCount.value = count
+        folders.value = await docStore.listFolders(syncStore.personalDbKey)
     } catch (error) {
         console.warn('[PhoneDrawer] Could not load folders:', error)
     }

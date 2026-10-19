@@ -6,7 +6,7 @@ describe('phoneNavigation', () => {
     afterEach(() => window.history.replaceState(null, ''));
 
     it('recognises the list screens', () => {
-        for (const path of ['/', '/?filter=inbox', '/folder/abc?dbKey=user%3Ax', '/folders', '/folders?tab=shared', '/search?q=rail']) {
+        for (const path of ['/', '/?filter=shared', '/folder/abc?dbKey=user%3Ax', '/folders', '/folders?tab=shared', '/search?q=rail']) {
             expect(isListPath(path)).toBe(true);
         }
         for (const path of ['/doc/abc', '/print-styles', '/styles', '/settings', '/searching', '/foldersx', null, undefined]) {

@@ -12,6 +12,7 @@ import { normalizeRecentDocument } from "../utils/recentDocuments.js";
 import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 import { mergeDashboardRows } from "../utils/syncRegistry.js";
 import { likePattern, hasChecklist } from "../utils/searchQuery.js";
+import { normalizeSort, sortDocuments } from "../utils/homeView.js";
 
 export const useDocStore = defineStore("docStore", () => {
   const structureStore = useStructureStore();
@@ -118,13 +119,43 @@ export const useDocStore = defineStore("docStore", () => {
                 COALESCE(folder_paths.path, 'Root') AS folderPath`;
 
   /**
+   * `ORDER BY` for a phone sort. Built only from these constants, never from
+   * the caller's text. Ties fall back to the title, then the id.
+   */
+  const SORT_SQL = {
+    modified: "datetime(notes.updated_at)",
+    created: "datetime(notes.created_at)",
+    title: "notes.title COLLATE NOCASE",
+  };
+
+  function orderByFor(sort) {
+    if (!sort) return "datetime(notes.updated_at) DESC";
+    const { field, direction } = normalizeSort(sort);
+    const dir = direction === "asc" ? "ASC" : "DESC";
+    return `${SORT_SQL[field]} ${dir}, notes.title COLLATE NOCASE ASC, notes.id ASC`;
+  }
+
+  /**
+   * Merge per-database rows. Without a sort this is the dashboards' newest-first
+   * merge; with one, every database's rows are ordered the same way and the
+   * newest-first limit must not cut the wrong ones.
+   */
+  function mergeSorted(groups, limit, sort) {
+    if (!sort) return mergeDashboardRows(groups, { limit }).map(normalizeRecentDocument);
+    const all = mergeDashboardRows(groups, { limit: Number.MAX_SAFE_INTEGER }).map(normalizeRecentDocument);
+    return sortDocuments(all, sort).slice(0, limit);
+  }
+
+  /**
    * Most recently modified documents across every folder — the global Recent
    * Documents scope.
    *
    * @param {number} [limit] bounded result size; the dashboard filters in memory
-   * @returns {Promise<object[]>} normalized documents, newest first
+   * @param {{ sort?: { field: string, direction: string } }} [options] a phone
+   *   sort; without one, newest modified first
+   * @returns {Promise<object[]>} normalized documents
    */
-  async function getRecentDocuments(limit = 50) {
+  async function getRecentDocuments(limit = 50, { sort } = {}) {
     const query = `
             ${FOLDER_PATHS_CTE}
 
@@ -132,7 +163,7 @@ export const useDocStore = defineStore("docStore", () => {
 ${DOCUMENT_COLUMNS}
             FROM notes
             LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
-            ORDER BY datetime(notes.updated_at) DESC
+            ORDER BY ${orderByFor(sort)}
             LIMIT ?
         `;
     try {
@@ -152,7 +183,7 @@ ${DOCUMENT_COLUMNS}
           console.error(`Failed to query recent Documents for ${entry.dbKey}:`, error);
         }
       }
-      return mergeDashboardRows(groups, { limit }).map(normalizeRecentDocument);
+      return mergeSorted(groups, limit, sort);
     } catch (error) {
       console.error("Failed to get recent documents:", error);
       return [];
@@ -167,9 +198,11 @@ ${DOCUMENT_COLUMNS}
    *
    * @param {string|null} folderId selected folder; `null` means the root scope
    * @param {number} [limit] bounded result size
-   * @returns {Promise<object[]>} normalized documents, newest first
+   * @param {{ sort?: { field: string, direction: string } }} [options] a phone
+   *   sort; without one, newest modified first
+   * @returns {Promise<object[]>} normalized documents
    */
-  async function getFolderDocuments(folderId, dbKey, limit = 50) {
+  async function getFolderDocuments(folderId, dbKey, limit = 50, { sort } = {}) {
     if (!dbKey) throw new Error('Database scope is required for a folder dashboard.');
     const query = `
             ${FOLDER_PATHS_CTE}
@@ -179,15 +212,15 @@ ${DOCUMENT_COLUMNS}
             FROM notes
             LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
             WHERE notes.folder_id IS ?
-            ORDER BY datetime(notes.updated_at) DESC
+            ORDER BY ${orderByFor(sort)}
             LIMIT ?
         `;
     try {
       const entry = syncStore.databases.get(dbKey);
       const results = await syncStore.repository(dbKey).execute(query, [folderId ?? null, limit]);
-      return mergeDashboardRows([
+      return mergeSorted([
         { dbKey, name: entry?.kind === 'space' ? entry.name : null, rows: results },
-      ], { limit }).map(normalizeRecentDocument);
+      ], limit, sort);
     } catch (error) {
       console.error("Failed to get folder documents:", error);
       return [];
@@ -255,20 +288,6 @@ ${DOCUMENT_COLUMNS}
     const results = mergeDashboardRows(groups, { limit: limit * Math.max(1, groups.length) })
       .map(normalizeRecentDocument);
     return scope === 'checklists' ? results.filter((doc) => hasChecklist(doc.content)) : results;
-  }
-
-  /**
-   * How many Documents are in the Inbox: personal, in no folder.
-   *
-   * @returns {Promise<number>}
-   */
-  async function countInbox() {
-    const dbKey = syncStore.personalDbKey;
-    if (!dbKey || !syncStore.databases.get(dbKey)?.db) return 0;
-    const rows = await syncStore.repository(dbKey).execute(
-      "SELECT COUNT(*) AS count FROM notes WHERE folder_id IS NULL",
-    );
-    return Number(rows[0]?.count) || 0;
   }
 
   /**
@@ -406,7 +425,6 @@ ${DOCUMENT_COLUMNS}
     getPrintMarkdownIt: markdownStore.getPrintMarkdownIt,
     getRecentDocuments,
     getFolderDocuments,
-    countInbox,
     searchDocuments,
     listFolders,
     setDocumentPinned,
