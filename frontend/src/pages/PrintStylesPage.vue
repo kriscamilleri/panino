@@ -14,6 +14,15 @@
         </div>
       </template>
 
+      <!-- iPhones draw only the first page of a PDF inside a page. -->
+      <a
+        v-if="isPhone && pdfUrl"
+        :href="pdfUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="ph-open-pdf"
+        data-testid="print-styles-open-pdf"
+      >Open the full PDF</a>
       <!-- PDF Preview (always shown when content exists) -->
       <iframe v-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none" data-testid="pdf-preview-iframe"></iframe>
 
@@ -44,8 +53,10 @@ import { useMarkdownStore } from '@/store/markdownStore';
 import { useAuthStore } from '@/store/authStore';
 import DOMPurify from 'dompurify';
 import { buildPdfRequest, requestPdf } from '@/utils/pdfExport';
+import { useViewport } from '@/composables/useViewport';
 
 const router = useRouter();
+const { isPhone } = useViewport();
 const docStore = useDocStore();
 const markdownStore = useMarkdownStore();
 const authStore = useAuthStore();
@@ -277,3 +288,15 @@ onUnmounted(() => {
   }
 });
 </script>
+
+<style scoped>
+.ph-open-pdf {
+  display: block;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--ph-line);
+  color: var(--ph-accent);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+</style>
