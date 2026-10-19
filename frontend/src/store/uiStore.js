@@ -181,10 +181,18 @@ export const useUiStore = defineStore("uiStore", () => {
   };
 
   // Toasts
-  function addToast(message, type = "info", duration = 5000) {
+  /**
+   * @param {string} message
+   * @param {'success'|'error'|'info'|'warning'} [type]
+   * @param {number} [duration] ms
+   * @param {{ action?: { label: string, onSelect: () => void } }} [options]
+   *   an action button, such as Undo; selecting it also closes the toast
+   */
+  function addToast(message, type = "info", duration = 5000, { action } = {}) {
     const id = Date.now() + Math.random();
-    toasts.value.push({ id, message, type });
+    toasts.value.push({ id, message, type, action: action || null });
     setTimeout(() => removeToast(id), duration);
+    return id;
   }
 
   function removeToast(id) {

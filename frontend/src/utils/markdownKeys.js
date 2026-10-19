@@ -181,3 +181,28 @@ export function applyKey(id, state) {
         default: throw new Error(`Unknown key ${id}`);
     }
 }
+
+const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)(\[[ xX]\]\s+)?(.*)$/;
+
+/**
+ * Enter inside a list item: continue the list on a new line (a new task is
+ * unticked, a number counts up), or end the list when the item is empty.
+ * Returns null when the caret is not in a list item, so Enter behaves
+ * normally.
+ */
+export function continueList(state) {
+    const { value, selectionStart, selectionEnd } = state;
+    if (selectionStart !== selectionEnd) return null;
+    const start = value.lastIndexOf('\n', selectionStart - 1) + 1;
+    const newline = value.indexOf('\n', selectionStart);
+    const end = newline === -1 ? value.length : newline;
+    const match = value.slice(start, end).match(LIST_ITEM);
+    if (!match) return null;
+    const [, indent, marker, gap, box, text] = match;
+    if (!text.trim()) {
+        // An empty item ends the list.
+        return { value: value.slice(0, start) + value.slice(end), selectionStart: start, selectionEnd: start };
+    }
+    const nextMarker = /^\d/.test(marker) ? `${Number.parseInt(marker, 10) + 1}${marker.slice(-1)}` : marker;
+    return insertAtCaret(state, `\n${indent}${nextMarker}${gap}${box ? '[ ] ' : ''}`);
+}

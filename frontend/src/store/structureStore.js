@@ -175,7 +175,13 @@ export const useStructureStore = defineStore('structureStore', () => {
     return rows.map((row) => ({ id: row.id, name: row.name || 'Untitled folder' }));
   }
 
-  async function createFile(dbKey, name, parentId = null) {
+  /**
+   * @param {string} dbKey
+   * @param {string} name
+   * @param {string|null} [parentId]
+   * @param {{ content?: string }} [options] a body to start with instead of `# name`
+   */
+  async function createFile(dbKey, name, parentId = null, { content } = {}) {
     requireDbKey(dbKey);
     if (!authStore.user?.id) throw new Error('User is not authenticated.');
     if (parentId) scopeForNode(parentId, dbKey);
@@ -186,7 +192,7 @@ export const useStructureStore = defineStore('structureStore', () => {
       id: uuidv4(),
       folder_id: parentId === dbKey ? null : parentId,
       title: name,
-      content: `# ${name}\n\n`,
+      content: typeof content === 'string' ? content : `# ${name}\n\n`,
       created_at: now,
       updated_at: now,
     };
@@ -274,8 +280,16 @@ export const useStructureStore = defineStore('structureStore', () => {
     markContentChanged();
   }
 
-  async function moveItem(itemId, newParentId, type, destinationDbKey) {
-    const sourceDbKey = scopeForNode(itemId);
+  /**
+   * @param {string} itemId
+   * @param {string|null} newParentId folder id, or null / the dbKey for the root
+   * @param {'file'|'folder'} type
+   * @param {string} destinationDbKey
+   * @param {string|null} [knownSourceDbKey] for items the tree has not loaded
+   *   (a Document opened from Home or Search)
+   */
+  async function moveItem(itemId, newParentId, type, destinationDbKey, knownSourceDbKey = null) {
+    const sourceDbKey = scopeForNode(itemId, knownSourceDbKey);
     const targetDbKey = newParentId
       ? scopeForNode(newParentId, destinationDbKey || null)
       : requireDbKey(destinationDbKey);

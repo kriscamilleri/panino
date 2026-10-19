@@ -48,8 +48,9 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, ref, onBeforeUnmount } from 'vue'
 import { useViewport } from '@/composables/useViewport'
+import { useDialogFocus } from '@/composables/useDialogFocus'
 
 const props = defineProps({
     open: { type: Boolean, default: false },
@@ -68,7 +69,6 @@ const emit = defineEmits(['close'])
 const { keyboardInset } = useViewport()
 const panelRef = ref(null)
 const dragOffset = ref(0)
-let opener = null
 
 const panelStyle = computed(() => {
     const available = `calc(100dvh - ${keyboardInset.value}px - 24px)`
@@ -80,49 +80,11 @@ const panelStyle = computed(() => {
     }
 })
 
-function focusables() {
-    return [...(panelRef.value?.querySelectorAll(
-        'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ) ?? [])].filter((el) => el.offsetParent !== null || el === document.activeElement)
-}
-
-watch(() => props.open, async (isOpen) => {
-    if (isOpen) {
-        opener = document.activeElement
-        await nextTick()
-        // A field marked autofocus takes the focus (capture opens with the
-        // keyboard up); otherwise the dialog itself does.
-        const preferred = panelRef.value?.querySelector('[data-autofocus]')
-        ;(preferred || panelRef.value)?.focus()
-    } else if (opener && typeof opener.focus === 'function' && document.contains(opener)) {
-        opener.focus()
-        opener = null
-    }
-}, { immediate: true })
-
 function requestClose() {
     emit('close')
 }
 
-function handleKeydown(event) {
-    if (event.key === 'Escape') {
-        event.stopPropagation()
-        requestClose()
-        return
-    }
-    if (event.key !== 'Tab') return
-    const items = focusables()
-    if (!items.length) return
-    const first = items[0]
-    const last = items[items.length - 1]
-    if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.value)) {
-        event.preventDefault()
-        last.focus()
-    } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-    }
-}
+const { handleKeydown } = useDialogFocus(panelRef, () => props.open, requestClose)
 
 /* Swipe down on the handle or header to dismiss. */
 let dragStartY = null
@@ -179,6 +141,12 @@ onBeforeUnmount(endDrag)
     padding-bottom: env(safe-area-inset-bottom);
     outline: none;
     transition: transform 0.12s ease-out;
+}
+
+/* The dialog takes focus on open so screen readers land in it; its first
+   control shows the ring once someone tabs, the container never does. */
+.ph-sheet-panel:focus-visible {
+    outline: none;
 }
 
 .ph-sheet-grab {

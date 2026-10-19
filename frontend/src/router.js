@@ -16,6 +16,8 @@ import RevisionHistoryPage from "@/pages/RevisionHistoryPage.vue";
 import SpacesPage from "@/pages/SpacesPage.vue";
 import AcceptSpaceInvitePage from "@/pages/AcceptSpaceInvitePage.vue";
 import VerifyEmailPage from "@/pages/VerifyEmailPage.vue";
+import PhoneSearchPage from "@/pages/PhoneSearchPage.vue";
+import PhoneAllFoldersPage from "@/pages/PhoneAllFoldersPage.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -39,6 +41,17 @@ export const router = createRouter({
       component: HomePage,
       props: true,
       meta: { keepAlive: true },
+    },
+    // Phone-only screens; on a wider screen they return to Home.
+    {
+      path: "/search",
+      name: "search",
+      component: PhoneSearchPage,
+    },
+    {
+      path: "/folders",
+      name: "folders",
+      component: PhoneAllFoldersPage,
     },
     {
       path: "/styles",

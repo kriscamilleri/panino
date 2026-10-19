@@ -246,16 +246,21 @@ const statusLine = computed(() => editorStatusLine({
 }))
 
 // Pick the opening mode once per Document, after its body has loaded.
-watch(() => file.value?.id, async (id) => {
+watch(() => file.value?.id, (id) => {
     if (!id) return
     mode.value = resolveInitialMode({
         requested: route.query.mode,
         preference: ui.openNotesIn,
         content: file.value.content,
     })
-    trail.value = []
+}, { immediate: true })
+
+// The folder path follows moves, including Undo after a move.
+watch(() => [file.value?.id, file.value?.folder_id, file.value?.dbKey], async ([id, folderId, dbKey]) => {
+    if (!id) return
     try {
-        trail.value = await docStore.getFolderTrail(file.value.folder_id, file.value.dbKey)
+        const next = await docStore.getFolderTrail(folderId, dbKey)
+        if (file.value?.id === id) trail.value = next
     } catch (error) {
         console.warn('[PhoneEditor] Could not read the folder path:', error)
     }

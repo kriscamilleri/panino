@@ -5,9 +5,10 @@
     -->
     <div
         class="ph-keyrow"
+        :class="{ 'ph-keyrow-docked': docked }"
         role="toolbar"
         :aria-label="label"
-        :style="{ bottom: `${keyboardInset}px` }"
+        :style="docked ? { bottom: `${keyboardInset}px` } : undefined"
         data-testid="phone-key-row"
     >
         <div class="ph-keyrow-scroll">
@@ -59,6 +60,8 @@ defineProps({
     /** `[{ id, name, label? , icon? }]` */
     keys: { type: Array, required: true },
     label: { type: String, default: 'Formatting' },
+    /** Fixed above the keyboard. Off inside a sheet, whose footer already is. */
+    docked: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['press', 'hide'])
@@ -72,14 +75,17 @@ function hideKeyboard() {
 
 <style scoped>
 .ph-keyrow {
-    position: fixed;
-    left: 0;
-    right: 0;
-    z-index: 40;
     display: flex;
     align-items: stretch;
     background: var(--ph-surface);
     border-top: 1px solid var(--ph-line);
+}
+
+.ph-keyrow-docked {
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 40;
     padding-bottom: env(safe-area-inset-bottom);
 }
 

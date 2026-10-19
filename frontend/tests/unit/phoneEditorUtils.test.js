@@ -8,6 +8,7 @@ import {
     insertLink,
     indentLines,
     insertAtCaret,
+    continueList,
 } from '@/utils/markdownKeys';
 import { resolveInitialMode } from '@/utils/editorMode';
 import { deriveSyncStatus, editorStatusLine } from '@/utils/syncStatus';
@@ -186,5 +187,18 @@ describe('syncStatus', () => {
         expect(editorStatusLine({ sync: deriveSyncStatus({ ...base, isOnline: false }) })).toBe('Saved on this phone');
         expect(editorStatusLine({ sync: deriveSyncStatus({ ...base, databases: [{ status: 'quota-error' }] }) }))
             .toBe('Not synced — tap to retry');
+    });
+});
+
+describe('continueList', () => {
+    it('continues tasks unticked, bullets and numbers', () => {
+        expect(continueList(caret('- [x] milk')).value).toBe('- [x] milk\n- [ ] ');
+        expect(continueList(caret('  * a')).value).toBe('  * a\n  * ');
+        expect(continueList(caret('9. nine')).value).toBe('9. nine\n10. ');
+    });
+
+    it('ends the list on an empty item and ignores plain lines', () => {
+        expect(continueList(caret('- [ ] a\n- [ ] '))).toEqual({ value: '- [ ] a\n', selectionStart: 8, selectionEnd: 8 });
+        expect(continueList(caret('plain'))).toBeNull();
     });
 });

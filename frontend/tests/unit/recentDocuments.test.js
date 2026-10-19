@@ -49,7 +49,7 @@ function localDay(dayOffset, hours = 12) {
 }
 
 describe('normalizeRecentDocument', () => {
-    it('maps title, folder, date, excerpt, word count, and pin state', () => {
+    it('maps title, folder, date, excerpt, body, word count, and pin state', () => {
         const row = {
             id: 'note-1',
             title: '  Project Plan  ',
@@ -70,6 +70,7 @@ describe('normalizeRecentDocument', () => {
             displayedDate: '2026-02-15T10:00:00.000Z',
             createdDate: '2026-02-14T10:00:00.000Z',
             excerpt: 'First paragraph with several words.',
+            content: 'First paragraph with several words.',
             wordCount: 5,
             isPinned: true,
             dbKey: undefined,

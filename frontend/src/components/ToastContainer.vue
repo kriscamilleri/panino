@@ -1,6 +1,7 @@
 <template>
     <!-- Root container (bottom-right) -->
-    <div class="fixed bottom-4 right-4 flex flex-col space-y-2 z-50"> <!-- Animated list of toasts -->
+    <!-- Phones: above the bottom capture bar and key row. -->
+    <div class="fixed bottom-28 left-4 right-4 md:bottom-4 md:left-auto flex flex-col items-end space-y-2 z-[70]"> <!-- Animated list of toasts -->
         <TransitionGroup
             name="toast"
             tag="div"
@@ -13,6 +14,13 @@
                 role="alert"
             >
                 <div class="flex-1 pr-2">{{ toast.message }}</div>
+                <button
+                    v-if="toast.action"
+                    type="button"
+                    class="mr-2 font-semibold underline underline-offset-2 focus:outline-none"
+                    data-testid="toast-action"
+                    @click="runAction(toast)"
+                >{{ toast.action.label }}</button>
                 <button
                     @click="ui.removeToast(toast.id)"
                     class="text-lg leading-none focus:outline-none"
@@ -35,6 +43,11 @@ onMounted(() => {
         ui.addToast(toast.message, toast.type, toast.duration);
     }
 });
+
+function runAction(toast) {
+    ui.removeToast(toast.id);
+    toast.action.onSelect();
+}
 
 function getToastClass(type) {
     switch (type) {
