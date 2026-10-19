@@ -49,4 +49,15 @@ describe('ToastContainer', () => {
         mount(ToastContainer);
         expect(uiStoreMock.addToast).not.toHaveBeenCalled();
     });
+
+    it('runs a toast action once and closes the toast', async () => {
+        const onSelect = vi.fn();
+        uiStoreMock.toasts = [{ id: 'toast-2', type: 'success', message: 'Moved to Work', action: { label: 'Undo', onSelect } }];
+        const wrapper = mount(ToastContainer);
+
+        await wrapper.find('[data-testid="toast-action"]').trigger('click');
+
+        expect(onSelect).toHaveBeenCalledTimes(1);
+        expect(uiStoreMock.removeToast).toHaveBeenCalledWith('toast-2');
+    });
 });

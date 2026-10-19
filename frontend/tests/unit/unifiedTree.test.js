@@ -156,3 +156,41 @@ describe('dashboard aggregation', () => {
     expect(rows[0]).toMatchObject({ dbKey: SPACE_KEY, spaceName: 'Writers' });
   });
 });
+
+describe('phone capture and move support', () => {
+  it('creates a Document with a starting body in one insert', async () => {
+    const store = useStructureStore();
+    const created = await store.createFile(USER_KEY, 'Groceries', null, { content: '- [ ] milk\n' });
+
+    const insert = calls.find((call) => call.kind === 'write' && call.sql.startsWith('INSERT INTO notes'));
+    expect(insert.params[3]).toBe('Groceries');
+    expect(insert.params[4]).toBe('- [ ] milk\n');
+    expect(created).toMatchObject({ type: 'file', dbKey: USER_KEY, name: 'Groceries' });
+  });
+
+  it('still starts a Document with its title heading by default', async () => {
+    const store = useStructureStore();
+    await store.createFile(USER_KEY, 'Plain');
+    const insert = calls.find((call) => call.kind === 'write' && call.sql.startsWith('INSERT INTO notes'));
+    expect(insert.params[4]).toBe('# Plain\n\n');
+  });
+
+  it('moves a Document the tree has not loaded when its database is given', async () => {
+    const store = useStructureStore();
+    await expect(store.moveItem('unloaded-note', null, 'file', USER_KEY)).rejects.toThrow(/scope/i);
+
+    const result = await store.moveItem('unloaded-note', null, 'file', USER_KEY, USER_KEY);
+
+    expect(result).toEqual({ oldParentId: null, dbKey: USER_KEY });
+    const update = calls.find((call) => call.kind === 'write' && call.sql.startsWith('UPDATE notes SET folder_id'));
+    expect(update.params[0]).toBeNull();
+    expect(update.params[2]).toBe('unloaded-note');
+  });
+
+  it('has no folder trail for a database root', async () => {
+    const store = useStructureStore();
+    expect(await store.getFolderTrail(null, USER_KEY)).toEqual([]);
+    expect(await store.getFolderTrail(SPACE_KEY, SPACE_KEY)).toEqual([]);
+    expect(calls.filter((call) => call.sql.includes('trail'))).toHaveLength(0);
+  });
+});

@@ -32,7 +32,7 @@
         -->
         <div
             v-if="showContinueWriting"
-            class="my-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            class="my-4 grid grid-cols-2 gap-3 lg:grid-cols-3"
             role="group"
             aria-label="Continue writing"
             data-testid="continue-writing-section"

@@ -151,7 +151,37 @@ export const useStructureStore = defineStore('structureStore', () => {
     });
   }
 
-  async function createFile(dbKey, name, parentId = null) {
+  /**
+   * A folder and its ancestors, outermost first. Empty for a database root.
+   *
+   * @param {string|null} folderId
+   * @param {string} dbKey
+   * @returns {Promise<{id: string, name: string}[]>}
+   */
+  async function getFolderTrail(folderId, dbKey) {
+    requireDbKey(dbKey);
+    if (!folderId || folderId === dbKey) return [];
+    const rows = await syncStore.repository(dbKey).execute(
+      `WITH RECURSIVE trail(id, name, parent_id, depth) AS (
+         SELECT id, name, parent_id, 0 FROM folders WHERE id = ?
+         UNION ALL
+         SELECT folders.id, folders.name, folders.parent_id, trail.depth + 1
+         FROM folders JOIN trail ON folders.id = trail.parent_id
+         WHERE trail.depth < 64
+       )
+       SELECT id, name FROM trail ORDER BY depth DESC`,
+      [folderId],
+    );
+    return rows.map((row) => ({ id: row.id, name: row.name || 'Untitled folder' }));
+  }
+
+  /**
+   * @param {string} dbKey
+   * @param {string} name
+   * @param {string|null} [parentId]
+   * @param {{ content?: string }} [options] a body to start with instead of `# name`
+   */
+  async function createFile(dbKey, name, parentId = null, { content } = {}) {
     requireDbKey(dbKey);
     if (!authStore.user?.id) throw new Error('User is not authenticated.');
     if (parentId) scopeForNode(parentId, dbKey);
@@ -162,7 +192,7 @@ export const useStructureStore = defineStore('structureStore', () => {
       id: uuidv4(),
       folder_id: parentId === dbKey ? null : parentId,
       title: name,
-      content: `# ${name}\n\n`,
+      content: typeof content === 'string' ? content : `# ${name}\n\n`,
       created_at: now,
       updated_at: now,
     };
@@ -250,8 +280,16 @@ export const useStructureStore = defineStore('structureStore', () => {
     markContentChanged();
   }
 
-  async function moveItem(itemId, newParentId, type, destinationDbKey) {
-    const sourceDbKey = scopeForNode(itemId);
+  /**
+   * @param {string} itemId
+   * @param {string|null} newParentId folder id, or null / the dbKey for the root
+   * @param {'file'|'folder'} type
+   * @param {string} destinationDbKey
+   * @param {string|null} [knownSourceDbKey] for items the tree has not loaded
+   *   (a Document opened from Home or Search)
+   */
+  async function moveItem(itemId, newParentId, type, destinationDbKey, knownSourceDbKey = null) {
+    const sourceDbKey = scopeForNode(itemId, knownSourceDbKey);
     const targetDbKey = newParentId
       ? scopeForNode(newParentId, destinationDbKey || null)
       : requireDbKey(destinationDbKey);
@@ -387,6 +425,7 @@ export const useStructureStore = defineStore('structureStore', () => {
     scopeForNode,
     loadRootItems,
     getChildren,
+    getFolderTrail,
     createFile,
     createFolder,
     deleteItem,

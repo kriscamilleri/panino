@@ -63,3 +63,40 @@ export function applyTheme(theme, root) {
 export function toggleTheme(theme) {
     return normalizeTheme(theme) === THEMES.DARK ? THEMES.LIGHT : THEMES.DARK
 }
+
+/** Choices offered under Appearance. `system` follows the operating system. */
+export const THEME_PREFERENCES = Object.freeze(['system', THEMES.LIGHT, THEMES.DARK])
+
+/**
+ * Restrict a stored value to a supported preference. Anything unknown is the
+ * default theme, as before `system` existed.
+ *
+ * @param {unknown} preference
+ * @returns {'system' | 'light' | 'dark'}
+ */
+export function normalizePreference(preference) {
+    return THEME_PREFERENCES.includes(preference) ? preference : DEFAULT_THEME
+}
+
+/**
+ * Read the saved Appearance choice.
+ *
+ * @param {Storage} storage
+ * @returns {'system' | 'light' | 'dark'}
+ */
+export function getStoredPreference(storage) {
+    return normalizePreference(storage.getItem(THEME_STORAGE_KEY))
+}
+
+/**
+ * The theme a preference shows.
+ *
+ * @param {unknown} preference
+ * @param {boolean} prefersDark whether the system asks for a dark scheme
+ * @returns {'light' | 'dark'}
+ */
+export function resolveTheme(preference, prefersDark) {
+    const normalized = normalizePreference(preference)
+    if (normalized === 'system') return prefersDark ? THEMES.DARK : THEMES.LIGHT
+    return normalized
+}

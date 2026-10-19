@@ -11,6 +11,7 @@ import { useConflictStore } from "./conflictStore";
 import { normalizeRecentDocument } from "../utils/recentDocuments.js";
 import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 import { mergeDashboardRows } from "../utils/syncRegistry.js";
+import { likePattern, hasChecklist } from "../utils/searchQuery.js";
 
 export const useDocStore = defineStore("docStore", () => {
   const structureStore = useStructureStore();
@@ -194,6 +195,105 @@ ${DOCUMENT_COLUMNS}
   }
 
   /**
+   * Search Documents by title, or title and body, across every open database
+   * or within one folder and its subfolders. Terms are matched literally.
+   *
+   * @param {object} input
+   * @param {string} input.query
+   * @param {'everything'|'titles'|'checklists'|'folder'} [input.scope]
+   * @param {string|null} [input.folderId] with scope 'folder'; null or the dbKey means the database root
+   * @param {string} [input.dbKey] with scope 'folder'
+   * @param {number} [input.limit] per database
+   * @returns {Promise<object[]>} normalized Documents, newest first
+   */
+  async function searchDocuments({ query, scope = 'everything', folderId = null, dbKey = null, limit = 50 } = {}) {
+    const term = String(query ?? '').trim();
+    if (!term) return [];
+    const pattern = likePattern(term);
+    const titlesOnly = scope === 'titles';
+    const inFolder = scope === 'folder' && dbKey;
+    const scopedFolder = inFolder && folderId && folderId !== dbKey ? folderId : null;
+    const sql = `
+            ${FOLDER_PATHS_CTE}${scopedFolder ? `,
+            scope_folders(id) AS (
+                SELECT ?
+                UNION ALL
+                SELECT folders.id FROM folders JOIN scope_folders ON folders.parent_id = scope_folders.id
+            )` : ''}
+            SELECT
+${DOCUMENT_COLUMNS}
+            FROM notes
+            LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
+            WHERE (notes.title LIKE ? ESCAPE '\\'${titlesOnly ? '' : " OR notes.content LIKE ? ESCAPE '\\'"})
+            ${scope === 'checklists' ? "AND notes.content LIKE '%[%]%'" : ''}
+            ${scopedFolder ? 'AND notes.folder_id IN (SELECT id FROM scope_folders)' : ''}
+            ORDER BY datetime(notes.updated_at) DESC
+            LIMIT ?
+        `;
+    const params = [
+      ...(scopedFolder ? [scopedFolder] : []),
+      pattern,
+      ...(titlesOnly ? [] : [pattern]),
+      limit,
+    ];
+    const entries = inFolder
+      ? [syncStore.databases.get(dbKey)].filter(Boolean)
+      : [...syncStore.databases.values()];
+    const groups = [];
+    for (const entry of entries) {
+      if (!entry.db) continue;
+      try {
+        groups.push({
+          dbKey: entry.dbKey,
+          name: entry.kind === 'space' ? entry.name : null,
+          rows: await syncStore.repository(entry.dbKey).execute(sql, params),
+        });
+      } catch (error) {
+        console.error(`Search failed for ${entry.dbKey}:`, error);
+      }
+    }
+    const results = mergeDashboardRows(groups, { limit: limit * Math.max(1, groups.length) })
+      .map(normalizeRecentDocument);
+    return scope === 'checklists' ? results.filter((doc) => hasChecklist(doc.content)) : results;
+  }
+
+  /**
+   * How many Documents are in the Inbox: personal, in no folder.
+   *
+   * @returns {Promise<number>}
+   */
+  async function countInbox() {
+    const dbKey = syncStore.personalDbKey;
+    if (!dbKey || !syncStore.databases.get(dbKey)?.db) return 0;
+    const rows = await syncStore.repository(dbKey).execute(
+      "SELECT COUNT(*) AS count FROM notes WHERE folder_id IS NULL",
+    );
+    return Number(rows[0]?.count) || 0;
+  }
+
+  /**
+   * Every folder in one database with its full path, sorted by path.
+   *
+   * @param {string} dbKey
+   * @returns {Promise<{id: string, name: string, parentId: string|null, path: string, dbKey: string}[]>}
+   */
+  async function listFolders(dbKey) {
+    if (!dbKey) throw new Error('Database scope is required to list folders.');
+    const rows = await syncStore.repository(dbKey).execute(`
+            ${FOLDER_PATHS_CTE}
+            SELECT id, name, parent_id, path FROM folder_paths
+            ORDER BY path COLLATE NOCASE
+        `);
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name || 'Untitled folder',
+      parentId: row.parent_id ?? null,
+      path: row.path || row.name || 'Untitled folder',
+      dbKey,
+    }));
+  }
+
+  /**
    * Pin or unpin a document. `updated_at` moves with the change so the document
    * orders consistently in the dashboards and replicates as an ordinary document edit.
    *
@@ -275,6 +375,7 @@ ${DOCUMENT_COLUMNS}
     resetStore,
     loadRootItems: structureStore.loadRootItems,
     getChildren: structureStore.getChildren,
+    getFolderTrail: structureStore.getFolderTrail,
     createFile: structureStore.createFile,
     createFolder: structureStore.createFolder,
     deleteItem: structureStore.deleteItem,
@@ -305,6 +406,9 @@ ${DOCUMENT_COLUMNS}
     getPrintMarkdownIt: markdownStore.getPrintMarkdownIt,
     getRecentDocuments,
     getFolderDocuments,
+    countInbox,
+    searchDocuments,
+    listFolders,
     setDocumentPinned,
     refreshData, // Expose the new function
     recentDocVersion,

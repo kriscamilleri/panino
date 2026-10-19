@@ -327,7 +327,12 @@ export const useCollabSessionStore = defineStore("collabSessionStore", () => {
       case "collab:participants": participants.value = payload.participants || []; break;
       case "collab:awareness": {
         const member = participants.value.find((participant) => participant.id === payload.from);
-        if (member) member.idle = Boolean(payload.idle);
+        if (member) {
+          member.idle = Boolean(payload.idle);
+          // Character offsets in that person's text; the phone draws a caret there.
+          member.cursor = Number.isSafeInteger(payload.cursor) ? payload.cursor : undefined;
+          member.selection = Number.isSafeInteger(payload.selection) ? payload.selection : undefined;
+        }
         participants.value = [...participants.value];
         break;
       }

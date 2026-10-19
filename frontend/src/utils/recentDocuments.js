@@ -85,6 +85,7 @@ export function normalizeRecentDocument(row = {}) {
         displayedDate: row.updated_at || row.created_at || '',
         createdDate: row.created_at || '',
         excerpt: extractExcerpt(row.content),
+        content: String(row.content ?? ''),
         wordCount: countWords(row.content),
         isPinned: normalizePinned(row.pinned),
         dbKey: row.dbKey,
