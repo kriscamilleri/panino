@@ -97,12 +97,41 @@ Keystroke → draftStore.setDraft() (instant)
 
 ---
 
+## Phone Layout (below 768 px)
+
+Phones and desktop render different component trees; they share stores, the Editor and the
+Preview. Spec: `docs/specs/active/mobile-ui/` (design spec plus `implementation-spec.md`).
+
+- `composables/useViewport.js` decides (`isPhone`, `matchMedia('(max-width: 767.98px)')`) and
+  reports the on-screen keyboard height (`keyboardInset`, from `visualViewport`).
+- `HomePage.vue` renders `PhoneShell` with `PhoneHome` / `PhoneFolderView` / `PhoneEditor` on
+  phones, and the Navbar + sidebar + `ContentArea` layout otherwise. `/search` and `/folders`
+  are phone-only routes; `/settings` switches through `SettingsRoute.vue`.
+- **Desktop components never render below 768 px.** Do not add `sm:`/`md:` variants or phone
+  branches to Navbar, SubMenuBar, the sidebar, ContentArea or the dashboards; change
+  `components/phone/` instead.
+- Phone components live in `components/phone/` and style themselves with the `--ph-*` tokens
+  and `.ph-*` classes in `assets/phone.css`, scoped under `.phone-ui` (the `PhoneShell` root)
+  with a dark mirror. Avoid Tailwind colour classes there: `main.css` remaps them in dark mode.
+- Sheets and the Drawer are `?sheet=drawer|capture|menu|move|collaborate|export` on the
+  current route (`useSheetRoute`), so back closes a sheet before leaving the screen. Use
+  `closeSheetAndGo()` to leave a sheet for another screen in one history step.
+- `PhoneEditor` keeps the Editor mounted in Preview (`hide-text`), because the Editor owns the
+  pending save, conflict state and live-session binding. Key-row keys and Preview checkboxes
+  edit through `editorStore.transformText(fn)` with pure functions from `utils/markdownKeys.js`
+  and `utils/markdownTasks.js`; never write the textarea directly.
+- Card and search previews are plain text from `utils/markdownSnippet.js`, rendered as text
+  nodes. The Inbox is personal Documents with `folder_id IS NULL`; there is no Inbox row.
+
+---
+
 ## Toast System
 
 ```javascript
 import { useUiStore } from '@/store/uiStore';
 const ui = useUiStore();
 ui.addToast('Message', 'success');  // types: 'success', 'error', 'info', 'warning'
+ui.addToast('Moved to Work', 'success', 5000, { action: { label: 'Undo', onSelect: undo } });
 ```
 
 `window.alert` is globally overridden to route through the toast system (see `main.js`).

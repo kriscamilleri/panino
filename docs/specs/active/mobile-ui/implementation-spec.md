@@ -185,3 +185,24 @@ unmounting it to show Preview would end a live session.
 - Component: KeyRow keeps focus, SegmentedControl `aria-pressed`, BottomSheet focus return
   and Escape, PhoneEditor never shows both panes, Navbar has no mobile menu.
 - Browser: 390 × 844 and 1280 × 800 against the dev stack, every journey above, console clean.
+
+## 10. Decisions made while building
+
+| Area | What shipped | Why |
+| --- | --- | --- |
+| Write mode type | 16 px monospace, not 15 px | iOS Safari zooms the page into any field under 16 px |
+| Preview with the Editor mounted | `Editor` takes `hide-text`; only its text hides | `display: none` on the whole Editor also hid the conflict banner and the Save version / resolve dialogs |
+| Key row extras | After the eight spec keys: image, dictation (when supported), undo, redo, then hide keyboard | Phones had these in the old toolbars; the row scrolls sideways |
+| Settings → "New notes go to" | Applies to capture from a folder: that folder (default) or the Inbox | Capture from Home always saves to the Inbox |
+| Folder actions on phones | Rename, New subfolder, Delete | Folders cannot move between databases, and a same-database folder move needs a picker the Move sheet does not have yet |
+| Settings tools | Images, Templates, Spaces, Variables, Import, Export all, GitHub backup | They lived in the Navbar menus that phones no longer show |
+| Deep links | A cold start returns to the requested route through `/loading?redirect=` | Reloads and Home Screen shortcuts used to land on Home |
+| Remote carets | Drawn at the character offset each person last sent | Offsets are not Yjs relative positions, so a caret can lag until that person's next keystroke |
+
+### Not done here
+
+- Real-device checks of the key row docking (iOS Safari, Android Chrome, rotation), VoiceOver
+  and TalkBack walkthroughs. Browser checks ran in desktop Chrome in a 390 × 712 frame.
+- A two-device live session. Carets and avatars were checked with an injected participant.
+- PNG icons for iOS (`apple-touch-icon`); the manifest still has the SVG only.
+- Find and replace on phones.

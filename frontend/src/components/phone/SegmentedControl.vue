@@ -53,7 +53,7 @@ defineEmits(['update:modelValue'])
     align-items: center;
     justify-content: center;
     gap: 6px;
-    min-height: 40px;
+    min-height: 44px;
     border: 0;
     border-radius: 10px;
     background: transparent;
