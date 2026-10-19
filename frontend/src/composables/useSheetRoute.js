@@ -26,9 +26,13 @@ export function useSheetRoute() {
         if (arg) query.sheetArg = arg;
         else delete query.sheetArg;
         // A sheet opened from another sheet replaces it, so back returns to
-        // the screen rather than to the sheet that is being left.
-        const opener = activeSheet.value ? router.replace : router.push;
-        return opener({ query, state: { pnSheet: true } });
+        // the screen rather than to the sheet that is being left. It keeps
+        // that sheet's origin: one that arrived in the URL was never pushed,
+        // so closing must not go back past the screen.
+        if (activeSheet.value) {
+            return router.replace({ query, state: { pnSheet: Boolean(window.history.state?.pnSheet) } });
+        }
+        return router.push({ query, state: { pnSheet: true } });
     }
 
     /** Close the open sheet. Back when this session opened it, else drop the query. */

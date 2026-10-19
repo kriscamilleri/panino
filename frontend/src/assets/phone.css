@@ -158,6 +158,11 @@ html[data-theme='dark'] .phone-ui {
     color: var(--ph-muted); text-decoration: line-through;
 }
 
+/* The user's preview style sets dark text inline; in the dark theme it has to follow the ink. */
+html[data-theme='dark'] .phone-ui .ph-preview [data-testid='preview-content'] :is(h1, h2, h3, h4, h5, h6, p, li, strong, em, td, th) {
+    color: var(--ph-ink) !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .phone-ui *, .phone-ui *::before, .phone-ui *::after {
         animation-duration: 0.001ms !important; transition-duration: 0.001ms !important;

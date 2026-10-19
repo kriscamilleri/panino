@@ -174,7 +174,8 @@ async function renderHtml() {
     return DOMPurify.sanitize(md.render(markdownStore.applyMetadataVariables(currentMarkdown())))
 }
 
-watch(() => props.open, async (isOpen) => {
+// Also when the Document arrives: a reload or link can open the sheet before it loads.
+watch(() => [props.open, file.value?.id], async ([isOpen]) => {
     if (!isOpen || !file.value) return
     paper.value = normalizePaperSize(docStore.printStyles?.pageSize)
     renderedHtml.value = await renderHtml()
