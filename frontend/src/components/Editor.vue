@@ -4,7 +4,7 @@
     class="h-full flex flex-col gap-0"
   >
     <div
-      v-if="ui.showMetadata"
+      v-if="ui.showMetadata && !phone"
       class="p-2 bg-gray-50 text-gray-700 text-sm border-b border-gray-200"
       data-testid="editor-metadata-container"
     >
@@ -50,7 +50,7 @@
     </div>
 
     <div
-      v-if="isSharedDocument"
+      v-if="isSharedDocument && !phone"
       class="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2"
       data-testid="collab-status"
     >
@@ -111,7 +111,7 @@
     </BaseModal>
 
     <div
-      v-if="ui.showStats"
+      v-if="ui.showStats && !phone"
       class="p-2 bg-gray-50 text-gray-700 text-sm flex gap-4 border-b border-gray-200"
       data-testid="editor-stats-display"
     >
@@ -305,6 +305,12 @@ import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';
 
 useOverTypePatches();
+
+const props = defineProps({
+  // The phone layout: collaboration, stats and metadata live in the top bar
+  // and the Document menu, and Write mode uses larger monospace type.
+  phone: { type: Boolean, default: false },
+});
 
 /* ───── helpers ───── */
 function debounce(fn, wait) {
@@ -532,10 +538,7 @@ function wrapWithRecord(fn) {
   return (...args) => {
     if (!file.value || editingBlocked()) return;
 
-    if (collabActive.value) {
-      fn(...args);
-      return;
-    }
+    if (collabActive.value) return fn(...args);
 
     const textarea = getTextareaElement();
     const cursor = textarea ? textarea.selectionEnd : 0;
@@ -544,13 +547,14 @@ function wrapWithRecord(fn) {
     historyStore.record(file.value.id, contentDraft.value, cursor);
 
     // 2. Perform formatting
-    fn(...args);
+    const result = fn(...args);
 
     // Snapshot AFTER formatting
     nextTick(() => {
       const newCursor = textarea ? textarea.selectionEnd : 0;
       historyStore.record(file.value.id, contentDraft.value, newCursor);
     });
+    return result;
   }
 }
 
@@ -620,7 +624,14 @@ function initEditor() {
 
     },
     autoResize: true,
-    minHeight: '200px'
+    minHeight: '200px',
+    // 16px, not smaller: iOS Safari zooms the page into any smaller field.
+    ...(props.phone ? {
+      fontFamily: 'ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, Consolas, monospace',
+      fontSize: '16px',
+      lineHeight: 1.75,
+      padding: '16px 20px 96px',
+    } : {}),
   });
 
   editorInstance.value = editor;
@@ -1324,6 +1335,34 @@ function insertText(text) {
   insertAtCursor(`${needsLeadingSpace ? ' ' : ''}${text}`);
 }
 
+/**
+ * Apply a pure edit `({ value, selectionStart, selectionEnd }) => nextState`
+ * to the whole text. The phone key row and Preview checkboxes edit through
+ * here, so they share undo, drafts, saving and the live-session binding.
+ *
+ * @returns {boolean} whether the text changed
+ */
+function transformText(fn, { focus = true } = {}) {
+  const textarea = getTextareaElement();
+  if (!textarea || !editorInstance.value || editingBlocked()) return false;
+  const next = fn({
+    value: textarea.value,
+    selectionStart: textarea.selectionStart,
+    selectionEnd: textarea.selectionEnd,
+  });
+  if (!next || typeof next.value !== 'string') return false;
+  const changed = next.value !== textarea.value;
+  if (changed) textarea.value = next.value;
+  textarea.setSelectionRange(next.selectionStart ?? next.value.length, next.selectionEnd ?? next.value.length);
+  if (changed) textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  if (focus) textarea.focus();
+  return changed;
+}
+
+function focusEditor() {
+  getTextareaElement()?.focus();
+}
+
 /* ───── find / replace ───── */
 function findNext(term) {
   if (!term?.trim()) return;
@@ -1419,6 +1458,7 @@ const insertCodeBlockWrapped = wrapWithRecord(insertCodeBlock);
 const insertImagePlaceholderWrapped = wrapWithRecord(insertImagePlaceholder);
 const insertImagesFromLibraryWrapped = wrapWithRecord(insertImagesFromLibrary);
 const insertTextWrapped = wrapWithRecord(insertText);
+const transformTextWrapped = wrapWithRecord(transformText);
 
 // Helper wrappers for button enabling state
 const canUndo = computed(() => file.value && !editingPaused.value ? historyStore.canUndo(file.value.id) : false);
@@ -1435,6 +1475,11 @@ const exposedMethods = {
   insertImagePlaceholder: insertImagePlaceholderWrapped,
   insertImagesFromLibrary: insertImagesFromLibraryWrapped,
   insertText: insertTextWrapped,
+  transformText: transformTextWrapped,
+  focus: focusEditor,
+  startCollaboration,
+  leaveCollaboration,
+  requestSaveVersion: () => { showCollabSave.value = true; },
 
   uploadImage,
   findNext,

@@ -275,6 +275,7 @@ ${DOCUMENT_COLUMNS}
     resetStore,
     loadRootItems: structureStore.loadRootItems,
     getChildren: structureStore.getChildren,
+    getFolderTrail: structureStore.getFolderTrail,
     createFile: structureStore.createFile,
     createFolder: structureStore.createFolder,
     deleteItem: structureStore.deleteItem,

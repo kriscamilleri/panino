@@ -28,21 +28,14 @@
         </template>
 
         <template v-else>
-            <div
-                class="flex flex-1 h-full overflow-hidden"
-                :class="{ 'flex-col': isMobileView, 'flex-row': !isMobileView }"
-            >
-                <div class="flex flex-col md:flex-row flex-1 overflow-hidden">
+            <!-- Desktop only: phones open a Document in PhoneEditor instead. -->
+            <div class="flex flex-1 h-full overflow-hidden flex-row">
+                <div class="flex flex-row flex-1 overflow-hidden">
                     <template v-if="ui.showEditor">
                         <div
                             ref="editorPaneRef"
-                            :class="{
-                                'h-1/2': isMobileView && ui.showPreview,
-                                'h-full': isMobileView && !ui.showPreview,
-                                'flex-shrink-0': !isMobileView
-                            }"
-                            :style="!isMobileView ? { width: editorWidth + 'px' } : {}"
-                            class="w-full overflow-hidden order-2 md:order-1"
+                            :style="{ width: editorWidth + 'px' }"
+                            class="w-full flex-shrink-0 overflow-hidden order-1"
                             data-testid="content-area-editor-pane"
                         >
                             <div class="h-full overflow-y-auto p-0">
@@ -51,7 +44,7 @@
                         </div>
 
                         <div
-                            v-if="!isMobileView && ui.showPreview"
+                            v-if="ui.showPreview"
                             class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400 order-1"
                             @mousedown="startEditorResize($event)"
                             data-testid="content-area-editor-resizer"
@@ -61,12 +54,7 @@
                     <div
                         v-if="ui.showPreview"
                         ref="previewPaneRef"
-                        :class="{
-                            'h-1/2': isMobileView && ui.showEditor,
-                            'h-full': isMobileView && !ui.showEditor,
-                            'flex-1': !isMobileView
-                        }"
-                        class="w-full overflow-hidden order-1 md:order-2"
+                        class="w-full flex-1 overflow-hidden order-2"
                         data-testid="content-area-preview-pane"
                     >
                         <div class="h-full overflow-y-auto p-4">
@@ -89,14 +77,6 @@ import Preview from '@/components/Preview.vue'
 
 const docStore = useDocStore()
 const ui = useUiStore()
-
-// Props from parent or a store: determines if we're in mobile layout
-const props = defineProps({
-    isMobileView: {
-        type: Boolean,
-        default: false
-    }
-})
 
 // Editor resizing
 const editorWidth = ref(500)
@@ -175,7 +155,6 @@ watch(
 )
 
 function startEditorResize(event) {
-    if (props.isMobileView) return
     isResizing.value = true
     startX.value = event.pageX
     startWidth.value = editorWidth.value

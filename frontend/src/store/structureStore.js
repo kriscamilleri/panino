@@ -151,6 +151,30 @@ export const useStructureStore = defineStore('structureStore', () => {
     });
   }
 
+  /**
+   * A folder and its ancestors, outermost first. Empty for a database root.
+   *
+   * @param {string|null} folderId
+   * @param {string} dbKey
+   * @returns {Promise<{id: string, name: string}[]>}
+   */
+  async function getFolderTrail(folderId, dbKey) {
+    requireDbKey(dbKey);
+    if (!folderId || folderId === dbKey) return [];
+    const rows = await syncStore.repository(dbKey).execute(
+      `WITH RECURSIVE trail(id, name, parent_id, depth) AS (
+         SELECT id, name, parent_id, 0 FROM folders WHERE id = ?
+         UNION ALL
+         SELECT folders.id, folders.name, folders.parent_id, trail.depth + 1
+         FROM folders JOIN trail ON folders.id = trail.parent_id
+         WHERE trail.depth < 64
+       )
+       SELECT id, name FROM trail ORDER BY depth DESC`,
+      [folderId],
+    );
+    return rows.map((row) => ({ id: row.id, name: row.name || 'Untitled folder' }));
+  }
+
   async function createFile(dbKey, name, parentId = null) {
     requireDbKey(dbKey);
     if (!authStore.user?.id) throw new Error('User is not authenticated.');
@@ -387,6 +411,7 @@ export const useStructureStore = defineStore('structureStore', () => {
     scopeForNode,
     loadRootItems,
     getChildren,
+    getFolderTrail,
     createFile,
     createFolder,
     deleteItem,

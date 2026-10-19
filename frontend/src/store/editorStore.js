@@ -149,12 +149,35 @@ export const useEditorStore = defineStore('editorStore', () => {
         return Boolean(editorRef.value?.isHoldingChanges?.())
     }
 
+    /** Call an exposed editor method when the editor is mounted; returns its result. */
+    function callEditor(name, ...args) {
+        const method = editorRef.value?.[name]
+        if (typeof method !== 'function') {
+            console.warn(`Editor not available for ${name}`)
+            return undefined
+        }
+        return method(...args)
+    }
+
+    /**
+     * Apply a pure `({ value, selectionStart, selectionEnd }) => state` edit.
+     * @returns {boolean} whether the text changed
+     */
+    function transformText(fn, options) {
+        return Boolean(callEditor('transformText', fn, options))
+    }
+
     return {
         editorRef,
         setEditorRef,
         clearEditorRef,
         flushPendingSave,
         isHoldingChanges,
+        transformText,
+        focus: () => callEditor('focus'),
+        startCollaboration: () => callEditor('startCollaboration'),
+        leaveCollaboration: () => callEditor('leaveCollaboration'),
+        requestSaveVersion: () => callEditor('requestSaveVersion'),
         insertFormat,
         insertList,
         insertLink,

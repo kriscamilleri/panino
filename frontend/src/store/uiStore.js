@@ -3,6 +3,14 @@ import { defineStore } from "pinia";
 import { ref, computed, watch } from "vue";
 import { useSyncStore } from "./syncStore";
 import { useAuthStore } from "./authStore";
+import { OPEN_NOTES_IN, OPEN_IN_AUTO } from "@/utils/editorMode";
+
+/** Phone Home layouts. */
+export const HOME_LAYOUTS = ["grid", "list"];
+/** Where a phone capture saves by default: the Inbox, or the folder on screen. */
+export const NEW_NOTE_DESTINATIONS = ["inbox", "current"];
+
+const pick = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 
 export const useUiStore = defineStore("uiStore", () => {
   const syncStore = useSyncStore();
@@ -19,6 +27,10 @@ export const useUiStore = defineStore("uiStore", () => {
   const toolsMenuCollapsed = ref(false);
   const navbarCollapsed = ref(false);
   const scrollSync = ref(false);
+  // Phone preferences (Settings → Notes).
+  const homeLayout = ref("grid");
+  const openNotesIn = ref(OPEN_IN_AUTO);
+  const newNotesDestination = ref("current");
 
   // Menu visibility (transient, not persisted)
   const showViewMenu = ref(false);
@@ -58,6 +70,9 @@ export const useUiStore = defineStore("uiStore", () => {
       toolsMenuCollapsed: toolsMenuCollapsed.value,
       navbarCollapsed: navbarCollapsed.value,
       scrollSync: scrollSync.value,
+      homeLayout: homeLayout.value,
+      openNotesIn: openNotesIn.value,
+      newNotesDestination: newNotesDestination.value,
     };
     try {
       await syncStore.personalRepository().exec(
@@ -89,6 +104,9 @@ export const useUiStore = defineStore("uiStore", () => {
         toolsMenuCollapsed.value = settings.toolsMenuCollapsed ?? false;
         navbarCollapsed.value = settings.navbarCollapsed ?? false;
         scrollSync.value = settings.scrollSync ?? false;
+        homeLayout.value = pick(settings.homeLayout, HOME_LAYOUTS, "grid");
+        openNotesIn.value = pick(settings.openNotesIn, OPEN_NOTES_IN, OPEN_IN_AUTO);
+        newNotesDestination.value = pick(settings.newNotesDestination, NEW_NOTE_DESTINATIONS, "current");
       } else {
         resetToDefaults();
       }
@@ -111,6 +129,16 @@ export const useUiStore = defineStore("uiStore", () => {
     toolsMenuCollapsed.value = false;
     navbarCollapsed.value = false;
     scrollSync.value = false;
+    homeLayout.value = "grid";
+    openNotesIn.value = OPEN_IN_AUTO;
+    newNotesDestination.value = "current";
+  }
+
+  /** Set a validated phone preference and persist it with the other UI settings. */
+  function setPreference(prop, value, allowed) {
+    if (!allowed.includes(value)) throw new Error(`Unsupported value ${value}`);
+    prop.value = value;
+    saveSettingsToDB();
   }
 
   // Load settings when the DB is ready or when the user changes
@@ -163,14 +191,6 @@ export const useUiStore = defineStore("uiStore", () => {
     toasts.value = toasts.value.filter((t) => t.id !== id);
   }
 
-  // Collapse Documents on mobile
-  function collapseDocumentsOnMobile(isMobileView) {
-    if (isMobileView && showDocuments.value) {
-      showDocuments.value = false;
-      saveSettingsToDB();
-    }
-  }
-
   return {
     // State
     showDocuments,
@@ -183,6 +203,9 @@ export const useUiStore = defineStore("uiStore", () => {
     toolsMenuCollapsed,
     navbarCollapsed,
     scrollSync,
+    homeLayout,
+    openNotesIn,
+    newNotesDestination,
     showViewMenu,
     showActionBar,
     showFileMenu,
@@ -231,6 +254,8 @@ export const useUiStore = defineStore("uiStore", () => {
     closeImageLibraryModal: () => (showImageLibraryModal.value = false),
     addToast,
     removeToast,
-    collapseDocumentsOnMobile,
+    setHomeLayout: (value) => setPreference(homeLayout, value, HOME_LAYOUTS),
+    setOpenNotesIn: (value) => setPreference(openNotesIn, value, OPEN_NOTES_IN),
+    setNewNotesDestination: (value) => setPreference(newNotesDestination, value, NEW_NOTE_DESTINATIONS),
   };
 });
