@@ -1,12 +1,13 @@
 <template>
     <div
         class="phone-ui ph-shell"
-        :style="{ height: `calc(100dvh - ${keyboardInset}px)` }"
+        :style="visibleStyle"
         data-testid="phone-shell"
     >
         <!--
         Root of every phone screen. `.phone-ui` scopes the phone tokens and
-        styles; the height ends where the on-screen keyboard begins.
+        styles; it covers exactly the visible screen, so it ends where the
+        on-screen keyboard begins.
         -->
         <slot />
         <p
@@ -21,14 +22,15 @@
 import { useViewport } from '@/composables/useViewport'
 import { usePhoneStatus } from '@/composables/usePhoneStatus'
 
-const { keyboardInset } = useViewport()
+const { visibleStyle } = useViewport()
 const { announcement } = usePhoneStatus()
 </script>
 
 <style scoped>
 .ph-shell {
     position: fixed;
-    inset: 0 0 auto 0;
+    left: 0;
+    right: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;

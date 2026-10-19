@@ -103,7 +103,11 @@ Phones and desktop render different component trees; they share stores, the Edit
 Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation-spec.md`).
 
 - `composables/useViewport.js` decides (`isPhone`, `matchMedia('(max-width: 767.98px)')`) and
-  reports the on-screen keyboard height (`keyboardInset`, from `visualViewport`).
+  gives `visibleStyle`, which pins `PhoneShell` and sheets to `visualViewport` (top and height),
+  so they end at the top of the on-screen keyboard. Use only the visual viewport: iOS updates
+  `innerHeight`, `100dvh` and the visual viewport at different moments, and mixing them once
+  collapsed the editor to a sliver when the keyboard opened. Docked key rows sit at the bottom
+  of their screen (`position: absolute`), never at a computed keyboard offset.
 - `HomePage.vue` renders `PhoneShell` with `PhoneHome` / `PhoneFolderView` / `PhoneEditor` on
   phones, and the Navbar + sidebar + `ContentArea` layout otherwise. `/search` and `/folders`
   are phone-only routes; `/settings` switches through `SettingsRoute.vue`.
