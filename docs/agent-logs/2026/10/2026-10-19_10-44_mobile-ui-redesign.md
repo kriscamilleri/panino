@@ -67,6 +67,29 @@ banner and Settings).
   - At 1240 px the desktop layout matched the old one (Navbar, tree, editor beside preview,
     disabled checkboxes) and the Navbar sync toggle still turned sync off and on.
 
+### Pre-merge run (same day)
+
+- `npm run lint && npm test` from the root: lint clean; shared, frontend (61 files, 800 tests)
+  and backend in Docker (30 files, 437 tests) pass.
+- Frontend built with the server's Node 22.14.0 / npm 10.9.2 from a clean `git archive`.
+- `develop` reset to `main` (`d2f5ed5`, lease on the old tip `522ac91`, whose three commits were
+  already on `main` as `a26a051`, `4166b4c`, `8d4eb4f`).
+- Two real devices (Puppeteer, separate fresh profiles; owner on a 390 px phone, a second
+  member invited through MailHog on a 1280 px desktop), runbook
+  `live-session-recovery.md` steps 1, 2 and 4, 14/14 checks: both join and see each other,
+  interleaved typing converges with nothing lost or doubled, the phone draws the desktop
+  member's caret, killing the API container and starting it again restores the acknowledged
+  text and editing continues, Save version from the phone stores the session text, leaving
+  ends the session and solo edits sync to the other device. Step 5's overlapping save opened the
+  conflict resolver on the phone. Steps 3 and 6 test server code this branch does not touch.
+- Found and fixed by that run: phone sheets sat above app dialogs (z-index 60 over 50), so the
+  Save version dialog, and any conflict dialog, opened hidden behind the Collaborate sheet and
+  the click landed on the sheet. Sheets and the Drawer now sit at 45.
+- Harness traps, for next time: a graceful `docker restart` closes sessions on purpose (the
+  runbook kills the container); a reused Chrome profile restores old tabs and hangs on the shared
+  local database; and a run that edits a Document outside a session leaves the next run's
+  Save version in conflict, so each run needs a fresh Document.
+
 ## Open Items / Notes
 
 - **Security, existing, not changed here:** `backend/api-service/pdf.js` interpolates
@@ -76,7 +99,7 @@ banner and Settings).
   only ever sends `A4` or `Letter`. Worth its own fix: allow-list `pageSize`, escape `</style`
   in CSS, and disable JavaScript or intercept requests in the PDF page.
 - Not verified on real phones: key row docking above the keyboard (iOS Safari, Android Chrome,
-  rotation), VoiceOver and TalkBack. A two-device live session was not run.
+  rotation), VoiceOver and TalkBack.
 - Remote carets use the character offset last sent, not Yjs relative positions.
 - The build's service-worker copy step writes `frontend/dist/service-worker.js` regardless of
   `--outDir`; a check build here overwrote that generated file.

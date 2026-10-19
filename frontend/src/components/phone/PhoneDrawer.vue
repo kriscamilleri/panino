@@ -258,7 +258,9 @@ function endSwipe() {
 .ph-drawer-root {
     position: fixed;
     inset: 0;
-    z-index: 60;
+    /* Below app dialogs (BaseModal, z-index 50): a dialog the Editor opens while a
+       sheet is up, such as Save version or a conflict, must show above it. */
+    z-index: 45;
 }
 
 .ph-drawer-scrim {
