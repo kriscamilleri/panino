@@ -443,8 +443,13 @@ const categorizedStyles = computed(() => {
   }, {});
 });
 
+// Back returns to the screen that opened this page. Pushing the Document (or
+// Home) again stacked a new entry each time, and on phones the editor's back
+// arrow then returned here, so the two screens sent each other back forever.
 function goBack() {
-  if (props.config.onBack) {
+  if (window.history.state?.back) {
+    router.back();
+  } else if (props.config.onBack) {
     props.config.onBack();
   } else {
     router.push('/');

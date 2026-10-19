@@ -277,6 +277,7 @@ import { useSheetRoute } from '@/composables/useSheetRoute'
 import { usePhoneSelection } from '@/composables/usePhoneSelection'
 import { splitIntoColumns } from '@/utils/homeView'
 import { toSnippetLines } from '@/utils/markdownSnippet'
+import { goUp } from '@/utils/phoneNavigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -364,9 +365,14 @@ watch(
     { immediate: true },
 )
 
+/** Up to the list this folder was opened from, or else its parent. */
 function goBack() {
-    if (window.history.state?.back) router.back()
-    else router.replace({ name: 'folders' })
+    const parent = trail.value[trail.value.length - 2]
+    let fallback = { name: 'folders' }
+    if (parent) fallback = { name: 'folder', params: { folderId: parent.id }, query: { dbKey: dbKey.value } }
+    else if (isSpace.value && !isSpaceRoot.value) fallback = { name: 'folder', params: { folderId: dbKey.value }, query: { dbKey: dbKey.value } }
+    else if (isSpace.value) fallback = { name: 'folders', query: { tab: 'shared' } }
+    goUp(router, fallback)
 }
 
 function openFolder(folder) {
