@@ -63,7 +63,10 @@
         >{{ summary }}</p>
 
         <div class="ph-note-foot">
-            <span class="ph-folder-chip">
+            <span
+                v-if="folderLabel"
+                class="ph-folder-chip"
+            >
                 <Users
                     v-if="doc.spaceName"
                     class="h-3 w-3"
@@ -96,16 +99,16 @@ const href = computed(() => `#/doc/${encodeURIComponent(props.doc.id)}?dbKey=${e
 const lines = computed(() => toSnippetLines(props.doc.content, { title: props.doc.name, maxLines: 8 }))
 const summary = computed(() => toSummary(props.doc.content, { title: props.doc.name }))
 
-/** Where the card says the Document lives. */
+/** Where the card says the Document lives; nothing for a note in no folder. */
 const folderLabel = computed(() => {
     if (props.doc.folderId) return props.doc.folderName.split(' / ').pop()
-    return props.doc.spaceName || 'Inbox'
+    return props.doc.spaceName || ''
 })
 
 const accessibleName = computed(() => {
     const parts = [props.doc.name]
     if (props.doc.isPinned) parts.push('pinned')
-    parts.push(`in ${folderLabel.value}`)
+    if (folderLabel.value) parts.push(`in ${folderLabel.value}`)
     if (props.selecting) parts.push(props.selected ? 'selected' : 'not selected')
     return parts.join(', ')
 })

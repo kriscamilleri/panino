@@ -2,7 +2,7 @@ import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 /** Every sheet the phone UI can open, plus the Drawer. */
-export const SHEETS = Object.freeze(['drawer', 'capture', 'menu', 'move', 'collaborate', 'export']);
+export const SHEETS = Object.freeze(['drawer', 'capture', 'menu', 'move', 'collaborate', 'export', 'sort']);
 
 /**
  * Sheets live in the `?sheet=` query so the back gesture closes them before

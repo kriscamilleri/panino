@@ -4,11 +4,10 @@ import { ref, computed, watch } from "vue";
 import { useSyncStore } from "./syncStore";
 import { useAuthStore } from "./authStore";
 import { OPEN_NOTES_IN, OPEN_IN_AUTO } from "@/utils/editorMode";
+import { DEFAULT_SORT, normalizeSort } from "@/utils/homeView";
 
 /** Phone Home layouts. */
 export const HOME_LAYOUTS = ["grid", "list"];
-/** Where a phone capture saves by default: the Inbox, or the folder on screen. */
-export const NEW_NOTE_DESTINATIONS = ["inbox", "current"];
 
 const pick = (value, allowed, fallback) => (allowed.includes(value) ? value : fallback);
 
@@ -30,7 +29,8 @@ export const useUiStore = defineStore("uiStore", () => {
   // Phone preferences (Settings → Notes).
   const homeLayout = ref("grid");
   const openNotesIn = ref(OPEN_IN_AUTO);
-  const newNotesDestination = ref("current");
+  // How Home and folders order notes (Settings, or the sort button).
+  const noteSort = ref({ ...DEFAULT_SORT });
 
   // Menu visibility (transient, not persisted)
   const showViewMenu = ref(false);
@@ -72,7 +72,7 @@ export const useUiStore = defineStore("uiStore", () => {
       scrollSync: scrollSync.value,
       homeLayout: homeLayout.value,
       openNotesIn: openNotesIn.value,
-      newNotesDestination: newNotesDestination.value,
+      noteSort: noteSort.value,
     };
     try {
       await syncStore.personalRepository().exec(
@@ -106,7 +106,7 @@ export const useUiStore = defineStore("uiStore", () => {
         scrollSync.value = settings.scrollSync ?? false;
         homeLayout.value = pick(settings.homeLayout, HOME_LAYOUTS, "grid");
         openNotesIn.value = pick(settings.openNotesIn, OPEN_NOTES_IN, OPEN_IN_AUTO);
-        newNotesDestination.value = pick(settings.newNotesDestination, NEW_NOTE_DESTINATIONS, "current");
+        noteSort.value = normalizeSort(settings.noteSort);
       } else {
         resetToDefaults();
       }
@@ -131,7 +131,7 @@ export const useUiStore = defineStore("uiStore", () => {
     scrollSync.value = false;
     homeLayout.value = "grid";
     openNotesIn.value = OPEN_IN_AUTO;
-    newNotesDestination.value = "current";
+    noteSort.value = { ...DEFAULT_SORT };
   }
 
   /** Set a validated phone preference and persist it with the other UI settings. */
@@ -213,7 +213,7 @@ export const useUiStore = defineStore("uiStore", () => {
     scrollSync,
     homeLayout,
     openNotesIn,
-    newNotesDestination,
+    noteSort,
     showViewMenu,
     showActionBar,
     showFileMenu,
@@ -264,6 +264,10 @@ export const useUiStore = defineStore("uiStore", () => {
     removeToast,
     setHomeLayout: (value) => setPreference(homeLayout, value, HOME_LAYOUTS),
     setOpenNotesIn: (value) => setPreference(openNotesIn, value, OPEN_NOTES_IN),
-    setNewNotesDestination: (value) => setPreference(newNotesDestination, value, NEW_NOTE_DESTINATIONS),
+    /** @param {{ field: string, direction: string }} value */
+    setNoteSort: (value) => {
+      noteSort.value = normalizeSort(value);
+      saveSettingsToDB();
+    },
   };
 });

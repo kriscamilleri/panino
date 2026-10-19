@@ -12,6 +12,10 @@
             :target="sheetArg === 'selection' ? 'selection' : 'document'"
             @close="closeSheet"
         />
+        <SortSheet
+            :open="activeSheet === 'sort'"
+            @close="closeSheet"
+        />
     </PhoneShell>
     <div v-else class="h-screen flex flex-col overflow-hidden">
         <Navbar />
@@ -53,6 +57,7 @@ import PhoneHome from '@/components/phone/PhoneHome.vue'
 import PhoneFolderView from '@/components/phone/PhoneFolderView.vue'
 import PhoneDrawer from '@/components/phone/PhoneDrawer.vue'
 import MoveSheet from '@/components/phone/MoveSheet.vue'
+import SortSheet from '@/components/phone/SortSheet.vue'
 import { useViewport } from '@/composables/useViewport'
 import { useSheetRoute } from '@/composables/useSheetRoute'
 import { usePhoneSelection } from '@/composables/usePhoneSelection'

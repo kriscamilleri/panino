@@ -47,7 +47,7 @@
                         @click="moveTo(option.folderId, option.label)"
                     >
                         <component
-                            :is="option.folderId ? Folder : Inbox"
+                            :is="option.folderId ? Folder : FolderMinus"
                             class="h-5 w-5"
                             aria-hidden="true"
                         />
@@ -147,7 +147,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { Folder, FolderPlus, Inbox, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Folder, FolderPlus, FolderMinus, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import PromptModal from '@/components/PromptModal.vue'
 import { useDocStore } from '@/store/docStore'
@@ -182,7 +182,7 @@ const items = computed(() => {
 })
 const dbKey = computed(() => items.value[0]?.dbKey || null)
 const isSpace = computed(() => Boolean(dbKey.value?.startsWith('space:')))
-const rootLabel = computed(() => (isSpace.value ? `${syncStore.databases.get(dbKey.value)?.name || 'Shared space'} (top level)` : 'Inbox'))
+const rootLabel = computed(() => (isSpace.value ? `${syncStore.databases.get(dbKey.value)?.name || 'Shared space'} (top level)` : 'No folder'))
 /** The folder every item is in, when they share one; undefined when they differ. */
 const sharedFolderId = computed(() => {
     const ids = new Set(items.value.map((item) => item.folderId || null))

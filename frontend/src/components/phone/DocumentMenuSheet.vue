@@ -9,7 +9,7 @@
             <div class="ph-menu-head">
                 <h2 class="ph-menu-title">{{ file?.title || 'Untitled' }}</h2>
                 <p class="ph-muted ph-menu-meta">
-                    {{ folderLabel }} · {{ wordCount }} {{ wordCount === 1 ? 'word' : 'words' }}
+                    {{ folderLabel ? `${folderLabel} · ` : '' }}{{ wordCount }} {{ wordCount === 1 ? 'word' : 'words' }}
                 </p>
             </div>
         </template>

@@ -1,7 +1,7 @@
 <template>
   <transition name="fade">
     <div
-      v-if="showInstallPrompt"
+      v-if="showInstallPrompt && !isPhone"
       class="fixed bottom-10 left-4 right-4 z-40 rounded-lg border border-gray-200 bg-white p-4 shadow-xl md:left-auto md:right-4 md:w-96"
     >
       <div class="flex items-start justify-between">
@@ -44,9 +44,12 @@ import { ref, watch } from 'vue';
 import { X } from 'lucide-vue-next';
 import BaseButton from '@/components/BaseButton.vue';
 import { usePwaInstall } from '@/composables/usePwaInstall';
+import { useViewport } from '@/composables/useViewport';
 
 const showInstallPrompt = ref(false);
 const { canPrompt, installed, install } = usePwaInstall();
+// Phones offer install in Settings; a floating card would cover their sheets.
+const { isPhone } = useViewport();
 
 function recentlyDismissed() {
   const dismissed = localStorage.getItem('pwa-install-dismissed');

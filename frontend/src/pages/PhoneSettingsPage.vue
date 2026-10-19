@@ -144,14 +144,7 @@
                             :options="OPEN_OPTIONS"
                             @update:model-value="ui.setOpenNotesIn"
                         />
-                        <p class="ph-settings-strong">New notes in a folder go to</p>
-                        <SegmentedControl
-                            :model-value="ui.newNotesDestination"
-                            label="New notes in a folder go to"
-                            testid-prefix="phone-settings-destination"
-                            :options="DESTINATION_OPTIONS"
-                            @update:model-value="ui.setNewNotesDestination"
-                        />
+                        <SortControls />
                     </div>
                 </section>
 
@@ -285,6 +278,7 @@ import {
 } from 'lucide-vue-next'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
+import SortControls from '@/components/phone/SortControls.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
@@ -307,10 +301,6 @@ const OPEN_OPTIONS = [
     { value: 'auto', label: 'Automatic' },
     { value: 'preview', label: 'Preview' },
     { value: 'write', label: 'Write' },
-]
-const DESTINATION_OPTIONS = [
-    { value: 'current', label: 'That folder' },
-    { value: 'inbox', label: 'Inbox' },
 ]
 const APPEARANCE_OPTIONS = [
     { value: 'system', label: 'System', icon: Monitor },

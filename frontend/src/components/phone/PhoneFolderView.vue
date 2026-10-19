@@ -114,6 +114,10 @@
                 class="ph-folder-section"
                 aria-label="Notes"
             >
+                <div class="ph-folder-notes-head">
+                    <p class="ph-section-label">Notes</p>
+                    <SortButton />
+                </div>
                 <div
                     v-if="ui.homeLayout === 'grid'"
                     class="ph-grid"
@@ -267,6 +271,7 @@ import CaptureBar from '@/components/phone/CaptureBar.vue'
 import QuickCaptureSheet from '@/components/phone/QuickCaptureSheet.vue'
 import SelectionBar from '@/components/phone/SelectionBar.vue'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
+import SortButton from '@/components/phone/SortButton.vue'
 import PromptModal from '@/components/PromptModal.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
@@ -328,10 +333,8 @@ const crumbs = computed(() => {
     return list
 })
 
-/** Capture saves here, unless Settings sends new notes to the Inbox. */
-const destination = computed(() => (ui.newNotesDestination === 'inbox'
-    ? { dbKey: syncStore.personalDbKey, folderId: null, label: 'Inbox' }
-    : { dbKey: dbKey.value, folderId: folderId.value, label: title.value }))
+/** Capture from a folder saves into it. */
+const destination = computed(() => ({ dbKey: dbKey.value, folderId: folderId.value, label: title.value }))
 
 const columns = computed(() => splitIntoColumns(
     notes.value,
@@ -344,12 +347,13 @@ async function load() {
         const [path, children, docs] = await Promise.all([
             folderId.value ? docStore.getFolderTrail(folderId.value, dbKey.value) : Promise.resolve([]),
             docStore.getChildren(folderParam.value, dbKey.value),
-            docStore.getFolderDocuments(folderId.value, dbKey.value, 200),
+            docStore.getFolderDocuments(folderId.value, dbKey.value, 200, { sort: ui.noteSort }),
         ])
         trail.value = path
         subfolders.value = children
             .filter((child) => child.type === 'folder')
             .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }))
+        // Pinned first; Array.sort is stable, so the chosen order holds within each group.
         notes.value = docs.slice().sort((a, b) => Number(b.isPinned) - Number(a.isPinned))
     } catch (error) {
         console.error('[PhoneFolderView] Could not load the folder:', error)
@@ -360,7 +364,7 @@ async function load() {
 }
 
 watch(
-    () => [folderParam.value, dbKey.value, syncStore.isInitialized, docStore.contentVersion],
+    () => [folderParam.value, dbKey.value, ui.noteSort, syncStore.isInitialized, docStore.contentVersion],
     () => { void load() },
     { immediate: true },
 )
@@ -494,6 +498,13 @@ async function deleteFolder() {
 
 .ph-folder-section {
     margin-top: 16px;
+}
+
+.ph-folder-notes-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0 6px 4px;
 }
 
 .ph-tiles {

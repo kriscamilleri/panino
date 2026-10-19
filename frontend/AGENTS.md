@@ -125,7 +125,12 @@ Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation
   edit through `editorStore.transformText(fn)` with pure functions from `utils/markdownKeys.js`
   and `utils/markdownTasks.js`; never write the textarea directly.
 - Card and search previews are plain text from `utils/markdownSnippet.js`, rendered as text
-  nodes. The Inbox is personal Documents with `folder_id IS NULL`; there is no Inbox row.
+  nodes. There is no Inbox: a note in no folder shows no folder chip and is called "No folder"
+  where a location has to be named (Move, capture, search results).
+- Home and folders sort by `uiStore.noteSort` (`modified`/`created`/`title`, `asc`/`desc`),
+  chosen from the sort sheet or Settings. `getRecentDocuments` and `getFolderDocuments` take
+  `{ sort }` and order in SQL from an allow-list, so the 200-row limit keeps the right notes;
+  without `sort` they keep the dashboards' newest-modified query. Pinned notes stay first.
 
 ---
 

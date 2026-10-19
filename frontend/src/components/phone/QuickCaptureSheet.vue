@@ -35,7 +35,7 @@
                     data-testid="phone-capture-destination"
                     @click="toggleDestinations"
                 >
-                    <Inbox
+                    <FolderMinus
                         v-if="!destination.folderId && !isSpace(destination.dbKey)"
                         class="h-4 w-4"
                         aria-hidden="true"
@@ -78,7 +78,7 @@
                         @click="chooseDestination(option)"
                     >
                         <component
-                            :is="option.folderId ? Folder : Inbox"
+                            :is="option.folderId ? Folder : FolderMinus"
                             class="h-5 w-5"
                             aria-hidden="true"
                         />
@@ -155,7 +155,7 @@
 
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue'
-import { Inbox, Folder, ChevronDown, Check, Heading, Bold, Italic, List, ListChecks, Link, StickyNote } from 'lucide-vue-next'
+import { FolderMinus, Folder, ChevronDown, Check, Heading, Bold, Italic, List, ListChecks, Link, StickyNote } from 'lucide-vue-next'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import KeyRow from '@/components/phone/KeyRow.vue'
@@ -211,9 +211,9 @@ const draft = computed(() => buildCaptureDocument({ title: title.value, body: bo
 const isSpace = (dbKey) => Boolean(dbKey?.startsWith('space:'))
 const sameDestination = (a, b) => a.dbKey === b.dbKey && (a.folderId || null) === (b.folderId || null)
 
-/** Inbox, every personal folder, and the folder on screen when it is in a space. */
+/** No folder, every personal folder, and the folder on screen when it is in a space. */
 const destinationOptions = computed(() => {
-    const options = [{ dbKey: syncStore.personalDbKey, folderId: null, label: 'Inbox', path: 'Inbox' }]
+    const options = [{ dbKey: syncStore.personalDbKey, folderId: null, label: 'No folder', path: 'No folder' }]
     for (const folder of folders.value) {
         options.push({ dbKey: folder.dbKey, folderId: folder.id, label: folder.name, path: folder.path })
     }
