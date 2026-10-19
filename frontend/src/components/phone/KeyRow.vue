@@ -4,12 +4,13 @@
         :class="{ 'ph-keyrow-docked': docked }"
         role="toolbar"
         :aria-label="label"
-        :style="docked ? { bottom: `${keyboardInset}px` } : undefined"
         data-testid="phone-key-row"
     >
         <!--
         Keys act on pointerdown with the default prevented, so the text field
         keeps focus and the on-screen keyboard stays up while formatting.
+        Docked, the row sits at the bottom of its screen, which PhoneShell
+        already ends at the top of the keyboard.
         -->
         <div class="ph-keyrow-scroll">
             <button
@@ -54,18 +55,16 @@
 
 <script setup>
 import { KeyboardOff } from 'lucide-vue-next'
-import { useViewport } from '@/composables/useViewport'
 
 defineProps({
     /** `[{ id, name, label? , icon? }]` */
     keys: { type: Array, required: true },
     label: { type: String, default: 'Formatting' },
-    /** Fixed above the keyboard. Off inside a sheet, whose footer already is. */
+    /** At the bottom of its screen, above the keyboard. Off inside a sheet's footer. */
     docked: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['press', 'hide'])
-const { keyboardInset } = useViewport()
 
 function hideKeyboard() {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
@@ -82,9 +81,10 @@ function hideKeyboard() {
 }
 
 .ph-keyrow-docked {
-    position: fixed;
+    position: absolute;
     left: 0;
     right: 0;
+    bottom: 0;
     z-index: 40;
     padding-bottom: env(safe-area-inset-bottom);
 }
