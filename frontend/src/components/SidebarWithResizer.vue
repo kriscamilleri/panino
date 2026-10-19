@@ -2,9 +2,8 @@
     <!-- Only render if the documents sidebar is toggled on -->
     <template v-if="ui.showDocuments">
         <div
-            :class="{ 'w-full h-full': isMobileView, 'flex-shrink-0': !isMobileView }"
-            :style="!isMobileView ? { width: documentsWidth + 'px' } : {}"
-            class="workspace-chrome bg-gray-100 border-r overflow-hidden relative"
+            :style="{ width: documentsWidth + 'px' }"
+            class="flex-shrink-0 workspace-chrome bg-gray-100 border-r overflow-hidden relative"
             data-testid="sidebar-container"
         >
             <div class="h-full overflow-y-auto p-4 pb-12">
@@ -23,9 +22,8 @@
             </div>
         </div>
 
-        <!-- Resizer handle (desktop only) -->
+        <!-- Resizer handle -->
         <div
-            v-if="!isMobileView"
             class="w-1 cursor-col-resize bg-gray-200 hover:bg-blue-300 active:bg-blue-400"
             @mousedown="startResize($event)"
             data-testid="sidebar-resizer"
@@ -34,21 +32,13 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useUiStore } from '@/store/uiStore'
 import Documents from '@/components/Documents.vue'
 import { PanelLeftClose } from 'lucide-vue-next'
 
-// We expect the parent to pass down whether we're in mobile view or not,
-// or you can use a local approach that watches window size directly.
-const props = defineProps({
-    isMobileView: { type: Boolean, default: false }
-})
-
-// Typically, you'd store the 'sidebar width' in a global store or pass it from parent
-// For demonstration, we'll keep it local here.
+// Desktop only: phones show PhoneHome instead of the sidebar.
 const documentsWidth = ref(300)
-const lastKnownDocumentsWidth = ref(300)
 const isResizing = ref(false)
 const startX = ref(0)
 const startWidth = ref(0)
@@ -56,19 +46,7 @@ const startWidth = ref(0)
 // Access the UI store for toggling "showDocuments"
 const ui = useUiStore()
 
-watch(() => props.isMobileView, (newVal, oldVal) => {
-    if (!newVal && oldVal) {
-        // Just left mobile mode => restore sidebar
-        documentsWidth.value = lastKnownDocumentsWidth.value
-    } else if (newVal) {
-        // Entering mobile mode => expand docs to full width
-        lastKnownDocumentsWidth.value = documentsWidth.value
-        documentsWidth.value = window.innerWidth
-    }
-})
-
 function startResize(event) {
-    if (props.isMobileView) return
     isResizing.value = true
     startX.value = event.pageX
     startWidth.value = documentsWidth.value
@@ -106,7 +84,3 @@ onUnmounted(() => {
 })
 
 </script>
-
-<style scoped>
-/* Basic styling; often you already have Tailwind classes. */
-</style>

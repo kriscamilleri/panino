@@ -617,12 +617,14 @@ describe('DocumentDashboard — empty and refresh behavior', () => {
 });
 
 describe('DocumentDashboard — presentation contracts', () => {
-    it('renders mobile and desktop metadata blocks for each row', async () => {
+    it('renders one always-visible metadata column per row', async () => {
+        // Phones have their own Home (PhoneHome), so the dashboard only ever
+        // renders at desktop widths and needs no stacked phone variant.
         const wrapper = await mountDashboard();
 
-        expect(testid(wrapper, 'document-row-meta-beta').classes()).toContain('sm:flex');
-        expect(testid(wrapper, 'document-row-meta-beta').classes()).toContain('hidden');
-        expect(testid(wrapper, 'document-row-meta-mobile-beta').classes()).toContain('sm:hidden');
+        expect(testid(wrapper, 'document-row-meta-beta').classes()).toContain('flex');
+        expect(testid(wrapper, 'document-row-meta-beta').classes()).not.toContain('hidden');
+        expect(wrapper.find('[data-testid="document-row-meta-mobile-beta"]').exists()).toBe(false);
     });
 
     it('stacks the header below the desktop breakpoint so the title is not squeezed', async () => {

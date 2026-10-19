@@ -1,0 +1,170 @@
+/*
+ * Phone layout (below 768px). Everything here is scoped under `.phone-ui`, the
+ * root of the phone screens, so none of it can reach the desktop layout.
+ */
+
+.phone-ui {
+    --ph-ink: #0f172a;
+    --ph-ink-2: #334155;
+    --ph-muted: #475569;
+    --ph-line: #e2e8f0;
+    --ph-surface: #ffffff;
+    --ph-canvas: #f8fafc;
+    --ph-accent: #1d4ed8;
+    --ph-accent-ink: #ffffff;
+    --ph-accent-soft: #eff6ff;
+    --ph-ok: #15803d;
+    --ph-warn: #b45309;
+    --ph-danger: #b91c1c;
+    --ph-scrim: rgba(15, 23, 42, 0.45);
+    --ph-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.08);
+    --ph-font: system-ui, -apple-system, "Segoe UI", Roboto, "IBM Plex Sans", sans-serif;
+    --ph-serif: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman", serif;
+    --ph-mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+
+    font-family: var(--ph-font);
+    color: var(--ph-ink);
+    background: var(--ph-canvas);
+    -webkit-tap-highlight-color: transparent;
+}
+
+html[data-theme='dark'] .phone-ui {
+    --ph-ink: #e5e7eb;
+    --ph-ink-2: #cbd5e1;
+    --ph-muted: #a3adbb;
+    --ph-line: #2f3640;
+    --ph-surface: #1c1f24;
+    --ph-canvas: #121417;
+    --ph-accent: #8ab4ff;
+    --ph-accent-ink: #0b1220;
+    --ph-accent-soft: #1d2a40;
+    --ph-ok: #4ade80;
+    --ph-warn: #fbbf24;
+    --ph-danger: #f87171;
+    --ph-scrim: rgba(0, 0, 0, 0.6);
+    --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* ── type ─────────────────────────────────────────────── */
+.phone-ui .ph-display { font-family: var(--ph-serif); font-weight: 700; font-size: 28px; line-height: 1.2; }
+.phone-ui .ph-section-label {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ph-muted);
+}
+.phone-ui .ph-muted { color: var(--ph-muted); }
+.phone-ui .ph-danger-text { color: var(--ph-danger); }
+
+/* ── controls ─────────────────────────────────────────── */
+.phone-ui .ph-icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 44px; min-height: 44px; border-radius: 12px; color: var(--ph-ink-2);
+    background: transparent; border: 0;
+}
+.phone-ui .ph-icon-btn:active { background: var(--ph-line); }
+.phone-ui .ph-icon-btn:disabled { opacity: 0.4; }
+.phone-ui :focus-visible { outline: 2px solid var(--ph-accent); outline-offset: 2px; }
+
+.phone-ui .ph-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; padding: 0 18px; border-radius: 14px; font-weight: 600; font-size: 16px;
+    border: 1px solid var(--ph-line); background: var(--ph-surface); color: var(--ph-ink);
+}
+.phone-ui .ph-btn-primary { background: var(--ph-accent); border-color: var(--ph-accent); color: var(--ph-accent-ink); }
+.phone-ui .ph-btn-danger { color: var(--ph-danger); }
+.phone-ui .ph-btn:disabled { opacity: 0.5; }
+
+.phone-ui .ph-chip {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 14px;
+    border-radius: 17px; border: 1px solid var(--ph-line); background: var(--ph-surface);
+    color: var(--ph-ink-2); font-size: 14px; font-weight: 500; white-space: nowrap;
+}
+.phone-ui .ph-chip[aria-pressed='true'] { background: var(--ph-accent-soft); border-color: var(--ph-accent); color: var(--ph-accent); }
+/* The visible chip is 34px; the tap area still reaches 44px. */
+.phone-ui .ph-chip { position: relative; }
+.phone-ui .ph-chip::after { content: ''; position: absolute; inset: -5px 0; }
+
+.phone-ui .ph-folder-chip {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+    padding: 2px 8px; border-radius: 10px; background: var(--ph-canvas); color: var(--ph-muted);
+    font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.phone-ui .ph-input {
+    width: 100%; min-height: 44px; padding: 0 14px; border-radius: 12px; font-size: 16px;
+    border: 1px solid var(--ph-line); background: var(--ph-surface); color: var(--ph-ink);
+}
+.phone-ui .ph-input::placeholder { color: var(--ph-muted); }
+
+/* ── rows inside sheets and lists ─────────────────────── */
+.phone-ui .ph-row {
+    display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 0 20px;
+    background: transparent; border: 0; text-align: left; color: var(--ph-ink); font-size: 16px;
+}
+.phone-ui .ph-row:active { background: var(--ph-canvas); }
+.phone-ui .ph-row:disabled { opacity: 0.45; }
+.phone-ui .ph-row svg { color: var(--ph-ink-2); flex-shrink: 0; }
+.phone-ui .ph-row-danger, .phone-ui .ph-row-danger svg { color: var(--ph-danger); }
+
+.phone-ui .ph-card {
+    background: var(--ph-surface); border: 1px solid var(--ph-line); border-radius: 14px;
+}
+
+/* ── switch (role="switch"; state is also aria-checked) ── */
+.phone-ui .ph-switch {
+    position: relative; flex-shrink: 0; width: 52px; height: 32px;
+    border: 0; border-radius: 16px; background: var(--ph-line);
+}
+.phone-ui .ph-switch span {
+    position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--ph-surface); box-shadow: var(--ph-shadow); transition: transform 0.15s ease;
+}
+.phone-ui .ph-switch[aria-checked='true'] { background: var(--ph-accent); }
+.phone-ui .ph-switch[aria-checked='true'] span { transform: translateX(20px); }
+.phone-ui .ph-switch:disabled { opacity: 0.45; }
+/* The track is 32px tall; the tap area still reaches 44px. */
+.phone-ui .ph-switch::after { content: ''; position: absolute; inset: -6px -4px; }
+
+/* ── sync dot ─────────────────────────────────────────── */
+.phone-ui .ph-sync-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.phone-ui .ph-sync-dot[data-state='synced'] { background: var(--ph-ok); }
+.phone-ui .ph-sync-dot[data-state='syncing'] { background: var(--ph-ok); animation: ph-pulse 1.2s ease-in-out infinite; }
+.phone-ui .ph-sync-dot[data-state='offline'],
+.phone-ui .ph-sync-dot[data-state='off'] { background: #94a3b8; }
+.phone-ui .ph-sync-dot[data-state='error'] { background: #f59e0b; }
+@keyframes ph-pulse { 50% { opacity: 0.35; } }
+
+/* ── Preview typography on phones ─────────────────────── */
+/* User preview styles are inline; phone sizes have to win over them. */
+.phone-ui .ph-preview [data-testid='preview-content'] { font-size: 17px !important; line-height: 1.5; }
+.phone-ui .ph-preview [data-testid='preview-content'] p,
+.phone-ui .ph-preview [data-testid='preview-content'] li { font-size: 17px !important; }
+.phone-ui .ph-preview [data-testid='preview-content'] h1 {
+    font-family: var(--ph-serif) !important; font-size: 28px !important; line-height: 1.2 !important;
+    margin-top: 0.75rem !important; font-weight: 700 !important;
+}
+.phone-ui .ph-preview [data-testid='preview-content'] h2 {
+    font-family: var(--ph-serif) !important; font-size: 21px !important; line-height: 1.25 !important;
+    margin-top: 1.5rem !important; font-weight: 700 !important;
+}
+.phone-ui .ph-preview [data-testid='preview-content'] h3 { font-size: 18px !important; }
+.phone-ui .ph-preview [data-testid='preview-content'] img { max-width: 100%; height: auto; }
+.phone-ui .ph-preview [data-testid='preview-content'] pre,
+.phone-ui .ph-preview [data-testid='preview-content'] table { max-width: 100%; overflow-x: auto; }
+.phone-ui .ph-preview .task-list-item { list-style: none; }
+.phone-ui .ph-preview .task-list-item-checkbox {
+    width: 22px; height: 22px; margin: 0 10px 0 -28px; vertical-align: -4px; accent-color: var(--ph-accent);
+}
+/* Colour is never the only signal: a ticked item is also struck through. */
+.phone-ui .ph-preview .task-list-item:has(> .task-list-item-checkbox:checked) {
+    color: var(--ph-muted); text-decoration: line-through;
+}
+
+/* The user's preview style sets dark text inline; in the dark theme it has to follow the ink. */
+html[data-theme='dark'] .phone-ui .ph-preview [data-testid='preview-content'] :is(h1, h2, h3, h4, h5, h6, p, li, strong, em, td, th) {
+    color: var(--ph-ink) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .phone-ui *, .phone-ui *::before, .phone-ui *::after {
+        animation-duration: 0.001ms !important; transition-duration: 0.001ms !important;
+    }
+}

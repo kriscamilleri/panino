@@ -1,10 +1,24 @@
 <template>
-    <div class="h-screen flex flex-col overflow-hidden">
+    <PhoneShell v-if="isPhone">
+        <PhoneEditor v-if="route.params.fileId" />
+        <PhoneFolderView v-else-if="route.params.folderId" />
+        <PhoneHome v-else />
+        <PhoneDrawer
+            :open="activeSheet === 'drawer'"
+            @close="closeSheet"
+        />
+        <MoveSheet
+            :open="activeSheet === 'move'"
+            :target="sheetArg === 'selection' ? 'selection' : 'document'"
+            @close="closeSheet"
+        />
+    </PhoneShell>
+    <div v-else class="h-screen flex flex-col overflow-hidden">
         <Navbar />
         <SubMenuBar />
         <div ref="mainContent" class="flex flex-1 overflow-hidden" data-testid="homepage-main-content">
-            <SidebarWithResizer :isMobileView="isMobileView" />
-            <ContentArea :isMobileView="isMobileView" />
+            <SidebarWithResizer />
+            <ContentArea />
         </div>
         <ImportModal :show="ui.showImportModal" @close="ui.closeImportModal()" @import-success="handleImportSuccess"
             data-testid="homepage-import-modal" />
@@ -22,7 +36,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Navbar from '@/components/Navbar.vue'
 import SubMenuBar from '@/components/SubMenuBar.vue'
@@ -33,6 +47,15 @@ import ExportModal from '@/components/ExportModal.vue'
 import GitHubBackupModal from '@/components/GitHubBackupModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
 import ImageLibraryModal from '@/components/ImageLibraryModal.vue'
+import PhoneShell from '@/components/phone/PhoneShell.vue'
+import PhoneEditor from '@/components/phone/PhoneEditor.vue'
+import PhoneHome from '@/components/phone/PhoneHome.vue'
+import PhoneFolderView from '@/components/phone/PhoneFolderView.vue'
+import PhoneDrawer from '@/components/phone/PhoneDrawer.vue'
+import MoveSheet from '@/components/phone/MoveSheet.vue'
+import { useViewport } from '@/composables/useViewport'
+import { useSheetRoute } from '@/composables/useSheetRoute'
+import { usePhoneSelection } from '@/composables/usePhoneSelection'
 import { useUiStore } from '@/store/uiStore'
 import { useDocStore } from '@/store/docStore'
 import { useEditorStore } from '@/store/editorStore'
@@ -46,12 +69,14 @@ const globalVariablesStore = useGlobalVariablesStore()
 const route = useRoute()
 const router = useRouter()
 
-// Mobile view detection
-const windowWidth = ref(window.innerWidth)
-const isMobileView = computed(() => windowWidth.value < 768)
-const handleResize = () => { windowWidth.value = window.innerWidth }
-onMounted(() => window.addEventListener('resize', handleResize))
-onUnmounted(() => window.removeEventListener('resize', handleResize))
+const { isPhone } = useViewport()
+const { activeSheet, sheetArg, closeSheet } = useSheetRoute()
+const selection = usePhoneSelection()
+
+// A selection belongs to the screen it was made on.
+watch(() => [route.name, route.params.folderId, route.query.filter], () => {
+    if (activeSheet.value !== 'move') selection.clear()
+})
 
 // Sync store on route param changes
 async function applyRouteSelection() {
@@ -60,8 +85,6 @@ async function applyRouteSelection() {
         : docStore.syncStore.personalDbKey
     if (route.params.fileId) {
         await docStore.selectFile(route.params.fileId, dbKey)
-        // Auto-collapse Documents pane on mobile when a document is selected
-        ui.collapseDocumentsOnMobile(isMobileView.value)
     } else if (route.params.folderId) {
         docStore.selectFolder(route.params.folderId, dbKey)
     } else {

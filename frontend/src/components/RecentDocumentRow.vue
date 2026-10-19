@@ -57,20 +57,11 @@
                 >
                     {{ document.excerpt }}
                 </p>
-
-                <!-- Mobile: metadata sits beneath the excerpt. -->
-                <div
-                    class="mt-1 pn-meta sm:hidden"
-                    :title="absoluteDate"
-                    :data-testid="`document-row-meta-mobile-${document.id}`"
-                >
-                    {{ wordCountLabel }} · Edited {{ relativeDate }}
-                </div>
             </div>
 
-            <!-- Desktop: metadata is its own right-aligned, non-wrapping column. -->
+            <!-- Metadata is its own right-aligned, non-wrapping column. -->
             <div
-                class="hidden shrink-0 flex-col items-end whitespace-nowrap pn-meta sm:flex"
+                class="flex shrink-0 flex-col items-end whitespace-nowrap pn-meta"
                 :title="absoluteDate"
                 :data-testid="`document-row-meta-${document.id}`"
             >

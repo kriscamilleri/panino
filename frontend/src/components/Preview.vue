@@ -2,9 +2,11 @@
     <div v-if="file">
         <!-- `renderedHtml` is sanitized with DOMPurify below. -->
         <div
+            ref="contentRef"
             class="mt-2"
             v-html="renderedHtml"
             data-testid="preview-content"
+            @click="handleClick"
         ></div>
     </div>
     <div
@@ -16,15 +18,22 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useMarkdownStore } from '@/store/markdownStore'
 import DOMPurify from 'dompurify'
 
+const props = defineProps({
+    // Phones tick checklist items straight from the Preview.
+    interactiveTasks: { type: Boolean, default: false },
+})
+const emit = defineEmits(['toggle-task'])
+
 const docStore = useDocStore()
 const draftStore = useDraftStore()
+const contentRef = ref(null)
 const markdownStore = useMarkdownStore()
 
 // pull the ref directly
@@ -47,6 +56,37 @@ const renderedHtml = computed(() => {
     const raw = md.render(withPageBreaks)
     return DOMPurify.sanitize(raw)
 })
+
+function taskCheckboxes() {
+    return [...(contentRef.value?.querySelectorAll('input.task-list-item-checkbox') ?? [])]
+}
+
+/**
+ * The renderer emits disabled boxes, which swallow taps. Enable only those,
+ * after sanitizing, and name each one after its item for screen readers.
+ */
+function enableTaskCheckboxes() {
+    if (!props.interactiveTasks) return
+    for (const box of taskCheckboxes()) {
+        box.disabled = false
+        // The item's own line; nested items follow on later lines.
+        const label = (box.parentElement?.textContent || '').trim().split('\n')[0].trim()
+        box.setAttribute('aria-label', `${box.checked ? 'Mark not done' : 'Mark done'}: ${label}`)
+    }
+}
+
+watch([renderedHtml, () => props.interactiveTasks], () => nextTick(enableTaskCheckboxes), { immediate: true })
+
+function handleClick(event) {
+    if (!props.interactiveTasks) return
+    const box = event.target
+    if (!(box instanceof HTMLInputElement) || !box.classList.contains('task-list-item-checkbox')) return
+    // The source is the truth: undo the browser's own toggle and let the
+    // re-render show the new state once the source has changed.
+    event.preventDefault()
+    const boxes = taskCheckboxes()
+    emit('toggle-task', { index: boxes.indexOf(box), count: boxes.length })
+}
 </script>
 
 <style scoped>

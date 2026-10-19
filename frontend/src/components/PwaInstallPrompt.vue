@@ -40,42 +40,36 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, watch } from 'vue';
 import { X } from 'lucide-vue-next';
 import BaseButton from '@/components/BaseButton.vue';
+import { usePwaInstall } from '@/composables/usePwaInstall';
 
 const showInstallPrompt = ref(false);
-const deferredPrompt = ref(null);
+const { canPrompt, installed, install } = usePwaInstall();
 
-function handleBeforeInstallPrompt(e) {
-  // Prevent the mini-infobar from appearing on mobile
-  e.preventDefault();
-  // Stash the event so it can be triggered later
-  deferredPrompt.value = e;
-
-  // Check if user has previously dismissed the prompt
+function recentlyDismissed() {
   const dismissed = localStorage.getItem('pwa-install-dismissed');
-  if (!dismissed) {
-    // Show the install prompt after a short delay
-    setTimeout(() => {
-      showInstallPrompt.value = true;
-    }, 5000); // Show after 5 seconds
-  }
+  return Boolean(dismissed && parseInt(dismissed) > Date.now());
 }
 
+// The banner shows a few seconds after install becomes possible, unless it
+// was dismissed this week. Settings offers install either way.
+let timer = null;
+watch(canPrompt, (available) => {
+  clearTimeout(timer);
+  if (!available || installed.value || recentlyDismissed()) {
+    showInstallPrompt.value = false;
+    return;
+  }
+  timer = setTimeout(() => {
+    showInstallPrompt.value = true;
+  }, 5000);
+}, { immediate: true });
+
 async function handleInstall() {
-  if (!deferredPrompt.value) return;
-
-  // Show the install prompt
-  deferredPrompt.value.prompt();
-
-  // Wait for the user to respond to the prompt
-  const { outcome } = await deferredPrompt.value.userChoice;
-
+  const outcome = await install();
   console.info(`User response to the install prompt: ${outcome}`);
-
-  // Clear the deferredPrompt
-  deferredPrompt.value = null;
   showInstallPrompt.value = false;
 }
 
@@ -85,26 +79,6 @@ function dismissPrompt() {
   const dismissedUntil = Date.now() + (7 * 24 * 60 * 60 * 1000);
   localStorage.setItem('pwa-install-dismissed', dismissedUntil.toString());
 }
-
-onMounted(() => {
-  // Check if already installed
-  if (window.matchMedia('(display-mode: standalone)').matches) {
-    console.info('[PWA] App is already installed');
-    return;
-  }
-
-  // Check if previously dismissed and not yet expired
-  const dismissed = localStorage.getItem('pwa-install-dismissed');
-  if (dismissed && parseInt(dismissed) > Date.now()) {
-    return;
-  }
-
-  window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-});
 </script>
 
 <style scoped>
