@@ -2,6 +2,8 @@
 
 18 October 2026 · Kris
 
+> Status: shipped 2026-10-19. Implementation decisions and deviations: [implementation-spec.md](implementation-spec.md).
+
 ## Summary
 
 Panino's phone layout (viewports under 768 px) moves from a squeezed desktop layout to a capture-first card grid home and a single-pane editor with a Write / Preview switch. The desktop layout is unchanged.

@@ -100,7 +100,7 @@ Keystroke → draftStore.setDraft() (instant)
 ## Phone Layout (below 768 px)
 
 Phones and desktop render different component trees; they share stores, the Editor and the
-Preview. Spec: `docs/specs/active/mobile-ui/` (design spec plus `implementation-spec.md`).
+Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation-spec.md`).
 
 - `composables/useViewport.js` decides (`isPhone`, `matchMedia('(max-width: 767.98px)')`) and
   reports the on-screen keyboard height (`keyboardInset`, from `visualViewport`).

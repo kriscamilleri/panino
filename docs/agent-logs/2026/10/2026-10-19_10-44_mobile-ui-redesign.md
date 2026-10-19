@@ -6,7 +6,7 @@
 
 ## Objective
 
-Kick off the phone redesign in `docs/specs/active/mobile-ui/panino-mobile-ui-spec.md` on a new
+Kick off the phone redesign in `docs/specs/shipped/mobile-ui/panino-mobile-ui-spec.md` on a new
 branch, write a proper implementation spec first, then build and test it locally, committing as
 work progresses, and remove classes and functions the new UI makes unnecessary.
 

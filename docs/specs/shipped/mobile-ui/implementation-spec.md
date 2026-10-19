@@ -1,6 +1,14 @@
 # Panino Mobile UI — Implementation Spec
 
-19 October 2026 · Status: Active · Design spec: [panino-mobile-ui-spec.md](panino-mobile-ui-spec.md)
+19 October 2026 · Status: shipped · Design spec: [panino-mobile-ui-spec.md](panino-mobile-ui-spec.md)
+
+> Shipped: 2026-10-19 (see `docs/agent-logs/2026/10/2026-10-19_10-44_mobile-ui-redesign.md`)
+> Implementation: `frontend/src/components/phone/`, `frontend/src/pages/Phone*.vue`,
+> `frontend/src/pages/SettingsRoute.vue`, `frontend/src/composables/` (`useViewport`, `useSheetRoute`,
+> `usePhoneStatus`, `usePhoneSelection`, `usePhoneGestures`, `useDialogFocus`, `usePwaInstall`,
+> `useSyncToggle`), `frontend/src/utils/` (`markdownKeys`, `markdownTasks`, `markdownSnippet`,
+> `homeView`, `searchQuery`, `syncStatus`, `editorMode`, `pdfExport`, `caretPosition`),
+> `frontend/src/assets/phone.css`, tests `frontend/tests/unit/phone*.test.js`, `pdfExport.test.js`
 
 This spec turns the design spec into decisions against the current code. Where the two
 disagree, this file wins for implementation; the design spec stays the visual reference.
