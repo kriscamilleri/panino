@@ -1,8 +1,4 @@
 <template>
-    <!--
-        Keys act on pointerdown with the default prevented, so the text field
-        keeps focus and the on-screen keyboard stays up while formatting.
-    -->
     <div
         class="ph-keyrow"
         :class="{ 'ph-keyrow-docked': docked }"
@@ -11,6 +7,10 @@
         :style="docked ? { bottom: `${keyboardInset}px` } : undefined"
         data-testid="phone-key-row"
     >
+        <!--
+        Keys act on pointerdown with the default prevented, so the text field
+        keeps focus and the on-screen keyboard stays up while formatting.
+        -->
         <div class="ph-keyrow-scroll">
             <button
                 v-for="key in keys"

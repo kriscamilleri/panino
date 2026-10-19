@@ -7,6 +7,7 @@ import LoadingPage from "@/pages/LoadingPage.vue";
 import PrintStylesPage from "@/pages/PrintStylesPage.vue";
 import TermsOfServicePage from "@/pages/TermsOfServicePage.vue";
 import SettingsPage from "@/pages/SettingsPage.vue";
+import SettingsRoute from "@/pages/SettingsRoute.vue";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage.vue";
 import ResetPasswordPage from "@/pages/ResetPasswordPage.vue";
 import ImageManagerPage from "@/pages/ImageManagerPage.vue";
@@ -88,6 +89,11 @@ export const router = createRouter({
     {
       path: "/settings",
       name: "settings",
+      component: SettingsRoute,
+    },
+    {
+      path: "/settings/account",
+      name: "settings-account",
       component: SettingsPage,
     },
     {
@@ -170,9 +176,12 @@ router.beforeEach(async (to, from, next) => {
     !["space-invitation", "verify-email"].includes(to.name)
   ) {
     if (to.name !== "loading") {
+      // Come back to the screen that was asked for: a reloaded Document, a
+      // shared link, or a Home Screen shortcut such as New note.
       return next({
         name: "loading",
         params: { timestamp: Date.now() },
+        query: to.fullPath !== "/" ? { redirect: to.fullPath } : {},
       });
     }
   }

@@ -72,14 +72,18 @@
         <main class="ph-editor-body">
             <!--
                 The Editor stays mounted in Preview: it owns the pending save,
-                the conflict state and the live-session binding.
+                the conflict state and the live-session binding. In Preview it
+                hides its text but keeps its banners and dialogs on screen.
             -->
             <div
-                v-show="mode === 'write'"
                 class="ph-write"
+                :class="{ 'ph-write-banners': mode !== 'write' }"
                 data-testid="phone-editor-write"
             >
-                <Editor phone />
+                <Editor
+                    phone
+                    :hide-text="mode !== 'write'"
+                />
             </div>
             <div
                 v-show="mode === 'preview'"
@@ -179,6 +183,14 @@
             :folder-label="folderLabel"
             @close="closeSheet"
         />
+        <CollaborateSheet
+            :open="activeSheet === 'collaborate'"
+            @close="closeSheet"
+        />
+        <ExportSheet
+            :open="activeSheet === 'export'"
+            @close="closeSheet"
+        />
     </div>
 </template>
 
@@ -193,6 +205,8 @@ import AvatarStack from '@/components/AvatarStack.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import KeyRow from '@/components/phone/KeyRow.vue'
 import DocumentMenuSheet from '@/components/phone/DocumentMenuSheet.vue'
+import CollaborateSheet from '@/components/phone/CollaborateSheet.vue'
+import ExportSheet from '@/components/phone/ExportSheet.vue'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useEditorStore } from '@/store/editorStore'
@@ -409,15 +423,24 @@ watch(mode, (next) => {
 
 .ph-editor-body {
     position: relative;
+    display: flex;
+    flex-direction: column;
     flex: 1;
     min-height: 0;
 }
 
 .ph-write,
 .ph-preview {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+}
+
+/* Preview mode: only the Editor's banners show, above the Preview. */
+.ph-write-banners {
+    flex: none;
+    overflow: visible;
 }
 
 .ph-preview {

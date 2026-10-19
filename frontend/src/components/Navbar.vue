@@ -46,7 +46,7 @@
                     v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'"
                     :isActive="syncStore.syncEnabled"
                     :disabled="!authStore.isAuthenticated || !syncStore.isOnline"
-                    @click="handleToggleSync"
+                    @click="toggleSync"
                     :title="!syncStore.isOnline ? 'Offline - Sync unavailable' : syncStore.isSyncing ? 'Syncing...' : 'Toggle Sync'"
                     data-testid="navbar-sync-button"
                 >
@@ -179,6 +179,7 @@ import { useThemeStore } from '@/store/themeStore'
 import { useRouter } from 'vue-router'
 
 import BaseButton from '@/components/BaseButton.vue'
+import { useSyncToggle } from '@/composables/useSyncToggle'
 
 import {
     Layout,
@@ -200,41 +201,7 @@ const authStore = useAuthStore()
 const syncStore = useSyncStore()
 const themeStore = useThemeStore()
 const router = useRouter()
-
-async function handleToggleSync() {
-    const uiStore = useUiStore();
-
-    // Check if offline first
-    if (!syncStore.isOnline) {
-        uiStore.addToast('Cannot sync while offline. Changes will sync when you reconnect.', 'warning');
-        return;
-    }
-
-    // Check authentication
-    if (!authStore.isAuthenticated) {
-        uiStore.addToast('Please log in again to enable sync.', 'warning');
-        return;
-    }
-
-    // If trying to enable sync (currently disabled)
-    if (!syncStore.syncEnabled) {
-        // Try refreshing the token if sync was disabled due to auth failure
-        console.info('[Navbar] Attempting to refresh token before enabling sync...');
-        const refreshed = await authStore.refreshToken();
-        if (!refreshed) {
-            uiStore.addToast('Session expired. Please log in again to enable sync.', 'warning');
-            return;
-        }
-
-        // Enable sync and show success message
-        syncStore.setSyncEnabled(true);
-        uiStore.addToast('Sync enabled. Your documents will sync automatically.', 'success', 3000);
-    } else {
-        // Disable sync
-        syncStore.setSyncEnabled(false);
-        uiStore.addToast('Sync disabled. Changes will be stored locally only.', 'info', 3000);
-    }
-}
+const { toggleSync } = useSyncToggle()
 
 async function handleLogout() {
     try {

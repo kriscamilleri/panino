@@ -1,9 +1,4 @@
 <template>
-    <!--
-        A real link: it opens the Document, carries its address for "open in
-        new tab", and is announced as one. In selection mode a tap toggles
-        the card instead, and a long press starts selection.
-    -->
     <a
         :href="href"
         class="ph-note"
@@ -18,6 +13,11 @@
         @pointerleave="cancelPress"
         @pointercancel="cancelPress"
     >
+        <!--
+        A real link: it opens the Document, carries its address for "open in
+        new tab", and is announced as one. In selection mode a tap toggles
+        the card instead, and a long press starts selection.
+        -->
         <div class="ph-note-head">
             <h3 class="ph-note-title">{{ doc.name }}</h3>
             <Pin

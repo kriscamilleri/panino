@@ -108,6 +108,21 @@ html[data-theme='dark'] .phone-ui {
     background: var(--ph-surface); border: 1px solid var(--ph-line); border-radius: 14px;
 }
 
+/* ── switch (role="switch"; state is also aria-checked) ── */
+.phone-ui .ph-switch {
+    position: relative; flex-shrink: 0; width: 52px; height: 32px;
+    border: 0; border-radius: 16px; background: var(--ph-line);
+}
+.phone-ui .ph-switch span {
+    position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--ph-surface); box-shadow: var(--ph-shadow); transition: transform 0.15s ease;
+}
+.phone-ui .ph-switch[aria-checked='true'] { background: var(--ph-accent); }
+.phone-ui .ph-switch[aria-checked='true'] span { transform: translateX(20px); }
+.phone-ui .ph-switch:disabled { opacity: 0.45; }
+/* The track is 32px tall; the tap area still reaches 44px. */
+.phone-ui .ph-switch::after { content: ''; position: absolute; inset: -6px -4px; }
+
 /* ── sync dot ─────────────────────────────────────────── */
 .phone-ui .ph-sync-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .phone-ui .ph-sync-dot[data-state='synced'] { background: var(--ph-ok); }

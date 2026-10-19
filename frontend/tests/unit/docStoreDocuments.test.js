@@ -225,3 +225,68 @@ describe('docStore.setDocumentPinned', () => {
         expect(dbExec).not.toHaveBeenCalled();
     });
 });
+
+describe('docStore.searchDocuments', () => {
+    it('matches title and body literally, with LIKE wildcards escaped', async () => {
+        execute.mockResolvedValue([noteRow({ id: 'hit', title: '50% off' })]);
+
+        const result = await store.searchDocuments({ query: ' 50%_off ' });
+
+        const [sql, params] = execute.mock.calls[0];
+        expect(sql).toContain("notes.title LIKE ? ESCAPE '\\'");
+        expect(sql).toContain("notes.content LIKE ? ESCAPE '\\'");
+        expect(params).toEqual(['%50\\%\\_off%', '%50\\%\\_off%', 50]);
+        expect(sql).not.toContain('50%');
+        expect(result.map((doc) => doc.id)).toEqual(['hit']);
+    });
+
+    it('searches titles only when asked', async () => {
+        await store.searchDocuments({ query: 'plan', scope: 'titles' });
+        const [sql, params] = execute.mock.calls[0];
+        expect(sql).not.toContain('notes.content LIKE');
+        expect(params).toEqual(['%plan%', 50]);
+    });
+
+    it('limits a folder search to that folder and its subfolders', async () => {
+        await store.searchDocuments({ query: 'x', scope: 'folder', folderId: 'folder-1', dbKey: PERSONAL_KEY });
+        const [sql, params] = execute.mock.calls[0];
+        expect(sql).toContain('scope_folders');
+        expect(sql).toContain('notes.folder_id IN (SELECT id FROM scope_folders)');
+        expect(params[0]).toBe('folder-1');
+    });
+
+    it('keeps only Documents with checklist items for the checklist scope', async () => {
+        execute.mockResolvedValue([
+            noteRow({ id: 'tasks', content: '- [ ] milk' }),
+            noteRow({ id: 'brackets', content: 'array[0] only' }),
+        ]);
+        const result = await store.searchDocuments({ query: 'i', scope: 'checklists' });
+        expect(result.map((doc) => doc.id)).toEqual(['tasks']);
+    });
+
+    it('returns nothing for an empty query without querying', async () => {
+        expect(await store.searchDocuments({ query: '   ' })).toEqual([]);
+        expect(execute).not.toHaveBeenCalled();
+    });
+});
+
+describe('docStore Inbox and folder listing', () => {
+    it('counts personal Documents in no folder', async () => {
+        execute.mockResolvedValue([{ count: 4 }]);
+        expect(await store.countInbox()).toBe(4);
+        expect(execute.mock.calls[0][0]).toContain('folder_id IS NULL');
+        expect(repository).toHaveBeenCalledWith(PERSONAL_KEY);
+    });
+
+    it('lists folders with their paths and parents', async () => {
+        execute.mockResolvedValue([
+            { id: 'f1', name: 'Travel', parent_id: null, path: 'Travel' },
+            { id: 'f2', name: '', parent_id: 'f1', path: 'Travel / ' },
+        ]);
+        expect(await store.listFolders(PERSONAL_KEY)).toEqual([
+            { id: 'f1', name: 'Travel', parentId: null, path: 'Travel', dbKey: PERSONAL_KEY },
+            { id: 'f2', name: 'Untitled folder', parentId: 'f1', path: 'Travel / ', dbKey: PERSONAL_KEY },
+        ]);
+        await expect(store.listFolders()).rejects.toThrow(/Database scope/);
+    });
+});

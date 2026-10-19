@@ -1,12 +1,12 @@
 <template>
-    <!--
-        Swipe left to reveal the actions. The ⋯ button reveals the same
-        actions, so they never depend on a gesture.
-    -->
     <div
         class="ph-swipe"
         :data-testid="testid"
     >
+        <!--
+        Swipe left to reveal the actions. The ⋯ button reveals the same
+        actions, so they never depend on a gesture.
+        -->
         <div
             class="ph-swipe-actions"
             :aria-hidden="!revealed"

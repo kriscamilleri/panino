@@ -43,6 +43,7 @@ import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
 import { useAuthStore } from '@/store/authStore';
 import DOMPurify from 'dompurify';
+import { buildPdfRequest, requestPdf } from '@/utils/pdfExport';
 
 const router = useRouter();
 const docStore = useDocStore();
@@ -237,52 +238,23 @@ async function regeneratePdf() {
     return;
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 90000);
-
   try {
     const md = await markdownStore.getPrintMarkdownIt();
     const processedMarkdown = markdownStore.applyMetadataVariables(docStore.selectedFileContent);
-    const rawHtmlContent = md.render(processedMarkdown);
-    const htmlContent = DOMPurify.sanitize(rawHtmlContent);
-    const cssStyles = markdownStore.printStylesCssString;
-
-    finalHtmlForPdf.value = `<style>${cssStyles}</style>
-      ${htmlContent}`;
-
-    const sanitizedPrintStyles = {
-      ...docStore.printStyles,
-      printHeaderHtml: DOMPurify.sanitize(docStore.printStyles.printHeaderHtml || ''),
-      printFooterHtml: DOMPurify.sanitize(docStore.printStyles.printFooterHtml || ''),
-    };
-
-    const response = await fetch(`${API_URL}/render-pdf`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authStore.token}`
-      },
-      body: JSON.stringify({
-        htmlContent,
-        cssStyles,
-        printStyles: sanitizedPrintStyles
-      }),
-      signal: controller.signal
+    const body = buildPdfRequest({
+      html: md.render(processedMarkdown),
+      cssStyles: markdownStore.printStylesCssString,
+      printStyles: docStore.printStyles,
+      sanitize: (html) => DOMPurify.sanitize(html),
     });
 
-    clearTimeout(timeoutId);
+    finalHtmlForPdf.value = `<style>${body.cssStyles}</style>
+      ${body.htmlContent}`;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`PDF generation failed: ${errorText}`);
-    }
-
-    const blob = await response.blob();
+    const blob = await requestPdf({ apiUrl: API_URL, token: authStore.token, body });
     if (pdfUrl.value) URL.revokeObjectURL(pdfUrl.value);
     pdfUrl.value = URL.createObjectURL(blob);
-
   } catch (error) {
-    clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
       console.error('PDF generation timed out');
       alert('PDF generation is taking too long. Please try again.');

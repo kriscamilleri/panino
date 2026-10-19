@@ -1,7 +1,8 @@
 <template>
   <div
     v-if="file"
-    class="h-full flex flex-col gap-0"
+    class="flex flex-col gap-0"
+    :class="{ 'h-full': !hideText }"
   >
     <div
       v-if="ui.showMetadata && !phone"
@@ -227,13 +228,21 @@
       @apply="applyCollabResolution"
     />
 
-    <div class="flex-1 flex flex-col min-h-0 mt-0">
+    <div
+      v-show="!hideText"
+      class="relative flex-1 flex flex-col min-h-0 mt-0"
+    >
       <div
         ref="editorContainerRef"
         class="flex-1 bg-white mt-0 p-0"
         :class="{ 'opacity-60': collabStatus === 'dropped' }"
         data-testid="editor-container"
       ></div>
+      <RemoteCarets
+        v-if="phone && collabActive"
+        :textarea="liveTextarea"
+        :participants="remoteParticipants"
+      />
     </div>
   </div>
 
@@ -300,6 +309,7 @@ import BaseModal from '@/components/BaseModal.vue';
 import DiffView from '@/components/DiffView.vue';
 import ConflictResolutionModal from '@/components/ConflictResolutionModal.vue';
 import AvatarStack from '@/components/AvatarStack.vue';
+import RemoteCarets from '@/components/phone/RemoteCarets.vue';
 import { YTextareaBinding } from '@/utils/yTextareaBinding';
 import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';
@@ -310,6 +320,9 @@ const props = defineProps({
   // The phone layout: collaboration, stats and metadata live in the top bar
   // and the Document menu, and Write mode uses larger monospace type.
   phone: { type: Boolean, default: false },
+  // Phone Preview mode: hide only the text, so conflict banners and the
+  // dialogs above it stay on screen while the Preview shows below them.
+  hideText: { type: Boolean, default: false },
 });
 
 /* ───── helpers ───── */
@@ -361,6 +374,11 @@ const showCollabSave = ref(false);
 const showCollabConflict = ref(false);
 const syncOnline = computed(() => syncStore.isOnline);
 const isSharedDocument = computed(() => file.value?.dbKey?.startsWith('space:'));
+/** Other people in the live session, for the phone's remote carets. */
+const remoteParticipants = computed(() => collabParticipants.value
+  .filter((participant) => participant.id !== authStore.user?.id));
+// Re-read when the editor is rebuilt (theme change) so carets follow the new textarea.
+const liveTextarea = computed(() => (editorInstance.value ? getTextareaElement() : null));
 const collabStatusLabel = computed(() => ({
   opening: 'Joining live session…',
   live: 'Live session',

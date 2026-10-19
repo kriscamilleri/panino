@@ -327,7 +327,10 @@ const crumbs = computed(() => {
     return list
 })
 
-const destination = computed(() => ({ dbKey: dbKey.value, folderId: folderId.value, label: title.value }))
+/** Capture saves here, unless Settings sends new notes to the Inbox. */
+const destination = computed(() => (ui.newNotesDestination === 'inbox'
+    ? { dbKey: syncStore.personalDbKey, folderId: null, label: 'Inbox' }
+    : { dbKey: dbKey.value, folderId: folderId.value, label: title.value }))
 
 const columns = computed(() => splitIntoColumns(
     notes.value,
