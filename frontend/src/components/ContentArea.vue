@@ -1,6 +1,6 @@
 <template>
     <div
-        class="flex flex-1 overflow-hidden flex-col md:flex-row"
+        class="flex flex-1 overflow-hidden flex-row"
         data-testid="content-area-container"
     >
         <template v-if="docStore.selectedFolderId && !docStore.selectedFileId">

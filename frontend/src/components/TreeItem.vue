@@ -72,7 +72,7 @@
 
         <div
             v-if="isFolder"
-            class="flex items-center space-x-2 group rounded-md py-1 md:my-1 cursor-pointer"
+            class="flex items-center space-x-2 group rounded-md py-1 my-1 cursor-pointer"
             :class="{
                 'bg-gray-700 text-white': isSelectedFolder,
                 'bg-gray-600 text-white': isParentOfSelectedFile,
