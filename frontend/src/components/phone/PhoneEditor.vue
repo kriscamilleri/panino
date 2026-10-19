@@ -329,9 +329,11 @@ function toggleDictation() {
     else startDictation()
 }
 
-// Dictation needs the Editor in view to land anywhere sensible.
 watch(mode, (next) => {
-    if (next !== MODE_WRITE && isDictationRecording.value) stopDictation()
+    // The Editor was display:none while Preview showed; redraw it.
+    if (next === MODE_WRITE) nextTick(() => editorStore.refreshLayout())
+    // Dictation needs the Editor in view to land anywhere sensible.
+    else if (isDictationRecording.value) stopDictation()
 })
 </script>
 
@@ -439,12 +441,14 @@ watch(mode, (next) => {
     color: var(--ph-danger);
 }
 
-/* OverType carries its own white background; follow the phone surface. */
+/*
+ * OverType carries its own white background; follow the phone surface. Never
+ * the textarea: it sits above the highlighted text layer and must stay
+ * transparent, or the text disappears behind it.
+ */
 .ph-write :deep(.overtype-container),
 .ph-write :deep(.overtype-wrapper),
-.ph-write :deep(.overtype-editor),
-.ph-write :deep(.overtype-preview),
-.ph-write :deep(textarea) {
+.ph-write :deep(.overtype-preview) {
     background-color: var(--ph-surface) !important;
 }
 </style>

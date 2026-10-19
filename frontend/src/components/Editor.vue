@@ -1363,6 +1363,18 @@ function focusEditor() {
   getTextareaElement()?.focus();
 }
 
+/**
+ * Redraw after the editor was hidden. OverType measures its height and draws
+ * its highlighted text layer on input; while the phone shows Preview the
+ * editor is `display: none`, so both go stale until shown again.
+ */
+function refreshLayout() {
+  const editor = editorInstance.value;
+  if (!editor) return;
+  editor.updatePreview?.();
+  editor._updateAutoHeight?.();
+}
+
 /* ───── find / replace ───── */
 function findNext(term) {
   if (!term?.trim()) return;
@@ -1477,6 +1489,7 @@ const exposedMethods = {
   insertText: insertTextWrapped,
   transformText: transformTextWrapped,
   focus: focusEditor,
+  refreshLayout,
   startCollaboration,
   leaveCollaboration,
   requestSaveVersion: () => { showCollabSave.value = true; },

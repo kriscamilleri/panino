@@ -175,6 +175,7 @@ export const useEditorStore = defineStore('editorStore', () => {
         isHoldingChanges,
         transformText,
         focus: () => callEditor('focus'),
+        refreshLayout: () => callEditor('refreshLayout'),
         startCollaboration: () => callEditor('startCollaboration'),
         leaveCollaboration: () => callEditor('leaveCollaboration'),
         requestSaveVersion: () => callEditor('requestSaveVersion'),
