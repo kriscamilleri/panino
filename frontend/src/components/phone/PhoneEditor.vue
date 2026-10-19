@@ -219,6 +219,7 @@ import { applyKey, WRITE_KEYS } from '@/utils/markdownKeys'
 import { toggleTaskAt } from '@/utils/markdownTasks'
 import { resolveInitialMode, MODE_PREVIEW, MODE_WRITE } from '@/utils/editorMode'
 import { editorStatusLine } from '@/utils/syncStatus'
+import { goUp } from '@/utils/phoneNavigation'
 
 const MODE_OPTIONS = [
     { value: MODE_WRITE, label: 'Write', icon: PenLine },
@@ -280,13 +281,10 @@ watch(() => [file.value?.id, file.value?.folder_id, file.value?.dbKey], async ([
     }
 }, { immediate: true })
 
+/** Up to the list this Document was opened from, or else its folder or Home. */
 function goBack() {
-    if (window.history.state?.back) {
-        router.back()
-        return
-    }
     const folderId = file.value?.folder_id
-    router.replace(folderId
+    goUp(router, folderId
         ? { name: 'folder', params: { folderId }, query: { dbKey: file.value.dbKey } }
         : { name: 'home' })
 }

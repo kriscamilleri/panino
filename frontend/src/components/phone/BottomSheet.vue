@@ -3,6 +3,7 @@
         <div
             v-if="open"
             class="ph-sheet-root"
+            :style="visibleStyle"
             :data-testid="testid"
         >
             <div
@@ -56,7 +57,7 @@ const props = defineProps({
     open: { type: Boolean, default: false },
     /** Accessible name of the dialog. */
     label: { type: String, required: true },
-    /** Tallest the sheet may be, in px; it shrinks to fit above the keyboard. */
+    /** Tallest the sheet may be, in px; it shrinks to fit the visible screen. */
     maxHeight: { type: Number, default: 760 },
     /** Fill the available height rather than fitting the content. */
     tall: { type: Boolean, default: false },
@@ -66,14 +67,14 @@ const props = defineProps({
 // `close` asks to close; the parent decides (a capture sheet checks for text first).
 const emit = defineEmits(['close'])
 
-const { keyboardInset } = useViewport()
+// The sheet covers the visible screen only, so it always ends above the keyboard.
+const { visibleStyle } = useViewport()
 const panelRef = ref(null)
 const dragOffset = ref(0)
 
 const panelStyle = computed(() => {
-    const available = `calc(100dvh - ${keyboardInset.value}px - 24px)`
+    const available = 'calc(100% - 24px)'
     return {
-        bottom: `${keyboardInset.value}px`,
         maxHeight: `min(${props.maxHeight}px, ${available})`,
         height: props.tall ? `min(${props.maxHeight}px, ${available})` : undefined,
         transform: dragOffset.value ? `translateY(${dragOffset.value}px)` : undefined,
@@ -118,7 +119,8 @@ onBeforeUnmount(endDrag)
 <style scoped>
 .ph-sheet-root {
     position: fixed;
-    inset: 0;
+    left: 0;
+    right: 0;
     /* Below app dialogs (BaseModal, z-index 50): a dialog the Editor opens while a
        sheet is up, such as Save version or a conflict, must show above it. */
     z-index: 45;
@@ -134,6 +136,7 @@ onBeforeUnmount(endDrag)
     position: absolute;
     left: 0;
     right: 0;
+    bottom: 0;
     display: flex;
     flex-direction: column;
     background: var(--ph-surface);

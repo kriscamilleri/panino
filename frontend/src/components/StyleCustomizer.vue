@@ -1,6 +1,42 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex flex-col">
-    <AccountNav :title="config.title">
+  <!--
+    Phones get one top bar and one pane at a time (Preview | Styles), pinned to
+    the visible screen like the other phone screens. Desktop is unchanged.
+  -->
+  <div
+    :class="isPhone ? 'phone-ui ph-styles' : 'min-h-screen bg-gray-50 flex flex-col'"
+    :style="isPhone ? visibleStyle : undefined"
+    data-testid="style-customizer"
+  >
+    <template v-if="isPhone">
+      <header class="ph-styles-top">
+        <button
+          type="button"
+          class="ph-icon-btn"
+          aria-label="Back"
+          data-testid="phone-styles-back"
+          @click="goBack"
+        >
+          <ArrowLeft
+            class="h-6 w-6"
+            aria-hidden="true"
+          />
+        </button>
+        <h1 class="ph-styles-title">{{ phoneTitle }}</h1>
+      </header>
+      <div class="ph-styles-mode">
+        <SegmentedControl
+          v-model="phonePane"
+          label="Show"
+          testid-prefix="phone-styles-pane"
+          :options="PHONE_PANES"
+        />
+      </div>
+    </template>
+    <AccountNav
+      v-else
+      :title="config.title"
+    >
       <template #actions>
         <!-- Button group for custom actions (Print page) -->
         <div
@@ -48,14 +84,15 @@
       </template>
     </AccountNav>
 
-    <div class="flex-1 flex overflow-hidden">
-      <!-- Styles Pane (left side when active) -->
+    <div :class="isPhone ? 'ph-styles-body' : 'flex-1 flex overflow-hidden'">
+      <!-- Styles Pane (left side when active; the Styles pane on phones) -->
       <div
-        v-if="shouldShowStylesPane"
-        class="w-1/2 p-8 overflow-y-auto"
-        :style="{ height: 'calc(100vh - 57px)' }"
+        v-if="isPhone ? phonePane === 'styles' : shouldShowStylesPane"
+        :class="isPhone ? 'ph-styles-pane' : 'w-1/2 p-8 overflow-y-auto'"
+        :style="isPhone ? undefined : { height: 'calc(100vh - 57px)' }"
+        data-testid="style-customizer-styles"
       >
-        <div class="h-full overflow-y-auto rounded-lg border border-gray-200 bg-white p-8 shadow-lg">
+        <div :class="isPhone ? 'ph-styles-form' : 'h-full overflow-y-auto rounded-lg border border-gray-200 bg-white p-8 shadow-lg'">
           <div class="space-y-6">
             <div
               v-for="(styles, category) in categorizedStyles"
@@ -225,9 +262,9 @@
         </div>
       </div>
 
-      <!-- Editor Pane (left side when active) -->
+      <!-- Editor Pane (left side when active; desktop only) -->
       <div
-        v-if="shouldShowEditorPane"
+        v-if="!isPhone && shouldShowEditorPane"
         class="w-1/2 p-8 overflow-y-auto bg-gray-50"
         :style="{ height: 'calc(100vh - 57px)' }"
       >
@@ -244,11 +281,14 @@
         ></textarea>
       </div>
 
-      <!-- Preview/Content Pane (right side or full width) -->
+      <!-- Preview/Content Pane (right side or full width; the Preview pane on phones) -->
       <div
-        :class="shouldShowStylesPane || shouldShowEditorPane ? 'w-1/2' : 'w-full'"
-        class="bg-white border-l overflow-hidden"
-        :style="{ height: 'calc(100vh - 57px)' }"
+        v-show="!isPhone || phonePane === 'preview'"
+        :class="isPhone
+          ? 'ph-styles-preview'
+          : [shouldShowStylesPane || shouldShowEditorPane ? 'w-1/2' : 'w-full', 'bg-white border-l overflow-hidden']"
+        :style="isPhone ? undefined : { height: 'calc(100vh - 57px)' }"
+        data-testid="style-customizer-preview"
       >
         <slot />
       </div>
@@ -263,12 +303,23 @@ import { ArrowLeft, Settings, Bug, Palette, Edit3 } from 'lucide-vue-next';
 import { useDebounceFn } from '@vueuse/core';
 import AccountNav from './AccountNav.vue';
 import BaseButton from './BaseButton.vue';
+import SegmentedControl from './phone/SegmentedControl.vue';
+import { useViewport } from '@/composables/useViewport';
+
+const PHONE_PANES = [
+  { value: 'preview', label: 'Preview' },
+  { value: 'styles', label: 'Styles' },
+];
 
 const props = defineProps({
   config: { type: Object, required: true }
 });
 
 const router = useRouter();
+const { isPhone, visibleStyle } = useViewport();
+const phonePane = ref('preview');
+/** "Customize Print Styles" is too long for a phone's top bar. */
+const phoneTitle = computed(() => props.config.title.replace(/^Customize\s+/i, ''));
 const editableStyleMap = ref({});
 const showStylesCustomization = ref(false);
 
@@ -443,8 +494,13 @@ const categorizedStyles = computed(() => {
   }, {});
 });
 
+// Back returns to the screen that opened this page. Pushing the Document (or
+// Home) again stacked a new entry each time, and on phones the editor's back
+// arrow then returned here, so the two screens sent each other back forever.
 function goBack() {
-  if (props.config.onBack) {
+  if (window.history.state?.back) {
+    router.back();
+  } else if (props.config.onBack) {
     props.config.onBack();
   } else {
     router.push('/');
@@ -473,6 +529,72 @@ function iconForAction(id) {
 </script>
 
 <style scoped>
+.ph-styles {
+  position: fixed;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ph-surface);
+}
+
+.ph-styles-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 60px;
+  padding: env(safe-area-inset-top) 8px 0 4px;
+  border-bottom: 1px solid var(--ph-line);
+  flex-shrink: 0;
+}
+
+.ph-styles-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ph-styles-mode {
+  padding: 8px 16px;
+  flex-shrink: 0;
+}
+
+.ph-styles-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ph-styles-pane,
+.ph-styles-preview {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ph-styles-pane {
+  padding: 8px 16px 40px;
+}
+
+.ph-styles-preview {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+/* 16px or iOS zooms the page into the field. */
+.ph-styles-form :is(textarea, input, select) {
+  font-size: 16px;
+}
+
 .font-selector-container {
   position: relative;
 }
