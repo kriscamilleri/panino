@@ -214,3 +214,14 @@ unmounting it to show Preview would end a live session.
 - A two-device live session. Carets and avatars were checked with an injected participant.
 - PNG icons for iOS (`apple-touch-icon`); the manifest still has the SVG only.
 - Find and replace on phones.
+
+## 11. Later changes
+
+- **2026-10-19, Inbox removed.** Users found it confusing. Notes in no folder are simply
+  shown on Home; where a location must be named it is "No folder". The Inbox chip, Drawer row,
+  All folders row, count query and the "New notes in a folder go to" setting are gone.
+- **2026-10-19, sorting.** Home and folders sort by date modified (default), date created or
+  title, ascending or descending, from a sort button or Settings; pinned notes stay first.
+- **2026-10-19, install banner.** The floating install card no longer shows on phones (it
+  covered sheets); Settings offers install, as the design spec intended.
+

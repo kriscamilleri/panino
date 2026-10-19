@@ -249,7 +249,7 @@ const folderLabel = computed(() => {
     const last = trail.value[trail.value.length - 1]
     if (last) return last.name
     if (file.value?.dbKey?.startsWith('space:')) return file.value.spaceName || 'Shared space'
-    return 'Inbox'
+    return ''
 })
 
 const statusLine = computed(() => editorStatusLine({

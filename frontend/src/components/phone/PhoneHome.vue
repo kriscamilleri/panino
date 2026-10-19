@@ -80,26 +80,23 @@
             <p>You're offline. Everything stays editable and syncs when you're back online.</p>
         </div>
 
-        <div
-            class="ph-chips"
-            role="group"
-            aria-label="Show"
-        >
-            <button
-                v-for="chip in chips"
-                :key="chip.value"
-                type="button"
-                class="ph-chip"
-                :aria-pressed="filter === chip.value"
-                :data-testid="`phone-home-filter-${chip.value}`"
-                @click="setFilter(chip.value)"
+        <div class="ph-chips-row">
+            <div
+                class="ph-chips"
+                role="group"
+                aria-label="Show"
             >
-                {{ chip.label }}
-                <span
-                    v-if="chip.count"
-                    class="ph-chip-count"
-                >{{ chip.count }}</span>
-            </button>
+                <button
+                    v-for="chip in chips"
+                    :key="chip.value"
+                    type="button"
+                    class="ph-chip"
+                    :aria-pressed="filter === chip.value"
+                    :data-testid="`phone-home-filter-${chip.value}`"
+                    @click="setFilter(chip.value)"
+                >{{ chip.label }}</button>
+            </div>
+            <SortButton />
         </div>
 
         <main
@@ -134,7 +131,7 @@
                     <h2 class="ph-display">{{ emptyTitle }}</h2>
                     <p class="ph-muted">{{ emptyLine }}</p>
                     <button
-                        v-if="filter === 'all' || filter === 'inbox'"
+                        v-if="filter === 'all'"
                         type="button"
                         class="ph-btn ph-btn-primary"
                         data-testid="phone-home-first-note"
@@ -234,6 +231,7 @@ import { usePhoneStatus } from '@/composables/usePhoneStatus'
 import { usePhoneSelection } from '@/composables/usePhoneSelection'
 import { usePullToSync, useEdgeSwipe } from '@/composables/usePhoneGestures'
 import { buildHomeSections, normalizeHomeFilter, splitIntoColumns } from '@/utils/homeView'
+import SortButton from '@/components/phone/SortButton.vue'
 import { toSnippetLines } from '@/utils/markdownSnippet'
 
 const HOME_LIMIT = 200
@@ -249,7 +247,6 @@ const { sync, syncNow } = usePhoneStatus()
 const selection = usePhoneSelection()
 
 const docs = ref([])
-const inboxCount = ref(0)
 const loaded = ref(false)
 const showTemplates = ref(false)
 const scrollRef = ref(null)
@@ -259,12 +256,11 @@ const hasSpaces = computed(() => [...syncStore.databases.values()].some((entry) 
 
 const chips = computed(() => [
     { value: 'all', label: 'All notes' },
-    { value: 'inbox', label: 'Inbox', count: inboxCount.value },
     ...(hasSpaces.value ? [{ value: 'shared', label: 'Shared' }] : []),
     ...(filter.value === 'pinned' ? [{ value: 'pinned', label: 'Pinned' }] : []),
 ])
 
-const sections = computed(() => buildHomeSections(docs.value, filter.value, syncStore.personalDbKey))
+const sections = computed(() => buildHomeSections(docs.value, filter.value, syncStore.personalDbKey, ui.noteSort))
 
 const estimateHeight = (doc) => 3 + toSnippetLines(doc.content, { title: doc.name, maxLines: 8 }).length
 
@@ -277,39 +273,30 @@ const visibleSections = computed(() => {
 })
 
 const emptyTitle = computed(() => ({
-    inbox: 'Inbox is empty',
     shared: 'Nothing shared yet',
     pinned: 'No pinned notes',
 }[filter.value] || 'No notes yet'))
 
 const emptyLine = computed(() => ({
-    inbox: 'New notes land here until you file them.',
     shared: 'Documents in shared spaces appear here.',
     pinned: 'Pin a note from its menu to keep it at the top.',
-}[filter.value] || 'New notes land in your Inbox; file them into folders later.'))
+}[filter.value] || 'Take a note now; you can put it in a folder whenever you like.'))
 
-/** Capture saves to the Inbox from Home. */
+/** Capture from Home saves outside any folder unless another is picked. */
 const captureDestination = computed(() => ({
     dbKey: syncStore.personalDbKey,
     folderId: null,
-    label: 'Inbox',
+    label: 'No folder',
 }))
 
 async function refresh() {
     if (!syncStore.isInitialized || !syncStore.personalDbKey) return
-    const [list, count] = await Promise.all([
-        filter.value === 'inbox'
-            ? docStore.getFolderDocuments(null, syncStore.personalDbKey, HOME_LIMIT)
-            : docStore.getRecentDocuments(HOME_LIMIT),
-        docStore.countInbox().catch(() => 0),
-    ])
-    docs.value = list
-    inboxCount.value = count
+    docs.value = await docStore.getRecentDocuments(HOME_LIMIT, { sort: ui.noteSort })
     loaded.value = true
 }
 
 watch(
-    () => [filter.value, syncStore.isInitialized, docStore.contentVersion, docStore.recentDocVersion, syncStore.databases.size],
+    () => [filter.value, ui.noteSort, syncStore.isInitialized, docStore.contentVersion, docStore.recentDocVersion, syncStore.databases.size],
     () => { void refresh() },
     { immediate: true },
 )
@@ -408,6 +395,20 @@ const edgeSwipe = useEdgeSwipe(() => openSheet('drawer'))
     line-height: 1.4;
 }
 
+.ph-chips-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 8px 0 0;
+    flex-shrink: 0;
+}
+
+.ph-chips-row .ph-chips {
+    flex: 1;
+    min-width: 0;
+    padding-top: 4px;
+}
+
 .ph-chips {
     display: flex;
     gap: 8px;
@@ -415,18 +416,6 @@ const edgeSwipe = useEdgeSwipe(() => openSheet('drawer'))
     overflow-x: auto;
     flex-shrink: 0;
     scrollbar-width: none;
-}
-
-.ph-chip-count {
-    min-width: 20px;
-    padding: 0 6px;
-    border-radius: 10px;
-    background: var(--ph-accent);
-    color: var(--ph-accent-ink);
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 20px;
-    text-align: center;
 }
 
 .ph-home-scroll {

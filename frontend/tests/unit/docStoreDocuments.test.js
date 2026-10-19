@@ -270,12 +270,30 @@ describe('docStore.searchDocuments', () => {
     });
 });
 
-describe('docStore Inbox and folder listing', () => {
-    it('counts personal Documents in no folder', async () => {
-        execute.mockResolvedValue([{ count: 4 }]);
-        expect(await store.countInbox()).toBe(4);
-        expect(execute.mock.calls[0][0]).toContain('folder_id IS NULL');
-        expect(repository).toHaveBeenCalledWith(PERSONAL_KEY);
+describe('docStore phone sorting and folder listing', () => {
+    it("keeps the dashboards' newest-first query when no sort is given", async () => {
+        await store.getRecentDocuments(50);
+        expect(execute.mock.calls[0][0]).toMatch(/ORDER BY datetime\(notes\.updated_at\) DESC\s+LIMIT \?/);
+    });
+
+    it('orders in SQL by an allow-listed sort and keeps it across the merge', async () => {
+        execute.mockResolvedValue([
+            noteRow({ id: 'z', title: 'Zebra', updated_at: '2026-10-05T00:00:00Z' }),
+            noteRow({ id: 'a', title: 'apple', updated_at: '2026-10-01T00:00:00Z' }),
+        ]);
+        const result = await store.getRecentDocuments(1, { sort: { field: 'title', direction: 'asc' } });
+        const [sql, params] = execute.mock.calls[0];
+        expect(sql).toContain('ORDER BY notes.title COLLATE NOCASE ASC, notes.title COLLATE NOCASE ASC, notes.id ASC');
+        expect(params).toEqual([1]);
+        // The newest-first merge would have kept "Zebra"; the sort keeps "apple".
+        expect(result.map((doc) => doc.id)).toEqual(['a']);
+    });
+
+    it('never puts caller text into the ORDER BY', async () => {
+        await store.getFolderDocuments('f', PERSONAL_KEY, 10, { sort: { field: 'title; DROP TABLE notes', direction: 'sideways' } });
+        const [sql] = execute.mock.calls[0];
+        expect(sql).toContain('ORDER BY datetime(notes.updated_at) DESC, notes.title');
+        expect(sql).not.toContain('DROP');
     });
 
     it('lists folders with their paths and parents', async () => {
