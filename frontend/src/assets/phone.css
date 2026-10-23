@@ -3,24 +3,30 @@
  * root of the phone screens, so none of it can reach the desktop layout.
  */
 
+/*
+ * The phone tokens are the desktop palette under phone-sized names: Tailwind's
+ * gray scale in light, the `--pn-*` colours from main.css in dark. See
+ * docs/architecture/ui-design-system.md; the accent is gray-800, never blue.
+ */
 .phone-ui {
-    --ph-ink: #0f172a;
-    --ph-ink-2: #334155;
-    --ph-muted: #475569;
-    --ph-line: #e2e8f0;
-    --ph-surface: #ffffff;
-    --ph-canvas: #f8fafc;
-    --ph-accent: #1d4ed8;
-    --ph-accent-ink: #ffffff;
-    --ph-accent-soft: #eff6ff;
-    --ph-ok: #15803d;
-    --ph-warn: #b45309;
-    --ph-danger: #b91c1c;
-    --ph-scrim: rgba(15, 23, 42, 0.45);
-    --ph-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 16px rgba(15, 23, 42, 0.08);
-    --ph-font: system-ui, -apple-system, "Segoe UI", Roboto, "IBM Plex Sans", sans-serif;
-    --ph-serif: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman", serif;
-    --ph-mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+    --ph-ink: theme('colors.gray.900');
+    --ph-ink-2: theme('colors.gray.700');
+    --ph-muted: theme('colors.gray.500');
+    --ph-line: theme('colors.gray.200');
+    --ph-control-line: theme('colors.gray.300');
+    --ph-surface: theme('colors.white');
+    --ph-canvas: theme('colors.gray.50');
+    --ph-accent: theme('colors.gray.800');
+    --ph-accent-ink: theme('colors.white');
+    --ph-accent-soft: theme('colors.gray.100');
+    --ph-ok: theme('colors.green.700');
+    --ph-warn: theme('colors.amber.600');
+    --ph-danger: theme('colors.red.600');
+    --ph-scrim: rgba(0, 0, 0, 0.5);
+    --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.08);
+    --ph-font: theme('fontFamily.sans');
+    --ph-mono: theme('fontFamily.mono');
+    --ph-focus: theme('colors.gray.500');
 
     font-family: var(--ph-font);
     color: var(--ph-ink);
@@ -29,24 +35,28 @@
 }
 
 html[data-theme='dark'] .phone-ui {
-    --ph-ink: #e5e7eb;
-    --ph-ink-2: #cbd5e1;
-    --ph-muted: #a3adbb;
-    --ph-line: #2f3640;
-    --ph-surface: #1c1f24;
-    --ph-canvas: #121417;
-    --ph-accent: #8ab4ff;
-    --ph-accent-ink: #0b1220;
-    --ph-accent-soft: #1d2a40;
-    --ph-ok: #4ade80;
-    --ph-warn: #fbbf24;
-    --ph-danger: #f87171;
+    --ph-ink: var(--pn-text);
+    --ph-ink-2: #c6c6c6;
+    --ph-muted: var(--pn-text-muted);
+    --ph-line: var(--pn-border);
+    --ph-control-line: var(--pn-border);
+    --ph-surface: var(--pn-surface-elevated);
+    --ph-canvas: var(--pn-surface);
+    --ph-accent: var(--pn-primary);
+    /* Light text on the teal fails contrast; desktop's pressed toggles use the page colour. */
+    --ph-accent-ink: var(--pn-surface);
+    --ph-accent-soft: var(--pn-surface-inset);
+    --ph-focus: var(--pn-primary);
+    --ph-ok: var(--pn-success);
+    --ph-warn: var(--pn-warning);
+    --ph-danger: var(--pn-danger);
     --ph-scrim: rgba(0, 0, 0, 0.6);
     --ph-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 /* ── type ─────────────────────────────────────────────── */
-.phone-ui .ph-display { font-family: var(--ph-serif); font-weight: 700; font-size: 28px; line-height: 1.2; }
+/* Desktop's pn-title-page weight, one size up for a phone's large title. */
+.phone-ui .ph-display { font-weight: 600; font-size: 24px; line-height: 1.25; }
 .phone-ui .ph-section-label {
     font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ph-muted);
 }
@@ -56,17 +66,18 @@ html[data-theme='dark'] .phone-ui {
 /* ── controls ─────────────────────────────────────────── */
 .phone-ui .ph-icon-btn {
     display: inline-flex; align-items: center; justify-content: center;
-    min-width: 44px; min-height: 44px; border-radius: 12px; color: var(--ph-ink-2);
+    min-width: 44px; min-height: 44px; border-radius: 6px; color: var(--ph-ink-2);
     background: transparent; border: 0;
 }
 .phone-ui .ph-icon-btn:active { background: var(--ph-line); }
 .phone-ui .ph-icon-btn:disabled { opacity: 0.4; }
-.phone-ui :focus-visible { outline: 2px solid var(--ph-accent); outline-offset: 2px; }
+/* Desktop focus is a gray-500 ring (the primary in dark). */
+.phone-ui :focus-visible { outline: 2px solid var(--ph-focus); outline-offset: 2px; }
 
 .phone-ui .ph-btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    min-height: 44px; padding: 0 18px; border-radius: 14px; font-weight: 600; font-size: 16px;
-    border: 1px solid var(--ph-line); background: var(--ph-surface); color: var(--ph-ink);
+    min-height: 44px; padding: 0 18px; border-radius: 6px; font-weight: 500; font-size: 16px;
+    border: 1px solid var(--ph-control-line); background: var(--ph-surface); color: var(--ph-ink);
 }
 .phone-ui .ph-btn-primary { background: var(--ph-accent); border-color: var(--ph-accent); color: var(--ph-accent-ink); }
 .phone-ui .ph-btn-danger { color: var(--ph-danger); }
@@ -74,7 +85,7 @@ html[data-theme='dark'] .phone-ui {
 
 .phone-ui .ph-chip {
     display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 14px;
-    border-radius: 17px; border: 1px solid var(--ph-line); background: var(--ph-surface);
+    border-radius: 9999px; border: 1px solid var(--ph-control-line); background: var(--ph-surface);
     color: var(--ph-ink-2); font-size: 14px; font-weight: 500; white-space: nowrap;
 }
 .phone-ui .ph-chip[aria-pressed='true'] { background: var(--ph-accent-soft); border-color: var(--ph-accent); color: var(--ph-accent); }
@@ -89,8 +100,8 @@ html[data-theme='dark'] .phone-ui {
 }
 
 .phone-ui .ph-input {
-    width: 100%; min-height: 44px; padding: 0 14px; border-radius: 12px; font-size: 16px;
-    border: 1px solid var(--ph-line); background: var(--ph-surface); color: var(--ph-ink);
+    width: 100%; min-height: 44px; padding: 0 14px; border-radius: 6px; font-size: 16px;
+    border: 1px solid var(--ph-control-line); background: var(--ph-surface); color: var(--ph-ink);
 }
 .phone-ui .ph-input::placeholder { color: var(--ph-muted); }
 
@@ -105,7 +116,7 @@ html[data-theme='dark'] .phone-ui {
 .phone-ui .ph-row-danger, .phone-ui .ph-row-danger svg { color: var(--ph-danger); }
 
 .phone-ui .ph-card {
-    background: var(--ph-surface); border: 1px solid var(--ph-line); border-radius: 14px;
+    background: var(--ph-surface); border: 1px solid var(--ph-line); border-radius: 8px;
 }
 
 /* ── switch (role="switch"; state is also aria-checked) ── */
@@ -128,8 +139,8 @@ html[data-theme='dark'] .phone-ui {
 .phone-ui .ph-sync-dot[data-state='synced'] { background: var(--ph-ok); }
 .phone-ui .ph-sync-dot[data-state='syncing'] { background: var(--ph-ok); animation: ph-pulse 1.2s ease-in-out infinite; }
 .phone-ui .ph-sync-dot[data-state='offline'],
-.phone-ui .ph-sync-dot[data-state='off'] { background: #94a3b8; }
-.phone-ui .ph-sync-dot[data-state='error'] { background: #f59e0b; }
+.phone-ui .ph-sync-dot[data-state='off'] { background: theme('colors.gray.400'); }
+.phone-ui .ph-sync-dot[data-state='error'] { background: var(--ph-warn); }
 @keyframes ph-pulse { 50% { opacity: 0.35; } }
 
 /* ── Preview typography on phones ─────────────────────── */
@@ -138,12 +149,12 @@ html[data-theme='dark'] .phone-ui {
 .phone-ui .ph-preview [data-testid='preview-content'] p,
 .phone-ui .ph-preview [data-testid='preview-content'] li { font-size: 17px !important; }
 .phone-ui .ph-preview [data-testid='preview-content'] h1 {
-    font-family: var(--ph-serif) !important; font-size: 28px !important; line-height: 1.2 !important;
-    margin-top: 0.75rem !important; font-weight: 700 !important;
+    font-size: 28px !important; line-height: 1.2 !important;
+    margin-top: 0.75rem !important;
 }
 .phone-ui .ph-preview [data-testid='preview-content'] h2 {
-    font-family: var(--ph-serif) !important; font-size: 21px !important; line-height: 1.25 !important;
-    margin-top: 1.5rem !important; font-weight: 700 !important;
+    font-size: 21px !important; line-height: 1.25 !important;
+    margin-top: 1.5rem !important;
 }
 .phone-ui .ph-preview [data-testid='preview-content'] h3 { font-size: 18px !important; }
 .phone-ui .ph-preview [data-testid='preview-content'] img { max-width: 100%; height: auto; }

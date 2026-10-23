@@ -127,6 +127,13 @@ Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation
 - Card and search previews are plain text from `utils/markdownSnippet.js`, rendered as text
   nodes. There is no Inbox: a note in no folder shows no folder chip and is called "No folder"
   where a location has to be named (Move, capture, search results).
+- Home and folders start new notes from two floating buttons (`NewNoteButtons`: note, and note
+  from template); there is no bottom bar. `QuickCaptureSheet` creates the Document as soon as
+  its body has text and keeps it in step (content, title, folder) through one ordered write
+  queue per opening, so a slow create is never overtaken. Title: the typed one, else
+  `titleFromBody` (first three words, at most 50 characters). Done, swipe-down and back keep
+  the note; Discard deletes it; a note emptied before closing is deleted. "Save to" can create a
+  new top-level folder.
 - Home and folders sort by `uiStore.noteSort` (`modified`/`created`/`title`, `asc`/`desc`),
   chosen from the sort sheet or Settings. `getRecentDocuments` and `getFolderDocuments` take
   `{ sort }` and order in SQL from an allow-list, so the 200-row limit keeps the right notes;

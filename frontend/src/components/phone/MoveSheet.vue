@@ -300,9 +300,8 @@ async function createAndMove() {
 }
 
 .ph-move-title {
-    font-family: var(--ph-serif);
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
 }
 
 .ph-move-search {

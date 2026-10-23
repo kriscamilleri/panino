@@ -153,3 +153,30 @@ Accent contract in §1, carved out by [COLLAB-03](../../specs/proposed/collab-03
 The palette lives in `frontend/src/utils/identityColor.js`; the avatar primitives are
 `UserAvatar.vue` and `AvatarStack.vue`. Presence status (online/idle/offline) uses gray tones,
 not the identity palette.
+
+## 7) Phone layout
+
+The phone screens (below 768px, rooted at `.phone-ui`) use the same palette and contracts as
+desktop. Their `--ph-*` tokens in `frontend/src/assets/phone.css` are the desktop colours
+under phone-sized names, not a second palette:
+
+| Token | Light | Dark |
+|---|---|---|
+| `--ph-accent` | `gray-800` | `--pn-primary` |
+| `--ph-accent-ink` | white | `--pn-surface` (light text on the teal fails contrast) |
+| `--ph-accent-soft` (selected fill) | `gray-100` | `--pn-surface-inset` |
+| `--ph-focus` | `gray-500` | `--pn-primary` |
+| `--ph-surface` / `--ph-canvas` | white / `gray-50` | `--pn-surface-elevated` / `--pn-surface` |
+| `--ph-line` / `--ph-control-line` | `gray-200` / `gray-300` | `--pn-border` |
+| `--ph-ink` / `--ph-muted` | `gray-900` / `gray-500` | `--pn-text` / `--pn-text-muted` |
+
+Shared components (`BaseModal`, `BaseButton`, `pn-*` controls) render on phones unchanged.
+The mobile UI spec's blue accent and serif titles are superseded by this section.
+
+Phone-only exceptions, for touch and nothing else:
+
+- Tap targets are at least 44px tall, so phone buttons and inputs are taller than desktop's.
+- Input text is 16px; iOS zooms into anything smaller.
+- Bottom sheets keep large top corners (20px); everything else follows the radius contract
+  (`6px` controls, `8px` containers, full for pills).
+- Large page titles (`ph-display`) are 24px, one step above `pn-title-page`, same weight.

@@ -35,7 +35,7 @@ const label = computed(() => describeSort(ui.noteSort))
     min-height: 34px;
     padding: 0 10px;
     border: 0;
-    border-radius: 17px;
+    border-radius: 9999px;
     background: transparent;
     color: var(--ph-muted);
     font-size: 13px;

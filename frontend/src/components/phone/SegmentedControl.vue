@@ -42,7 +42,7 @@ defineEmits(['update:modelValue'])
     display: flex;
     gap: 4px;
     padding: 4px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--ph-canvas);
     border: 1px solid var(--ph-line);
 }
@@ -55,7 +55,7 @@ defineEmits(['update:modelValue'])
     gap: 6px;
     min-height: 44px;
     border: 0;
-    border-radius: 10px;
+    border-radius: 6px;
     background: transparent;
     color: var(--ph-muted);
     font-size: 15px;

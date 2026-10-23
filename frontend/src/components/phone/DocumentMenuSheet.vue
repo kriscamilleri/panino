@@ -266,9 +266,8 @@ async function deleteDocument() {
 }
 
 .ph-menu-title {
-    font-family: var(--ph-serif);
-    font-size: 22px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
     line-height: 1.25;
 }
 

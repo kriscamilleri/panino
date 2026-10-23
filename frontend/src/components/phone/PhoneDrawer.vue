@@ -285,7 +285,6 @@ function endSwipe() {
 
 .ph-drawer-brand {
     padding: 4px 12px 16px;
-    font-family: var(--ph-serif);
     font-size: 24px;
     font-weight: 700;
 }
@@ -302,7 +301,7 @@ function endSwipe() {
     min-height: 48px;
     padding: 0 12px;
     border: 0;
-    border-radius: 24px;
+    border-radius: 6px;
     background: none;
     color: var(--ph-ink);
     font-size: 16px;

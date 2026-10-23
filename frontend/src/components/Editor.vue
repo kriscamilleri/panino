@@ -318,7 +318,7 @@ useOverTypePatches();
 
 const props = defineProps({
   // The phone layout: collaboration, stats and metadata live in the top bar
-  // and the Document menu, and Write mode uses larger monospace type.
+  // and the Document menu, and Edit mode uses larger monospace type.
   phone: { type: Boolean, default: false },
   // Phone Preview mode: hide only the text, so conflict banners and the
   // dialogs above it stay on screen while the Preview shows below them.
