@@ -28,9 +28,8 @@ defineEmits(['close'])
 <style scoped>
 .ph-sort-title {
     padding: 0 8px;
-    font-family: var(--ph-serif);
-    font-size: 22px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
 }
 
 .ph-sort-body {

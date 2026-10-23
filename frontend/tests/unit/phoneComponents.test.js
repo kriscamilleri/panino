@@ -25,7 +25,7 @@ describe('SegmentedControl', () => {
             props: {
                 modelValue: 'write',
                 label: 'Editor mode',
-                options: [{ value: 'write', label: 'Write' }, { value: 'preview', label: 'Preview' }],
+                options: [{ value: 'write', label: 'Edit' }, { value: 'preview', label: 'Preview' }],
             },
         }));
         const buttons = wrapper.findAll('button');

@@ -300,7 +300,7 @@ const LAYOUT_OPTIONS = [
 const OPEN_OPTIONS = [
     { value: 'auto', label: 'Automatic' },
     { value: 'preview', label: 'Preview' },
-    { value: 'write', label: 'Write' },
+    { value: 'write', label: 'Edit' },
 ]
 const APPEARANCE_OPTIONS = [
     { value: 'system', label: 'System', icon: Monitor },

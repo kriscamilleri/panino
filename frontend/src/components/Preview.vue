@@ -1,5 +1,5 @@
 <template>
-    <div v-if="file">
+    <div v-if="file || source !== null">
         <!-- `renderedHtml` is sanitized with DOMPurify below. -->
         <div
             ref="contentRef"
@@ -28,6 +28,8 @@ import DOMPurify from 'dompurify'
 const props = defineProps({
     // Phones tick checklist items straight from the Preview.
     interactiveTasks: { type: Boolean, default: false },
+    // Markdown to show instead of the selected Document, such as an unsaved draft.
+    source: { type: String, default: null },
 })
 const emit = defineEmits(['toggle-task'])
 
@@ -41,6 +43,7 @@ const { selectedFile: file, selectedFileContent } = storeToRefs(docStore)
 
 // preview text = draft if present, else DB content
 const text = computed(() => {
+    if (props.source !== null) return props.source
     if (!file.value) return ''
     const draft = draftStore.getDraft(file.value.id)
     return draft || selectedFileContent.value

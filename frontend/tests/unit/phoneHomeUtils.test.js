@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toSnippetLines, toSummary, stripInline, buildCaptureDocument } from '@/utils/markdownSnippet';
+import { toSnippetLines, toSummary, stripInline, buildCaptureDocument, titleFromBody } from '@/utils/markdownSnippet';
 import { buildHomeSections, splitIntoColumns, normalizeHomeFilter, sortDocuments, normalizeSort, describeSort } from '@/utils/homeView';
 
 describe('stripInline', () => {
@@ -57,11 +57,28 @@ describe('buildCaptureDocument', () => {
             .toEqual({ title: 'Idea', content: '# Idea\n\nCall Sam\n' });
     });
 
-    it('derives the title from the first line without markdown', () => {
-        expect(buildCaptureDocument({ body: '- [ ] **Buy** milk\n- [ ] eggs' }))
-            .toEqual({ title: 'Buy milk', content: '- [ ] **Buy** milk\n- [ ] eggs\n' });
-        const long = buildCaptureDocument({ body: 'x'.repeat(120) });
-        expect(long.title.length).toBe(80);
+    it('derives the title from the first three words without markdown', () => {
+        expect(buildCaptureDocument({ body: '- [ ] **Buy** milk\n- [ ] eggs\n- [ ] bread' }))
+            .toEqual({ title: 'Buy milk eggs', content: '- [ ] **Buy** milk\n- [ ] eggs\n- [ ] bread\n' });
+        expect(buildCaptureDocument({ body: '## Call Sam about the lease' }).title).toBe('Call Sam about');
+    });
+});
+
+describe('titleFromBody', () => {
+    it('takes up to three words', () => {
+        expect(titleFromBody('Hello')).toBe('Hello');
+        expect(titleFromBody('  one   two\nthree four')).toBe('one two three');
+    });
+
+    it('stays within 50 characters', () => {
+        const word = 'w'.repeat(30);
+        expect(titleFromBody(`${word} ${word} end`)).toBe(word);
+        expect(titleFromBody('x'.repeat(120))).toBe('x'.repeat(50));
+        expect(titleFromBody(`${'a'.repeat(24)} ${'b'.repeat(25)} c`)).toBe(`${'a'.repeat(24)} ${'b'.repeat(25)}`);
+    });
+
+    it('falls back to Untitled', () => {
+        expect(titleFromBody('![](x.png)\n')).toBe('Untitled');
     });
 
     it('refuses to save nothing, including an empty first checkbox', () => {

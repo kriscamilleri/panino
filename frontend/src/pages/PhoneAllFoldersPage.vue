@@ -370,7 +370,7 @@ async function deleteFolder() {
     min-height: 52px;
     padding: 0 22px;
     border: 0;
-    border-radius: 16px;
+    border-radius: 6px;
     background: var(--ph-accent);
     color: var(--ph-accent-ink);
     font-size: 16px;

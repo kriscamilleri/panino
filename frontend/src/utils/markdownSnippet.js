@@ -124,8 +124,8 @@ export function toSummary(markdown, { title = '', maxLength = 140 } = {}) {
 
 /**
  * Title and body for a quick-capture Document. With no typed title the first
- * line becomes the title. With one, the body starts with it as a heading,
- * the way every new Document starts.
+ * three words of the body become the title (see `titleFromBody`). With one,
+ * the body starts with it as a heading, the way every new Document starts.
  *
  * @param {object} input
  * @param {string} [input.title]
@@ -145,9 +145,32 @@ export function buildCaptureDocument({ title = '', body = '' } = {}) {
             content: hasBody ? `# ${typedTitle}\n\n${text}\n` : `# ${typedTitle}\n\n`,
         };
     }
-    const firstLine = text.split('\n').map((line) => stripInline(
-        line.replace(/^\s*#{1,6}\s+/, '').replace(TASK, '$2').replace(BULLET, '$1'),
-    )).find(Boolean) || 'Untitled';
-    const derived = firstLine.length > 80 ? `${firstLine.slice(0, 79).trimEnd()}…` : firstLine;
-    return { title: derived, content: `${text}\n` };
+    return { title: titleFromBody(text), content: `${text}\n` };
+}
+
+const TITLE_WORDS = 3;
+const TITLE_MAX_LENGTH = 50;
+
+/**
+ * The first three words of a body, without markdown, as a Document title.
+ * Words that would take it past 50 characters are left off; a single longer
+ * word is cut at 50.
+ *
+ * @param {string} body
+ * @returns {string} 'Untitled' when the body has no words
+ */
+export function titleFromBody(body) {
+    const words = String(body ?? '').split('\n')
+        .map((line) => stripInline(line.replace(/^\s*#{1,6}\s+/, '').replace(TASK, '$2').replace(BULLET, '$1')))
+        .join(' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, TITLE_WORDS);
+    if (!words.length) return 'Untitled';
+    let title = words[0].slice(0, TITLE_MAX_LENGTH);
+    for (const word of words.slice(1)) {
+        if (title.length + 1 + word.length > TITLE_MAX_LENGTH) break;
+        title = `${title} ${word}`;
+    }
+    return title;
 }

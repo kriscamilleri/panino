@@ -190,8 +190,8 @@
             </template>
         </main>
 
-        <CaptureBar
-            @capture="openCapture"
+        <NewNoteButtons
+            @note="openCapture('note')"
             @template="showTemplates = true"
         />
 
@@ -217,7 +217,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Menu, Rows3, LayoutGrid, CloudOff, RefreshCw, NotebookPen } from 'lucide-vue-next'
 import NoteCard from '@/components/phone/NoteCard.vue'
-import CaptureBar from '@/components/phone/CaptureBar.vue'
+import NewNoteButtons from '@/components/phone/NewNoteButtons.vue'
 import QuickCaptureSheet from '@/components/phone/QuickCaptureSheet.vue'
 import SelectionBar from '@/components/phone/SelectionBar.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
@@ -347,7 +347,7 @@ const edgeSwipe = useEdgeSwipe(() => openSheet('drawer'))
     gap: 2px;
     height: 52px;
     padding: 0 4px;
-    border-radius: 26px;
+    border-radius: 9999px;
     background: var(--ph-surface);
     box-shadow: var(--ph-shadow);
 }
@@ -388,7 +388,7 @@ const edgeSwipe = useEdgeSwipe(() => openSheet('drawer'))
     gap: 10px;
     margin: 10px 12px 0;
     padding: 10px 14px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--ph-accent-soft);
     color: var(--ph-ink);
     font-size: 14px;
@@ -423,7 +423,7 @@ const edgeSwipe = useEdgeSwipe(() => openSheet('drawer'))
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    padding: 0 12px 100px;
+    padding: 0 12px 152px;
 }
 
 .ph-pull {
@@ -477,7 +477,7 @@ const edgeSwipe = useEdgeSwipe(() => openSheet('drawer'))
     justify-content: center;
     width: 96px;
     height: 96px;
-    border-radius: 28px;
+    border-radius: 8px;
     background: var(--ph-accent-soft);
     color: var(--ph-accent);
 }
