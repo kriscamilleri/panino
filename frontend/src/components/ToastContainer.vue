@@ -1,7 +1,7 @@
 <template>
     <!-- Root container (bottom-right) -->
-    <!-- Phones: above the bottom capture bar and key row. -->
-    <div class="fixed bottom-28 left-4 right-4 md:bottom-4 md:left-auto flex flex-col items-end space-y-2 z-[70]"> <!-- Animated list of toasts -->
+    <!-- Phones: above the new-note buttons and key row. -->
+    <div class="fixed bottom-40 left-4 right-4 md:bottom-4 md:left-auto flex flex-col items-end space-y-2 z-[70]"> <!-- Animated list of toasts -->
         <TransitionGroup
             name="toast"
             tag="div"

@@ -138,7 +138,7 @@ async function deleteSelected() {
     gap: 2px;
     height: 52px;
     padding: 0 4px;
-    border-radius: 26px;
+    border-radius: 9999px;
     background: var(--ph-accent-soft);
     color: var(--ph-ink);
 }

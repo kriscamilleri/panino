@@ -162,12 +162,9 @@
             >This folder is empty. Notes you take here are saved in it.</p>
         </main>
 
-        <CaptureBar
-            :placeholder="`Note in ${title}…`"
-            :show-templates="false"
-            show-new-folder
-            @capture="(kind) => openSheet('capture', kind === 'checklist' ? 'checklist' : '')"
-            @folder="promptingFolder = true"
+        <NewNoteButtons
+            @note="openSheet('capture')"
+            @template="showTemplates = true"
         />
 
         <QuickCaptureSheet
@@ -175,6 +172,14 @@
             :initial-kind="sheetArg === 'checklist' ? 'checklist' : 'note'"
             :default-destination="destination"
             @close="closeSheet"
+        />
+
+        <TemplatePickerModal
+            v-if="showTemplates"
+            :database-key="dbKey"
+            :current-folder-id="folderParam"
+            @close="showTemplates = false"
+            @created="openCreated"
         />
 
         <BottomSheet
@@ -267,12 +272,13 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, ChevronRight, Search, MoreHorizontal, Folder, FolderPlus, Users, Pencil, Trash2 } from 'lucide-vue-next'
 import NoteCard from '@/components/phone/NoteCard.vue'
-import CaptureBar from '@/components/phone/CaptureBar.vue'
+import NewNoteButtons from '@/components/phone/NewNoteButtons.vue'
 import QuickCaptureSheet from '@/components/phone/QuickCaptureSheet.vue'
 import SelectionBar from '@/components/phone/SelectionBar.vue'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SortButton from '@/components/phone/SortButton.vue'
 import PromptModal from '@/components/PromptModal.vue'
+import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import { useDocStore } from '@/store/docStore'
@@ -297,6 +303,7 @@ const subfolders = ref([])
 const notes = ref([])
 const loaded = ref(false)
 const showOptions = ref(false)
+const showTemplates = ref(false)
 const promptingFolder = ref(false)
 const newFolderName = ref('')
 const renaming = ref(false)
@@ -385,6 +392,11 @@ function openFolder(folder) {
 
 function openDocument(doc) {
     router.push({ name: 'doc', params: { fileId: doc.id }, query: { dbKey: doc.dbKey } })
+}
+
+function openCreated(result) {
+    showTemplates.value = false
+    router.push({ name: 'doc', params: { fileId: result.id }, query: { dbKey: result.dbKey, mode: 'write' } })
 }
 
 async function createSubfolder() {
@@ -480,7 +492,7 @@ async function deleteFolder() {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 12px 100px;
+    padding: 4px 12px 152px;
 }
 
 .ph-folder-title {
@@ -520,7 +532,7 @@ async function deleteFolder() {
     min-height: 56px;
     padding: 0 14px;
     border: 1px solid var(--ph-line);
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--ph-surface);
     color: var(--ph-ink);
     font-size: 15px;
@@ -567,8 +579,7 @@ async function deleteFolder() {
 
 .ph-folder-options-title {
     padding: 0 8px;
-    font-family: var(--ph-serif);
-    font-size: 22px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
 }
 </style>

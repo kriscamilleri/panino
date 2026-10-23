@@ -276,9 +276,8 @@ async function copyLink() {
 }
 
 .ph-collab-title {
-    font-family: var(--ph-serif);
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 600;
 }
 
 .ph-collab-section {
@@ -366,7 +365,7 @@ async function copyLink() {
     display: flex;
     gap: 10px;
     margin: 0 16px;
-    border-radius: 14px;
+    border-radius: 8px;
     background: var(--ph-accent-soft);
 }
 

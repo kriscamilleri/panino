@@ -87,7 +87,7 @@ defineEmits(['capture', 'template', 'folder'])
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
     background: var(--ph-surface);
     border-top: 1px solid var(--ph-line);
-    box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.05);
 }
 
 .ph-capture-field {
@@ -96,7 +96,7 @@ defineEmits(['capture', 'template', 'folder'])
     min-height: 48px;
     padding: 0 16px;
     border: 0;
-    border-radius: 24px;
+    border-radius: 9999px;
     background: var(--ph-canvas);
     color: var(--ph-muted);
     font-size: 16px;
@@ -115,7 +115,7 @@ defineEmits(['capture', 'template', 'folder'])
     height: 56px;
     margin-left: 4px;
     border: 0;
-    border-radius: 16px;
+    border-radius: 6px;
     background: var(--ph-accent);
     color: var(--ph-accent-ink);
     box-shadow: var(--ph-shadow);

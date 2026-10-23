@@ -150,7 +150,7 @@ function handleClick(event) {
     padding: 12px 14px;
     background: var(--ph-surface);
     border: 1px solid var(--ph-line);
-    border-radius: 14px;
+    border-radius: 8px;
     color: var(--ph-ink);
     text-decoration: none;
     -webkit-touch-callout: none;

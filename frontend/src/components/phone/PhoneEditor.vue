@@ -222,7 +222,7 @@ import { editorStatusLine } from '@/utils/syncStatus'
 import { goUp } from '@/utils/phoneNavigation'
 
 const MODE_OPTIONS = [
-    { value: MODE_WRITE, label: 'Write', icon: PenLine },
+    { value: MODE_WRITE, label: 'Edit', icon: PenLine },
     { value: MODE_PREVIEW, label: 'Preview', icon: Eye },
 ]
 
@@ -307,7 +307,7 @@ async function toggleTask({ index, count }) {
     if (!id) return
     const source = draftStore.getDraft(id) ?? file.value.content ?? ''
     if (!toggleTaskAt(source, index, count)) {
-        ui.addToast('This item can only be changed in Write mode.', 'info')
+        ui.addToast('This item can only be changed in Edit mode.', 'info')
         return
     }
     const changed = editorStore.transformText((state) => {
@@ -455,7 +455,7 @@ watch(mode, (next) => {
     min-height: 52px;
     padding: 0 22px;
     border: 0;
-    border-radius: 16px;
+    border-radius: 6px;
     background: var(--ph-accent);
     color: var(--ph-accent-ink);
     font-size: 16px;

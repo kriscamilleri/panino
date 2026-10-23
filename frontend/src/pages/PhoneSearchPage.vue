@@ -296,7 +296,7 @@ function goBack() {
     align-items: center;
     height: 52px;
     padding: 0 4px;
-    border-radius: 26px;
+    border-radius: 9999px;
     background: var(--ph-surface);
     box-shadow: var(--ph-shadow);
 }
