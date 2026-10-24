@@ -1,5 +1,8 @@
 <template>
-    <Transition name="ph-sheet">
+    <Transition
+        name="ph-sheet"
+        @after-leave="emit('closed')"
+    >
         <div
             v-if="open"
             class="ph-sheet-root"
@@ -65,7 +68,8 @@ const props = defineProps({
 })
 
 // `close` asks to close; the parent decides (a capture sheet checks for text first).
-const emit = defineEmits(['close'])
+// `closed` fires once the slide-down has finished.
+const emit = defineEmits(['close', 'closed'])
 
 // The sheet covers the visible screen only, so it always ends above the keyboard.
 const { visibleStyle } = useViewport()
