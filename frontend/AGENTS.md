@@ -104,7 +104,9 @@ Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation
 
 - `composables/useViewport.js` decides (`isPhone`, `matchMedia('(max-width: 767.98px)')`) and
   gives `visibleStyle`, which pins `PhoneShell` and sheets to `visualViewport` (top and height),
-  so they end at the top of the on-screen keyboard. Use only the visual viewport: iOS updates
+  so they end at the top of the on-screen keyboard. It also reports `keyboardOpen`, which
+  `PhoneShell` turns into `.ph-keyboard-open`; that zeroes `--ph-safe-bottom`, the token every
+  phone bottom edge pads with (see `docs/architecture/ui-design-system.md` §7). Use only the visual viewport: iOS updates
   `innerHeight`, `100dvh` and the visual viewport at different moments, and mixing them once
   collapsed the editor to a sliver when the keyboard opened. Docked key rows sit at the bottom
   of their screen (`position: absolute`), never at a computed keyboard offset.

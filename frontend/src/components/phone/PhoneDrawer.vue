@@ -270,7 +270,7 @@ function endSwipe() {
     width: min(312px, 85vw);
     display: flex;
     flex-direction: column;
-    padding: calc(16px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+    padding: calc(16px + env(safe-area-inset-top)) 12px calc(12px + var(--ph-safe-bottom));
     overflow-y: auto;
     background: var(--ph-surface);
     box-shadow: var(--ph-shadow);

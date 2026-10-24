@@ -27,11 +27,18 @@
     --ph-font: theme('fontFamily.sans');
     --ph-mono: theme('fontFamily.mono');
     --ph-focus: theme('colors.gray.500');
+    /* The home-indicator area; 0 while the keyboard covers it (PhoneShell). */
+    --ph-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --ph-fab-radius: 16px;
 
     font-family: var(--ph-font);
     color: var(--ph-ink);
     background: var(--ph-canvas);
     -webkit-tap-highlight-color: transparent;
+}
+
+.phone-ui.ph-keyboard-open {
+    --ph-safe-bottom: 0px;
 }
 
 html[data-theme='dark'] .phone-ui {

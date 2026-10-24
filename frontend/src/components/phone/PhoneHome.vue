@@ -423,7 +423,7 @@ const edgeSwipe = useEdgeSwipe(() => openSheet('drawer'))
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior-y: contain;
-    padding: 0 12px 152px;
+    padding: 0 12px calc(152px + var(--ph-safe-bottom));
 }
 
 .ph-pull {
