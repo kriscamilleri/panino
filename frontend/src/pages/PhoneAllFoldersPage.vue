@@ -363,14 +363,14 @@ async function deleteFolder() {
 .ph-folders-fab {
     position: absolute;
     right: 16px;
-    bottom: calc(20px + env(safe-area-inset-bottom));
+    bottom: calc(20px + var(--ph-safe-bottom));
     display: inline-flex;
     align-items: center;
     gap: 8px;
     min-height: 52px;
     padding: 0 22px;
     border: 0;
-    border-radius: 6px;
+    border-radius: var(--ph-fab-radius);
     background: var(--ph-accent);
     color: var(--ph-accent-ink);
     font-size: 16px;

@@ -492,7 +492,7 @@ async function deleteFolder() {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 12px 152px;
+    padding: 4px 12px calc(152px + var(--ph-safe-bottom));
 }
 
 .ph-folder-title {

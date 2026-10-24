@@ -45,6 +45,22 @@ describe('useViewport', () => {
         expect(visibleStyle.value.height).toBe('455px');
     });
 
+    it('reports the on-screen keyboard from a much shorter visible area', async () => {
+        Object.defineProperty(document.documentElement, 'clientHeight', { configurable: true, value: 735 });
+        const { useViewport } = await import('@/composables/useViewport');
+        const { keyboardOpen } = useViewport();
+        expect(keyboardOpen.value).toBe(false);
+
+        viewport.set({ height: 700 }); // a toolbar, not a keyboard
+        expect(keyboardOpen.value).toBe(false);
+
+        viewport.set({ height: 455 });
+        expect(keyboardOpen.value).toBe(true);
+
+        viewport.set({ height: 735 });
+        expect(keyboardOpen.value).toBe(false);
+    });
+
     it('falls back to the dynamic viewport height without visualViewport', async () => {
         Object.defineProperty(window, 'visualViewport', { configurable: true, value: undefined });
         const { useViewport } = await import('@/composables/useViewport');
