@@ -11,10 +11,15 @@ const templateStore = reactive({
 });
 
 vi.mock('@/store/templateStore', () => ({ useTemplateStore: () => templateStore }));
-vi.mock('@/store/structureStore', () => ({ useStructureStore: () => ({}) }));
+const structureStore = {
+  createFile: vi.fn(async () => ({ id: 'doc-1', dbKey: 'user:a' })),
+  loadRootItems: vi.fn(async () => {}),
+};
+vi.mock('@/store/structureStore', () => ({ useStructureStore: () => structureStore }));
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => ({}) }));
 
 const TemplatePickerModal = (await import('@/components/TemplatePickerModal.vue')).default;
+const BottomSheet = (await import('@/components/phone/BottomSheet.vue')).default;
 
 const mounted = [];
 afterEach(() => {
@@ -65,5 +70,27 @@ describe('TemplatePickerModal as a phone sheet', () => {
     expect(wrapper.find('.ph-sheet-panel').exists()).toBe(false);
     expect(wrapper.find('[data-testid="template-picker-close"]').exists()).toBe(true);
     expect(templateStore.loadTemplates).toHaveBeenCalledWith('user:a');
+  });
+
+  it('creates one note however often Use Template is tapped while the sheet closes', async () => {
+    const wrapper = mountSheet({ open: true });
+    await nextTick();
+    const use = wrapper.find('[data-testid="template-picker-use"]');
+    await use.trigger('click');
+    await use.trigger('click');
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(structureStore.createFile).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted('created')).toEqual([[{ id: 'doc-1', dbKey: 'user:a' }]]);
+    expect(use.attributes('disabled')).toBeDefined();
+
+    await wrapper.setProps({ open: false });
+    await wrapper.setProps({ open: true });
+    expect(wrapper.find('[data-testid="template-picker-use"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('reports when the sheet has finished sliding away, so the parent can navigate then', async () => {
+    const wrapper = mountSheet({ open: true });
+    wrapper.findComponent(BottomSheet).vm.$emit('closed');
+    expect(wrapper.emitted('closed')).toHaveLength(1);
   });
 });

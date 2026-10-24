@@ -180,6 +180,7 @@
             :database-key="dbKey"
             :current-folder-id="folderParam"
             @close="showTemplates = false"
+            @closed="openPendingDocument"
             @created="openCreated"
         />
 
@@ -395,9 +396,19 @@ function openDocument(doc) {
     router.push({ name: 'doc', params: { fileId: doc.id }, query: { dbKey: doc.dbKey } })
 }
 
+// Let the template sheet slide away before the editor replaces the screen.
+let pendingDocument = null
+
 function openCreated(result) {
+    pendingDocument = result
     showTemplates.value = false
-    router.push({ name: 'doc', params: { fileId: result.id }, query: { dbKey: result.dbKey, mode: 'write' } })
+}
+
+function openPendingDocument() {
+    if (!pendingDocument) return
+    const { id, dbKey } = pendingDocument
+    pendingDocument = null
+    router.push({ name: 'doc', params: { fileId: id }, query: { dbKey, mode: 'write' } })
 }
 
 async function createSubfolder() {

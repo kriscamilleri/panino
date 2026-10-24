@@ -4,6 +4,7 @@
     :is="sheet ? BottomSheet : BaseModal"
     v-bind="wrapperProps"
     @close="emit('close')"
+    @closed="emit('closed')"
   >
     <template
       v-if="sheet"
@@ -120,6 +121,7 @@
           variant="primary"
           size="md"
           data-testid="template-picker-variable-create"
+          :disabled="creating"
           @click="handleCreateWithVariables"
         >
           Create Document
@@ -140,6 +142,7 @@
           variant="primary"
           size="md"
           data-testid="template-picker-use"
+          :disabled="creating"
           @click="handleUseTemplate"
         >
           Use Template
@@ -181,7 +184,8 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['close', 'created']);
+// `closed`: sheet mode only, after the sheet has slid away.
+const emit = defineEmits(['close', 'closed', 'created']);
 
 const templateStore = useTemplateStore();
 const structureStore = useStructureStore();
@@ -191,6 +195,9 @@ const selectedTemplateId = ref('__blank__');
 const showVariables = ref(false);
 const activeTemplate = ref(null);
 const variableValues = reactive({});
+// Set once a note is being created and kept while the sheet slides away, so a
+// second tap cannot create a second note.
+const creating = ref(false);
 
 const templates = computed(() => templateStore.templates);
 
@@ -218,6 +225,7 @@ watch(() => [props.open, props.databaseKey], ([isOpen, dbKey], previous) => {
   if (!dbKey) return;
   const firstLoad = !previous || previous[1] !== dbKey;
   if (isOpen) {
+    creating.value = false;
     selectedTemplateId.value = '__blank__';
     cancelVariables();
   }
@@ -245,11 +253,14 @@ function relativeTime(dateStr) {
 }
 
 async function handleUseTemplate() {
+  if (creating.value) return;
   // Blank document — create empty note (same as + button)
   if (selectedTemplateId.value === '__blank__') {
-    const result = await structureStore.createFile(props.databaseKey, 'Untitled', props.currentFolderId);
-    await structureStore.loadRootItems();
-    emit('created', result);
+    await create(async () => {
+      const result = await structureStore.createFile(props.databaseKey, 'Untitled', props.currentFolderId);
+      await structureStore.loadRootItems();
+      emit('created', result);
+    });
     return;
   }
 
@@ -261,8 +272,10 @@ async function handleUseTemplate() {
 
   if (inputLabels.length === 0) {
     // No input variables — resolve and create immediately
-    const folderId = await resolveTargetFolder(tpl);
-    await createNoteFromTemplate(tpl, {}, folderId);
+    await create(async () => {
+      const folderId = await resolveTargetFolder(tpl);
+      await createNoteFromTemplate(tpl, {}, folderId);
+    });
   } else {
     // Has input variables — show inline variable form
     activeTemplate.value = tpl;
@@ -284,22 +297,27 @@ function cancelVariables() {
 }
 
 async function handleCreateWithVariables() {
-  if (!activeTemplate.value) return;
+  if (!activeTemplate.value || creating.value) return;
 
   // Build input values from the reactive object
   const inputValues = { ...variableValues };
-
-  showVariables.value = false;
   const tpl = activeTemplate.value;
-  activeTemplate.value = null;
 
-  // Clear variable values
-  for (const key of Object.keys(variableValues)) {
-    delete variableValues[key];
+  // The form stays in place while the sheet closes; the next opening clears it.
+  await create(async () => {
+    const folderId = await resolveTargetFolder(tpl);
+    await createNoteFromTemplate(tpl, inputValues, folderId);
+  });
+}
+
+async function create(work) {
+  creating.value = true;
+  try {
+    await work();
+  } catch (err) {
+    creating.value = false;
+    throw err;
   }
-
-  const folderId = await resolveTargetFolder(tpl);
-  await createNoteFromTemplate(tpl, inputValues, folderId);
 }
 
 async function createNoteFromTemplate(tpl, inputValues, folderId) {
