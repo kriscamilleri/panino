@@ -86,7 +86,7 @@ function hideKeyboard() {
     right: 0;
     bottom: 0;
     z-index: 40;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: var(--ph-safe-bottom);
 }
 
 .ph-keyrow-scroll {

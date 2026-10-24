@@ -177,6 +177,11 @@ Phone-only exceptions, for touch and nothing else:
 
 - Tap targets are at least 44px tall, so phone buttons and inputs are taller than desktop's.
 - Input text is 16px; iOS zooms into anything smaller.
-- Bottom sheets keep large top corners (20px); everything else follows the radius contract
-  (`6px` controls, `8px` containers, full for pills).
+- Bottom sheets keep large top corners (20px) and floating action buttons use 16px
+  (`--ph-fab-radius`); everything else follows the radius contract (`6px` controls, `8px`
+  containers, full for pills).
+- Bottom edges pad with `--ph-safe-bottom`, never `env(safe-area-inset-bottom)` directly: it is
+  the iPhone home-indicator inset, and 0 while the on-screen keyboard is up (iOS keeps reporting
+  the inset then, which would float key rows above the keyboard). The inset is only reported
+  because `index.html` sets `viewport-fit=cover`.
 - Large page titles (`ph-display`) are 24px, one step above `pn-title-page`, same weight.

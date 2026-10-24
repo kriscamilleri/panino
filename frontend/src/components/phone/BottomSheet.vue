@@ -143,7 +143,7 @@ onBeforeUnmount(endDrag)
     color: var(--ph-ink);
     border-radius: 20px 20px 0 0;
     box-shadow: var(--ph-shadow);
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: var(--ph-safe-bottom);
     outline: none;
     transition: transform 0.12s ease-out;
 }

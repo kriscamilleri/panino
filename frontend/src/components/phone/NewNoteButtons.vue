@@ -40,7 +40,7 @@ defineEmits(['note', 'template'])
 .ph-new-buttons {
     position: absolute;
     right: 16px;
-    bottom: calc(16px + env(safe-area-inset-bottom));
+    bottom: calc(16px + var(--ph-safe-bottom));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -52,7 +52,7 @@ defineEmits(['note', 'template'])
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 6px;
+    border-radius: var(--ph-fab-radius);
     box-shadow: var(--ph-shadow);
 }
 

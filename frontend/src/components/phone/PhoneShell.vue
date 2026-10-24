@@ -1,6 +1,7 @@
 <template>
     <div
         class="phone-ui ph-shell"
+        :class="{ 'ph-keyboard-open': keyboardOpen }"
         :style="visibleStyle"
         data-testid="phone-shell"
     >
@@ -22,7 +23,7 @@
 import { useViewport } from '@/composables/useViewport'
 import { usePhoneStatus } from '@/composables/usePhoneStatus'
 
-const { visibleStyle } = useViewport()
+const { visibleStyle, keyboardOpen } = useViewport()
 const { announcement } = usePhoneStatus()
 </script>
 
@@ -34,5 +35,8 @@ const { announcement } = usePhoneStatus()
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    /* Landscape notch; top and bottom insets are padded by each screen. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
 }
 </style>
