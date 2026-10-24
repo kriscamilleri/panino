@@ -203,7 +203,8 @@
         />
 
         <TemplatePickerModal
-            v-if="showTemplates"
+            sheet
+            :open="showTemplates"
             :database-key="syncStore.personalDbKey"
             :current-folder-id="null"
             @close="showTemplates = false"

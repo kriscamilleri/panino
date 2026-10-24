@@ -1,74 +1,77 @@
 <template>
     <div>
-        <div
-            v-if="showContextMenu"
-            class="fixed z-50 min-w-[10rem] rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg"
-            :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }"
-            :data-testid="`tree-item-context-menu-${item.id}`"
-        >
-            <button
-                v-if="isSpace"
-                @click="handleManageSpace"
-                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
-                :data-testid="`tree-item-context-menu-manage-${item.id}`"
+        <Teleport to="body">
+            <div
+                v-if="showContextMenu"
+                ref="contextMenuEl"
+                class="fixed z-50 min-w-[10rem] rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg"
+                :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }"
+                :data-testid="`tree-item-context-menu-${item.id}`"
             >
-                <Settings class="h-4 w-4" />
-                <span>Manage space</span>
-            </button>
-
-            <button
-                v-if="!isSpace"
-                @click="handleRename"
-                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
-                :data-testid="`tree-item-context-menu-rename-${item.id}`"
-            >
-                <Edit class="h-4 w-4" />
-                <span>Rename</span>
-            </button>
-
-            <div v-if="!isSpace" class="my-1 border-t border-gray-200" />
-
-            <button
-                v-if="!isSpace"
-                @click="handleDuplicate"
-                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
-                :data-testid="`tree-item-context-menu-duplicate-${item.id}`"
-            >
-                <Copy class="h-4 w-4" />
-                <span>Duplicate</span>
-            </button>
-
-            <button
-                v-if="!isSpace"
-                @click="handleDelete"
-                class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
-                :data-testid="`tree-item-context-menu-delete-${item.id}`"
-            >
-                <Trash2 class="h-4 w-4" />
-                <span>Delete</span>
-            </button>
-
-            <template v-if="isFolder">
-                <div class="my-1 border-t border-gray-200" />
-
                 <button
-                    @click="handleNewFile"
+                    v-if="isSpace"
+                    @click="handleManageSpace"
                     class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
-                    :data-testid="`tree-item-context-menu-new-file-${item.id}`"
+                    :data-testid="`tree-item-context-menu-manage-${item.id}`"
                 >
-                    <FilePlus class="h-4 w-4" />
-                    <span>New Document</span>
+                    <Settings class="h-4 w-4" />
+                    <span>Manage space</span>
                 </button>
+    
                 <button
-                    @click="handleNewFolder"
+                    v-if="!isSpace"
+                    @click="handleRename"
                     class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
-                    :data-testid="`tree-item-context-menu-new-folder-${item.id}`"
+                    :data-testid="`tree-item-context-menu-rename-${item.id}`"
                 >
-                    <FolderPlus class="h-4 w-4" />
-                    <span>New Folder</span>
+                    <Edit class="h-4 w-4" />
+                    <span>Rename</span>
                 </button>
-            </template>
-        </div>
+    
+                <div v-if="!isSpace" class="my-1 border-t border-gray-200" />
+    
+                <button
+                    v-if="!isSpace"
+                    @click="handleDuplicate"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                    :data-testid="`tree-item-context-menu-duplicate-${item.id}`"
+                >
+                    <Copy class="h-4 w-4" />
+                    <span>Duplicate</span>
+                </button>
+    
+                <button
+                    v-if="!isSpace"
+                    @click="handleDelete"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
+                    :data-testid="`tree-item-context-menu-delete-${item.id}`"
+                >
+                    <Trash2 class="h-4 w-4" />
+                    <span>Delete</span>
+                </button>
+    
+                <template v-if="isFolder">
+                    <div class="my-1 border-t border-gray-200" />
+    
+                    <button
+                        @click="handleNewFile"
+                        class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                        :data-testid="`tree-item-context-menu-new-file-${item.id}`"
+                    >
+                        <FilePlus class="h-4 w-4" />
+                        <span>New Document</span>
+                    </button>
+                    <button
+                        @click="handleNewFolder"
+                        class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                        :data-testid="`tree-item-context-menu-new-folder-${item.id}`"
+                    >
+                        <FolderPlus class="h-4 w-4" />
+                        <span>New Folder</span>
+                    </button>
+                </template>
+            </div>
+        </Teleport>
 
         <div
             v-if="isFolder"
@@ -258,7 +261,7 @@
 </template>
 
 <script setup>
-import { provide, computed, ref, onMounted, onUnmounted, watch, inject } from 'vue'
+import { provide, computed, ref, onMounted, onUnmounted, watch, inject, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useStructureStore } from '@/store/structureStore'
@@ -403,13 +406,25 @@ function handleFileClick(id) {
 const showContextMenu = ref(false)
 const contextMenuX = ref(0)
 const contextMenuY = ref(0)
+const contextMenuEl = ref(null)
+const MENU_EDGE_GAP = 8
 
-function showMenu(event) {
+async function showMenu(event) {
     if (props.isFiltered) return
     contextMenuX.value = event.clientX
     contextMenuY.value = event.clientY
     showContextMenu.value = true
     event.preventDefault()
+
+    // Keep the menu on screen: flip it above or left of the pointer when it would overflow.
+    await nextTick()
+    const menu = contextMenuEl.value
+    if (!menu) return
+    const { width, height } = menu.getBoundingClientRect()
+    const maxX = window.innerWidth - width - MENU_EDGE_GAP
+    const maxY = window.innerHeight - height - MENU_EDGE_GAP
+    if (contextMenuX.value > maxX) contextMenuX.value = Math.max(MENU_EDGE_GAP, event.clientX - width)
+    if (contextMenuY.value > maxY) contextMenuY.value = Math.max(MENU_EDGE_GAP, event.clientY - height)
 }
 
 function handleManageSpace() {

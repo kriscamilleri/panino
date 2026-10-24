@@ -1,11 +1,18 @@
 <template>
-  <BaseModal
-    :title="showVariables ? activeTemplate?.name || 'Fill Variables' : 'New Document from Template'"
-    size="sm"
-    data-testid="template-picker-modal"
-    close-testid="template-picker-close"
+  <!-- Phones get a bottom sheet that stays mounted so it slides in and out like the capture sheet. -->
+  <component
+    :is="sheet ? BottomSheet : BaseModal"
+    v-bind="wrapperProps"
     @close="emit('close')"
   >
+    <template
+      v-if="sheet"
+      #header
+    >
+      <h2 class="template-sheet-title">{{ dialogTitle }}</h2>
+    </template>
+
+    <div :class="{ 'template-sheet-body': sheet }">
     <!-- Variable input form (shown inline, replaces template list) -->
     <template v-if="showVariables">
       <p class="pn-body mb-5">
@@ -54,7 +61,7 @@
 
         <!-- Template list -->
         <p
-          v-if="templateStore.isLoading"
+          v-if="templateStore.isLoading && !templates.length"
           class="py-8 text-center pn-body"
         >Loading templates…</p>
 
@@ -95,8 +102,10 @@
         </template>
       </div>
     </template>
+    </div>
 
     <template #footer>
+      <div :class="{ 'template-sheet-footer': sheet }">
       <!-- Variable mode: Back + Create Document -->
       <template v-if="showVariables">
         <BaseButton
@@ -136,18 +145,20 @@
           Use Template
         </BaseButton>
       </template>
+      </div>
     </template>
-  </BaseModal>
+  </component>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue';
+import { ref, computed, reactive, watch } from 'vue';
 import { useTemplateStore } from '@/store/templateStore';
 import { useStructureStore } from '@/store/structureStore';
 import { useSyncStore } from '@/store/syncStore';
 import { resolveTemplateVariables, extractInputLabels } from '@/utils/templateVariables';
 import BaseModal from '@/components/BaseModal.vue';
 import BaseButton from '@/components/BaseButton.vue';
+import BottomSheet from '@/components/phone/BottomSheet.vue';
 
 const props = defineProps({
   currentFolderId: {
@@ -157,6 +168,16 @@ const props = defineProps({
   databaseKey: {
     type: String,
     required: true,
+  },
+  /** Render as a phone bottom sheet instead of a centered dialog. */
+  sheet: {
+    type: Boolean,
+    default: false,
+  },
+  /** Sheet mode only: the sheet stays mounted and animates on this. */
+  open: {
+    type: Boolean,
+    default: true,
   },
 });
 
@@ -178,9 +199,30 @@ const variableLabels = computed(() => {
   return extractInputLabels(activeTemplate.value.content, activeTemplate.value.titlePattern || '');
 });
 
-onMounted(() => {
-  templateStore.loadTemplates(props.databaseKey);
-});
+const dialogTitle = computed(() =>
+  showVariables.value ? activeTemplate.value?.name || 'Fill Variables' : 'New Document from Template',
+);
+
+const wrapperProps = computed(() => (props.sheet
+  ? { open: props.open, label: dialogTitle.value, testid: 'template-picker-modal' }
+  : {
+      title: dialogTitle.value,
+      size: 'sm',
+      'data-testid': 'template-picker-modal',
+      closeTestid: 'template-picker-close',
+    }));
+
+// Load ahead of the first opening so the list is in place while the sheet slides
+// up, then start each opening fresh with the latest templates.
+watch(() => [props.open, props.databaseKey], ([isOpen, dbKey], previous) => {
+  if (!dbKey) return;
+  const firstLoad = !previous || previous[1] !== dbKey;
+  if (isOpen) {
+    selectedTemplateId.value = '__blank__';
+    cancelVariables();
+  }
+  if (isOpen || firstLoad) templateStore.loadTemplates(dbKey);
+}, { immediate: true });
 
 function selectTemplate(id) {
   selectedTemplateId.value = id;
@@ -296,3 +338,21 @@ async function folderExists(targetId) {
   return (rows?.[0]?.count ?? 0) > 0;
 }
 </script>
+
+<style scoped>
+.template-sheet-title {
+  padding: 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.template-sheet-body {
+  padding: 4px 16px 16px;
+}
+
+.template-sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+</style>

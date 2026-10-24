@@ -175,7 +175,8 @@
         />
 
         <TemplatePickerModal
-            v-if="showTemplates"
+            sheet
+            :open="showTemplates"
             :database-key="dbKey"
             :current-folder-id="folderParam"
             @close="showTemplates = false"
