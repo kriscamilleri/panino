@@ -73,9 +73,13 @@ See `git log main..feature/pdf-render-hardening`. Decisions and findings:
   Puppeteer for the fixed 500 message, the 504 with context close, and the 503 queue cap.
   Full suite after the fixes: 33 files, 508 tests pass.
 - Frontend: `printStyleValidation.test.js` (3); full suite 888 pass. `npm run lint` clean.
-- Stress document (scratch script against the dev stack): hardened output is byte-identical
-  in size to the baseline, same 5 pages, same embedded fonts (Source Sans 3, Playfair
-  Display, JetBrains Mono, Lora) and images, rasterized pages identical byte for byte.
+- Stress document (scratch script against the dev stack): before the `FORCE_BODY` fix the
+  hardened output was byte-identical in size to the baseline, same 5 pages, same embedded
+  fonts (Source Sans 3, Playfair Display, JetBrains Mono, Lora) and images, rasterized pages
+  identical byte for byte. After the fix the same request renders with the Document's own
+  `@page { margin: 2.5cm 1.5cm }` applied (its HTML starts with the `<style>` block, which
+  main silently dropped), so the text reflows; re-rendering with that block removed is again
+  identical to the baseline on all five pages. Fonts and images unchanged in both.
 - Browser (Claude in Chrome, dev stack, 1406px): created "PDF Stress Document" with the same
   content, uploaded two images through the app, opened Customize Print Styles: 5-page PDF
   with header, both local images, both hot-linked images, code block, table, two-column
