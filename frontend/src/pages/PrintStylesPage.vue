@@ -74,6 +74,7 @@ import { useMarkdownStore } from '@/store/markdownStore';
 import { useAuthStore } from '@/store/authStore';
 import DOMPurify from 'dompurify';
 import { buildPdfRequest, requestPdf } from '@/utils/pdfExport';
+import { printStyleFieldHint } from '@/utils/printStyleValidation';
 import { useViewport } from '@/composables/useViewport';
 
 const router = useRouter();
@@ -105,6 +106,7 @@ const printStylesConfig = {
   },
   getStyles: () => ({ ...editingValues.value }),
   updateStyleAction: updateEditingStyle,
+  validateField: printStyleFieldHint,
   getDebugHtml: () => finalHtmlForPdf.value,
   editorComponent: Editor,
 

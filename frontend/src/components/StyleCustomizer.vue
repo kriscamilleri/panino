@@ -237,6 +237,14 @@
                     class="pn-checkbox"
                   />
                 </div>
+
+                <p
+                  v-if="fieldHint(field)"
+                  :data-testid="`field-hint-${field.id}`"
+                  class="text-xs text-red-600 dark:text-red-400"
+                >
+                  {{ fieldHint(field) }}
+                </p>
               </div>
             </div>
           </div>
@@ -362,6 +370,12 @@ const popularGoogleFonts = [
 ];
 
 const debouncedUpdateStore = useDebounceFn((k, v) => props.config.updateStyleAction(k, v), 300);
+
+// A page may supply `config.validateField(key, value)` returning a hint string for a value
+// that will not be used as typed (the Print Styles page uses the server's rules).
+const fieldHint = (field) => props.config.validateField
+  ? props.config.validateField(field.modelKey, editableStyleMap.value[field.modelKey])
+  : null;
 
 onMounted(() => {
   allGoogleFonts.value = [...popularGoogleFonts];
