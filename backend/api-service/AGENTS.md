@@ -88,15 +88,34 @@ a compatible extension on another platform.
 
 ## PDF Generation
 
-- Single Puppeteer browser instance reused across requests.
-- Requests queued and processed sequentially to limit memory.
-- Images pre-embedded as data URIs (both internal DB images and external URLs).
-- SSRF protection: DNS lookup + private IP check before fetching external images.
+- Single Puppeteer browser instance reused across requests, launched with
+  `--host-resolver-rules` so no host but Google Fonts resolves; each job renders in its own
+  browser context with JavaScript disabled and request interception that allows only `data:`
+  and `about:` URLs and Google Fonts (`pdfSanitize.js`, `isAllowedRendererRequest`).
+- Requests queued and processed sequentially to limit memory. The queue is capped
+  (`PDF_QUEUE_LIMIT`, default 20 waiting → `503` + `Retry-After`) and each job has a deadline
+  (`PDF_JOB_TIMEOUT_MS`, default 45 s → `504`; the job is marked aborted, its in-flight
+  image fetches are destroyed and its context, if any, closed). Request bodies over 16 MB and
+  CSS over 256 KB per sheet or 512 KB per request are refused with `413`; a sheet with more
+  than 1000 parse errors is dropped whole. Clients only ever see fixed messages; details are
+  logged.
+- All CSS is parsed and re-serialized with css-tree (`sanitizeStylesheet`,
+  `sanitizeDeclarations`): the request stylesheet, Custom CSS, per-element values, and the
+  `<style>` elements and `style` attributes in Document HTML (via DOMPurify hooks). `@import`
+  and `url()` survive only for `data:`, fragments and Google Fonts.
+- Structured print-style settings are validated with `shared/printStyleRules.js`
+  (`validatePrintStyles`); invalid values fall back to the defaults and unknown keys are
+  dropped. The frontend Print Styles page uses the same rules for inline hints.
+- Images pre-embedded as data URIs (both internal DB images and external URLs). External
+  fetch is in `imageFetch.js`: public-unicast check on every resolved address (`ipaddr.js`),
+  socket pinned to the checked address, manual redirects (3 hops, re-checked), streaming size
+  limit, at most 25 external images per render. A failed or blocked image becomes a
+  placeholder comment. Header/footer HTML allows `style` attributes but not `<style>`.
 - Page numbers resolved via draft PDF render + pdf-lib page count.
 - HTML sanitized with DOMPurify before rendering.
-- Print style defaults are the `PRINT_STYLE_DEFAULTS` constant in `pdf.js`. Incoming
-  `printStyles` are merged over them. `poc/` is a proof of concept and is not on any
-  production code path — do not reintroduce a dependency on it.
+- Print style defaults are the `PRINT_STYLE_DEFAULTS` constant in `pdf.js`. `poc/` is a proof
+  of concept and is not on any production code path — do not reintroduce a dependency on it.
+- Threat model and controls: [`docs/architecture/pdf-pipeline.md`](../../docs/architecture/pdf-pipeline.md).
 
 ---
 
@@ -155,6 +174,8 @@ tests/
 │   ├── auth.test.js      # authenticateToken middleware unit tests
 │   ├── db.test.js        # Database utility tests
 │   ├── db-repair.test.js # Orphan-clock detection and repair helpers
+│   ├── imageFetch.test.js # External image fetch: address policy, pinning, redirects, size limit
+│   ├── pdfSanitize.test.js # CSS sanitizer and renderer request allow-list
 │   ├── revision.test.js  # actor_user_id/actor_kind validation helpers
 │   ├── spaces.test.js    # assertSpacesInvariants + membership repository
 │   └── sync.test.js      # Sync helper function tests
@@ -165,7 +186,8 @@ tests/
     ├── image.test.js              # Image upload, retrieval, and orphan prune
     ├── me.test.js                 # GET /me, POST /me/password
     ├── passwordReset.test.js
-    ├── pdf.test.js                # PDF generation
+    ├── pdf.test.js                # PDF generation, renderer containment, Document <style>
+    ├── pdf.queue.test.js          # Queue cap, job deadline and fixed error messages (mocked Puppeteer)
     ├── revision.test.js           # Revision list, detail, restore
     ├── sync.test.js               # Sync endpoint integration
     ├── sync.revision.test.js      # Revision capture driven by incoming change sets
