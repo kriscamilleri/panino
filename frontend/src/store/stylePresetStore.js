@@ -28,7 +28,7 @@ class StyleNameError extends Error {
 
 /**
  * Named preview and print styles, per library, and the folder and template
- * defaults that point at them. See docs/specs/active/named-styles.md.
+ * defaults that point at them. See docs/specs/shipped/named-styles.md.
  */
 export const useStylePresetStore = defineStore('stylePresetStore', () => {
   const syncStore = useSyncStore()

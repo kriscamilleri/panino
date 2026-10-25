@@ -1,10 +1,15 @@
 # Named Styles — Saved Preview and Print Styles with Folder and Template Defaults
 
-> Status: active
+> Status: shipped
 > Created: 2026-10-25
 > Last updated: 2026-10-25
-> Shipped: —
-> Implementation: —
+> Shipped: 2026-10-25 (see `docs/agent-logs/2026/10/2026-10-25_13-20_named-styles.md`)
+> Implementation: `frontend/src/utils/stylePresets.js`, `frontend/src/utils/frontMatter.js`,
+> `frontend/src/utils/styleDefaults.js`, `frontend/src/store/stylePresetStore.js`,
+> `frontend/src/composables/useStyleEditing.js`, `frontend/src/components/StylePresetBar.vue`,
+> `frontend/src/components/FolderStylesModal.vue`, `frontend/src/components/DocumentStylesModal.vue`,
+> `frontend/src/store/syncStore.js`, `frontend/src/utils/syncRegistry.js`, `backend/api-service/db.js`,
+> `backend/api-service/sync.js`
 
 ---
 

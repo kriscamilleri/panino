@@ -1,6 +1,6 @@
 /**
  * Named styles: saved preview or print styles that folders, templates and
- * Documents can choose. See docs/specs/active/named-styles.md.
+ * Documents can choose. See docs/specs/shipped/named-styles.md.
  */
 import { DEFAULT_PREVIEW_STYLES, DEFAULT_PRINT_STYLES } from './styleDefaults';
 import { parseFrontMatter, removeFrontMatterKeys, setFrontMatterValues, unquoteValue } from './frontMatter';
