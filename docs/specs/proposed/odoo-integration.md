@@ -33,6 +33,7 @@ order; it never changes their fields.
 |---|---|
 | Destinations | Odoo Documents (PDF file), Odoo Knowledge (article), and the chatter of an opportunity or sales order (PDF attachment) |
 | Chatter post type | Always an internal note (`mail.mt_note`), never a message: followers, who can include the customer, are not emailed |
+| Chatter resend | Overwrite the PDF on the original note, and post a short internal note saying it was replaced, so the update shows in the chatter |
 | Whose connection | Always the sender's personal connection, so Odoo attributes each record to the person who sent it. No space-level connection. |
 | Odoo versions | 19 and later only, so the JSON-2 API only |
 | Markdown | Rendered as a Knowledge article body, not attached as a `.md` file |
@@ -141,8 +142,11 @@ and the article's `name` and `body` are overwritten, including any edits made in
 and parent pickers are hidden: the record stays where it is in Odoo.
 
 For the chatter, sending again **to the same opportunity or order** overwrites the PDF on the
-note Panino posted there; the note keeps its original date. Picking a **different** opportunity
-or order posts a new note there and leaves the first one alone.
+note Panino posted there; that note keeps its original date. Panino then posts a short internal
+note, without an attachment: "<title>.pdf was replaced with a new version from Panino." So the
+update shows as new activity while the chatter keeps one copy of the PDF. If posting that note
+fails, the overwrite still stands and the result says the note is missing. Picking a
+**different** opportunity or order posts a new note there and leaves the first one alone.
 
 - If the earlier record was deleted in Odoo, Panino creates a new one and says so.
 - If the sender's Odoo user may not write to it (a space Document first sent by someone with more
@@ -225,11 +229,13 @@ check that the attachment still belongs to that `res_model`/`res_id`.
 | Folder picker | `documents.document/search_read` `{domain: [['type','=','folder']], fields: ['name','folder_id'], limit}` |
 | Article picker | `knowledge.article/search_read` `{domain: [['name','ilike',q]], fields: ['name','parent_id'], limit: 20}` |
 | Chatter, first send to a record | `<model>/read` `{ids: [resId], fields: ['name']}` (exists, readable); `ir.attachment/create` `{vals_list: [{name, datas, mimetype: 'application/pdf', res_model: 'mail.compose.message', res_id: 0}]}`; `<model>/message_post` `{ids: [resId], body: '<title> (PDF from Panino)', message_type: 'comment', subtype_xmlid: 'mail.mt_note', attachment_ids: [attachmentId]}`; `ir.attachment/read` `create_date` |
-| Chatter, again to that record | `ir.attachment/read` `{ids: [id], fields: ['create_date','res_model','res_id']}`, then `write` `{ids: [id], vals: {datas, name}}` |
+| Chatter, again to that record | `ir.attachment/read` `{ids: [id], fields: ['create_date','res_model','res_id']}`, then `write` `{ids: [id], vals: {datas, name}}`, then `<model>/message_post` `{ids: [resId], body: '<title>.pdf was replaced with a new version from Panino.', message_type: 'comment', subtype_xmlid: 'mail.mt_note'}` |
 | Record picker | `crm.lead/search_read` `{domain: [['type','=','opportunity'], '|', ['name','ilike',q], ['partner_id','ilike',q]], fields: ['name','partner_id','stage_id'], limit: 10}` and `sale.order/search_read` `{domain: ['|', ['name','ilike',q], ['partner_id','ilike',q]], fields: ['name','partner_id','state'], limit: 10}` |
 
 The record-changing step is one call for Documents and Knowledge, so they either fully succeed or
-leave Odoo unchanged. A first chatter send takes two (stage the attachment, then post). If the
+leave Odoo unchanged. A first chatter send takes two (stage the attachment, then post); a resend
+takes two as well (overwrite, then the "replaced" note), and a failed note after a successful
+overwrite is reported, not retried as a second overwrite. If the
 post fails, the staged attachment is linked to nothing and visible to no one. Panino does not
 delete it; Phase 0 confirms Odoo's autovacuum removes it. If the `create_date` read after a create fails, the link is stored without it
 and filled in by the next send's read. The two destinations are independent: one can succeed
@@ -377,7 +383,7 @@ other than `crm.lead` or `sale.order` is rejected with 400.
    (Documents only), folder picker, send sheet on phone and desktop. Personal and space
    Documents.
 3. **PDF to an opportunity or sales order.** Record picker, staged attachment and internal note,
-   overwrite on resend to the same record. Works on Community databases.
+   overwrite plus a "replaced" note on resend to the same record. Works on Community databases.
 4. **Article to Knowledge.** HTML rendering and sanitizing, checklist mapping, parent picker.
    Images replaced by placeholders.
 5. **Images** uploaded into articles.
@@ -395,7 +401,8 @@ other than `crm.lead` or `sale.order` is rejected with 400.
   without writing to the old one; a deleted record is recreated.
 - **Chatter:** `message_post` always carries `mail.mt_note` whatever the client sends; no
   `write` or `unlink` is ever issued on `crm.lead` or `sale.order`; resend to the same record
-  writes only Panino's attachment; a different record gets a new note; a disallowed `resModel`
+  writes only Panino's attachment and posts one "replaced" internal note; a failed "replaced"
+  note leaves the overwrite in place and is reported; a different record gets a new note; a disallowed `resModel`
   is refused; an attachment that moved to another record is not overwritten.
 - **Integration (backend, Docker):** routes with a fake Odoo HTTP server: authz (other user's
   `dbKey`, space viewer/editor/owner, removed member), create then update by a second space
@@ -406,9 +413,4 @@ other than `crm.lead` or `sale.order` is rejected with 400.
 
 ## 13) Open questions
 
-1. **Chatter resend.** Following the overwrite rule, resending to the same opportunity or order
-   replaces the PDF on the existing note, which keeps its original date: someone reading the
-   chatter sees no new activity. The alternative is a new note per send, keeping each version in
-   the history. Which should it be?
-
-Phase 0 may change §4's field names, the checklist mapping and the chatter calls.
+None blocking. Phase 0 may change §4's field names, the checklist mapping and the chatter calls.
