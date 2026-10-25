@@ -2,7 +2,9 @@
 
 > Send a Document to Odoo 19+: as a PDF into the Documents app, as a rendered article into the
 > Knowledge app, and as a PDF attached to an internal note in the chatter of an opportunity or
-> sales order. Talks to Odoo's external JSON-2 API directly; nothing is installed in Odoo.
+> sales order. And keep a space, a folder or a single Document mirrored into Knowledge, the way
+> GitHub backup mirrors an account into a repository. Talks to Odoo's external JSON-2 API directly; nothing is
+> installed in Odoo.
 > Status: proposed
 > Created: 2026-10-25
 > Last updated: 2026-10-25
@@ -19,13 +21,17 @@ A user picks **Send to Odoo** on a Document, chooses any of three destinations, 
 - posts the PDF as an attachment on an **internal note** in the chatter of an **opportunity**
   (`crm.lead`) or **sales order** (`sale.order`).
 
+Separately, a user can **sync a space, a folder or a single Document** to Knowledge: every
+Document in it becomes an article, every subfolder a nested article, and Panino keeps them up to
+date in the background (§11). Manual send stays for one-off sends and for opportunities and sales orders.
+
 Every send uses the **sender's personal connection**, so the Odoo records are created and
 updated as that person's Odoo user. This holds for personal Documents and for Documents in shared
 spaces. All Odoo traffic goes through the Panino backend, which holds the API key.
 
 Panino only ever modifies Odoo records it created itself, and it always overwrites those. The one
 thing it adds to a record it did not create is that internal note on an opportunity or sales
-order; it never changes their fields.
+order; it never changes their fields. Panino never deletes in Odoo; sync archives.
 
 ## 2) Decisions (Kris, 2026-10-25)
 
@@ -40,6 +46,13 @@ order; it never changes their fields.
 | Edits made in Odoo | Overwritten on the next send. Panino never modifies an Odoo record it did not create. |
 | Showing who sent it | The record's Odoo author, from the sender's personal connection. No "Sent from Panino by" footer. |
 | Test database | Kris provides an Odoo 19 Enterprise database with API access at implementation time |
+| Scope | Manual send (§5) **and** sync to Knowledge (§11) are both in scope |
+| Unit of sync | A whole space, a folder (with its subfolders), or a single Document |
+| Whose connection runs a sync | The person who set it up; they are the Odoo author of every synced article |
+| Deleted in Panino | Archived in Odoo, never deleted |
+| Editing in Odoo | Synced articles are read-only in Odoo for everyone but the syncing user |
+| PDFs in sync | Yes, opt-in per sync, into a Documents folder, in a later phase |
+| Build order | Manual send first; sync builds on it |
 
 ## 3) Goals
 
@@ -51,7 +64,9 @@ order; it never changes their fields.
 5. Sending the same Document again overwrites what Panino created earlier: the PDF, the article,
    or the PDF attached to that opportunity's or order's note.
 6. A Document in a shared space maps to one Odoo record per destination, whichever member sends.
-7. No Odoo module, no Odoo configuration beyond creating a user and an API key.
+7. Keep a space, a folder or a single Document mirrored into Knowledge, one-way, without anyone
+   pressing Send.
+8. No Odoo module, no Odoo configuration beyond creating a user and an API key.
 
 ## Non-Goals
 
@@ -59,7 +74,10 @@ order; it never changes their fields.
   article/document" option, and no code path writes to an id Panino did not record at creation.
   An opportunity or sales order only ever gains an internal note; none of its fields change.
 - Odoo 18 and earlier (XML-RPC / JSON-RPC are removed in Odoo 22 anyway).
-- Importing from Odoo into Panino, or two-way sync of article edits.
+- Importing from Odoo into Panino, or two-way sync. Sync is one-way: edits made in Odoo are
+  overwritten (and prevented, §11).
+- Syncing a whole personal account in one go. A sync is always one space, one folder or one
+  Document.
 - Chatter on any model other than opportunities and sales orders (contacts, tasks, invoices…).
 - Chatter messages that notify followers or email the customer.
 - Space-level or shared bot connections.
@@ -134,7 +152,11 @@ Help text: use your own Odoo user (it is shown as the author of what you send), 
   (`target="_blank" rel="noopener noreferrer"`).
 
 The entry shows "Connect Odoo in Settings" when the sender has no connection, and is disabled
-offline. The sheet names the Odoo host the Document is going to.
+offline. The sheet names the Odoo host the Document is going to. **Article to Knowledge** has a
+**Keep in sync** switch, which turns the send into a Document sync (§11). For a Document that is
+already synced, on its own or inside a synced folder or space, the option reads "Synced to
+Knowledge" with the time of the last sync: the sync owns that article, so a manual send cannot
+create a second one.
 
 **Send again.** If the Document was sent before (by anyone, for a space Document), the sheet
 says "Last sent 3 days ago by Kris" and the button reads **Update in Odoo**. The PDF's `datas`
@@ -287,24 +309,28 @@ CREATE TABLE IF NOT EXISTS odoo_connection (
 );
 ```
 
-**Links belong to the Document**, in the database the Document lives in: the user's database
+**Links belong to the Document (or folder)**, in the database it lives in: the user's database
 (`BASE_SCHEMA`) or the space database's server-local schema (`SPACE_LOCAL_SCHEMA`). That is what
 lets every member of a space update the same Odoo record. Remembered folder and parent choices
 live with the links, so a space shares them too:
 
 ```sql
 CREATE TABLE IF NOT EXISTS odoo_links (
-  note_id TEXT NOT NULL,
+  source_id TEXT NOT NULL,               -- note id, or folder id for a synced folder's article
+  source_type TEXT NOT NULL DEFAULT 'note' CHECK (source_type IN ('note', 'folder')),
   destination TEXT NOT NULL CHECK (destination IN ('documents', 'knowledge', 'chatter')),
   odoo_target TEXT NOT NULL,             -- normalized base_url + '|' + database_name
   target_key TEXT NOT NULL DEFAULT '',   -- '' for documents/knowledge; 'crm.lead:42' or 'sale.order:7' for chatter
   odoo_record_id INTEGER NOT NULL,       -- documents.document, knowledge.article, or Panino's ir.attachment
   odoo_message_id INTEGER,               -- chatter only: the note Panino posted
   odoo_create_date TEXT,                 -- from Odoo, for the §6 ownership check
+  sync_id TEXT,                          -- set when a sync (§11) owns this record
+  content_hash TEXT,                     -- sync only: hash of what was last written
+  archived_at TEXT,                      -- sync only: archived in Odoo after a delete or move-out
   first_sent_by TEXT NOT NULL,           -- Panino user id
   last_sent_at TEXT NOT NULL,
   last_sent_by TEXT NOT NULL,
-  PRIMARY KEY (note_id, destination, odoo_target, target_key)
+  PRIMARY KEY (source_id, destination, odoo_target, target_key)
 );
 
 CREATE TABLE IF NOT EXISTS odoo_defaults (
@@ -315,7 +341,8 @@ CREATE TABLE IF NOT EXISTS odoo_defaults (
 ```
 
 A Document can be linked to several opportunities and orders, one row each. Deleting a Document
-deletes its links. Panino never deletes anything in Odoo.
+deletes its manual-send links; a synced Document's link is kept until the sync has archived its
+article. Panino never deletes anything in Odoo.
 
 ## 9) API
 
@@ -376,12 +403,138 @@ other than `crm.lead` or `sale.order` is rejected with 400.
 
 ---
 
-## 11) Phases
+## 11) Folder and space sync
+
+### What it does
+
+A **sync** maps one whole space, one Panino folder (with everything under it) or one single
+Document to one Knowledge parent article in one Odoo database. From then on, Panino keeps the
+articles matching, one way:
+
+| In Panino | In Odoo |
+|---|---|
+| The synced folder or space | Children of the chosen parent article (the folder itself is not an article) |
+| A subfolder | An article with an empty body, parent of its contents |
+| A Document | An article: title → `name`, rendered markdown → `body` (§7) |
+| Rename | `name` written |
+| Edit | `body` written |
+| Move within the synced tree | `parent_id` written |
+| Delete, or move out of the synced tree | Article **archived** (recoverable in Odoo) |
+| Restored or moved back in | Article unarchived and rewritten |
+| Article deleted in Odoo | Recreated on the next run (Panino is the source) |
+
+Order follows Panino's title sort through Knowledge's `sequence`.
+
+A **Document sync** follows the Document, not a place: moving it to another folder changes
+nothing in Odoo, and only deleting it archives the article. It is set up from the send sheet's
+**Keep in sync** switch or from the Document menu.
+
+**Existing articles are adopted.** When a Document already sent to Knowledge by hand comes under
+a sync, the sync takes over that article (it is Panino's own, §6): it sets `sync_id` on the link,
+moves the article under the sync's parent if needed and rewrites it. No second article is made.
+
+### Setting one up
+
+- **Personal:** Settings → Integrations → Odoo → **Add sync**: pick a folder or a Document, pick
+  the Knowledge parent (or top level), optionally a Documents folder for PDFs (Phase 11).
+- **Space:** the space's settings → **Sync to Odoo**, available to the owner and editors. The
+  person who sets it up is shown as "Syncing as <Odoo user>" and their connection runs it. Their
+  Odoo user is the author of every article.
+- One sync per space, folder or Document. Anything inside a synced space or folder cannot have
+  its own sync.
+- The first run creates the whole tree level by level, using `create` with a list of records per
+  level (one call and one transaction per level).
+
+**Read-only in Odoo.** On the root articles of a sync, Panino sets the internal permission to read
+and makes the syncing user a write member; the children inherit it. Colleagues read the mirror
+but cannot edit a copy that the next run would overwrite. Phase 0 confirms the calls
+(`internal_permission`, `knowledge.article.member`).
+
+### When it runs
+
+- **After changes:** when `/sync` applies changes in a database with a sync, a run for that sync
+  is scheduled **3 minutes** later, restarted by further changes (so a burst of edits is one
+  run), and at most every 3 minutes.
+- **Sync now** in Settings and in the space settings.
+- **Daily reconcile:** once a day a full comparison catches drift, such as articles deleted or
+  unarchived in Odoo, and rewrites what differs.
+- One run per sync at a time, in a job map like `backupJobs`. Runs are capped per Odoo target
+  (60 calls a minute) so a first run of a large folder does not hammer the Odoo server.
+
+### Change detection
+
+Each run reads the folder tree and Documents from the **server copy** of the database (as GitHub
+backup does), renders each Document, and hashes `name + parent + body`. Only records whose hash
+differs from `odoo_links.content_hash` are written. A Document still sitting unsynced on a phone
+is picked up by the run after it syncs.
+
+Each record succeeds or fails on its own; failures are retried on the next run and counted in
+the sync's status. A run never stops halfway through a write because each write is one call.
+
+### Server-side rendering
+
+There is no browser in a background run, so the markdown rendering the Preview does (MarkdownIt
+setup, front-matter and global variable substitution, sanitizing) moves into `shared/` and is used
+by both the frontend Preview and the backend. **Sync must render exactly what the Preview shows**;
+a shared test fixture set compares the two. Manual Knowledge send (§7) switches to the shared
+renderer at the same time, so both produce the same article.
+
+PDFs in a sync (Phase 11) also mean building the print request (styles, print styles, page size)
+on the server and a Puppeteer render per changed Document. That is real CPU on the server, so
+it is opt-in per sync and runs at lower priority than interactive `/render-pdf` requests.
+
+### Status
+
+Like the backup card: last run time, records created/updated/archived, failures with the §6 error
+codes, **key expiry** shown in red from 14 days out, and a paused state. A sync pauses, and says
+why, when the key is rejected, when the syncing user disconnects Odoo, or when they leave the
+space. Another owner or editor can then **take over**: their connection runs it from then on.
+Their Odoo user must be able to write the existing articles; if not, the take-over fails with
+`access_denied` and changes nothing.
+
+### Data
+
+In the database being synced (`BASE_SCHEMA` or `SPACE_LOCAL_SCHEMA`), server-only like the rest:
+
+```sql
+CREATE TABLE IF NOT EXISTS odoo_syncs (
+  id TEXT PRIMARY KEY NOT NULL,
+  scope TEXT NOT NULL CHECK (scope IN ('space', 'folder', 'note')),
+  source_id TEXT,                        -- folder id or note id; NULL for a whole space
+  odoo_target TEXT NOT NULL,
+  parent_article_id INTEGER,             -- NULL: top level of Knowledge
+  documents_folder_id INTEGER,           -- PDFs, Phase 11; NULL: off
+  run_as TEXT NOT NULL,                  -- Panino user id whose connection runs it
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused')),
+  paused_reason TEXT,
+  last_run_at TEXT,
+  last_result TEXT,                      -- JSON: counts and failures
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+```
+
+Records a sync writes carry `sync_id` in `odoo_links`, which makes the §6 ownership rule apply to
+sync unchanged.
+
+### API
+
+| Route | Who | Purpose |
+|---|---|---|
+| `GET /integrations/odoo/syncs?dbKey=` | can read the database | syncs and their status |
+| `POST /integrations/odoo/syncs` | owner of `user:`; space owner or editor | `{dbKey, scope, sourceId?, parentArticleId, documentsFolderId?}`; runs as the caller |
+| `POST /integrations/odoo/syncs/:id/run` | same | Sync now |
+| `POST /integrations/odoo/syncs/:id/take-over` | same | run as the caller from now on |
+| `DELETE /integrations/odoo/syncs/:id` | same | stop syncing; articles stay in Odoo, links are dropped |
+
+## 12) Phases
 
 0. **Verify.** On the Odoo 19 Enterprise test database, confirm the §4 table through `/doc` and
    by hand with `curl`: create/read/write on Documents and Knowledge, `message_post` with a staged
    attachment on an opportunity and a sales order, checklist markup, record URLs, error shapes for
-   missing records and missing rights. Record results in this spec.
+   missing records and missing rights. For sync: batch `create`, archiving and unarchiving
+   articles, `sequence`, and setting read-only permissions with a write member. Record results in
+   this spec.
 1. **Connection.** `safeFetch.js` extraction, `secrets.js`, `odooClient.js`, `odoo_connection`,
    connection routes, Settings UI, feature flag.
 2. **PDF to Documents.** `renderPdf` refactor, links and the ownership check, send route
@@ -395,8 +548,19 @@ other than `crm.lead` or `sale.order` is rejected with 400.
 6. **Key lifecycle.** Expiry warnings everywhere; optional rotation through
    `res.users.apikeys/generate` when allowed (generate the new key, store it, verify it, then
    revoke the old one).
+7. **Shared renderer.** Move Preview rendering into `shared/`, with fixtures proving frontend and
+   backend output match; manual Knowledge send switches to it.
+8. **Sync to Knowledge.** `odoo_syncs`, Document and folder syncs, adopting manually sent
+   articles, first run by levels, change detection, archive and restore, read-only permissions,
+   scheduler and daily reconcile, status card, the send sheet's Keep in sync switch. Personal
+   Documents and folders.
+9. **Space sync.** Whole-space syncs and syncs of space folders and Documents, space settings,
+   owner/editor rules, pause and take-over.
+10. **Images in synced articles**, reusing Phase 5.
+11. **PDFs in sync** (opt-in): server-built print request, low-priority rendering into a
+    Documents folder.
 
-## 12) Tests
+## 13) Tests
 
 - **Unit:** `odooClient` against mocked `fetch` (headers, error mapping, traceback never
   surfaced, timeouts); `safeFetch` (private addresses refused, allow-list honoured, no redirects);
@@ -409,6 +573,15 @@ other than `crm.lead` or `sale.order` is rejected with 400.
   writes only Panino's attachment and posts one "replaced" internal note; a failed "replaced"
   note leaves the overwrite in place and is reported; a different record gets a new note; a
   disallowed `resModel` is refused; an attachment that moved to another record is not overwritten.
+- **Sync:** first run creates the tree level by level; an edit writes one body; a rename, a move
+  and a delete write name, parent and `active` respectively; nothing unchanged is written (hash);
+  an article deleted in Odoo is recreated; a failed record is retried next run without stopping
+  the others; a burst of changes schedules one run; a rejected key pauses the sync; take-over
+  without write rights changes nothing; manual Knowledge send is unavailable inside a synced
+  folder; a synced Document moved to another folder changes nothing in Odoo; a manually sent
+  article is adopted by a new sync, not duplicated.
+- **Renderer parity:** the shared fixtures render identically in the frontend Preview and on the
+  server.
 - **Integration (backend, Docker):** routes with a fake Odoo HTTP server: authz (other user's
   `dbKey`, space viewer/editor/owner, removed member), create then update by a second space
   member, access denied for that member, partial success across destinations, flag off → 404.
@@ -416,6 +589,7 @@ other than `crm.lead` or `sale.order` is rejected with 400.
   the test database. Not in CI: it needs an Enterprise database and a live key.
 - **Browser:** phone and desktop send flows on the local stack against the fake Odoo server.
 
-## 13) Open questions
+## 14) Open questions
 
-None blocking. Phase 0 may change §4's field names, the checklist mapping and the chatter calls.
+None blocking. Phase 0 may change §4's field names, the checklist mapping, the chatter calls and the Knowledge
+permission and archive calls.
