@@ -22,6 +22,7 @@
                 <!-- Sandboxed: the preview can never run script. -->
                 <iframe
                     v-if="previewDoc"
+                    :key="previewVersion"
                     title="First page preview"
                     sandbox=""
                     :srcdoc="previewDoc"
@@ -174,6 +175,11 @@ body{padding:${margin};box-sizing:border-box;width:100%;height:100%}
 ${printCss.value}
 </style></head><body>${renderedHtml.value}</body></html>`
 })
+
+// A fresh frame per preview: a new srcdoc on a loaded frame adds a history
+// entry, so Back would step through old previews instead of closing the sheet.
+const previewVersion = ref(0)
+watch(previewDoc, () => { previewVersion.value += 1 })
 
 async function renderHtml() {
     const md = await markdownStore.getPrintMarkdownIt(printStyles.value)

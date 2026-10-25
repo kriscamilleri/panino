@@ -32,7 +32,18 @@
         data-testid="print-styles-open-pdf"
       >Open the full PDF</a>
       <!-- PDF Preview (always shown when content exists) -->
-      <iframe v-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none" data-testid="pdf-preview-iframe"></iframe>
+      <!--
+        Keyed so each PDF gets a fresh frame. Changing the src of a loaded frame
+        adds a browser history entry, and Back then stepped through old PDFs
+        instead of leaving the page.
+      -->
+      <iframe
+        v-if="pdfUrl"
+        :key="pdfUrl"
+        :src="pdfUrl"
+        class="w-full h-full border-none"
+        data-testid="pdf-preview-iframe"
+      ></iframe>
 
       <div v-else class="flex items-center justify-center h-full text-gray-500">
         <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none"
