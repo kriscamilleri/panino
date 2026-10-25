@@ -334,7 +334,9 @@ function openCreate() {
   currentView.value = 'editor';
 }
 
-function openEdit(tpl) {
+async function openEdit(tpl) {
+  // Without the loaded defaults the form would show none, and saving would clear them.
+  await stylesLoaded;
   editingTemplate.value = tpl;
   form.name = tpl.name;
   form.titlePattern = tpl.titlePattern || '';
@@ -426,9 +428,11 @@ async function handleDelete(tpl) {
   }
 }
 
+let stylesLoaded = Promise.resolve();
+
 onMounted(() => {
   templateStore.loadTemplates(syncStore.personalDbKey);
-  stylePresetStore.loadLibrary(syncStore.personalDbKey).catch((err) => {
+  stylesLoaded = stylePresetStore.loadLibrary(syncStore.personalDbKey).catch((err) => {
     console.warn('[TemplateManagerPage] Failed to load styles', err);
   });
 });

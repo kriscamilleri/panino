@@ -25,6 +25,7 @@
           :id="`folder-style-${kind.value}`"
           v-model="choice[kind.value]"
           class="pn-select"
+          :disabled="loading"
           :data-testid="`folder-style-${kind.value}`"
         >
           <option value="">None (use the parent folder or Default)</option>
@@ -58,7 +59,7 @@
       <BaseButton
         variant="primary"
         size="md"
-        :disabled="saving"
+        :disabled="saving || loading"
         data-testid="folder-styles-save"
         @click="save"
       >
@@ -93,6 +94,8 @@ const stylePresetStore = useStylePresetStore();
 const uiStore = useUiStore();
 const choice = reactive({ preview: '', print: '' });
 const saving = ref(false);
+// The current defaults are read after opening; until then a choice would be overwritten.
+const loading = ref(true);
 
 const hasPresets = computed(() => stylePresetStore.presetsFor(props.dbKey).length > 0);
 
@@ -100,6 +103,7 @@ watch(
   () => props.show,
   async (visible) => {
     if (!visible) return;
+    loading.value = true;
     try {
       await stylePresetStore.loadLibrary(props.dbKey);
     } catch (err) {
@@ -108,6 +112,7 @@ watch(
     for (const { value } of KINDS) {
       choice[value] = stylePresetStore.assignmentFor(props.dbKey, 'folder', props.folderId, value) || '';
     }
+    loading.value = false;
   },
   { immediate: true },
 );
