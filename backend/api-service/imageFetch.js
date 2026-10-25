@@ -61,17 +61,25 @@ function hostnameLiteral(hostname) {
  * Resolve a hostname and check every address. Returns the address to connect to, or
  * throws `blocked` / `failed` errors.
  */
-async function resolveChecked(hostname, { lookup, isAllowedAddress }) {
+async function resolveChecked(hostname, { lookup, isAllowedAddress, deadline }) {
     const literal = hostnameLiteral(hostname);
     if (literal) {
         if (!isAllowedAddress(literal)) throw new FetchOutcome('blocked', 'address not allowed');
         return { address: literal, family: ipaddr.parse(literal).kind() === 'ipv6' ? 6 : 4 };
     }
     let results;
+    let timer;
     try {
-        results = await lookup(hostname, { all: true });
+        // `dns.lookup` has no timeout of its own; bound it by the fetch deadline.
+        const expiry = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new FetchOutcome('failed', 'timeout')), Math.max(0, deadline - Date.now()));
+        });
+        results = await Promise.race([lookup(hostname, { all: true }), expiry]);
     } catch (error) {
+        if (error instanceof FetchOutcome) throw error;
         throw new FetchOutcome('failed', `DNS lookup failed: ${error.code || error.message}`);
+    } finally {
+        clearTimeout(timer);
     }
     const list = Array.isArray(results) ? results : [results];
     if (list.length === 0) throw new FetchOutcome('failed', 'DNS lookup returned no address');
@@ -88,8 +96,12 @@ class FetchOutcome extends Error {
     }
 }
 
-function requestOnce(url, pinned, { timeoutMs, userAgent }) {
+function requestOnce(url, pinned, { timeoutMs, userAgent, signal }) {
     return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new Error('aborted'));
+            return;
+        }
         const client = url.protocol === 'https:' ? https : http;
         // `timeout` on the request is only an idle timeout; a host that trickles header
         // bytes would never trip it. This timer is the absolute cap for the header phase.
@@ -104,6 +116,7 @@ function requestOnce(url, pinned, { timeoutMs, userAgent }) {
                 else callback(null, pinned.address, pinned.family);
             },
             timeout: timeoutMs,
+            signal,
         }, (response) => {
             clearTimeout(timer);
             resolve(response);
@@ -118,13 +131,16 @@ function requestOnce(url, pinned, { timeoutMs, userAgent }) {
     });
 }
 
-function readBody(response, maxBytes, deadline) {
+function readBody(response, maxBytes, deadline, signal) {
     return new Promise((resolve, reject) => {
         const chunks = [];
         let total = 0;
         const timer = setTimeout(() => {
             response.destroy(new Error('timeout'));
         }, Math.max(0, deadline - Date.now()));
+        const onAbort = () => response.destroy(new Error('aborted'));
+        signal?.addEventListener('abort', onAbort, { once: true });
+        response.on('close', () => signal?.removeEventListener('abort', onAbort));
         response.on('data', chunk => {
             total += chunk.length;
             if (total > maxBytes) {
@@ -148,12 +164,14 @@ function readBody(response, maxBytes, deadline) {
  * @param {number} [options.timeoutMs]
  * @param {number} [options.maxBytes]
  * @param {number} [options.maxRedirects]
+ * @param {AbortSignal} [options.signal] aborting destroys the in-flight request
  * @returns {Promise<{ ok: true, dataUri: string, bytes: number } | { ok: false, reason: 'blocked'|'failed', detail: string }>}
  */
 export async function fetchExternalImageAsDataUri(urlStr, options = {}) {
     const settings = { ...IMAGE_FETCH_DEFAULTS, ...options };
     const lookup = options.lookup || ((hostname, opts) => dns.lookup(hostname, opts));
     const isAllowedAddress = options.isAllowedAddress || isPublicAddress;
+    const signal = options.signal || null;
     const deadline = Date.now() + settings.timeoutMs;
 
     try {
@@ -168,13 +186,14 @@ export async function fetchExternalImageAsDataUri(urlStr, options = {}) {
             if (url.protocol !== 'http:' && url.protocol !== 'https:') {
                 throw new FetchOutcome('failed', `unsupported scheme ${url.protocol}`);
             }
-            const pinned = await resolveChecked(url.hostname, { lookup, isAllowedAddress });
+            if (signal?.aborted) throw new FetchOutcome('failed', 'aborted');
+            const pinned = await resolveChecked(url.hostname, { lookup, isAllowedAddress, deadline });
             const remaining = deadline - Date.now();
             if (remaining <= 0) throw new FetchOutcome('failed', 'timeout');
 
             let response;
             try {
-                response = await requestOnce(url, pinned, { ...settings, timeoutMs: remaining });
+                response = await requestOnce(url, pinned, { ...settings, timeoutMs: remaining, signal });
             } catch (error) {
                 throw new FetchOutcome('failed', `request failed: ${error.code || error.message}`);
             }
@@ -211,7 +230,7 @@ export async function fetchExternalImageAsDataUri(urlStr, options = {}) {
 
             let body;
             try {
-                body = await readBody(response, settings.maxBytes, deadline);
+                body = await readBody(response, settings.maxBytes, deadline, signal);
             } catch (error) {
                 if (error instanceof FetchOutcome) throw error;
                 throw new FetchOutcome('failed', `read failed: ${error.message}`);

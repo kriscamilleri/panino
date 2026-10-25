@@ -211,6 +211,27 @@ describe('fetchExternalImageAsDataUri', () => {
         }
     });
 
+    it('bounds a slow DNS lookup by the deadline', async () => {
+        const slowLookup = () => new Promise(resolve => setTimeout(() => resolve([{ address: '127.0.0.1', family: 4 }]), 2000));
+        const started = Date.now();
+        const result = await fetchExternalImageAsDataUri(`http://cdn.test:${port}/a.png`, { ...deps, lookup: slowLookup, timeoutMs: 300 });
+        expect(result).toMatchObject({ ok: false, reason: 'failed', detail: 'timeout' });
+        expect(Date.now() - started).toBeLessThan(1500);
+        expect(requests).toEqual([]);
+    });
+
+    it('stops when its abort signal fires', async () => {
+        handler = () => { /* hold the request open */ };
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 100);
+        const started = Date.now();
+        const result = await fetchExternalImageAsDataUri(`http://cdn.test:${port}/held.png`, { ...deps, timeoutMs: 3000, signal: controller.signal });
+        expect(result).toMatchObject({ ok: false, reason: 'failed' });
+        expect(Date.now() - started).toBeLessThan(1000);
+        const already = await fetchExternalImageAsDataUri(`http://cdn.test:${port}/a.png`, { ...deps, signal: controller.signal });
+        expect(already).toMatchObject({ ok: false, reason: 'failed', detail: 'aborted' });
+    });
+
     it('reports an unknown host and an invalid URL as failures', async () => {
         expect(await fetchExternalImageAsDataUri('http://nope.test/x.png', deps)).toMatchObject({ ok: false, reason: 'failed' });
         expect(await fetchExternalImageAsDataUri('not a url', deps)).toMatchObject({ ok: false, reason: 'failed' });

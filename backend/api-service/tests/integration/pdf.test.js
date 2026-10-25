@@ -6,7 +6,14 @@ import { createTestApp, setupTestUser, cleanupTestUser, getTestToken } from '../
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { PDFDocument } from 'pdf-lib';
-import { parseInternalImageSource, renderHtmlToPdf, sanitizeDocumentHtml, PDF_RUNTIME } from '../../pdf.js';
+import {
+    parseInternalImageSource,
+    renderHtmlToPdf,
+    sanitizeDocumentHtml,
+    sanitizeHeaderFooterHtml,
+    embedImagesAsDataUri,
+    PDF_RUNTIME,
+} from '../../pdf.js';
 
 async function pageCount(buffer) {
     return (await PDFDocument.load(buffer)).getPageCount();
@@ -49,6 +56,35 @@ describe('sanitizeDocumentHtml', () => {
     it('removes script and event handlers, and keeps a data: image', () => {
         const out = sanitizeDocumentHtml('<img src="data:image/png;base64,AAAA" onerror="alert(1)"><script>alert(1)</script>');
         expect(out).toBe('<img src="data:image/png;base64,AAAA">');
+    });
+
+    it('keeps a <style> block whose CSS contains < (inline SVG data URL, content strings)', () => {
+        const out = sanitizeDocumentHtml(
+            `<p>x</p><style>p{background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'/>")} q::before{content:"<b"}</style>`,
+        );
+        expect(out).toContain('<style>');
+        expect(out).toContain('\\3c svg');
+        expect(out).toContain('q::before{content:"\\3c b"}');
+    });
+
+    it('sanitizes many hostile <style> blocks in bounded time', () => {
+        const block = '<style>p{' + 'x;'.repeat(30000) + '}</style>';
+        const started = Date.now();
+        const out = sanitizeDocumentHtml('<p>x</p>' + block.repeat(8));
+        expect(Date.now() - started).toBeLessThan(3000);
+        expect(out).not.toContain('x;x;');
+    });
+
+    it('forbids <style> in header and footer HTML but keeps style attributes', () => {
+        const out = sanitizeHeaderFooterHtml('<style>@import url(https://fonts.googleapis.com/css2?family=Lora);</style><b style="color: red; background: url(http://evil.test/x)">Page %p</b>');
+        expect(out).toBe('<b style="color:red">Page %p</b>');
+    });
+});
+
+describe('embedImagesAsDataUri', () => {
+    it('handles > inside attribute values and replaces a blocked external image', async () => {
+        const out = await embedImagesAsDataUri('<p><img alt="a>b" src="http://127.0.0.1:1/x.png"> <img src="data:image/png;base64,AAAA" alt="keep"></p>', 'nobody');
+        expect(out).toBe('<p><!-- image unavailable --> <img src="data:image/png;base64,AAAA" alt="keep"></p>');
     });
 });
 
@@ -322,6 +358,9 @@ describe('POST /render-pdf', () => {
                 <style>@import url(${probe.origin}/raw-import.css); body { background: url(${probe.origin}/raw-bg.png) }</style>
                 <script>fetch('${probe.origin}/raw-script'); new Image().src = '${probe.origin}/raw-image-js';</script>
                 </head><body>
+                <link rel="prefetch" href="${probe.origin}/raw-prefetch">
+                <link rel="prerender" href="${probe.origin}/raw-prerender">
+                <link rel="preload" as="image" href="${probe.origin}/raw-preload.png">
                 <img src="${probe.origin}/raw-img.png">
                 <iframe src="${probe.origin}/raw-frame"></iframe>
                 <object data="${probe.origin}/raw-object"></object>
@@ -390,6 +429,16 @@ describe('POST /render-pdf', () => {
             .responseType('blob');
         expect(response.status).toBe(200);
         expect(response.headers['content-type']).toBe('application/pdf');
+    }, 30000);
+
+    it('refuses an oversized request body with 413', async () => {
+        const token = getTestToken(testUser.userId);
+        const response = await request(app)
+            .post('/render-pdf')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ htmlContent: '<p>' + 'x'.repeat(17 * 1024 * 1024) + '</p>', cssStyles: '', printStyles: {} });
+        expect(response.status).toBe(413);
+        expect(response.text).toBe('Request too large');
     }, 30000);
 
     it('refuses an oversized stylesheet with 413 before parsing it', async () => {

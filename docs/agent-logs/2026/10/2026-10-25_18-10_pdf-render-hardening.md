@@ -118,7 +118,41 @@ Correctness reviewer findings and what was done:
   order; it now accepts either order. Nits — `processQueue()` rejections are caught, the
   settle timer is cleared, docs say "20 waiting" and name `about:` in the allow-list.
 
-Reviewer's "checked and fine" covered: UI-producible values all validate; a 60-case CSS corpus
+Security reviewer findings (real Chromium probes with a local server recording every
+request that arrived) and what was done:
+
+- **High — css-tree's parse time is quadratic in the number of parse errors**, and the
+  per-input caps did not bound a request: eight 128 KB hostile `<style>` blocks took 20 s,
+  a 15 MB document two minutes, all synchronous on the API event loop. Fixes: the parse
+  aborts after 1000 errors (the sheet is dropped whole; the same 64 KB input went from
+  847 ms to about 1 ms), a 512 KB per-request CSS budget shared by every CSS input
+  (`CssBudget`; 413 for request fields, dropped for Document CSS), and a 16 MB body limit
+  on the route (header check before the queue, size check in the job).
+- **Medium — `<link rel=prefetch|prerender>` reached the network** despite interception:
+  the browser process issues them without a `request` event. Fix: Chromium is launched with
+  `--host-resolver-rules=MAP * ~NOTFOUND` excluding the two Google Fonts hosts when remote
+  fonts are on, verified by the reviewer to stop prefetch and every loopback form while fonts
+  still load. Interception stays as the second layer. The raw-HTML containment test now
+  includes prefetch, prerender and preload links.
+- **Medium-low — DNS lookups were not bounded by the deadline**, image count was unbounded
+  and a 504'd job kept its in-flight fetches. Fixes: the lookup races the deadline, at most
+  25 external images per render fetched four at a time, and the job's `AbortController`
+  signal destroys in-flight requests when the job is aborted.
+- **Low — a `<style>` whose CSS contained `<`** (inline SVG data URL, `content:"<b"`) was
+  removed whole by DOMPurify's XML check. Fix: every `<` in sanitized CSS is emitted as the
+  hex escape `\3c `, which decodes to `<` in strings, URLs and identifiers (verified by
+  re-parsing) and leaves no literal `<` for the HTML parser or DOMPurify.
+- Low — `var()` could carry a URL string into `image-set()`/`src()` (interception blocked
+  it): URL-looking strings in custom properties and `src`, and `var()` inside URL functions,
+  are now dropped. Low — a Google Fonts `@import` in header/footer HTML made `printToPDF`
+  fail for the requester: header/footer HTML now forbids `<style>` (attributes stay). Low —
+  a line break inside a font name validated and swallowed the `body` rule's brace: font names
+  allow horizontal space only and the composed print stylesheet is parsed once more. Low —
+  remote-controlled text in log lines is truncated to 80 printable characters. Nits — the
+  `<img>` regex is quote-aware (`alt="a>b"`), page-break markers are replaced before
+  DOMPurify, lengths are capped at five digits.
+
+Both reviewers' "checked and fine" covered: UI-producible values all validate; a 60-case CSS corpus
 round-trips; `FORCE_BODY` fixes a real pre-existing bug; https pinning verified; shared
 package subpath resolves in Vite and in both Dockerfiles; the `<!-- pagebreak -->` replacement
 was already dead on main because DOMPurify strips comments.

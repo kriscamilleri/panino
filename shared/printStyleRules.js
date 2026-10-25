@@ -31,10 +31,11 @@ const FONT_SIZE_KEYS = new Set(['headerFontSize', 'footerFontSize']);
 const ALIGN_KEYS = new Set(['headerAlign', 'footerAlign']);
 const FREE_TEXT_KEYS = new Set(['customCSS', 'printHeaderHtml', 'printFooterHtml']);
 
-const LENGTH_RE = /^(\d+(\.\d+)?|\.\d+)(cm|mm|in|px|pt)$/;
+const LENGTH_RE = /^(\d{1,5}(\.\d{1,3})?|\.\d{1,3})(cm|mm|in|px|pt)$/;
 const HEX_COLOR_RE = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const RGB_COLOR_RE = /^rgba?\(\s*\d{1,3}%?\s*,\s*\d{1,3}%?\s*,\s*\d{1,3}%?\s*(,\s*(0|1|0?\.\d+|\d{1,3}%)\s*)?\)$/i;
-const FONT_FAMILY_RE = /^[\w\s-]+$/;
+// Horizontal space only: a line break inside a quoted font name would end the string.
+const FONT_FAMILY_RE = /^[\w -]+$/;
 
 export const FONT_SIZE_MIN = 6;
 export const FONT_SIZE_MAX = 72;
@@ -94,7 +95,8 @@ export function parsePaperSize(value) {
 
 /**
  * A comma-separated list of Google font family names. Entries are letters, digits,
- * spaces, underscores and hyphens; anything else is dropped from the list.
+ * spaces, underscores and hyphens (surrounding quotes are removed); anything else is
+ * dropped from the list.
  * @param {unknown} value
  * @returns {{ value: string, dropped: string[] } | null} null when no entry survives
  */
@@ -137,7 +139,7 @@ export function validatePrintStyleValue(key, value) {
     }
     if (LENGTH_KEYS.has(key)) {
         const parsed = parseLength(value);
-        return parsed !== null ? { ok: true, value: parsed } : { ok: false, reason: 'must be a length such as 2cm, 15mm, 0.5in, 12pt or 20px' };
+        return parsed !== null ? { ok: true, value: parsed } : { ok: false, reason: 'must be a length such as 2cm, 15mm, 0.5in, 12pt or 20px (up to five digits)' };
     }
     if (COLOR_KEYS.has(key)) {
         const parsed = parseColor(value);

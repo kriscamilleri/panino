@@ -32,7 +32,35 @@ const URL_FUNCTIONS = new Set(['url', 'src', 'image-set', '-webkit-image-set', '
 export const CSS_LIMITS = Object.freeze({
     stylesheetBytes: 256 * 1024,
     declarationsBytes: 16 * 1024,
+    /** Total CSS a single render request may carry across all its inputs. */
+    requestBytes: 512 * 1024,
+    /** Parse errors after which a sheet is treated as hostile and dropped whole. */
+    maxParseErrors: 1000,
 });
+
+/**
+ * A per-request budget shared by every CSS input (request stylesheet, Custom CSS,
+ * per-element values, Document `<style>` and `style`). Once spent, further CSS is dropped.
+ */
+export class CssBudget {
+    constructor(bytes = CSS_LIMITS.requestBytes) {
+        this.remaining = bytes;
+        this.exceeded = false;
+    }
+
+    /** @returns {boolean} whether `length` bytes may be parsed */
+    take(length) {
+        if (length > this.remaining) {
+            this.exceeded = true;
+            return false;
+        }
+        this.remaining -= length;
+        return true;
+    }
+}
+
+// A string a browser would treat as a URL: a scheme or `//` and no whitespace.
+const URL_LIKE_RE = /^\s*(?:[a-z][a-z0-9+.-]*:|\/\/)\S*$/i;
 
 /**
  * Whether a URL found in CSS may stay. `data:` URLs and fragment references are always
@@ -81,8 +109,19 @@ function containsRejected(node) {
             if (child.type === 'Raw' && !isHarmlessRaw(child.value)) rejected = true;
             else if (child.type === 'Url' && !isAllowedCssUrl(child.value)) rejected = true;
             else if (child.type === 'Function' && URL_FUNCTIONS.has(child.name.toLowerCase())) {
+                // A string argument is a URL; a var() argument could become one.
                 child.children?.forEach(arg => {
                     if (arg.type === 'String' && !isAllowedCssUrl(arg.value)) rejected = true;
+                    if (arg.type === 'Function' && arg.name.toLowerCase() === 'var') rejected = true;
+                });
+            } else if (child.type === 'Declaration' && (child.property.startsWith('--') || child.property.toLowerCase() === 'src')) {
+                // A URL-looking string in a custom property can reach a url function via
+                // var(); a bare string in `src` is a URL in some engines.
+                csstree.walk(child, {
+                    visit: 'String',
+                    enter(str) {
+                        if (URL_LIKE_RE.test(str.value) && !isAllowedCssUrl(str.value)) rejected = true;
+                    },
                 });
             }
             return undefined;
@@ -121,7 +160,7 @@ function expandNestedRaw(ast) {
 function reparseBlockContent(text) {
     let rules;
     try {
-        rules = csstree.parse(text, { ...PARSE_OPTIONS, context: 'stylesheet' });
+        rules = csstree.parse(text, parseOptions('stylesheet'));
     } catch {
         return null;
     }
@@ -132,7 +171,7 @@ function reparseBlockContent(text) {
             // Declarations that trailed the nested rule.
             let decls;
             try {
-                decls = csstree.parse(node.value, { ...PARSE_OPTIONS, context: 'declarationList' });
+                decls = csstree.parse(node.value, parseOptions('declarationList'));
             } catch {
                 return;
             }
@@ -185,34 +224,50 @@ function prune(ast) {
 }
 
 /**
- * The last line of defence: no serialized CSS may contain `</`, which is the only way
- * to end a `<style>` element. In strings, URLs and identifiers `\/` means `/`, so the
- * CSS keeps its meaning.
+ * The last line of defence: serialized CSS never contains a literal `<`. `</` is the only
+ * way to end a `<style>` element, and DOMPurify removes a whole `<style>` whose text
+ * matches `<` followed by a letter, `/` or `!`. After parsing, `<` can only sit inside a
+ * string, a URL or an identifier, where the hex escape `\3c ` (the space terminates the
+ * escape) means `<`, so the CSS keeps its meaning.
  */
 function escapeCloseTags(css) {
-    return css.replace(/<\//g, '<\\/');
+    return css.replace(/</g, '\\3c ');
 }
 
-const PARSE_OPTIONS = {
-    positions: false,
-    parseValue: true,
-    parseAtrulePrelude: true,
-    parseRulePrelude: true,
-    parseCustomProperty: true,
-    onParseError() { /* tolerant parsing keeps going; Raw nodes are pruned afterwards */ },
-};
+/**
+ * Parse options for one call. The tolerant parser is quadratic in the number of parse
+ * errors, so a sheet with too many of them is treated as hostile and the parse aborts
+ * (callers return an empty string).
+ */
+function parseOptions(context) {
+    let errors = 0;
+    return {
+        context,
+        positions: false,
+        parseValue: true,
+        parseAtrulePrelude: true,
+        parseRulePrelude: true,
+        parseCustomProperty: true,
+        onParseError() {
+            errors += 1;
+            if (errors > CSS_LIMITS.maxParseErrors) throw new Error('too many CSS parse errors');
+        },
+    };
+}
 
 /**
  * Sanitize a complete stylesheet.
  * @param {unknown} css
+ * @param {CssBudget|null} [budget] per-request budget; over budget returns ''
  * @returns {string} CSS that is safe to place inside a `<style>` element
  */
-export function sanitizeStylesheet(css) {
+export function sanitizeStylesheet(css, budget = null) {
     if (typeof css !== 'string' || css.trim() === '') return '';
     if (css.length > CSS_LIMITS.stylesheetBytes) return '';
+    if (budget && !budget.take(css.length)) return '';
     let ast;
     try {
-        ast = csstree.parse(css, { ...PARSE_OPTIONS, context: 'stylesheet' });
+        ast = csstree.parse(css, parseOptions('stylesheet'));
     } catch {
         return '';
     }
@@ -229,12 +284,13 @@ export function sanitizeStylesheet(css) {
  * @param {unknown} css
  * @returns {string}
  */
-export function sanitizeDeclarations(css) {
+export function sanitizeDeclarations(css, budget = null) {
     if (typeof css !== 'string' || css.trim() === '') return '';
     if (css.length > CSS_LIMITS.declarationsBytes) return '';
+    if (budget && !budget.take(css.length)) return '';
     let ast;
     try {
-        ast = csstree.parse(css, { ...PARSE_OPTIONS, context: 'declarationList' });
+        ast = csstree.parse(css, parseOptions('declarationList'));
     } catch {
         return '';
     }

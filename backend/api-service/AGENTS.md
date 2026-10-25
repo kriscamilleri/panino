@@ -88,14 +88,17 @@ a compatible extension on another platform.
 
 ## PDF Generation
 
-- Single Puppeteer browser instance reused across requests; each job renders in its own
+- Single Puppeteer browser instance reused across requests, launched with
+  `--host-resolver-rules` so no host but Google Fonts resolves; each job renders in its own
   browser context with JavaScript disabled and request interception that allows only `data:`
   and `about:` URLs and Google Fonts (`pdfSanitize.js`, `isAllowedRendererRequest`).
 - Requests queued and processed sequentially to limit memory. The queue is capped
   (`PDF_QUEUE_LIMIT`, default 20 waiting → `503` + `Retry-After`) and each job has a deadline
-  (`PDF_JOB_TIMEOUT_MS`, default 45 s → `504`; the job is marked aborted and its context, if
-  any, closed). CSS over 256 KB is refused with `413`. Clients only ever see fixed messages;
-  details are logged.
+  (`PDF_JOB_TIMEOUT_MS`, default 45 s → `504`; the job is marked aborted, its in-flight
+  image fetches are destroyed and its context, if any, closed). Request bodies over 16 MB and
+  CSS over 256 KB per sheet or 512 KB per request are refused with `413`; a sheet with more
+  than 1000 parse errors is dropped whole. Clients only ever see fixed messages; details are
+  logged.
 - All CSS is parsed and re-serialized with css-tree (`sanitizeStylesheet`,
   `sanitizeDeclarations`): the request stylesheet, Custom CSS, per-element values, and the
   `<style>` elements and `style` attributes in Document HTML (via DOMPurify hooks). `@import`
@@ -106,7 +109,8 @@ a compatible extension on another platform.
 - Images pre-embedded as data URIs (both internal DB images and external URLs). External
   fetch is in `imageFetch.js`: public-unicast check on every resolved address (`ipaddr.js`),
   socket pinned to the checked address, manual redirects (3 hops, re-checked), streaming size
-  limit. A failed or blocked image becomes a placeholder comment.
+  limit, at most 25 external images per render. A failed or blocked image becomes a
+  placeholder comment. Header/footer HTML allows `style` attributes but not `<style>`.
 - Page numbers resolved via draft PDF render + pdf-lib page count.
 - HTML sanitized with DOMPurify before rendering.
 - Print style defaults are the `PRINT_STYLE_DEFAULTS` constant in `pdf.js`. `poc/` is a proof

@@ -37,7 +37,7 @@ describe('parseLength', () => {
         }
     });
     it('rejects anything that is not a plain length', () => {
-        for (const v of ['2em', '10%', '2cm; color: red', '2cm }', 'calc(1cm + 1px)', '-1cm', 'auto', '', 2, null]) {
+        for (const v of ['2em', '10%', '2cm; color: red', '2cm }', 'calc(1cm + 1px)', '-1cm', 'auto', '', 2, null, '999999cm', '1.0001cm']) {
             expect(parseLength(v), String(v)).toBeNull();
         }
     });
@@ -86,6 +86,8 @@ describe('parseFontFamilies', () => {
         expect(parseFontFamilies('Lora, "Evil"; }, Open-Sans')).toEqual({ value: 'Lora, Open-Sans', dropped: ['"Evil"; }'] });
         expect(parseFontFamilies('"Source Sans 3", \'JetBrains Mono\'')).toEqual({ value: 'Source Sans 3, JetBrains Mono', dropped: [] });
         expect(parseFontFamilies('</style><script>')).toBeNull();
+        // A line break inside a quoted font name would end the CSS string early.
+        expect(parseFontFamilies('Lo\nra, Inter')).toEqual({ value: 'Inter', dropped: ['Lo\nra'] });
         expect(parseFontFamilies('')).toBeNull();
     });
 });

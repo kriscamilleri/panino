@@ -8,6 +8,7 @@ import {
     isAllowedImport,
     describeBlockedUrl,
     CSS_LIMITS,
+    CssBudget,
 } from '../../pdfSanitize.js';
 
 /** Parse strictly: throws when the CSS is not a single well-formed stylesheet. */
@@ -42,16 +43,42 @@ const BREAKOUTS = [
 describe('sanitizeStylesheet: break-out', () => {
     it.each(BREAKOUTS)('contains no markup after %s', (css) => {
         const out = sanitizeStylesheet(css);
-        // `</` is the only sequence that can end a <style> element; other markup-looking
-        // text inside a CSS string is inert there.
-        expect(out).not.toMatch(/<\//);
+        // No literal `<` survives: the HTML parser and DOMPurify never see markup in CSS.
+        expect(out).not.toMatch(/</);
         expect(parsesCleanly(out)).toBe(true);
     });
 
-    it('cannot produce the characters that end a style element even through a nested string', () => {
+    it('escapes every < so neither the HTML parser nor DOMPurify can see markup in CSS', () => {
         const out = sanitizeStylesheet('p{content:"<</style>/style>"}');
-        expect(out).not.toMatch(/<\//);
-        expect(out).toBe('p{content:"<<\\/style>/style>"}');
+        expect(out).not.toMatch(/</);
+        expect(out).toBe('p{content:"\\3c \\3c /style>/style>"}');
+        // Inline SVG data URLs are common and must keep working: the escape decodes to `<`.
+        const svg = sanitizeStylesheet(`p{background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'/>")}`);
+        expect(svg).not.toMatch(/</);
+        expect(svg).toContain('\\3c svg');
+        const decoded = csstree.find(csstree.parse(svg, { parseValue: true }), n => n.type === 'Url');
+        expect(decoded.value).toBe(`data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'/>`);
+    });
+
+    it('aborts quickly on a sheet with thousands of parse errors instead of parsing quadratically', () => {
+        const hostile = 'p{' + 'x;'.repeat(60000) + '}';
+        expect(hostile.length).toBeLessThan(CSS_LIMITS.stylesheetBytes);
+        const started = Date.now();
+        expect(sanitizeStylesheet(hostile)).toBe('');
+        expect(Date.now() - started).toBeLessThan(500);
+        const attr = 'x;'.repeat(7000);
+        const t = Date.now();
+        expect(sanitizeDeclarations(attr)).toBe('');
+        expect(Date.now() - t).toBeLessThan(500);
+    });
+
+    it('spends a per-request budget and drops CSS once it is exhausted', () => {
+        const budget = new CssBudget(30);
+        expect(sanitizeStylesheet('a{color:red}', budget)).toBe('a{color:red}');
+        expect(budget.remaining).toBe(18);
+        expect(sanitizeDeclarations('color: blue; margin: 0', budget)).toBe('');
+        expect(budget.exceeded).toBe(true);
+        expect(sanitizeStylesheet('b{color:green}', budget)).toBe('b{color:green}');
     });
 });
 
@@ -92,6 +119,15 @@ describe('sanitizeStylesheet: imports and urls', () => {
         expect(out).not.toContain('evil.test');
         expect(out).not.toContain('javascript');
         expect(out).toContain(':root{}');
+    });
+
+    it('closes the var() route to a URL function', () => {
+        expect(sanitizeStylesheet(':root{--u:"http://evil.test/x.png"} p{background:src(var(--u))}')).toBe(':root{}p{}');
+        expect(sanitizeDeclarations("--u:'http://127.0.0.1:1/x'; background:image-set(var(--u) 1x); color: red")).toBe('color:red');
+        expect(sanitizeStylesheet('@font-face{font-family:X;src:"http://evil.test/f.woff2"}')).toBe('@font-face{font-family:X}');
+        // Plain strings in custom properties stay.
+        expect(sanitizeStylesheet(':root{--label:"hello: world"; --n: 1px}')).toBe(':root{--label:"hello: world";--n:1px}');
+        expect(sanitizeStylesheet(':root{--font:url(data:font/woff2;base64,AA)}')).toBe(':root{--font:url(data:font/woff2;base64,AA)}');
     });
 
     it('drops @namespace and @charset', () => {

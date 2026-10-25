@@ -50,6 +50,8 @@ import {
     isAllowedRendererRequest,
     describeBlockedUrl,
     CSS_LIMITS,
+    CssBudget,
+    FONT_HOSTS,
 } from './pdfSanitize.js';
 import { fetchExternalImageAsDataUri } from './imageFetch.js';
 
@@ -62,19 +64,29 @@ const purify = DOMPurify(window);
 // CSS goes through the same parser as the request stylesheet (defence in depth: a parsed
 // `<style>` cannot close itself, and CSS can neither run code nor fetch after the request
 // allow-list, but the output should match what the sanitizer would let through anyway).
+// The budget of the request being sanitized. Sanitization is synchronous and the API is
+// single-threaded, so one module-level slot is enough.
+let currentCssBudget = null;
+
 purify.addHook('uponSanitizeElement', (node, data) => {
     if (data.tagName === 'style') {
-        node.textContent = sanitizeStylesheet(node.textContent);
+        node.textContent = sanitizeStylesheet(node.textContent, currentCssBudget);
     }
 });
 purify.addHook('uponSanitizeAttribute', (node, data) => {
     if (data.attrName === 'style') {
-        data.attrValue = sanitizeDeclarations(data.attrValue);
+        data.attrValue = sanitizeDeclarations(data.attrValue, currentCssBudget);
     }
 });
 
 const CONFIG = {
     PAGE_LOAD_TIMEOUT: 10000,
+    /** Largest request body accepted by this route; the global JSON limit is far higher. */
+    MAX_REQUEST_BYTES: 16 * 1024 * 1024,
+    /** External images fetched per render; the rest become placeholders. */
+    MAX_EXTERNAL_IMAGES: 25,
+    /** External images fetched at the same time. */
+    IMAGE_FETCH_CONCURRENCY: 4,
 };
 
 /**
@@ -177,7 +189,7 @@ function fontsQuery(googleFontFamily) {
  * The stylesheet built from validated print styles. Per-element values are declaration
  * lists and Custom CSS is a stylesheet; both are parsed and re-serialized.
  */
-function printStylesToCss(styleMap = {}) {
+function printStylesToCss(styleMap = {}, budget = null) {
     const s = styleMap;
     let css = '';
 
@@ -197,15 +209,17 @@ function printStylesToCss(styleMap = {}) {
     for (const key of Object.keys(s)) {
         if (!s[key]) continue;
         if (EXCLUDE_STYLE_KEYS.has(key)) continue;
-        const declarations = sanitizeDeclarations(s[key]);
+        const declarations = sanitizeDeclarations(s[key], budget);
         if (declarations) css += `${key} { ${declarations} }\n`;
     }
 
     if (s.customCSS) {
-        css += `\n/* --- Custom CSS --- */\n${sanitizeStylesheet(s.customCSS)}\n`;
+        css += `\n/* --- Custom CSS --- */\n${sanitizeStylesheet(s.customCSS, budget)}\n`;
     }
 
-    return css;
+    // The composed sheet goes through the parser once more so the generated rules are
+    // held to the same structure as everything else.
+    return sanitizeStylesheet(css);
 }
 
 const DEFAULT_PRINT_STYLES = { ...PRINT_STYLE_DEFAULTS };
@@ -253,32 +267,54 @@ function getInternalImageAsDataUri(source, userId) {
 
 const IMAGE_PLACEHOLDER = '<!-- image unavailable -->';
 
+// An <img> tag with quoted attribute values (jsdom leaves `>` unescaped inside them), and
+// its src attribute.
+const IMG_TAG_RE = /<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+const SRC_ATTR_RE = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
+async function mapWithConcurrency(items, limit, fn) {
+    const results = new Array(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (next < items.length) {
+            const index = next++;
+            results[index] = await fn(items[index], index);
+        }
+    });
+    await Promise.all(workers);
+    return results;
+}
+
 /**
  * Replace every `<img src>` with a `data:` URI: internal images are read from storage,
  * external ones are fetched with the SSRF checks in imageFetch.js. An image that cannot
  * be embedded is replaced by a placeholder; the renderer would block its URL anyway, and
  * the placeholder keeps the output deterministic and the log accurate.
+ *
+ * Exported for tests.
+ *
+ * @param {string} html sanitized HTML
+ * @param {string} userId
+ * @param {{ signal?: AbortSignal }} [options]
  */
-async function embedImagesAsDataUri(html, userId) {
-    const imgRegex = /<img([^>]*)\ssrc=["']([^"']+)["']([^>]*)>/gi;
+export async function embedImagesAsDataUri(html, userId, { signal } = {}) {
     const images = [];
-    let match;
-
-    while ((match = imgRegex.exec(html)) !== null) {
-        images.push({
-            fullMatch: match[0],
-            beforeSrc: match[1],
-            src: match[2],
-            afterSrc: match[3],
-        });
+    for (const match of html.matchAll(IMG_TAG_RE)) {
+        const attrs = match[1];
+        const srcMatch = SRC_ATTR_RE.exec(attrs);
+        if (!srcMatch) continue;
+        images.push({ fullMatch: match[0], attrs, src: srcMatch[1] ?? srcMatch[2], srcText: srcMatch[0] });
     }
 
     if (images.length === 0) return html;
 
     log(`Processing ${images.length} images`);
+    let externalCount = 0;
 
-    const replacements = await Promise.all(images.map(async (img, idx) => {
-        const { fullMatch, beforeSrc, src, afterSrc } = img;
+    const withSrc = (img, dataUri) => `<img${img.attrs.replace(img.srcText, () => ` src="${dataUri}"`)}>`;
+
+    const replacements = await mapWithConcurrency(images, CONFIG.IMAGE_FETCH_CONCURRENCY, async (img, idx) => {
+        const { fullMatch, src } = img;
 
         if (src.startsWith('data:')) {
             return { original: fullMatch, replacement: fullMatch };
@@ -290,29 +326,34 @@ async function embedImagesAsDataUri(html, userId) {
             if (dataUri) {
                 const sizeKB = Math.round(dataUri.length / 1024);
                 log(`  Image ${idx + 1}: Internal ${internalMatch.imageId} converted (${sizeKB}KB)`);
-                return { original: fullMatch, replacement: `<img${beforeSrc} src="${dataUri}"${afterSrc}>` };
+                return { original: fullMatch, replacement: withSrc(img, dataUri) };
             }
             log(`  Image ${idx + 1}: Internal lookup ${internalMatch.imageId} failed - falling back to external/cleanup`);
         }
 
         if (src.startsWith('http://') || src.startsWith('https://')) {
-            const result = await fetchExternalImageAsDataUri(src);
+            if (externalCount >= CONFIG.MAX_EXTERNAL_IMAGES) {
+                logWarn(`  Image ${idx + 1}: External image limit (${CONFIG.MAX_EXTERNAL_IMAGES}) reached - removing image`);
+                return { original: fullMatch, replacement: IMAGE_PLACEHOLDER };
+            }
+            externalCount += 1;
+            const result = await fetchExternalImageAsDataUri(src, { signal });
             if (result.ok) {
                 log(`  Image ${idx + 1}: External fetched (${Math.round(result.bytes / 1024)}KB)`);
-                return { original: fullMatch, replacement: `<img${beforeSrc} src="${result.dataUri}"${afterSrc}>` };
+                return { original: fullMatch, replacement: withSrc(img, result.dataUri) };
             }
             const where = describeBlockedUrl(src);
             if (result.reason === 'blocked') {
                 logWarn(`  Image ${idx + 1}: Blocked SSRF to ${where} - removing image`);
             } else {
-                logWarn(`  Image ${idx + 1}: External fetch from ${where} failed (${result.detail}) - removing image`);
+                logWarn(`  Image ${idx + 1}: External fetch from ${where} failed (${logSafe(result.detail)}) - removing image`);
             }
             return { original: fullMatch, replacement: IMAGE_PLACEHOLDER };
         }
 
         log(`  Image ${idx + 1}: Unknown source type - removing image`);
         return { original: fullMatch, replacement: IMAGE_PLACEHOLDER };
-    }));
+    });
 
     let result = html;
     for (const { original, replacement } of replacements) {
@@ -321,6 +362,12 @@ async function embedImagesAsDataUri(html, userId) {
     }
 
     return result;
+}
+
+/** Remote-controlled text destined for the log: short, one line, printable. */
+function logSafe(text) {
+    // eslint-disable-next-line no-control-regex
+    return String(text ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 80);
 }
 
 // ============================================================================
@@ -332,6 +379,13 @@ let browserInstance = null;
 async function getBrowser() {
     if (!browserInstance || !browserInstance.connected) {
         log('Launching browser...');
+        // Prefetch and prerender links are issued by the browser process and never reach
+        // request interception, so name resolution itself is restricted: nothing resolves
+        // except, when remote fonts are on, the Google Fonts hosts. Interception stays as the
+        // second layer for everything the page itself requests.
+        const resolverRule = ENABLE_REMOTE_FONTS
+            ? `MAP * ~NOTFOUND, ${FONT_HOSTS.map(h => `EXCLUDE ${new URL(h).hostname}`).join(', ')}`
+            : 'MAP * ~NOTFOUND';
         browserInstance = await puppeteer.launch({
             headless: true,
             args: [
@@ -339,6 +393,7 @@ async function getBrowser() {
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
+                `--host-resolver-rules=${resolverRule}`,
             ],
         });
     }
@@ -365,6 +420,7 @@ const queue = [];
  */
 async function abortJob(job) {
     job.aborted = true;
+    job.abort.abort();
     const context = job.context;
     job.context = null;
     if (!context) return;
@@ -426,13 +482,17 @@ async function processQueue() {
 }
 
 pdfRoutes.post('/render-pdf', (req, res) => {
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > CONFIG.MAX_REQUEST_BYTES) {
+        return res.status(413).send('Request too large');
+    }
     if (queue.length >= PDF_RUNTIME.queueLimit) {
         logWarn(`Queue full (${queue.length}); rejecting request`);
         res.setHeader('Retry-After', String(PDF_RUNTIME.retryAfterSeconds));
         return res.status(503).send('PDF service busy, try again shortly');
     }
     return new Promise((resolve) => {
-        queue.push({ req, res, resolve, aborted: false, context: null });
+        queue.push({ req, res, resolve, aborted: false, context: null, abort: new AbortController() });
         processQueue().catch(error => logError('Queue start failed:', error));
     });
 });
@@ -609,13 +669,38 @@ const PAGEBREAK_DIV = '<div class="pagebreak" style="break-after: page; page-bre
  * @param {unknown} html
  * @returns {string}
  */
-export function sanitizeDocumentHtml(html) {
-    return purify.sanitize(typeof html === 'string' ? html : '', {
-        ADD_ATTR: ['style'],
-        // A fragment that starts with <style> is parsed into <head>, which DOMPurify
-        // discards. Force body parsing so a Document's leading <style> block survives.
-        FORCE_BODY: true,
-    });
+export function sanitizeDocumentHtml(html, budget = null) {
+    currentCssBudget = budget;
+    try {
+        return purify.sanitize(typeof html === 'string' ? html : '', {
+            ADD_ATTR: ['style'],
+            // A fragment that starts with <style> is parsed into <head>, which DOMPurify
+            // discards. Force body parsing so a Document's leading <style> block survives.
+            FORCE_BODY: true,
+        });
+    } finally {
+        currentCssBudget = null;
+    }
+}
+
+/**
+ * Header and footer HTML. A `<style>` element here can make Chromium's print fail (an
+ * `@import` inside a header template aborts `printToPDF`), so only `style` attributes are
+ * allowed in these fragments.
+ * @param {unknown} html
+ * @param {CssBudget|null} [budget]
+ * @returns {string}
+ */
+export function sanitizeHeaderFooterHtml(html, budget = null) {
+    currentCssBudget = budget;
+    try {
+        return purify.sanitize(typeof html === 'string' ? html : '', {
+            ADD_ATTR: ['style'],
+            FORBID_TAGS: ['style'],
+        });
+    } finally {
+        currentCssBudget = null;
+    }
 }
 
 async function generatePdf(job) {
@@ -627,46 +712,62 @@ async function generatePdf(job) {
         return res.status(401).send('Authentication required');
     }
 
+    const requestBytes = (typeof htmlContent === 'string' ? htmlContent.length : 0)
+        + (typeof cssStyles === 'string' ? cssStyles.length : 0)
+        + JSON.stringify(incomingPrintStyles ?? {}).length;
+    if (requestBytes > CONFIG.MAX_REQUEST_BYTES) {
+        return res.status(413).send('Request too large');
+    }
+    const requestCssBytes = (typeof cssStyles === 'string' ? cssStyles.length : 0)
+        + (typeof incomingPrintStyles?.customCSS === 'string' ? incomingPrintStyles.customCSS.length : 0);
     if ((typeof cssStyles === 'string' && cssStyles.length > CSS_LIMITS.stylesheetBytes)
-        || (typeof incomingPrintStyles?.customCSS === 'string' && incomingPrintStyles.customCSS.length > CSS_LIMITS.stylesheetBytes)) {
+        || (typeof incomingPrintStyles?.customCSS === 'string' && incomingPrintStyles.customCSS.length > CSS_LIMITS.stylesheetBytes)
+        || requestCssBytes > CSS_LIMITS.requestBytes) {
         return res.status(413).send('CSS too large');
     }
+    const budget = new CssBudget();
 
     const { styles: processedPrintStyles, invalid } = validatePrintStyles(incomingPrintStyles, DEFAULT_PRINT_STYLES);
     if (invalid.length > 0) {
         logWarn(`Print style values replaced by defaults: ${invalid.map(i => `${i.key} (${i.reason})`).join('; ')}`);
     }
 
-    const cleanHtml = sanitizeDocumentHtml(htmlContent);
+    // Page-break markers become elements before sanitization, so they are sanitized like
+    // everything else and can never land inside an attribute.
+    const markedHtml = (typeof htmlContent === 'string' ? htmlContent : '')
+        .replace(/\\pagebreak/g, PAGEBREAK_DIV)
+        .replace(/<!--\s*pagebreak\s*-->/g, PAGEBREAK_DIV)
+        .replace(/---\s*pagebreak\s*---/gi, PAGEBREAK_DIV);
+
+    const cleanHtml = sanitizeDocumentHtml(markedHtml, budget);
 
     if (!cleanHtml) {
         return res.status(400).send('Invalid htmlContent');
     }
 
     if (processedPrintStyles.printHeaderHtml) {
-        processedPrintStyles.printHeaderHtml = purify.sanitize(processedPrintStyles.printHeaderHtml);
+        processedPrintStyles.printHeaderHtml = sanitizeHeaderFooterHtml(processedPrintStyles.printHeaderHtml, budget);
     }
     if (processedPrintStyles.printFooterHtml) {
-        processedPrintStyles.printFooterHtml = purify.sanitize(processedPrintStyles.printFooterHtml);
+        processedPrintStyles.printFooterHtml = sanitizeHeaderFooterHtml(processedPrintStyles.printFooterHtml, budget);
     }
 
-    const requestCss = sanitizeStylesheet(cssStyles);
-    const cleanCss = requestCss.trim() ? requestCss : printStylesToCss(processedPrintStyles);
+    const requestCss = sanitizeStylesheet(cssStyles, budget);
+    const cleanCss = requestCss.trim() ? requestCss : printStylesToCss(processedPrintStyles, budget);
+    if (budget.exceeded) {
+        logWarn(`CSS budget of ${CSS_LIMITS.requestBytes} bytes exceeded; some CSS was dropped`);
+    }
 
     log('Embedding images in content...');
-    const htmlWithImages = await embedImagesAsDataUri(cleanHtml, userId);
+    const signal = job.abort.signal;
+    const htmlWithPageBreaks = await embedImagesAsDataUri(cleanHtml, userId, { signal });
     if (job.aborted) return;
 
-    const htmlWithPageBreaks = htmlWithImages
-        .replace(/\\pagebreak/g, PAGEBREAK_DIV)
-        .replace(/<!--\s*pagebreak\s*-->/g, PAGEBREAK_DIV)
-        .replace(/---\s*pagebreak\s*---/gi, PAGEBREAK_DIV);
-
     if (processedPrintStyles.printHeaderHtml) {
-        processedPrintStyles.printHeaderHtml = await embedImagesAsDataUri(processedPrintStyles.printHeaderHtml, userId);
+        processedPrintStyles.printHeaderHtml = await embedImagesAsDataUri(processedPrintStyles.printHeaderHtml, userId, { signal });
     }
     if (processedPrintStyles.printFooterHtml) {
-        processedPrintStyles.printFooterHtml = await embedImagesAsDataUri(processedPrintStyles.printFooterHtml, userId);
+        processedPrintStyles.printFooterHtml = await embedImagesAsDataUri(processedPrintStyles.printFooterHtml, userId, { signal });
     }
 
     if (job.aborted) return;
