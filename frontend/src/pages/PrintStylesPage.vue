@@ -1,5 +1,13 @@
 <template>
   <StyleCustomizer :config="printStylesConfig">
+    <template #presets>
+      <StylePresetBar
+        v-model="editingPresetId"
+        kind="print"
+        :db-key="libraryDbKey"
+        :get-values="() => ({ ...editingValues })"
+      />
+    </template>
     <div class="h-full overflow-y-auto">
       <template v-if="!docStore.selectedFileContent">
         <div class="flex flex-col items-center justify-center h-full text-gray-500">
@@ -45,6 +53,8 @@ import { ref, watch, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDebounceFn } from '@vueuse/core';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';
+import StylePresetBar from '@/components/StylePresetBar.vue';
+import { useStyleEditing } from '@/composables/useStyleEditing';
 import { Palette, Edit3 } from 'lucide-vue-next';
 import Editor from '@/components/Editor.vue';
 import BaseButton from '@/components/BaseButton.vue';
@@ -67,12 +77,23 @@ const pdfUrl = ref('');
 const finalHtmlForPdf = ref('');
 const showMode = ref('off'); // 'styles', 'editor', or 'off'
 
+const {
+  libraryDbKey,
+  editingPresetId,
+  editingValues,
+  updateEditingStyle,
+  resetEditingStyle,
+  titleWith,
+} = useStyleEditing('print');
+
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
 
 const printStylesConfig = {
-  title: 'Customize Print Styles',
-  getStyles: () => ({ ...docStore.printStyles }),
-  updateStyleAction: docStore.updatePrintStyle,
+  get title() {
+    return titleWith('Customize Print Styles');
+  },
+  getStyles: () => ({ ...editingValues.value }),
+  updateStyleAction: updateEditingStyle,
   getDebugHtml: () => finalHtmlForPdf.value,
   editorComponent: Editor,
 
@@ -230,7 +251,7 @@ const printStylesConfig = {
   // NEW: Function to get editor content
   getEditorContent: () => docStore.selectedFileContent,
 
-  resetStyles: () => markdownStore.resetPrintStyles(),
+  resetStyles: resetEditingStyle,
   onBack: () => {
     if (docStore.selectedFileId) {
       // Without the database scope the route falls back to the personal library
@@ -250,12 +271,13 @@ async function regeneratePdf() {
   }
 
   try {
-    const md = await markdownStore.getPrintMarkdownIt();
+    const styles = editingValues.value;
+    const md = await markdownStore.getPrintMarkdownIt(styles);
     const processedMarkdown = markdownStore.applyMetadataVariables(docStore.selectedFileContent);
     const body = buildPdfRequest({
       html: md.render(processedMarkdown),
-      cssStyles: markdownStore.printStylesCssString,
-      printStyles: docStore.printStyles,
+      cssStyles: markdownStore.buildPrintCss(styles),
+      printStyles: styles,
       sanitize: (html) => DOMPurify.sanitize(html),
     });
 
@@ -277,7 +299,7 @@ async function regeneratePdf() {
 }
 
 watch(
-  () => [docStore.printStyles, docStore.selectedFileContent],
+  () => [editingValues.value, docStore.selectedFileContent],
   () => { debouncedRegeneratePdf() },
   { deep: true, immediate: true }
 );

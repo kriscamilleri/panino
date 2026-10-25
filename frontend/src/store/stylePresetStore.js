@@ -18,6 +18,14 @@ import {
   styleNameError,
 } from '@/utils/stylePresets'
 
+/** A name the user must change; its message is safe to show. */
+class StyleNameError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'StyleNameError'
+  }
+}
+
 /**
  * Named preview and print styles, per library, and the folder and template
  * defaults that point at them. See docs/specs/active/named-styles.md.
@@ -106,7 +114,7 @@ export const useStylePresetStore = defineStore('stylePresetStore', () => {
   async function createPreset(dbKey, kind, name, values) {
     if (!isStyleKind(kind)) throw new Error(`Unknown style kind: ${kind}`)
     const error = styleNameError(name, presetsFor(dbKey, kind))
-    if (error) throw new Error(error)
+    if (error) throw new StyleNameError(error)
     const id = uuidv4()
     const now = new Date().toISOString()
     const styles = serializeStyleValues(values, kind)
@@ -147,7 +155,7 @@ export const useStylePresetStore = defineStore('stylePresetStore', () => {
     const preset = findPreset(dbKey, id)
     if (!preset) throw new Error('That style no longer exists.')
     const error = styleNameError(name, presetsFor(dbKey, preset.kind), id)
-    if (error) throw new Error(error)
+    if (error) throw new StyleNameError(error)
     try {
       await syncStore.repository(dbKey).transaction((repo) => repo.exec(
         'UPDATE style_presets SET name = ?, updated_at = ? WHERE id = ?',

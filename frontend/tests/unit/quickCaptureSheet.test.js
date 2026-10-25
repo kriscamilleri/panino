@@ -17,6 +17,9 @@ const store = vi.hoisted(() => ({
 }));
 
 // Preview reads the doc store through storeToRefs, so it must be a real store.
+vi.mock('@/store/stylePresetStore', () => ({
+  useStylePresetStore: () => ({ resolveForSelected: () => ({ values: undefined }) }),
+}));
 vi.mock('@/store/docStore', () => ({
     useDocStore: defineStore('doc', {
         state: () => ({ selectedFile: null, selectedFileContent: '' }),

@@ -158,6 +158,35 @@
           </div>
         </div>
 
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div
+            v-for="kind in STYLE_KIND_FIELDS"
+            :key="kind.value"
+          >
+            <label class="pn-label" :for="`template-editor-${kind.value}-style`">
+              {{ kind.label }}
+              <span class="pn-label-optional">(optional)</span>
+            </label>
+            <select
+              :id="`template-editor-${kind.value}-style`"
+              v-model="form.styles[kind.value]"
+              class="pn-select"
+              :data-testid="`template-editor-${kind.value}-style`"
+            >
+              <option value="">— Folder or Default —</option>
+              <option
+                v-for="preset in stylePresetStore.presetsFor(syncStore.personalDbKey, kind.value)"
+                :key="preset.id"
+                :value="preset.id"
+              >{{ preset.name }}</option>
+            </select>
+          </div>
+          <p class="pn-help sm:col-span-2">
+            New Documents get <code class="text-gray-500">preview-style</code> and
+            <code class="text-gray-500">print-style</code> front matter naming these styles.
+          </p>
+        </div>
+
         <div>
           <label class="pn-label" for="template-editor-content">Content</label>
           <textarea
@@ -202,8 +231,15 @@ import { useTemplateStore } from '@/store/templateStore';
 import { useSyncStore } from '@/store/syncStore';
 import { useStructureStore } from '@/store/structureStore';
 import { useUiStore } from '@/store/uiStore';
+import { useStylePresetStore } from '@/store/stylePresetStore';
+
+const STYLE_KIND_FIELDS = [
+  { value: 'preview', label: 'Default Preview Style' },
+  { value: 'print', label: 'Default Print Style' },
+];
 
 const templateStore = useTemplateStore();
+const stylePresetStore = useStylePresetStore();
 const syncStore = useSyncStore();
 const structureStore = useStructureStore();
 const uiStore = useUiStore();
@@ -216,7 +252,25 @@ const form = reactive({
   titlePattern: '',
   defaultFolderId: '',
   content: '',
+  styles: { preview: '', print: '' },
 });
+
+/** The named styles a template currently has as defaults. */
+function templateStyles(templateId) {
+  const dbKey = syncStore.personalDbKey;
+  return {
+    preview: (templateId && stylePresetStore.assignmentFor(dbKey, 'template', templateId, 'preview')) || '',
+    print: (templateId && stylePresetStore.assignmentFor(dbKey, 'template', templateId, 'print')) || '',
+  };
+}
+
+async function saveTemplateStyles(templateId) {
+  const before = templateStyles(templateId);
+  for (const { value } of STYLE_KIND_FIELDS) {
+    if (before[value] === form.styles[value]) continue;
+    await stylePresetStore.setAssignment(syncStore.personalDbKey, 'template', templateId, value, form.styles[value] || null);
+  }
+}
 
 // Pre-built flat folder list and id→path map, populated asynchronously
 const folderOptions = ref([{ id: '', name: '— Use current folder —' }]);
@@ -276,6 +330,7 @@ function openCreate() {
   form.titlePattern = '';
   form.defaultFolderId = '';
   form.content = '';
+  form.styles = templateStyles(null);
   currentView.value = 'editor';
 }
 
@@ -285,14 +340,19 @@ function openEdit(tpl) {
   form.titlePattern = tpl.titlePattern || '';
   form.defaultFolderId = tpl.defaultFolderId || '';
   form.content = tpl.content;
+  form.styles = templateStyles(tpl.id);
   currentView.value = 'editor';
 }
 
 function hasUnsavedChanges() {
   if (!editingTemplate.value) {
-    return form.name.trim() !== '' || form.titlePattern !== '' || form.defaultFolderId !== '' || form.content !== '';
+    return form.name.trim() !== '' || form.titlePattern !== '' || form.defaultFolderId !== '' || form.content !== ''
+      || form.styles.preview !== '' || form.styles.print !== '';
   }
+  const savedStyles = templateStyles(editingTemplate.value.id);
   return (
+    form.styles.preview !== savedStyles.preview ||
+    form.styles.print !== savedStyles.print ||
     form.name !== editingTemplate.value.name ||
     form.titlePattern !== (editingTemplate.value.titlePattern || '') ||
     form.defaultFolderId !== (editingTemplate.value.defaultFolderId || '') ||
@@ -316,6 +376,7 @@ async function handleSave() {
   }
   try {
     const folderId = form.defaultFolderId || null;
+    let templateId = editingTemplate.value?.id;
     if (editingTemplate.value) {
       await templateStore.updateTemplate(
         syncStore.personalDbKey,
@@ -326,13 +387,19 @@ async function handleSave() {
         folderId,
       );
     } else {
-      await templateStore.createTemplate(
+      templateId = await templateStore.createTemplate(
         syncStore.personalDbKey,
         form.name.trim(),
         form.content,
         form.titlePattern.trim(),
         folderId,
       );
+    }
+    try {
+      await saveTemplateStyles(templateId);
+    } catch (err) {
+      console.error('[TemplateManagerPage] Failed to save template styles', err);
+      uiStore.addToast('The template was saved, but its default styles were not.', 'error');
     }
     currentView.value = 'list';
     editingTemplate.value = null;
@@ -361,5 +428,8 @@ async function handleDelete(tpl) {
 
 onMounted(() => {
   templateStore.loadTemplates(syncStore.personalDbKey);
+  stylePresetStore.loadLibrary(syncStore.personalDbKey).catch((err) => {
+    console.warn('[TemplateManagerPage] Failed to load styles', err);
+  });
 });
 </script>
