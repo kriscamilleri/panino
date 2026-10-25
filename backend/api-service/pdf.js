@@ -49,6 +49,7 @@ import {
     sanitizeDeclarations,
     isAllowedRendererRequest,
     describeBlockedUrl,
+    CSS_LIMITS,
 } from './pdfSanitize.js';
 import { fetchExternalImageAsDataUri } from './imageFetch.js';
 
@@ -80,9 +81,16 @@ const CONFIG = {
  * Queue and deadline settings. Exported so tests can tighten them; production reads the
  * environment once at startup.
  */
+function positiveIntegerSetting(name, fallback) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
 export const PDF_RUNTIME = {
-    queueLimit: Number.parseInt(process.env.PDF_QUEUE_LIMIT, 10) || 20,
-    jobTimeoutMs: Number.parseInt(process.env.PDF_JOB_TIMEOUT_MS, 10) || 45000,
+    queueLimit: positiveIntegerSetting('PDF_QUEUE_LIMIT', 20),
+    jobTimeoutMs: positiveIntegerSetting('PDF_JOB_TIMEOUT_MS', 45000),
     retryAfterSeconds: 10,
 };
 
@@ -350,11 +358,15 @@ process.on('exit', async () => {
 
 let isProcessing = false;
 const queue = [];
-let activeContext = null;
 
-async function closeActiveContext() {
-    const context = activeContext;
-    activeContext = null;
+/**
+ * A job is aborted by the deadline: `generatePdf` stops at its next checkpoint, and the
+ * browser context it owns, if it has one yet, is closed so a pending render fails fast.
+ */
+async function abortJob(job) {
+    job.aborted = true;
+    const context = job.context;
+    job.context = null;
     if (!context) return;
     try {
         await context.close();
@@ -362,24 +374,20 @@ async function closeActiveContext() {
 }
 
 /**
- * Run one job under the deadline. On timeout the client gets a fixed 504 and the job's
- * browser context is closed so its pending render fails fast and the next job starts
- * clean. Errors never reach the client; they are logged here.
+ * Run one job under the deadline. On timeout the client gets a fixed 504 and the job is
+ * aborted so the next job starts clean. Errors never reach the client; they are logged.
  */
-async function runJob({ req, res }) {
+async function runJob(job) {
+    const { res } = job;
     let timer;
-    let timedOut = false;
     const deadline = new Promise(resolve => {
-        timer = setTimeout(() => {
-            timedOut = true;
-            resolve('timeout');
-        }, PDF_RUNTIME.jobTimeoutMs);
+        timer = setTimeout(() => resolve('timeout'), PDF_RUNTIME.jobTimeoutMs);
     });
 
-    const work = generatePdf(req, res).then(
+    const work = generatePdf(job).then(
         () => 'done',
         (error) => {
-            if (!timedOut) {
+            if (!job.aborted) {
                 logError('Generation failed:', error);
                 if (!res.headersSent) res.status(500).send('PDF generation failed');
             }
@@ -391,11 +399,13 @@ async function runJob({ req, res }) {
     clearTimeout(timer);
     if (outcome !== 'timeout') return;
 
-    logError(`Job exceeded ${PDF_RUNTIME.jobTimeoutMs}ms; closing its browser context`);
+    logError(`Job exceeded ${PDF_RUNTIME.jobTimeoutMs}ms; aborting it`);
     if (!res.headersSent) res.status(504).send('PDF generation timed out');
-    await closeActiveContext();
+    await abortJob(job);
     // Give the abandoned job a moment to settle before the next one starts.
-    await Promise.race([work, new Promise(resolve => setTimeout(resolve, 5000))]);
+    let settle;
+    await Promise.race([work, new Promise(resolve => { settle = setTimeout(resolve, 5000); })]);
+    clearTimeout(settle);
 }
 
 async function processQueue() {
@@ -406,6 +416,8 @@ async function processQueue() {
 
     try {
         await runJob(job);
+    } catch (error) {
+        logError('Queue worker failed:', error);
     } finally {
         isProcessing = false;
         job.resolve();
@@ -420,8 +432,8 @@ pdfRoutes.post('/render-pdf', (req, res) => {
         return res.status(503).send('PDF service busy, try again shortly');
     }
     return new Promise((resolve) => {
-        queue.push({ req, res, resolve });
-        processQueue();
+        queue.push({ req, res, resolve, aborted: false, context: null });
+        processQueue().catch(error => logError('Queue start failed:', error));
     });
 });
 
@@ -521,12 +533,20 @@ async function countPdfPages(buffer) {
  * @param {object} options
  * @param {object} options.pdfOptions Puppeteer `page.pdf()` options without templates
  * @param {{ header: (totalPages: string|null) => string, footer: (totalPages: string|null) => string } | null} options.headerFooter
+ * @param {object|null} [job] queue job; its `aborted` flag is honoured and it owns the context
  * @returns {Promise<Buffer>}
  */
-export async function renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter }) {
+export async function renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter }, job = null) {
     const browser = await getBrowser();
+    if (job?.aborted) throw new Error('Job aborted before rendering');
     const context = await browser.createBrowserContext();
-    activeContext = context;
+    if (job) {
+        if (job.aborted) {
+            await context.close().catch(() => {});
+            throw new Error('Job aborted before rendering');
+        }
+        job.context = context;
+    }
     try {
         const page = await context.newPage();
 
@@ -574,7 +594,7 @@ export async function renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter }) {
         });
         return Buffer.from(pdfBuffer);
     } finally {
-        if (activeContext === context) activeContext = null;
+        if (job && job.context === context) job.context = null;
         try {
             await context.close();
         } catch { /* already closed */ }
@@ -598,12 +618,18 @@ export function sanitizeDocumentHtml(html) {
     });
 }
 
-async function generatePdf(req, res) {
+async function generatePdf(job) {
+    const { req, res } = job;
     const { htmlContent = '', cssStyles = '', printStyles: incomingPrintStyles = {} } = req.body || {};
     const userId = req.user?.user_id;
 
     if (!userId) {
         return res.status(401).send('Authentication required');
+    }
+
+    if ((typeof cssStyles === 'string' && cssStyles.length > CSS_LIMITS.stylesheetBytes)
+        || (typeof incomingPrintStyles?.customCSS === 'string' && incomingPrintStyles.customCSS.length > CSS_LIMITS.stylesheetBytes)) {
+        return res.status(413).send('CSS too large');
     }
 
     const { styles: processedPrintStyles, invalid } = validatePrintStyles(incomingPrintStyles, DEFAULT_PRINT_STYLES);
@@ -629,6 +655,7 @@ async function generatePdf(req, res) {
 
     log('Embedding images in content...');
     const htmlWithImages = await embedImagesAsDataUri(cleanHtml, userId);
+    if (job.aborted) return;
 
     const htmlWithPageBreaks = htmlWithImages
         .replace(/\\pagebreak/g, PAGEBREAK_DIV)
@@ -642,6 +669,7 @@ async function generatePdf(req, res) {
         processedPrintStyles.printFooterHtml = await embedImagesAsDataUri(processedPrintStyles.printFooterHtml, userId);
     }
 
+    if (job.aborted) return;
     const fullHtml = buildHtmlDocument(htmlWithPageBreaks, cleanCss, processedPrintStyles);
 
     const needsHeaderFooter = Boolean(processedPrintStyles.printHeaderHtml || processedPrintStyles.printFooterHtml);
@@ -677,10 +705,10 @@ async function generatePdf(req, res) {
         ),
     } : null;
 
-    const pdfBuffer = await renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter });
+    const pdfBuffer = await renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter }, job);
 
     // The job may have been abandoned by the deadline while rendering.
-    if (res.headersSent) return;
+    if (job.aborted || res.headersSent) return;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename=document.pdf');
     res.send(pdfBuffer);

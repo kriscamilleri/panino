@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import http from 'node:http';
+import net from 'node:net';
 import { fetchExternalImageAsDataUri, isPublicAddress } from '../../imageFetch.js';
 
 // A 1x1 PNG.
@@ -188,6 +189,26 @@ describe('fetchExternalImageAsDataUri', () => {
         handler = () => { /* hold the request open */ };
         const result = await fetchExternalImageAsDataUri(`http://cdn.test:${port}/slow.png`, { ...deps, timeoutMs: 300 });
         expect(result).toMatchObject({ ok: false, reason: 'failed' });
+    });
+
+    it('times out a server that trickles header bytes forever (no idle gap)', async () => {
+        const trickler = net.createServer((socket) => {
+            // The client destroys the connection at its deadline; a late write then fails
+            // with EPIPE, which must not surface as an unhandled error.
+            socket.on('error', () => {});
+            socket.write('HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nX-Pad: ');
+            const tick = setInterval(() => { if (!socket.destroyed) socket.write('x'); }, 20);
+            socket.on('close', () => clearInterval(tick));
+        });
+        await new Promise(resolve => trickler.listen(0, '127.0.0.1', resolve));
+        try {
+            const started = Date.now();
+            const result = await fetchExternalImageAsDataUri(`http://cdn.test:${trickler.address().port}/trickle.png`, { ...deps, timeoutMs: 400 });
+            expect(result).toMatchObject({ ok: false, reason: 'failed' });
+            expect(Date.now() - started).toBeLessThan(2000);
+        } finally {
+            await new Promise(resolve => trickler.close(resolve));
+        }
     });
 
     it('reports an unknown host and an invalid URL as failures', async () => {

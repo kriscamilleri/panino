@@ -87,6 +87,38 @@ See `git log main..feature/pdf-render-hardening`. Decisions and findings:
   The `/render-pdf` call returned 200 `application/pdf`, one A4 page, image embedded (API log:
   "External fetched (15KB)"), Playfair Display and Source Sans 3 embedded.
 
+## Adversarial review (second model, two reviewers)
+
+Correctness reviewer findings and what was done:
+
+- **High — image fetch had no absolute cap during the header phase.** `http.request`'s
+  `timeout` is an idle timeout; a host trickling header bytes held the job open. Added a
+  timer in `requestOnce` that destroys the request at the deadline; new unit test with a
+  `net` server that trickles header bytes.
+- **High — css-tree's tolerant parser is quadratic on malformed CSS** (298 KB → 0.4 s, 1.2 MB
+  → 5.5 s) and runs on the API event loop with no bound. Added `CSS_LIMITS` (256 KB per
+  stylesheet, 16 KB per declaration list) checked before parsing; `cssStyles`/`customCSS`
+  over the cap answer `413 CSS too large`, `<style>` and `style` over it are dropped. Running
+  the sanitizer in a worker thread is left as a follow-up.
+- **Medium — nested rules without a leading `&` were dropped** (css-tree 3.2.1 keeps them as
+  `Raw`, sometimes with the following declarations). `expandNestedRaw` re-parses such text as
+  rules then declarations and splices back what parses cleanly; the url policy and break-out
+  rules apply inside. Tests added with exact expected output.
+- **Medium — the deadline used a module-global context**, so an abandoned job that reached
+  the renderer late could have its context closed by a later job's timeout, and abandoned
+  jobs kept rendering. Replaced with a per-job token: `job.aborted` is checked at each
+  phase of `generatePdf` and before creating the context; the context lives on the job.
+- Low — quoted Google font names (`"Source Sans 3"`) were dropped by the new validator;
+  quotes are now stripped per entry. Low — `PDF_QUEUE_LIMIT=-5` would have refused every
+  request; settings must now be positive integers. Low — the queue-cap test assumed arrival
+  order; it now accepts either order. Nits — `processQueue()` rejections are caught, the
+  settle timer is cleared, docs say "20 waiting" and name `about:` in the allow-list.
+
+Reviewer's "checked and fine" covered: UI-producible values all validate; a 60-case CSS corpus
+round-trips; `FORCE_BODY` fixes a real pre-existing bug; https pinning verified; shared
+package subpath resolves in Vite and in both Dockerfiles; the `<!-- pagebreak -->` replacement
+was already dead on main because DOMPurify strips comments.
+
 ## Open Items / Notes
 
 - Phase 4 (separate `pdf-renderer` service, sandbox on, no secrets or volumes) is not
@@ -95,3 +127,7 @@ See `git log main..feature/pdf-render-hardening`. Decisions and findings:
   Chromium instead (above).
 - Queue cap 20 and deadline 45 s are the spec's starting values; revisit with production
   timings.
+- Follow-ups from review: run the CSS sanitizer in a worker thread so the job deadline can
+  abandon it; `npm audit` reports a pre-existing DOMPurify advisory (`<=3.4.16`) that this PR
+  does not change — with JavaScript off in the renderer it cannot execute there, but the
+  dependency should be bumped separately.

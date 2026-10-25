@@ -103,10 +103,12 @@ export function parseFontFamilies(value) {
     const kept = [];
     const dropped = [];
     for (const raw of value.split(',')) {
-        const entry = raw.trim();
+        const original = raw.trim();
+        // Stored values may carry quotes ("Source Sans 3"); the name is what matters.
+        const entry = original.replace(/^["']|["']$/g, '').trim();
         if (!entry) continue;
         if (FONT_FAMILY_RE.test(entry)) kept.push(entry);
-        else dropped.push(entry);
+        else dropped.push(original);
     }
     if (kept.length === 0) return null;
     return { value: kept.join(', '), dropped };

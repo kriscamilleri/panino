@@ -84,6 +84,7 @@ describe('parseFontFamilies', () => {
     it('keeps word, space and hyphen names and drops the rest', () => {
         expect(parseFontFamilies('Source Sans 3, Lora')).toEqual({ value: 'Source Sans 3, Lora', dropped: [] });
         expect(parseFontFamilies('Lora, "Evil"; }, Open-Sans')).toEqual({ value: 'Lora, Open-Sans', dropped: ['"Evil"; }'] });
+        expect(parseFontFamilies('"Source Sans 3", \'JetBrains Mono\'')).toEqual({ value: 'Source Sans 3, JetBrains Mono', dropped: [] });
         expect(parseFontFamilies('</style><script>')).toBeNull();
         expect(parseFontFamilies('')).toBeNull();
     });

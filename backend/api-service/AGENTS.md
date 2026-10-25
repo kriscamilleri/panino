@@ -90,11 +90,12 @@ a compatible extension on another platform.
 
 - Single Puppeteer browser instance reused across requests; each job renders in its own
   browser context with JavaScript disabled and request interception that allows only `data:`
-  URLs and Google Fonts (`pdfSanitize.js`, `isAllowedRendererRequest`).
+  and `about:` URLs and Google Fonts (`pdfSanitize.js`, `isAllowedRendererRequest`).
 - Requests queued and processed sequentially to limit memory. The queue is capped
-  (`PDF_QUEUE_LIMIT`, default 20 → `503` + `Retry-After`) and each job has a deadline
-  (`PDF_JOB_TIMEOUT_MS`, default 45 s → `504`, context closed). Clients only ever see fixed
-  messages; details are logged.
+  (`PDF_QUEUE_LIMIT`, default 20 waiting → `503` + `Retry-After`) and each job has a deadline
+  (`PDF_JOB_TIMEOUT_MS`, default 45 s → `504`; the job is marked aborted and its context, if
+  any, closed). CSS over 256 KB is refused with `413`. Clients only ever see fixed messages;
+  details are logged.
 - All CSS is parsed and re-serialized with css-tree (`sanitizeStylesheet`,
   `sanitizeDeclarations`): the request stylesheet, Custom CSS, per-element values, and the
   `<style>` elements and `style` attributes in Document HTML (via DOMPurify hooks). `@import`

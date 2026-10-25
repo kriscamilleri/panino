@@ -127,8 +127,9 @@ describe('POST /render-pdf queue and deadline', () => {
         expect(third.text).toBe('PDF service busy, try again shortly');
 
         browserState.behaviour = 'ok';
+        // One of the two timed out while hanging, the other rendered; which is which
+        // depends on arrival order.
         const [r1, r2] = await Promise.all([first, second]);
-        expect(r1.status).toBe(504);
-        expect(r2.status).toBe(200);
+        expect([r1.status, r2.status].sort()).toEqual([200, 504]);
     });
 });

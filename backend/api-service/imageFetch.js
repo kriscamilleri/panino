@@ -91,6 +91,9 @@ class FetchOutcome extends Error {
 function requestOnce(url, pinned, { timeoutMs, userAgent }) {
     return new Promise((resolve, reject) => {
         const client = url.protocol === 'https:' ? https : http;
+        // `timeout` on the request is only an idle timeout; a host that trickles header
+        // bytes would never trip it. This timer is the absolute cap for the header phase.
+        let timer = null;
         const req = client.request(url, {
             method: 'GET',
             headers: { 'User-Agent': userAgent, Accept: 'image/*' },
@@ -101,9 +104,16 @@ function requestOnce(url, pinned, { timeoutMs, userAgent }) {
                 else callback(null, pinned.address, pinned.family);
             },
             timeout: timeoutMs,
-        }, resolve);
+        }, (response) => {
+            clearTimeout(timer);
+            resolve(response);
+        });
+        timer = setTimeout(() => req.destroy(new Error('timeout')), timeoutMs);
         req.on('timeout', () => req.destroy(new Error('timeout')));
-        req.on('error', reject);
+        req.on('error', (error) => {
+            clearTimeout(timer);
+            reject(error);
+        });
         req.end();
     });
 }

@@ -20,7 +20,8 @@ describe('printStyleFieldHint', () => {
     });
 
     it('lists font names the server drops', () => {
-        expect(printStyleFieldHint('googleFontFamily', 'Lora, "Bad"')).toBe('Ignored in the PDF: "Bad".');
+        expect(printStyleFieldHint('googleFontFamily', 'Lora, Bad;Name')).toBe('Ignored in the PDF: Bad;Name.');
+        expect(printStyleFieldHint('googleFontFamily', '"Source Sans 3", Lora')).toBeNull();
         expect(printStyleFieldHint('googleFontFamily', 'Lora, Open Sans')).toBeNull();
         expect(printStyleFieldHint('googleFontFamily', '</style>')).toMatch(/default applies/);
     });

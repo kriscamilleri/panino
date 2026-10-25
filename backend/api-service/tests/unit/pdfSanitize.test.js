@@ -7,6 +7,7 @@ import {
     isAllowedCssUrl,
     isAllowedImport,
     describeBlockedUrl,
+    CSS_LIMITS,
 } from '../../pdfSanitize.js';
 
 /** Parse strictly: throws when the CSS is not a single well-formed stylesheet. */
@@ -122,6 +123,35 @@ describe('sanitizeStylesheet: layout CSS round-trips', () => {
         // Same AST after whitespace-insensitive generation of the original.
         const expected = csstree.generate(csstree.parse(css, { parseValue: true, parseAtrulePrelude: true, parseCustomProperty: true }));
         expect(out).toBe(expected);
+    });
+
+    it('keeps CSS nesting, including rules without a leading &', () => {
+        expect(sanitizeStylesheet('.a { color: red; .b { color: blue } }')).toBe('.a{color:red;.b{color:blue}}');
+        expect(sanitizeStylesheet('.a { .b { color: blue } color: red }')).toBe('.a{.b{color:blue}color:red}');
+        expect(sanitizeStylesheet('.a { color: red; .c & { color: green } }')).toBe('.a{color:red;.c &{color:green}}');
+        expect(sanitizeStylesheet('.a { & .b { color: blue } &:hover { color: red } }')).toBe('.a{& .b{color:blue}&:hover{color:red}}');
+        expect(sanitizeStylesheet('.a { @media print { .b { color: blue } } }')).toBe('.a{@media print{.b{color:blue}}}');
+    });
+
+    it('applies the url policy and break-out rules inside nested rules too', () => {
+        expect(sanitizeStylesheet('.a { .b { background: url(http://evil.test/x) } color: red }')).toBe('.a{color:red}');
+        const out = sanitizeStylesheet('.a { .b { color: blue } </style><script>alert(1)</script> }');
+        expect(out).toBe('.a{.b{color:blue}}');
+    });
+
+    it('refuses oversized input before parsing', () => {
+        const big = 'p{col or: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}'.repeat(5000);
+        expect(big.length).toBeGreaterThan(CSS_LIMITS.stylesheetBytes);
+        const started = Date.now();
+        expect(sanitizeStylesheet(big)).toBe('');
+        expect(Date.now() - started).toBeLessThan(50);
+        expect(sanitizeDeclarations('color: red;'.repeat(2000))).toBe('');
+        // Just under the cap still parses in bounded time.
+        const under = 'p{col or: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}'.repeat(4000);
+        expect(under.length).toBeLessThan(CSS_LIMITS.stylesheetBytes);
+        const t = Date.now();
+        sanitizeStylesheet(under);
+        expect(Date.now() - t).toBeLessThan(3000);
     });
 
     it('drops only the broken rule, not the sheet', () => {

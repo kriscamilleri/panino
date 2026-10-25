@@ -26,6 +26,15 @@ export const FONT_HOSTS = Object.freeze([
 const URL_FUNCTIONS = new Set(['url', 'src', 'image-set', '-webkit-image-set', 'image']);
 
 /**
+ * Size caps applied before parsing. css-tree's tolerant parser is quadratic on malformed
+ * input and runs synchronously in the API process, so input is bounded first.
+ */
+export const CSS_LIMITS = Object.freeze({
+    stylesheetBytes: 256 * 1024,
+    declarationsBytes: 16 * 1024,
+});
+
+/**
  * Whether a URL found in CSS may stay. `data:` URLs and fragment references are always
  * fine; Google Fonts hosts are allowed because the font pipeline needs them.
  * @param {string} value
@@ -89,6 +98,60 @@ function importHref(atrule) {
     return null;
 }
 
+/**
+ * css-tree 3 keeps a nested rule without a leading `&` (CSS Nesting relaxed syntax, which
+ * Chromium supports) as a `Raw` node inside the parent block, sometimes together with the
+ * declarations that follow it. Re-parse such text as rules, then as declarations, and
+ * splice back what parses cleanly; whatever is left is dropped by `prune`.
+ */
+function expandNestedRaw(ast) {
+    csstree.walk(ast, {
+        visit: 'Block',
+        enter(block) {
+            block.children.forEach((child, item, list) => {
+                if (child.type !== 'Raw' || isHarmlessRaw(child.value)) return;
+                const expanded = reparseBlockContent(child.value);
+                if (!expanded) return;
+                list.replace(item, expanded);
+            });
+        },
+    });
+}
+
+function reparseBlockContent(text) {
+    let rules;
+    try {
+        rules = csstree.parse(text, { ...PARSE_OPTIONS, context: 'stylesheet' });
+    } catch {
+        return null;
+    }
+    const out = new csstree.List();
+    let changed = false;
+    rules.children.forEach((node) => {
+        if (node.type === 'Raw') {
+            // Declarations that trailed the nested rule.
+            let decls;
+            try {
+                decls = csstree.parse(node.value, { ...PARSE_OPTIONS, context: 'declarationList' });
+            } catch {
+                return;
+            }
+            decls.children.forEach((decl) => {
+                if (decl.type === 'Declaration' && !containsRejected(decl)) {
+                    out.appendData(decl);
+                    changed = true;
+                }
+            });
+            return;
+        }
+        if ((node.type === 'Rule' || node.type === 'Atrule') && !containsRejected(node)) {
+            out.appendData(node);
+            changed = true;
+        }
+    });
+    return changed ? out : null;
+}
+
 function prune(ast) {
     csstree.walk(ast, {
         leave(node, item, list) {
@@ -146,12 +209,14 @@ const PARSE_OPTIONS = {
  */
 export function sanitizeStylesheet(css) {
     if (typeof css !== 'string' || css.trim() === '') return '';
+    if (css.length > CSS_LIMITS.stylesheetBytes) return '';
     let ast;
     try {
         ast = csstree.parse(css, { ...PARSE_OPTIONS, context: 'stylesheet' });
     } catch {
         return '';
     }
+    expandNestedRaw(ast);
     prune(ast);
     return escapeCloseTags(csstree.generate(ast));
 }
@@ -166,6 +231,7 @@ export function sanitizeStylesheet(css) {
  */
 export function sanitizeDeclarations(css) {
     if (typeof css !== 'string' || css.trim() === '') return '';
+    if (css.length > CSS_LIMITS.declarationsBytes) return '';
     let ast;
     try {
         ast = csstree.parse(css, { ...PARSE_OPTIONS, context: 'declarationList' });

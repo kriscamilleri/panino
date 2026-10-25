@@ -392,6 +392,16 @@ describe('POST /render-pdf', () => {
         expect(response.headers['content-type']).toBe('application/pdf');
     }, 30000);
 
+    it('refuses an oversized stylesheet with 413 before parsing it', async () => {
+        const token = getTestToken(testUser.userId);
+        const response = await request(app)
+            .post('/render-pdf')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ htmlContent: '<p>x</p>', cssStyles: 'p{col or: x}'.repeat(40000), printStyles: {} });
+        expect(response.status).toBe(413);
+        expect(response.text).toBe('CSS too large');
+    });
+
     it('times out a slow real render and serves the next request', async () => {
         const saved = PDF_RUNTIME.jobTimeoutMs;
         const token = getTestToken(testUser.userId);
