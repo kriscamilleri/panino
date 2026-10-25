@@ -3,7 +3,7 @@
  * Documents can choose. See docs/specs/active/named-styles.md.
  */
 import { DEFAULT_PREVIEW_STYLES, DEFAULT_PRINT_STYLES } from './styleDefaults';
-import { parseFrontMatter, unquoteValue } from './frontMatter';
+import { parseFrontMatter, removeFrontMatterKeys, setFrontMatterValues, unquoteValue } from './frontMatter';
 
 export const STYLE_KINDS = Object.freeze(['preview', 'print']);
 export const ASSIGNMENT_TARGETS = Object.freeze(['folder', 'template']);
@@ -177,4 +177,25 @@ export function resolveStylePreset({
   }
 
   return { preset: null, source: 'default' };
+}
+
+/**
+ * Name, or stop naming, a Document's styles in its front matter. Only the
+ * kinds given are touched; an empty name removes that kind's line.
+ * @param {string} markdown
+ * @param {{ preview?: string, print?: string }} names
+ * @returns {string}
+ */
+export function writeDocumentStyleNames(markdown, names) {
+  let result = markdown ?? '';
+  const remove = [];
+  const set = {};
+  for (const kind of STYLE_KINDS) {
+    if (!Object.hasOwn(names || {}, kind)) continue;
+    const name = normalizeStyleName(names[kind]);
+    if (name) set[STYLE_FRONT_MATTER_KEYS[kind]] = name;
+    else remove.push(STYLE_FRONT_MATTER_KEYS[kind]);
+  }
+  result = removeFrontMatterKeys(result, remove);
+  return setFrontMatterValues(result, set);
 }

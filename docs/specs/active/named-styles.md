@@ -41,8 +41,6 @@ journal and a reference manual. Nothing can be saved and recalled by name.
 - No per-Document hidden style column; front matter is the per-Document mechanism.
 - No import/export of named styles in the JSON/ZIP backup in this change (the existing backup
   already omits templates; tracked as a follow-up).
-- No "apply to this Document" button that rewrites Document content from the style page; the
-  page shows the front matter line to add instead.
 
 ## 4) User Journeys
 
@@ -56,6 +54,7 @@ journal and a reference manual. Nothing can be saved and recalled by name.
 | U6 | Writer | Types `preview-style: Manual` in a Document's front matter | The live preview switches to "Manual" immediately (including an unsaved draft) |
 | U7 | Space member | Another member sets a Space folder's default print style | After sync, this member's print of a Document in that folder uses the same style |
 | U8 | Writer | Names a style that does not exist in front matter | Rendering falls back to the folder default, then Default; no error |
+| U10 | Writer | Document menu → **Document styles**, picks "Manual" for preview | The dialog showed where the current style came from; the Document gains `preview-style: Manual` and previews with it; choosing Automatic removes the line |
 | U9 | Phone user | Exports a PDF from the phone Export sheet | The PDF uses the resolved print style |
 
 ## 5) Design
@@ -137,6 +136,11 @@ defaults are kept, and values are coerced to strings (booleans for `enablePageNu
 - **Folder menu** (desktop tree): **Document styles** opens a dialog with a preview-style and a
   print-style select ("None" = inherit).
 - **Template manager**: two selects, "Default preview style" and "Default print style".
+- **Document styles dialog** (Document menu in the desktop tree; phone Document menu): for each
+  kind, the style in use and where it comes from (this Document, a named folder, or Default),
+  and a select of "Automatic" plus the library's styles. Choosing a style writes the front
+  matter line; Automatic removes it. An open Document is changed through the editor, so drafts
+  and live sessions stay in step; an unknown name is left alone unless replaced.
 
 ### 5.6 Rollout and compatibility
 

@@ -7,10 +7,12 @@ import {
   resolveStylePreset,
   serializeStyleValues,
   styleNameError,
+  writeDocumentStyleNames,
   MAX_STYLE_NAME_LENGTH,
 } from "../../src/utils/stylePresets";
 import {
   parseFrontMatter,
+  removeFrontMatterKeys,
   setFrontMatterValues,
   unquoteValue,
 } from "../../src/utils/frontMatter";
@@ -202,5 +204,34 @@ describe("resolveStylePreset", () => {
     expect(r.preset).toBe(presets[2]);
     const none = resolveStylePreset({ kind: "preview", folderTrail: ["parent"], presets, assignments });
     expect(none).toEqual({ preset: null, source: "default" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Writing a Document's style names
+// ---------------------------------------------------------------------------
+describe("writeDocumentStyleNames", () => {
+  it("adds a line to a Document without front matter", () => {
+    expect(writeDocumentStyleNames("# Hi", { preview: "Manual" })).toBe("---\npreview-style: Manual\n---\n\n# Hi");
+  });
+
+  it("replaces one kind and leaves the other alone", () => {
+    const doc = "---\npreview-style: A\nprint-style: B\n---\n# Hi";
+    expect(writeDocumentStyleNames(doc, { preview: "C" })).toBe("---\npreview-style: C\nprint-style: B\n---\n# Hi");
+  });
+
+  it("removes a line, keeping other front matter", () => {
+    const doc = "---\ntitle: X\nPreview-Style: A\n---\n# Hi";
+    expect(writeDocumentStyleNames(doc, { preview: "" })).toBe("---\ntitle: X\n---\n# Hi");
+  });
+
+  it("removes a block it leaves empty, with the blank line after it", () => {
+    const doc = writeDocumentStyleNames("# Hi", { preview: "Manual" });
+    expect(writeDocumentStyleNames(doc, { preview: "" })).toBe("# Hi");
+  });
+
+  it("leaves the Document unchanged when there is nothing to remove", () => {
+    expect(writeDocumentStyleNames("# Hi", { print: "" })).toBe("# Hi");
+    expect(removeFrontMatterKeys("---\ntitle: X\n---\nBody", ["print-style"])).toBe("---\ntitle: X\n---\nBody");
   });
 });

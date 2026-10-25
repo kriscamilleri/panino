@@ -41,6 +41,16 @@
                 </button>
     
                 <button
+                    v-if="item.type === 'file'"
+                    @click="handleDocumentStyles"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                    :data-testid="`tree-item-context-menu-document-styles-${item.id}`"
+                >
+                    <Palette class="h-4 w-4" />
+                    <span>Document styles</span>
+                </button>
+
+                <button
                     v-if="!isSpace"
                     @click="handleDelete"
                     class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
@@ -269,6 +279,15 @@
             @cancel="cancelRename"
         />
 
+        <DocumentStylesModal
+            v-if="showDocumentStylesModal"
+            show
+            :db-key="item.dbKey"
+            :file-id="item.id"
+            :document-title="item.name"
+            @close="showDocumentStylesModal = false"
+        />
+
         <FolderStylesModal
             v-if="showStylesModal"
             :db-key="item.dbKey"
@@ -291,6 +310,7 @@ import { useUiStore } from '@/store/uiStore'
 import PromptModal from '@/components/PromptModal.vue'
 import AvatarStack from '@/components/AvatarStack.vue'
 import FolderStylesModal from '@/components/FolderStylesModal.vue'
+import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
 
 import {
     Trash2, FilePlus, FolderPlus, MoreHorizontal,
@@ -477,6 +497,12 @@ async function handleDelete() {
 }
 
 const showStylesModal = ref(false)
+const showDocumentStylesModal = ref(false)
+
+function handleDocumentStyles() {
+    showContextMenu.value = false
+    showDocumentStylesModal.value = true
+}
 
 function handleFolderStyles() {
     showContextMenu.value = false

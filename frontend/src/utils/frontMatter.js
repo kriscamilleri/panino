@@ -117,3 +117,35 @@ export function setFrontMatterValues(markdown, entries) {
     ...lines.slice(end),
   ].join(newline);
 }
+
+/**
+ * Remove `key: value` lines (keys compared case-insensitively) from the
+ * Document's front matter. A block left empty is removed with the blank line
+ * that followed it.
+ * @param {string} markdown
+ * @param {string[]} keys
+ * @returns {string}
+ */
+export function removeFrontMatterKeys(markdown, keys) {
+  const source = markdown ?? '';
+  const unwanted = new Set((keys || []).map((key) => key.toLowerCase()));
+  if (unwanted.size === 0) return source;
+
+  const newline = source.includes('\r\n') ? '\r\n' : '\n';
+  const lines = source.split(/\r?\n/);
+  const { start, end } = findBlock(lines);
+  if (start === -1) return source;
+
+  const inside = lines.slice(start + 1, end).filter((line) => {
+    const match = line.match(/^\s*([^:\n]+?)\s*:/);
+    return !(match && unwanted.has(match[1].trim().toLowerCase()));
+  });
+  if (inside.length === end - start - 1) return source;
+
+  if (inside.every((line) => line.trim() === '')) {
+    let after = end + 1;
+    if (after < lines.length && lines[after].trim() === '') after += 1;
+    return [...lines.slice(0, start), ...lines.slice(after)].join(newline);
+  }
+  return [...lines.slice(0, start + 1), ...inside, ...lines.slice(end)].join(newline);
+}
