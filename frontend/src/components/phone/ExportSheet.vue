@@ -22,6 +22,7 @@
                 <!-- Sandboxed: the preview can never run script. -->
                 <iframe
                     v-if="previewDoc"
+                    :key="previewVersion"
                     title="First page preview"
                     sandbox=""
                     :srcdoc="previewDoc"
@@ -107,6 +108,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useMarkdownStore } from '@/store/markdownStore'
+import { useStylePresetStore } from '@/store/stylePresetStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
@@ -131,6 +133,7 @@ const docStore = useDocStore()
 const draftStore = useDraftStore()
 const editorStore = useEditorStore()
 const markdownStore = useMarkdownStore()
+const stylePresetStore = useStylePresetStore()
 const syncStore = useSyncStore()
 const ui = useUiStore()
 const { closeSheetAndGo } = useSheetRoute()
@@ -154,30 +157,39 @@ const frameStyle = computed(() => ({
     transform: `scale(${scale.value})`,
 }))
 
-/** Page 1 as the renderer would lay it out: print CSS, margins, paper width. */
-const previewDoc = computed(() => {
-    if (!renderedHtml.value) return ''
-    const margin = String(docStore.printStyles?.pageMargin || '2cm').replace(/[^0-9a-z.%\s]/gi, '')
-    return `<!doctype html><html><head><meta charset="utf-8"><style>
-html,body{margin:0;background:#fff;overflow:hidden}
-body{padding:${margin};box-sizing:border-box;width:100%;height:100%}
-${markdownStore.printStylesCssString}
-</style></head><body>${renderedHtml.value}</body></html>`
-})
-
 function currentMarkdown() {
     return (file.value && draftStore.getDraft(file.value.id)) ?? file.value?.content ?? ''
 }
 
+/** The Document's print style: its own, its folder's, or the Default. */
+const printStyles = computed(() => stylePresetStore.resolveForSelected('print', currentMarkdown()).values)
+const printCss = computed(() => markdownStore.buildPrintCss(printStyles.value))
+
+/** Page 1 as the renderer would lay it out: print CSS, margins, paper width. */
+const previewDoc = computed(() => {
+    if (!renderedHtml.value) return ''
+    const margin = String(printStyles.value?.pageMargin || '2cm').replace(/[^0-9a-z.%\s]/gi, '')
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;background:#fff;overflow:hidden}
+body{padding:${margin};box-sizing:border-box;width:100%;height:100%}
+${printCss.value}
+</style></head><body>${renderedHtml.value}</body></html>`
+})
+
+// A fresh frame per preview: a new srcdoc on a loaded frame adds a history
+// entry, so Back would step through old previews instead of closing the sheet.
+const previewVersion = ref(0)
+watch(previewDoc, () => { previewVersion.value += 1 })
+
 async function renderHtml() {
-    const md = await markdownStore.getPrintMarkdownIt()
+    const md = await markdownStore.getPrintMarkdownIt(printStyles.value)
     return DOMPurify.sanitize(md.render(markdownStore.applyMetadataVariables(currentMarkdown())))
 }
 
 // Also when the Document arrives: a reload or link can open the sheet before it loads.
 watch(() => [props.open, file.value?.id], async ([isOpen]) => {
     if (!isOpen || !file.value) return
-    paper.value = normalizePaperSize(docStore.printStyles?.pageSize)
+    paper.value = normalizePaperSize(printStyles.value?.pageSize)
     renderedHtml.value = await renderHtml()
     await nextTick()
     boxWidth.value = frameBoxRef.value?.clientWidth || boxWidth.value
@@ -191,8 +203,8 @@ async function run(action) {
         await editorStore.flushPendingSave()
         const body = buildPdfRequest({
             html: await renderHtml(),
-            cssStyles: markdownStore.printStylesCssString,
-            printStyles: docStore.printStyles,
+            cssStyles: printCss.value,
+            printStyles: printStyles.value,
             sanitize: (html) => DOMPurify.sanitize(html),
             pageSize: paper.value,
         })

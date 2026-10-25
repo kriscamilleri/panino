@@ -94,6 +94,7 @@
       >
         <div :class="isPhone ? 'ph-styles-form' : 'h-full overflow-y-auto rounded-lg border border-gray-200 bg-white p-8 shadow-lg'">
           <div class="space-y-6">
+            <slot name="presets" />
             <div
               v-for="(styles, category) in categorizedStyles"
               :key="category"

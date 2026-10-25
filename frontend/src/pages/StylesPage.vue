@@ -1,5 +1,13 @@
 <template>
   <StyleCustomizer :config="markdownStylesConfig">
+    <template #presets>
+      <StylePresetBar
+        v-model="editingPresetId"
+        kind="preview"
+        :db-key="libraryDbKey"
+        :get-values="() => ({ ...editingValues })"
+      />
+    </template>
     <div class="h-full overflow-y-auto p-8">
       <!-- `previewHtmlContent` is sanitized with DOMPurify below. -->
       <div
@@ -14,12 +22,21 @@
 <script setup>
 import { computed } from 'vue';
 import { useDocStore } from '@/store/docStore';
-import { useMarkdownStore } from '@/store/markdownStore';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';
+import StylePresetBar from '@/components/StylePresetBar.vue';
+import { useStyleEditing } from '@/composables/useStyleEditing';
 import DOMPurify from 'dompurify';
 
 const docStore = useDocStore();
-const markdownStore = useMarkdownStore();
+
+const {
+  libraryDbKey,
+  editingPresetId,
+  editingValues,
+  updateEditingStyle,
+  resetEditingStyle,
+  titleWith,
+} = useStyleEditing('preview');
 
 const sampleMarkdown = `# Sample Document for Markdown Preview
 
@@ -75,10 +92,12 @@ An image:
 `;
 
 const markdownStylesConfig = {
-  title: 'Customize Markdown Styles',
-  getStyles: () => ({ ...docStore.styles }),
-  updateStyleAction: docStore.updateStyle,
-  getMarkdownIt: docStore.getMarkdownIt,
+  get title() {
+    return titleWith('Customize Markdown Styles');
+  },
+  getStyles: () => ({ ...editingValues.value }),
+  updateStyleAction: updateEditingStyle,
+  getMarkdownIt: () => docStore.getMarkdownIt(editingValues.value),
   sampleMarkdown,
   styleCategories: {
     Headings: ['h1', 'h2', 'h3', 'h4'],
@@ -108,7 +127,7 @@ const markdownStylesConfig = {
         '/* Add any custom CSS here */\n.my-custom-class {\n  color: #ff0000;\n}\n\n/* You can also override existing styles */\nh1 {\n  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);\n}'
     }
   ],
-  resetStyles: () => markdownStore.resetStyles()
+  resetStyles: resetEditingStyle
 };
 
 const previewHtmlContent = computed(() => {

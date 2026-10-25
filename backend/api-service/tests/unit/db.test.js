@@ -354,6 +354,16 @@ describe("User Database Management", () => {
     expect(tableNames).toContain("settings");
   });
 
+  it("registers the named-style tables as CRRs", () => {
+    const db = getUserDb(testUserId);
+    for (const table of ["style_presets", "style_assignments"]) {
+      const trigger = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?")
+        .get(`${table}__crsql_utrig`);
+      expect(trigger, table).toBeDefined();
+    }
+  });
+
   it("should enable WAL mode", () => {
     const db = getUserDb(testUserId);
 

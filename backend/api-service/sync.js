@@ -48,6 +48,22 @@ const SPACE_CHANGE_ALLOWLIST = {
     "created_at",
     "updated_at",
   ]),
+  style_presets: new Set([
+    "id",
+    "kind",
+    "name",
+    "styles",
+    "created_at",
+    "updated_at",
+  ]),
+  style_assignments: new Set([
+    "id",
+    "target_type",
+    "target_id",
+    "kind",
+    "preset_id",
+    "updated_at",
+  ]),
 };
 
 const PACKED_INTEGER = 1;
@@ -143,7 +159,8 @@ function respondToSpaceMetadataError(res, event, error) {
 /**
  * True only when `pk` decodes (via the same `parsePkId` logic used to drive
  * merge-time note-revision extraction) to a non-empty string id. `folders`,
- * `notes`, `globals`, and `templates` all use a single TEXT PRIMARY KEY
+ * `notes`, `globals`, `templates`, `style_presets`, and `style_assignments`
+ * all use a single TEXT PRIMARY KEY
  * column, so every allowlisted change — including a delete tombstone, which
  * still carries the pk of the row being deleted — must resolve to one. A
  * missing, empty, or otherwise malformed pk is never permitted for a

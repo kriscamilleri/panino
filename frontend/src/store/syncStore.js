@@ -85,6 +85,24 @@ CREATE TABLE IF NOT EXISTS templates (
 );
 CREATE INDEX IF NOT EXISTS idx_templates_updated ON templates(updated_at DESC);
 SELECT crsql_as_crr('templates');
+CREATE TABLE IF NOT EXISTS style_presets (
+  id TEXT PRIMARY KEY NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'preview',
+  name TEXT NOT NULL DEFAULT '',
+  styles TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+SELECT crsql_as_crr('style_presets');
+CREATE TABLE IF NOT EXISTS style_assignments (
+  id TEXT PRIMARY KEY NOT NULL,
+  target_type TEXT NOT NULL DEFAULT '',
+  target_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT '',
+  preset_id TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+SELECT crsql_as_crr('style_assignments');
 
 -- Local-only (non-CRR) client state for content merge (COLLAB-02). Deliberately
 -- not replicated: note_sync_base tracks the last value this client and the

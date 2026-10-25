@@ -23,6 +23,7 @@ import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useMarkdownStore } from '@/store/markdownStore'
+import { useStylePresetStore } from '@/store/stylePresetStore'
 import DOMPurify from 'dompurify'
 
 const props = defineProps({
@@ -37,6 +38,7 @@ const docStore = useDocStore()
 const draftStore = useDraftStore()
 const contentRef = ref(null)
 const markdownStore = useMarkdownStore()
+const stylePresetStore = useStylePresetStore()
 
 // pull the ref directly
 const { selectedFile: file, selectedFileContent } = storeToRefs(docStore)
@@ -50,7 +52,11 @@ const text = computed(() => {
 })
 
 const renderedHtml = computed(() => {
-    const md = docStore.getMarkdownIt()
+    // The Document's named style, if its front matter or folder chooses one.
+    // Other text, such as a capture draft, belongs to no folder yet.
+    const md = docStore.getMarkdownIt(props.source === null
+        ? stylePresetStore.resolveForSelected('preview', text.value || '').values
+        : undefined)
     const source = markdownStore.applyMetadataVariables(text.value || '')
     const withPageBreaks = source
         .replace(/\\pagebreak/g, '\n<div class="pagebreak-banner" data-pagebreak="true">Page break</div>\n')

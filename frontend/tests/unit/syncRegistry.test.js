@@ -226,6 +226,17 @@ describe('membership and dashboard helpers', () => {
     expect(changes).toHaveLength(7);
   });
 
+  it('sends named styles and their defaults to a space', () => {
+    const changes = [
+      { table: 'style_presets', cid: 'name', val: 'Report' },
+      { table: 'style_presets', cid: 'styles', val: '{}' },
+      { table: 'style_assignments', cid: 'preset_id', val: 'p1' },
+      { table: 'style_assignments', cid: '-1', val: null },
+      { table: 'style_presets', cid: 'user_id', val: 'u1' },
+    ];
+    expect(projectSpaceOutgoingChanges(changes)).toEqual(changes.slice(0, 4));
+  });
+
   it('identifies revoked space databases while retaining personal state', () => {
     const otherSpace = 'space:33333333-3333-4333-8333-333333333333';
     const result = reconcileMembershipKeys([PERSONAL_KEY, SPACE_KEY, otherSpace], PERSONAL_KEY, [

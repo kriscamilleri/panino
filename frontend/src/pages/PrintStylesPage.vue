@@ -1,5 +1,13 @@
 <template>
   <StyleCustomizer :config="printStylesConfig">
+    <template #presets>
+      <StylePresetBar
+        v-model="editingPresetId"
+        kind="print"
+        :db-key="libraryDbKey"
+        :get-values="() => ({ ...editingValues })"
+      />
+    </template>
     <div class="h-full overflow-y-auto">
       <template v-if="!docStore.selectedFileContent">
         <div class="flex flex-col items-center justify-center h-full text-gray-500">
@@ -24,7 +32,18 @@
         data-testid="print-styles-open-pdf"
       >Open the full PDF</a>
       <!-- PDF Preview (always shown when content exists) -->
-      <iframe v-if="pdfUrl" :src="pdfUrl" class="w-full h-full border-none" data-testid="pdf-preview-iframe"></iframe>
+      <!--
+        Keyed so each PDF gets a fresh frame. Changing the src of a loaded frame
+        adds a browser history entry, and Back then stepped through old PDFs
+        instead of leaving the page.
+      -->
+      <iframe
+        v-if="pdfUrl"
+        :key="pdfUrl"
+        :src="pdfUrl"
+        class="w-full h-full border-none"
+        data-testid="pdf-preview-iframe"
+      ></iframe>
 
       <div v-else class="flex items-center justify-center h-full text-gray-500">
         <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none"
@@ -45,6 +64,8 @@ import { ref, watch, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDebounceFn } from '@vueuse/core';
 import StyleCustomizer from '@/components/StyleCustomizer.vue';
+import StylePresetBar from '@/components/StylePresetBar.vue';
+import { useStyleEditing } from '@/composables/useStyleEditing';
 import { Palette, Edit3 } from 'lucide-vue-next';
 import Editor from '@/components/Editor.vue';
 import BaseButton from '@/components/BaseButton.vue';
@@ -67,12 +88,23 @@ const pdfUrl = ref('');
 const finalHtmlForPdf = ref('');
 const showMode = ref('off'); // 'styles', 'editor', or 'off'
 
+const {
+  libraryDbKey,
+  editingPresetId,
+  editingValues,
+  updateEditingStyle,
+  resetEditingStyle,
+  titleWith,
+} = useStyleEditing('print');
+
 const debouncedRegeneratePdf = useDebounceFn(regeneratePdf, 700);
 
 const printStylesConfig = {
-  title: 'Customize Print Styles',
-  getStyles: () => ({ ...docStore.printStyles }),
-  updateStyleAction: docStore.updatePrintStyle,
+  get title() {
+    return titleWith('Customize Print Styles');
+  },
+  getStyles: () => ({ ...editingValues.value }),
+  updateStyleAction: updateEditingStyle,
   getDebugHtml: () => finalHtmlForPdf.value,
   editorComponent: Editor,
 
@@ -230,7 +262,7 @@ const printStylesConfig = {
   // NEW: Function to get editor content
   getEditorContent: () => docStore.selectedFileContent,
 
-  resetStyles: () => markdownStore.resetPrintStyles(),
+  resetStyles: resetEditingStyle,
   onBack: () => {
     if (docStore.selectedFileId) {
       // Without the database scope the route falls back to the personal library
@@ -250,12 +282,13 @@ async function regeneratePdf() {
   }
 
   try {
-    const md = await markdownStore.getPrintMarkdownIt();
+    const styles = editingValues.value;
+    const md = await markdownStore.getPrintMarkdownIt(styles);
     const processedMarkdown = markdownStore.applyMetadataVariables(docStore.selectedFileContent);
     const body = buildPdfRequest({
       html: md.render(processedMarkdown),
-      cssStyles: markdownStore.printStylesCssString,
-      printStyles: docStore.printStyles,
+      cssStyles: markdownStore.buildPrintCss(styles),
+      printStyles: styles,
       sanitize: (html) => DOMPurify.sanitize(html),
     });
 
@@ -277,7 +310,7 @@ async function regeneratePdf() {
 }
 
 watch(
-  () => [docStore.printStyles, docStore.selectedFileContent],
+  () => [editingValues.value, docStore.selectedFileContent],
   () => { debouncedRegeneratePdf() },
   { deep: true, immediate: true }
 );
