@@ -157,7 +157,7 @@ fails, the overwrite still stands and the result says the note is missing. Picki
 
 **Key expiry.** From 14 days before the stored expiry date, Settings and the send sheet show
 "Your Odoo key expires on …". A 401 marks the connection **Key rejected** and points to
-Settings. Automatic rotation is Phase 5.
+Settings. Automatic rotation is Phase 6.
 
 ---
 
@@ -233,13 +233,17 @@ check that the attachment still belongs to that `res_model`/`res_id`.
 | Record picker | `crm.lead/search_read` `{domain: [['type','=','opportunity'], '|', ['name','ilike',q], ['partner_id','ilike',q]], fields: ['name','partner_id','stage_id'], limit: 10}` and `sale.order/search_read` `{domain: ['|', ['name','ilike',q], ['partner_id','ilike',q]], fields: ['name','partner_id','state'], limit: 10}` |
 
 The record-changing step is one call for Documents and Knowledge, so they either fully succeed or
-leave Odoo unchanged. A first chatter send takes two (stage the attachment, then post); a resend
-takes two as well (overwrite, then the "replaced" note), and a failed note after a successful
-overwrite is reported, not retried as a second overwrite. If the
-post fails, the staged attachment is linked to nothing and visible to no one. Panino does not
-delete it; Phase 0 confirms Odoo's autovacuum removes it. If the `create_date` read after a create fails, the link is stored without it
-and filled in by the next send's read. The two destinations are independent: one can succeed
-while the other fails, and the result reports each.
+leave Odoo unchanged. The chatter takes two:
+
+- **First send:** stage the attachment, then post the note. If the post fails, the staged
+  attachment is linked to nothing and visible to no one. Panino does not delete it; Phase 0
+  confirms Odoo's autovacuum removes it.
+- **Resend:** overwrite the attachment, then post the "replaced" note. A failed note after a
+  successful overwrite is reported, not retried as a second overwrite.
+
+If the `create_date` read after a create fails, the link is stored without it and filled in by
+the next send's read. The three destinations are independent: any can succeed while another
+fails, and the result reports each.
 
 ---
 
@@ -252,8 +256,8 @@ while the other fails, and the result reports each.
   article name as its title).
 - Task lists (`- [ ]`, `- [x]`) are converted to Knowledge checklist markup (Phase 0 confirms it).
 - Tables, code blocks, quotes and links pass through as plain HTML.
-- **Images (Phase 4).** Panino image URLs need a Panino session, so they would break in Odoo.
-  The first versions replace each image with a link-free placeholder ("Image not sent"). Phase 4
+- **Images (Phase 5).** Panino image URLs need a Panino session, so they would break in Odoo.
+  The first versions replace each image with a link-free placeholder ("Image not sent"). Phase 5
   uploads each image as an `ir.attachment` on the article and rewrites `src`; that is several
   calls, so a failure part-way leaves an article with some images missing and is reported as such.
 - No "Sent from Panino by" footer: the article's Odoo author is the sender (§2).
@@ -276,7 +280,7 @@ CREATE TABLE IF NOT EXISTS odoo_connection (
   key_expires_on TEXT,                   -- ISO 8601 date, entered by the user
   odoo_user_name TEXT,
   odoo_version TEXT,
-  apps TEXT NOT NULL DEFAULT '[]',       -- JSON: ["documents","knowledge"]
+  apps TEXT NOT NULL DEFAULT '[]',       -- JSON: ["documents","knowledge","crm","sales"]
   created_at TEXT NOT NULL,
   last_verified_at TEXT,
   last_error TEXT                        -- one of the §6 error codes
@@ -375,8 +379,9 @@ other than `crm.lead` or `sale.order` is rejected with 400.
 ## 11) Phases
 
 0. **Verify.** On the Odoo 19 Enterprise test database, confirm the §4 table through `/doc` and
-   by hand with `curl`: create/read/write on both models, checklist markup, record URLs, error
-   shapes for missing records and missing rights. Record results in this spec.
+   by hand with `curl`: create/read/write on Documents and Knowledge, `message_post` with a staged
+   attachment on an opportunity and a sales order, checklist markup, record URLs, error shapes for
+   missing records and missing rights. Record results in this spec.
 1. **Connection.** `safeFetch.js` extraction, `secrets.js`, `odooClient.js`, `odoo_connection`,
    connection routes, Settings UI, feature flag.
 2. **PDF to Documents.** `renderPdf` refactor, links and the ownership check, send route
@@ -402,8 +407,8 @@ other than `crm.lead` or `sale.order` is rejected with 400.
 - **Chatter:** `message_post` always carries `mail.mt_note` whatever the client sends; no
   `write` or `unlink` is ever issued on `crm.lead` or `sale.order`; resend to the same record
   writes only Panino's attachment and posts one "replaced" internal note; a failed "replaced"
-  note leaves the overwrite in place and is reported; a different record gets a new note; a disallowed `resModel`
-  is refused; an attachment that moved to another record is not overwritten.
+  note leaves the overwrite in place and is reported; a different record gets a new note; a
+  disallowed `resModel` is refused; an attachment that moved to another record is not overwritten.
 - **Integration (backend, Docker):** routes with a fake Odoo HTTP server: authz (other user's
   `dbKey`, space viewer/editor/owner, removed member), create then update by a second space
   member, access denied for that member, partial success across destinations, flag off → 404.
