@@ -2,7 +2,8 @@
 
 - Agent: Claude Code (Fable 5.1)
 - Started: 2026-10-25 18:10
-- Status: implemented on `feature/pdf-render-hardening`; see "Open Items" for what is left
+- Status: implemented and reviewed on `feature/pdf-render-hardening` (PR #16 to `develop`);
+  see "Open Items" for what is left
 
 ## Objective
 
@@ -61,7 +62,7 @@ See `git log main..feature/pdf-render-hardening`. Decisions and findings:
 ## Tests
 
 - Shared: `npx vitest run` in `shared/` — 15 new tests (`printStyleRules.test.js`).
-- Backend unit (host and Docker): `pdfSanitize.test.js` (39) and `imageFetch.test.js` (16),
+- Backend unit (host and Docker): `pdfSanitize.test.js` (45) and `imageFetch.test.js` (19),
   covering every §3.1 break-out string, import/url policy, layout CSS round-trips, address
   ranges (loopback, mapped, `::`, CGNAT, benchmark, 6to4, Teredo, NAT64), pinning, redirect
   re-check, hop limit, streaming cut-off, declared length, timeout.
@@ -71,7 +72,7 @@ See `git log main..feature/pdf-render-hardening`. Decisions and findings:
   `data:` image, Document `<style>` `@page` page-count change, malformed settings fallback,
   and a real slow-render timeout followed by a successful job. `pdf.queue.test.js` mocks
   Puppeteer for the fixed 500 message, the 504 with context close, and the 503 queue cap.
-  Full suite after the fixes: 33 files, 508 tests pass.
+  Full suite after the review fixes: 33 files, 523 tests pass, no unhandled errors.
 - Frontend: `printStyleValidation.test.js` (3); full suite 888 pass. `npm run lint` clean.
 - Stress document (scratch script against the dev stack): before the `FORCE_BODY` fix the
   hardened output was byte-identical in size to the baseline, same 5 pages, same embedded
