@@ -3,9 +3,17 @@
 > Contain the server-side Chromium used by `POST /render-pdf`, so user styling cannot run code,
 > reach the server's network, or read secrets, without removing any styling capability users have
 > today.
-> Status: proposed
+> Status: active — Phases 1–3 shipped 2026-10-25 (see
+> `docs/agent-logs/2026/10/2026-10-25_18-10_pdf-render-hardening.md`); Phase 4 (renderer in its
+> own container) not started.
 > Created: 2026-10-24
-> Last updated: 2026-10-24
+> Last updated: 2026-10-25
+> Implementation: `backend/api-service/pdf.js`, `backend/api-service/pdfSanitize.js`,
+> `backend/api-service/imageFetch.js`, `shared/printStyleRules.js`,
+> `frontend/src/utils/printStyleValidation.js`, `frontend/src/components/StyleCustomizer.vue`
+> Deviations: Phase 3 uses `node:http`/`node:https` with a pinned socket `lookup` instead of an
+> undici `Agent` (Node does not expose its bundled undici; no new dependency needed). CSS `url()`
+> and `@import` also allow the two Google Fonts hosts, matching the request allow-list.
 
 ---
 
@@ -263,7 +271,7 @@ Phases 1–3 can ship as one PR or three. Phase 4 is its own PR and deploy.
 On completion, update [pdf-pipeline.md](../../architecture/pdf-pipeline.md) with the threat model
 and the request allow-list, update the PDF section of
 [backend/api-service/AGENTS.md](../../../backend/api-service/AGENTS.md), and correct
-[collab-04-shared-spaces.md §4.6](collab-04-shared-spaces.md), which says the SSRF checks "stay
+[collab-04-shared-spaces.md §4.6](../proposed/collab-04-shared-spaces.md), which says the SSRF checks "stay
 exactly as they are".
 
 ---

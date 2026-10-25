@@ -328,8 +328,9 @@ is the point — and backend revision actor metadata supplies the author.
 `POST /render-pdf` takes its content from the request body
 ([pdf.js:393-398](../../../backend/api-service/pdf.js#L393-L398)) rather than reading the database,
 so it needs no membership check of its own. Confirm this when implementing; if any code path there
-resolves a note id server-side, it needs the same treatment as §4.5. The SSRF DNS/private-IP checks
-for external images stay exactly as they are.
+resolves a note id server-side, it needs the same treatment as §4.5. The SSRF checks for external
+images were tightened afterwards (DNS pinning, redirect re-checks, `ipaddr.js` ranges) by
+`pdf-render-hardening.md`; they are independent of Space membership.
 
 **GitHub backup is per-user and stays per-user.** `backup_config` is a local, non-CRR table, and
 backing up a shared space to one member's personal repository is a data-governance decision nobody
