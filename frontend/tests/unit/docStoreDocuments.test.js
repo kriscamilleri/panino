@@ -16,6 +16,9 @@ const repository = vi.fn(() => ({
     transaction: async (work) => work({ execute, exec: dbExec }),
 }));
 
+vi.mock('@/store/stylePresetStore', () => ({
+  useStylePresetStore: () => ({ reloadLoaded: async () => {}, reset: () => {} }),
+}));
 vi.mock('@/store/syncStore', () => ({
     useSyncStore: defineStore('syncStore', () => ({
         repository,

@@ -100,6 +100,19 @@
             <button
                 type="button"
                 class="ph-row"
+                :disabled="!file"
+                data-testid="phone-menu-document-styles"
+                @click="editingStyles = true"
+            >
+                <Palette
+                    class="h-5 w-5"
+                    aria-hidden="true"
+                />
+                Document styles
+            </button>
+            <button
+                type="button"
+                class="ph-row"
                 :disabled="!syncStore.isOnline"
                 data-testid="phone-menu-export"
                 @click="openSheet('export')"
@@ -170,6 +183,14 @@
                 >Delete</BaseButton>
             </template>
         </BaseModal>
+        <DocumentStylesModal
+            v-if="editingStyles && file"
+            show
+            :db-key="file.dbKey"
+            :file-id="file.id"
+            :document-title="file.title || 'Untitled'"
+            @close="editingStyles = false"
+        />
     </BottomSheet>
 </template>
 
@@ -182,6 +203,7 @@ import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
+import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -214,6 +236,7 @@ const { sync, liveParticipants, syncNow } = usePhoneStatus()
 const { selectedFile: file } = storeToRefs(docStore)
 
 const confirmingDelete = ref(false)
+const editingStyles = ref(false)
 
 const isSpaceDocument = computed(() => Boolean(file.value?.dbKey?.startsWith('space:')))
 const isPinned = computed(() => normalizePinned(file.value?.pinned))

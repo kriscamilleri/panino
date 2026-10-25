@@ -402,6 +402,84 @@ describe("POST /sync (shared spaces)", () => {
     expect(response.body.code).toBe("SPACE_CHANGE_NOT_ALLOWED");
   });
 
+  it("accepts named styles and their folder defaults and serves them to another member", async () => {
+    const ownerSite = generateSiteId("s");
+    const presetId = "8a2f6a5e-1b7c-4c3e-9d0a-5f1e2b3c4d5e";
+    const assignmentKey = "folder:5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d:print";
+    const column = (table, pk, cid, val, seq) => ({
+      table,
+      pk: JSON.stringify([pk]),
+      cid,
+      val,
+      col_version: 1,
+      db_version: 1,
+      site_id: ownerSite,
+      cl: 1,
+      seq,
+    });
+
+    const upload = await request(app)
+      .post("/sync")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        space: spaceId,
+        since: 0,
+        siteId: ownerSite,
+        changes: [
+          column("style_presets", presetId, "kind", "print", 0),
+          column("style_presets", presetId, "name", "Report", 1),
+          column("style_presets", presetId, "styles", '{"h1":"color: red;"}', 2),
+          column("style_assignments", assignmentKey, "target_type", "folder", 3),
+          column("style_assignments", assignmentKey, "target_id", "5d1c2b3a-4e5f-4a6b-8c7d-9e0f1a2b3c4d", 4),
+          column("style_assignments", assignmentKey, "kind", "print", 5),
+          column("style_assignments", assignmentKey, "preset_id", presetId, 6),
+        ],
+      });
+    expect(upload.status).toBe(200);
+
+    const spaceDb = getDb(`space:${spaceId}`);
+    expect(spaceDb.prepare("SELECT name, kind FROM style_presets WHERE id = ?").get(presetId))
+      .toEqual({ name: "Report", kind: "print" });
+    expect(spaceDb.prepare("SELECT preset_id FROM style_assignments WHERE id = ?").get(assignmentKey))
+      .toEqual({ preset_id: presetId });
+
+    const pull = await request(app)
+      .post("/sync")
+      .set("Authorization", `Bearer ${editorToken}`)
+      .send({ space: spaceId, since: 0, siteId: generateSiteId("p"), changes: [] });
+    expect(pull.status).toBe(200);
+    const tables = new Set(pull.body.changes.map((change) => change.table));
+    expect(tables.has("style_presets")).toBe(true);
+    expect(tables.has("style_assignments")).toBe(true);
+  });
+
+  it("rejects a column the named-style tables do not allow", async () => {
+    const siteId = generateSiteId("u");
+    const response = await request(app)
+      .post("/sync")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({
+        space: spaceId,
+        since: 0,
+        siteId,
+        changes: [
+          {
+            table: "style_presets",
+            pk: '["8a2f6a5e-1b7c-4c3e-9d0a-5f1e2b3c4d5e"]',
+            cid: "user_id",
+            val: owner.userId,
+            col_version: 1,
+            db_version: 1,
+            site_id: siteId,
+            cl: 1,
+            seq: 0,
+          },
+        ],
+      });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("SPACE_CHANGE_NOT_ALLOWED");
+  });
+
   it("allows a notes tombstone (cid -1) alongside allowed columns", async () => {
     const siteId = generateSiteId("t");
 

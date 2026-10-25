@@ -109,6 +109,8 @@ const SPACE_OUTGOING_COLUMNS = new Map([
   ['notes', new Set(['id', 'folder_id', 'title', 'content', 'pinned', 'created_at', 'updated_at'])],
   ['globals', new Set(['key', 'id', 'value', 'created_at', 'updated_at', 'display_key'])],
   ['templates', new Set(['id', 'name', 'content', 'title_pattern', 'default_folder_id', 'created_at', 'updated_at'])],
+  ['style_presets', new Set(['id', 'kind', 'name', 'styles', 'created_at', 'updated_at'])],
+  ['style_assignments', new Set(['id', 'target_type', 'target_id', 'kind', 'preset_id', 'updated_at'])],
 ]);
 
 /**

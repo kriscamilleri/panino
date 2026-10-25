@@ -8,6 +8,7 @@ import { useSyncStore } from "./syncStore";
 import { useDraftStore } from "./draftStore";
 import { useImportExportStore } from "./importExportStore";
 import { useConflictStore } from "./conflictStore";
+import { useStylePresetStore } from "./stylePresetStore";
 import { normalizeRecentDocument } from "../utils/recentDocuments.js";
 import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 import { mergeDashboardRows } from "../utils/syncRegistry.js";
@@ -21,6 +22,7 @@ export const useDocStore = defineStore("docStore", () => {
   const draftStore = useDraftStore();
   const importExportStore = useImportExportStore();
   const conflictStore = useConflictStore();
+  const stylePresetStore = useStylePresetStore();
   const isSaving = ref(false);
   const recentDocVersion = ref(0);
 
@@ -72,6 +74,7 @@ export const useDocStore = defineStore("docStore", () => {
       await structureStore.reFetchSelectedFile();
     }
     await conflictStore.loadConflicts();
+    await stylePresetStore.reloadLoaded();
     recentDocVersion.value++;
   }
 
@@ -80,6 +83,7 @@ export const useDocStore = defineStore("docStore", () => {
     structureStore.resetStore();
     markdownStore.resetStyles();
     markdownStore.resetPrintStyles();
+    stylePresetStore.reset();
     console.info("All stores have been reset.");
   }
 

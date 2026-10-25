@@ -217,6 +217,19 @@
                 New subfolder
             </button>
             <button
+                v-if="folderId"
+                type="button"
+                class="ph-row"
+                data-testid="phone-folder-styles"
+                @click="showOptions = false; editingStyles = true"
+            >
+                <Palette
+                    class="h-5 w-5"
+                    aria-hidden="true"
+                />
+                Document styles
+            </button>
+            <button
                 type="button"
                 class="ph-row ph-row-danger"
                 data-testid="phone-folder-delete"
@@ -230,6 +243,14 @@
             </button>
         </BottomSheet>
 
+        <FolderStylesModal
+            v-if="editingStyles && folderId"
+            show
+            :db-key="dbKey"
+            :folder-id="folderId"
+            :folder-name="title"
+            @close="editingStyles = false"
+        />
         <PromptModal
             :show="promptingFolder"
             v-model="newFolderName"
@@ -272,12 +293,13 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ChevronRight, Search, MoreHorizontal, Folder, FolderPlus, Users, Pencil, Trash2 } from 'lucide-vue-next'
+import { ArrowLeft, ChevronRight, Search, MoreHorizontal, Folder, FolderPlus, Users, Pencil, Trash2, Palette } from 'lucide-vue-next'
 import NoteCard from '@/components/phone/NoteCard.vue'
 import NewNoteButtons from '@/components/phone/NewNoteButtons.vue'
 import QuickCaptureSheet from '@/components/phone/QuickCaptureSheet.vue'
 import SelectionBar from '@/components/phone/SelectionBar.vue'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
+import FolderStylesModal from '@/components/FolderStylesModal.vue'
 import SortButton from '@/components/phone/SortButton.vue'
 import PromptModal from '@/components/PromptModal.vue'
 import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
@@ -311,6 +333,7 @@ const newFolderName = ref('')
 const renaming = ref(false)
 const renameValue = ref('')
 const confirmingDelete = ref(false)
+const editingStyles = ref(false)
 
 const folderParam = computed(() => String(route.params.folderId || ''))
 const dbKey = computed(() => (typeof route.query.dbKey === 'string' ? route.query.dbKey : syncStore.personalDbKey))

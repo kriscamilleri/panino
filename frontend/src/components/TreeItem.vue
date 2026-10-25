@@ -41,6 +41,16 @@
                 </button>
     
                 <button
+                    v-if="item.type === 'file'"
+                    @click="handleDocumentStyles"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                    :data-testid="`tree-item-context-menu-document-styles-${item.id}`"
+                >
+                    <Palette class="h-4 w-4" />
+                    <span>Document styles</span>
+                </button>
+
+                <button
                     v-if="!isSpace"
                     @click="handleDelete"
                     class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
@@ -69,6 +79,17 @@
                         <FolderPlus class="h-4 w-4" />
                         <span>New Folder</span>
                     </button>
+                    <template v-if="!isSpace">
+                        <div class="my-1 border-t border-gray-200" />
+                        <button
+                            @click="handleFolderStyles"
+                            class="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
+                            :data-testid="`tree-item-context-menu-styles-${item.id}`"
+                        >
+                            <Palette class="h-4 w-4" />
+                            <span>Document styles</span>
+                        </button>
+                    </template>
                 </template>
             </div>
         </Teleport>
@@ -257,6 +278,24 @@
             @confirm="confirmRename"
             @cancel="cancelRename"
         />
+
+        <DocumentStylesModal
+            v-if="showDocumentStylesModal"
+            show
+            :db-key="item.dbKey"
+            :file-id="item.id"
+            :document-title="item.name"
+            @close="showDocumentStylesModal = false"
+        />
+
+        <FolderStylesModal
+            v-if="showStylesModal"
+            :db-key="item.dbKey"
+            :folder-id="item.id"
+            :folder-name="item.name"
+            show
+            @close="showStylesModal = false"
+        />
     </div>
 </template>
 
@@ -270,10 +309,12 @@ import { useSyncStore } from '@/store/syncStore'
 import { useUiStore } from '@/store/uiStore'
 import PromptModal from '@/components/PromptModal.vue'
 import AvatarStack from '@/components/AvatarStack.vue'
+import FolderStylesModal from '@/components/FolderStylesModal.vue'
+import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
 
 import {
     Trash2, FilePlus, FolderPlus, MoreHorizontal,
-    ChevronRight, ChevronDown, Folder, File, Edit, Copy, Users, Settings
+    ChevronRight, ChevronDown, Folder, File, Edit, Copy, Users, Settings, Palette
 } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -453,6 +494,19 @@ async function handleDelete() {
         refreshParent(); // Tell parent to refresh its list
     }
     showContextMenu.value = false
+}
+
+const showStylesModal = ref(false)
+const showDocumentStylesModal = ref(false)
+
+function handleDocumentStyles() {
+    showContextMenu.value = false
+    showDocumentStylesModal.value = true
+}
+
+function handleFolderStyles() {
+    showContextMenu.value = false
+    showStylesModal.value = true
 }
 
 /* create-modal */

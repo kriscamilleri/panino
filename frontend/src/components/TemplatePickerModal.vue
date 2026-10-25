@@ -158,6 +158,8 @@ import { ref, computed, reactive, watch } from 'vue';
 import { useTemplateStore } from '@/store/templateStore';
 import { useStructureStore } from '@/store/structureStore';
 import { useSyncStore } from '@/store/syncStore';
+import { useStylePresetStore } from '@/store/stylePresetStore';
+import { setFrontMatterValues } from '@/utils/frontMatter';
 import { resolveTemplateVariables, extractInputLabels } from '@/utils/templateVariables';
 import BaseModal from '@/components/BaseModal.vue';
 import BaseButton from '@/components/BaseButton.vue';
@@ -190,6 +192,7 @@ const emit = defineEmits(['close', 'closed', 'created']);
 const templateStore = useTemplateStore();
 const structureStore = useStructureStore();
 const syncStore = useSyncStore();
+const stylePresetStore = useStylePresetStore();
 
 const selectedTemplateId = ref('__blank__');
 const showVariables = ref(false);
@@ -329,7 +332,10 @@ async function createNoteFromTemplate(tpl, inputValues, folderId) {
     if (resolved) noteTitle = resolved;
   }
 
-  const resolvedContent = resolveTemplateVariables(tpl.content, inputValues);
+  const resolvedContent = setFrontMatterValues(
+    resolveTemplateVariables(tpl.content, inputValues),
+    await templateStyleFrontMatter(tpl.id),
+  );
   const result = await structureStore.createFile(props.databaseKey, noteTitle, folderId);
   await syncStore.repository(props.databaseKey).transaction(async (repo) => {
     const now = new Date().toISOString();
@@ -337,6 +343,20 @@ async function createNoteFromTemplate(tpl, inputValues, folderId) {
   });
   await structureStore.loadRootItems();
   emit('created', result);
+}
+
+/**
+ * `preview-style` / `print-style` lines for the template's default styles.
+ * The Document is still created when the styles cannot be read.
+ */
+async function templateStyleFrontMatter(templateId) {
+  try {
+    await stylePresetStore.loadLibrary(props.databaseKey);
+    return stylePresetStore.templateFrontMatter(props.databaseKey, templateId);
+  } catch (err) {
+    console.warn('[TemplatePickerModal] Failed to read template styles', err);
+    return {};
+  }
 }
 
 async function resolveTargetFolder(tpl) {

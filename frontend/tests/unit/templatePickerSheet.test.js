@@ -10,13 +10,25 @@ const templateStore = reactive({
   loadTemplates: vi.fn(async () => {}),
 });
 
+const stylePresetStore = {
+  loadLibrary: vi.fn(async () => {}),
+  templateFrontMatter: vi.fn(() => ({})),
+};
+vi.mock('@/store/stylePresetStore', () => ({ useStylePresetStore: () => stylePresetStore }));
 vi.mock('@/store/templateStore', () => ({ useTemplateStore: () => templateStore }));
 const structureStore = {
   createFile: vi.fn(async () => ({ id: 'doc-1', dbKey: 'user:a' })),
   loadRootItems: vi.fn(async () => {}),
 };
 vi.mock('@/store/structureStore', () => ({ useStructureStore: () => structureStore }));
-vi.mock('@/store/syncStore', () => ({ useSyncStore: () => ({}) }));
+const noteWrites = [];
+const syncStore = {
+  repository: () => ({
+    execute: async () => [{ count: 0 }],
+    transaction: async (work) => work({ exec: async (sql, params) => noteWrites.push({ sql, params }) }),
+  }),
+};
+vi.mock('@/store/syncStore', () => ({ useSyncStore: () => syncStore }));
 
 const TemplatePickerModal = (await import('@/components/TemplatePickerModal.vue')).default;
 const BottomSheet = (await import('@/components/phone/BottomSheet.vue')).default;
@@ -24,6 +36,7 @@ const BottomSheet = (await import('@/components/phone/BottomSheet.vue')).default
 const mounted = [];
 afterEach(() => {
   while (mounted.length) mounted.pop().unmount();
+  noteWrites.length = 0;
   vi.clearAllMocks();
 });
 
@@ -86,6 +99,21 @@ describe('TemplatePickerModal as a phone sheet', () => {
     await wrapper.setProps({ open: false });
     await wrapper.setProps({ open: true });
     expect(wrapper.find('[data-testid="template-picker-use"]').attributes('disabled')).toBeUndefined();
+  });
+
+  it("starts the Document with front matter naming the template's default styles", async () => {
+    templateStore.templates[0].content = '# Agenda';
+    stylePresetStore.templateFrontMatter.mockReturnValue({ 'print-style': 'Report' });
+    const wrapper = mountSheet({ open: true });
+    await nextTick();
+    await wrapper.find('[data-testid="template-picker-radio-tpl-1"]').setValue(true);
+    await wrapper.find('[data-testid="template-picker-use"]').trigger('click');
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(stylePresetStore.templateFrontMatter).toHaveBeenCalledWith('user:a', 'tpl-1');
+    const write = noteWrites.find((w) => w.sql.startsWith('UPDATE notes SET content'));
+    expect(write.params[0]).toBe('---\nprint-style: Report\n---\n\n# Agenda');
+    templateStore.templates[0].content = '';
   });
 
   it('reports when the sheet has finished sliding away, so the parent can navigate then', async () => {
