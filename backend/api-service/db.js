@@ -223,6 +223,27 @@ const BASE_SCHEMA = `
 
   CREATE INDEX IF NOT EXISTS idx_templates_updated
     ON templates(updated_at DESC);
+
+  -- Named preview and print styles, and the folder/template defaults that
+  -- point at them. An assignment id is '<target_type>:<target_id>:<kind>' so
+  -- devices setting the same default converge on one row.
+  CREATE TABLE IF NOT EXISTS style_presets (
+    id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'preview',
+    name TEXT NOT NULL DEFAULT '',
+    styles TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS style_assignments (
+    id TEXT PRIMARY KEY NOT NULL,
+    target_type TEXT NOT NULL DEFAULT '',
+    target_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT '',
+    preset_id TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `;
 
 const USER_LOCAL_SCHEMA = `
@@ -302,6 +323,8 @@ const CRR_TABLES = [
   "settings",
   "globals",
   "templates",
+  "style_presets",
+  "style_assignments",
 ];
 
 export function parseDbKey(dbKey) {
