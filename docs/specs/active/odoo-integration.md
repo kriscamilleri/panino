@@ -5,9 +5,9 @@
 > sales order. And keep a space, a folder or a single Document mirrored into Knowledge, the way
 > GitHub backup mirrors an account into a repository. Talks to Odoo's external JSON-2 API directly; nothing is
 > installed in Odoo.
-> Status: proposed
+> Status: active (implementation started 2026-10-26 on `feature/odoo-integration`)
 > Created: 2026-10-25
-> Last updated: 2026-10-25
+> Last updated: 2026-10-26
 
 ---
 
