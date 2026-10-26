@@ -155,3 +155,49 @@ describe('verifyConnection', () => {
         await expect(verifyConnection(client)).rejects.toMatchObject({ code: 'key_rejected' });
     });
 });
+
+describe('upload helpers', () => {
+    it('picks datas on Odoo 19 and raw on Odoo 20, and caches per database and model', async () => {
+        const { fileField, resetFileFieldCache } = await import('../../odooClient.js');
+        resetFileFieldCache();
+        const calls = [];
+        const v19 = createOdooClient(connection, { transport: fakeTransport({ '/json/2/documents.document/fields_get': [200, { datas: { type: 'binary' }, raw: { type: 'binary' } }] }, calls) });
+        const v20 = createOdooClient(connection, { transport: fakeTransport({ '/json/2/documents.document/fields_get': [200, { raw: { type: 'binary' } }] }) });
+        expect(await fileField(v19, 'https://a|19', 'documents.document')).toBe('datas');
+        expect(await fileField(v19, 'https://a|19', 'documents.document')).toBe('datas');
+        expect(calls).toHaveLength(1);
+        expect(calls[0].body).toEqual({ allfields: ['datas', 'raw'], attributes: ['type'] });
+        expect(await fileField(v20, 'https://a|20', 'documents.document')).toBe('raw');
+        const neither = createOdooClient(connection, { transport: fakeTransport({ '/json/2/documents.document/fields_get': [200, {}] }) });
+        await expect(fileField(neither, 'https://a|x', 'documents.document')).rejects.toMatchObject({ code: 'odoo_error' });
+    });
+
+    it('checks an attachment by SHA-1', async () => {
+        const { verifyAttachment } = await import('../../odooClient.js');
+        const crypto = await import('node:crypto');
+        const bytes = Buffer.from('%PDF-1.4 hello');
+        const good = createOdooClient(connection, { transport: fakeTransport({ '/json/2/ir.attachment/read': [200, [{ id: 7, checksum: crypto.createHash('sha1').update(bytes).digest('hex') }]] }) });
+        await expect(verifyAttachment(good, 7, bytes)).resolves.toBeUndefined();
+        const empty = createOdooClient(connection, { transport: fakeTransport({ '/json/2/ir.attachment/read': [200, [{ id: 7, checksum: 'da39a3ee5e6b4b0d3255bfef95601890afd80709' }]] }) });
+        await expect(verifyAttachment(empty, 7, bytes)).rejects.toMatchObject({ code: 'upload_corrupt' });
+        const gone = createOdooClient(connection, { transport: fakeTransport({ '/json/2/ir.attachment/read': [200, []] }) });
+        await expect(verifyAttachment(gone, 7, bytes)).rejects.toMatchObject({ code: 'record_gone' });
+    });
+
+    it('keeps only the path of Odoo’s own URLs', async () => {
+        const { odooUrlPath } = await import('../../odooClient.js');
+        expect(odooUrlPath('http://localhost:8069/odoo/documents/tok1')).toBe('/odoo/documents/tok1');
+        expect(odooUrlPath('/knowledge/article/41')).toBe('/knowledge/article/41');
+        expect(odooUrlPath('')).toBeNull();
+        expect(odooUrlPath(false)).toBeNull();
+    });
+
+    it('names PDFs safely', async () => {
+        const { pdfFileName } = await import('../../odooDocuments.js');
+        expect(pdfFileName('Quote / Acme: v1')).toBe('Quote Acme v1.pdf');
+        expect(pdfFileName('../../etc/passwd')).toBe('.. .. etc passwd.pdf');
+        expect(pdfFileName('Report.PDF')).toBe('Report.pdf');
+        expect(pdfFileName('  ')).toBe('Untitled.pdf');
+        expect(pdfFileName('x'.repeat(500))).toHaveLength(204);
+    });
+});

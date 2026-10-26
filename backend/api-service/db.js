@@ -323,6 +323,35 @@ const SPACE_LOCAL_SCHEMA = `
   );
 `;
 
+// Odoo send and sync bookkeeping (odoo.js), kept in the database the Document
+// lives in so every member of a space updates the same Odoo record. Server-only:
+// never CRRs, never in the browser schema.
+const ODOO_LINK_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS odoo_links (
+    source_id TEXT NOT NULL,
+    source_type TEXT NOT NULL DEFAULT 'note' CHECK (source_type IN ('note', 'folder')),
+    destination TEXT NOT NULL CHECK (destination IN ('documents', 'knowledge', 'chatter')),
+    odoo_target TEXT NOT NULL,
+    target_key TEXT NOT NULL DEFAULT '',
+    odoo_record_id INTEGER NOT NULL,
+    odoo_message_id INTEGER,
+    odoo_create_date TEXT,
+    odoo_url_path TEXT,
+    sync_id TEXT,
+    content_hash TEXT,
+    archived_at TEXT,
+    first_sent_by TEXT NOT NULL,
+    last_sent_at TEXT NOT NULL,
+    last_sent_by TEXT NOT NULL,
+    PRIMARY KEY (source_id, destination, odoo_target, target_key)
+  );
+  CREATE TABLE IF NOT EXISTS odoo_defaults (
+    odoo_target TEXT PRIMARY KEY NOT NULL,
+    folder_id INTEGER,
+    parent_article_id INTEGER
+  );
+`;
+
 const CONTENT_SCHEMA_METADATA = `
   CREATE TABLE IF NOT EXISTS application_schema (
     singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
@@ -901,6 +930,7 @@ export function initializeContentDb(db, kind) {
   db.exec(BASE_SCHEMA);
   if (kind === "user") db.exec(USER_LOCAL_SCHEMA);
   if (kind === "space") db.exec(SPACE_LOCAL_SCHEMA);
+  db.exec(ODOO_LINK_SCHEMA);
   ensureNotesSchema(db);
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);

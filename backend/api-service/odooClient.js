@@ -12,6 +12,7 @@
  * docs/specs/active/odoo-integration.md §4).
  */
 
+import crypto from 'crypto';
 import { safeRequest } from './safeFetch.js';
 
 export const ODOO_ERROR_CODES = Object.freeze([
@@ -26,6 +27,7 @@ export const ODOO_ERROR_CODES = Object.freeze([
     'record_gone',
     'too_large',
     'upload_corrupt',
+    'missing_folder',
     'odoo_error',
 ]);
 
@@ -219,6 +221,71 @@ export function createOdooClient(connection, options = {}) {
     }
 
     return { version, call };
+}
+
+const fileFieldCache = new Map();
+const FILE_FIELD_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * The field that takes a file's base64 content on `model`. Odoo 19 has `datas`
+ * (`raw` there stores the base64 text itself); Odoo 20 removed `datas` (a create
+ * that uses it succeeds and stores nothing) and takes base64 in `raw`. So the
+ * field is read from the model, never assumed, and cached per database.
+ *
+ * @param {ReturnType<typeof createOdooClient>} client
+ * @param {string} target from `odooTarget`
+ * @param {string} model `ir.attachment` or `documents.document`
+ * @returns {Promise<'datas'|'raw'>}
+ */
+export async function fileField(client, target, model) {
+    const key = `${target}|${model}`;
+    const cached = fileFieldCache.get(key);
+    if (cached && Date.now() - cached.at < FILE_FIELD_TTL_MS) return cached.field;
+    const fields = await client.call(model, 'fields_get', { allfields: ['datas', 'raw'], attributes: ['type'] });
+    let field;
+    if (fields?.datas?.type === 'binary') field = 'datas';
+    else if (fields?.raw?.type === 'binary') field = 'raw';
+    else throw new OdooError('odoo_error');
+    fileFieldCache.set(key, { field, at: Date.now() });
+    return field;
+}
+
+/** Test seam: forget detected file fields. */
+export function resetFileFieldCache() {
+    fileFieldCache.clear();
+}
+
+/**
+ * Check that an attachment holds exactly `bytes`, by Odoo's own `checksum` (SHA-1
+ * of the stored content).
+ *
+ * @param {ReturnType<typeof createOdooClient>} client
+ * @param {number} attachmentId
+ * @param {Buffer} bytes
+ * @throws {OdooError} `upload_corrupt` on a mismatch, `record_gone` if it vanished
+ */
+export async function verifyAttachment(client, attachmentId, bytes) {
+    const rows = await client.call('ir.attachment', 'read', { ids: [attachmentId], fields: ['checksum'] });
+    if (!Array.isArray(rows) || rows.length === 0) throw new OdooError('record_gone');
+    const expected = crypto.createHash('sha1').update(bytes).digest('hex');
+    if (rows[0].checksum !== expected) throw new OdooError('upload_corrupt');
+}
+
+/**
+ * Put an Odoo URL's path on the connection's own address. Odoo builds `access_url`
+ * and `article_url` from its `web.base.url`, which can be an internal address.
+ *
+ * @param {string} odooUrl e.g. `http://localhost:8069/odoo/documents/abc`
+ * @returns {string|null} the path, query and hash, e.g. `/odoo/documents/abc`
+ */
+export function odooUrlPath(odooUrl) {
+    if (typeof odooUrl !== 'string' || !odooUrl) return null;
+    try {
+        const url = new URL(odooUrl, 'http://placeholder.invalid');
+        return `${url.pathname}${url.search}${url.hash}`.slice(0, 1000);
+    } catch {
+        return null;
+    }
 }
 
 /** The models behind each destination, by the name Panino stores. */

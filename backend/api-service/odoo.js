@@ -1,6 +1,6 @@
 /**
- * The user's Odoo connection: save (after verifying), status, re-check, remove.
- * Spec: docs/specs/active/odoo-integration.md.
+ * The user's Odoo connection (save after verifying, status, re-check, remove) and
+ * sending a Document to Odoo. Spec: docs/specs/active/odoo-integration.md.
  *
  * Off unless ODOO_INTEGRATION_ENABLED is "true" and ODOO_CREDENTIAL_ENCRYPTION_KEY
  * is set; the routes answer 404 otherwise. Only public addresses over https are
@@ -9,10 +9,14 @@
  */
 
 import express from 'express';
-import { getUserDb } from './db.js';
+import { getAuthDb, getDb, getUserDb, parseDbKey } from './db.js';
 import { isPublicAddress } from './safeFetch.js';
 import { decryptSecret, encryptSecret } from './secrets.js';
-import { OdooError, createOdooClient, normalizeBaseUrl, verifyConnection } from './odooClient.js';
+import { OdooError, createOdooClient, normalizeBaseUrl, odooTarget, verifyConnection } from './odooClient.js';
+import { searchFolders, sendPdfToDocuments } from './odooDocuments.js';
+import { listLinks, readDefaults, saveDefaults } from './odooLinks.js';
+import { renderPdf } from './pdf.js';
+import { resolveSpaceAccess } from './spaces.js';
 
 export const odooRoutes = express.Router();
 
@@ -20,6 +24,10 @@ const MIN_ENCRYPTION_KEY_LENGTH = 32;
 const SAVE_ATTEMPTS_PER_WINDOW = 10;
 const SAVE_WINDOW_MS = 10 * 60 * 1000;
 const saveAttempts = new Map();
+const SENDS_PER_MINUTE = 10;
+const sendAttempts = new Map();
+const sendsInFlight = new Set();
+const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
 const ERROR_MESSAGES = Object.freeze({
     bad_url: 'Enter the address of your Odoo, such as https://yourcompany.odoo.com.',
@@ -31,8 +39,17 @@ const ERROR_MESSAGES = Object.freeze({
     access_denied: "Your Odoo user doesn't have access to this.",
     missing_app: 'None of Documents, Knowledge, CRM or Sales is available to this Odoo user.',
     too_large: 'Odoo sent back more than Panino accepts.',
-    upload_corrupt: 'Odoo did not store the file correctly.',
+    upload_corrupt: 'Odoo did not store the file correctly. Send it again.',
+    missing_folder: 'Choose a Documents folder.',
     odoo_error: 'Odoo reported an error. Try again later.',
+});
+
+/** Messages for the same codes when sending to Documents. */
+const DOCUMENTS_MESSAGES = Object.freeze({
+    ...ERROR_MESSAGES,
+    access_denied: "Your Odoo user can't create or update this document in Odoo Documents.",
+    missing_app: "Odoo Documents isn't installed in this Odoo, or your Odoo user can't use it.",
+    record_gone: 'The document was removed from Odoo while sending. Send it again.',
 });
 
 /** @returns {boolean} */
@@ -162,9 +179,84 @@ function allowAttempt(userId, now = Date.now()) {
     return true;
 }
 
+/** At most SENDS_PER_MINUTE sends per user per minute. */
+function allowSend(userId, now = Date.now()) {
+    const recent = (sendAttempts.get(userId) || []).filter((at) => now - at < 60000);
+    if (recent.length >= SENDS_PER_MINUTE) {
+        sendAttempts.set(userId, recent);
+        return false;
+    }
+    recent.push(now);
+    sendAttempts.set(userId, recent);
+    return true;
+}
+
 /** Test seam: forget rate-limit history. */
 export function resetOdooRateLimits() {
     saveAttempts.clear();
+    sendAttempts.clear();
+}
+
+/**
+ * The database a Document lives in, if the caller may use it: their own personal
+ * database, or a space they belong to (owner or editor to send).
+ *
+ * @returns {{ db: import('better-sqlite3').Database, dbKey: string } | { status: number }}
+ */
+function documentDatabase(userId, rawDbKey, { forSending }) {
+    let parsed;
+    try {
+        parsed = parseDbKey(rawDbKey);
+    } catch {
+        return { status: 400 };
+    }
+    if (parsed.kind === 'user') {
+        if (parsed.id !== String(userId).toLowerCase()) return { status: 404 };
+    } else {
+        const access = resolveSpaceAccess(parsed.id, userId);
+        if (!access) return { status: 404 };
+        if (forSending && !['owner', 'editor'].includes(access.role)) return { status: 403 };
+    }
+    return { db: getDb(parsed.dbKey), dbKey: parsed.dbKey };
+}
+
+/**
+ * The caller's connection and a client for it, or null when not connected.
+ * A key that no longer decrypts is recorded as rejected.
+ */
+function senderConnection(userId) {
+    const userDb = getUserDb(userId);
+    const row = readConnection(userDb);
+    if (!row) return null;
+    let apiKey;
+    try {
+        apiKey = decryptSecret(row.api_key_enc, encryptionKey());
+    } catch {
+        userDb.prepare("UPDATE odoo_connection SET last_error = 'key_rejected' WHERE singleton = 1").run();
+        throw new OdooError('key_rejected');
+    }
+    const connection = { baseUrl: row.base_url, databaseName: row.database_name, apiKey };
+    return { row, userDb, client: odooClientFor(connection), target: odooTarget(connection) };
+}
+
+/** A rejected key is remembered on the connection so Settings shows it. */
+function rememberConnectionError(userDb, error) {
+    if (error instanceof OdooError && ['key_rejected', 'not_odoo', 'unreachable', 'blocked'].includes(error.code)) {
+        userDb.prepare('UPDATE odoo_connection SET last_error = ? WHERE singleton = 1').run(error.code);
+    }
+}
+
+function baseUrlOfTarget(target) {
+    return String(target).split('|')[0];
+}
+
+function userNames(ids) {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (unique.length === 0) return new Map();
+    const rows = getAuthDb()
+        .prepare(`SELECT id, name FROM users WHERE id IN (${unique.map(() => '?').join(', ')})`)
+        .all(...unique);
+    return new Map(rows.map((row) => [row.id, row.name]));
 }
 
 odooRoutes.use('/integrations/odoo', (req, res, next) => {
@@ -278,5 +370,154 @@ odooRoutes.delete('/integrations/odoo', (req, res) => {
     } catch (error) {
         console.error('[odoo] Failed to remove the connection:', error);
         res.status(500).json({ error: 'Failed to remove the Odoo connection' });
+    }
+});
+
+odooRoutes.get('/integrations/odoo/folders', async (req, res) => {
+    const userId = req.user.user_id;
+    let sender;
+    try {
+        sender = senderConnection(userId);
+    } catch (error) {
+        return sendOdooError(res, error);
+    }
+    if (!sender) return res.status(404).json({ error: 'not_connected', message: 'Connect Odoo in Settings first.' });
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+    try {
+        res.json({ folders: await searchFolders(sender.client, query) });
+    } catch (error) {
+        logFailure('folders_failed', userId, error);
+        rememberConnectionError(sender.userDb, error);
+        if (!(error instanceof OdooError)) console.error('[odoo] Unexpected error listing folders:', error);
+        const code = error instanceof OdooError ? error.code : 'odoo_error';
+        res.status(400).json({ error: code, message: DOCUMENTS_MESSAGES[code] || ERROR_MESSAGES.odoo_error });
+    }
+});
+
+odooRoutes.get('/integrations/odoo/links', (req, res) => {
+    const userId = req.user.user_id;
+    const noteId = typeof req.query.noteId === 'string' ? req.query.noteId : '';
+    if (!noteId || noteId.length > 100) return res.status(400).json({ error: 'invalid', message: 'A Document is required.' });
+    try {
+        const access = documentDatabase(userId, req.query.dbKey, { forSending: false });
+        if (access.status) return res.status(access.status).json({ error: 'not_found', message: 'Document not found.' });
+        const { db } = access;
+        const sender = (() => {
+            try {
+                return senderConnection(userId);
+            } catch {
+                return null;
+            }
+        })();
+        const links = listLinks(db, noteId);
+        const names = userNames(links.flatMap((link) => [link.last_sent_by, link.first_sent_by]));
+        res.json({
+            links: links.map((link) => ({
+                destination: link.destination,
+                targetKey: link.target_key,
+                sameOdoo: Boolean(sender && link.odoo_target === sender.target),
+                url: link.odoo_url_path ? `${baseUrlOfTarget(link.odoo_target)}${link.odoo_url_path}` : null,
+                lastSentAt: link.last_sent_at,
+                lastSentBy: names.get(link.last_sent_by) || null,
+            })),
+            defaults: sender ? readDefaults(db, sender.target) : { folderId: null, parentArticleId: null },
+        });
+    } catch (error) {
+        console.error('[odoo] Failed to load links:', error);
+        res.status(500).json({ error: 'Failed to load what was sent to Odoo' });
+    }
+});
+
+odooRoutes.post('/integrations/odoo/send', async (req, res) => {
+    const userId = req.user.user_id;
+    const { dbKey, noteId, title, pdfRequest, documents } = req.body || {};
+    if (typeof noteId !== 'string' || !noteId || noteId.length > 100) {
+        return res.status(400).json({ error: 'invalid', message: 'A Document is required.' });
+    }
+    if (!documents || typeof documents !== 'object') {
+        return res.status(400).json({ error: 'invalid', message: 'Choose where to send the Document.' });
+    }
+    if (!pdfRequest || typeof pdfRequest !== 'object') {
+        return res.status(400).json({ error: 'invalid', message: 'The PDF is missing.' });
+    }
+    const folderId = documents.folderId == null ? null : Number(documents.folderId);
+    if (folderId !== null && (!Number.isInteger(folderId) || folderId <= 0)) {
+        return res.status(400).json({ error: 'invalid', message: 'Choose a Documents folder.' });
+    }
+
+    let access;
+    let note;
+    let sender;
+    try {
+        access = documentDatabase(userId, dbKey, { forSending: true });
+        if (access.status === 403) {
+            return res.status(403).json({ error: 'forbidden', message: 'Only owners and editors of this space can send its Documents.' });
+        }
+        if (access.status) return res.status(access.status).json({ error: 'not_found', message: 'Document not found.' });
+        note = access.db.prepare('SELECT id, title FROM notes WHERE id = ?').get(noteId);
+        if (!note) return res.status(404).json({ error: 'not_found', message: 'Document not found.' });
+        sender = senderConnection(userId);
+    } catch (error) {
+        if (error instanceof OdooError) return sendOdooError(res, error);
+        console.error('[odoo] Failed to prepare a send:', error);
+        return res.status(500).json({ error: 'Failed to send to Odoo' });
+    }
+    if (!sender) return res.status(409).json({ error: 'not_connected', message: 'Connect Odoo in Settings first.' });
+
+    const lockKey = `${access.dbKey}|${noteId}`;
+    if (sendsInFlight.has(lockKey)) {
+        return res.status(409).json({ error: 'busy', message: 'This Document is already being sent.' });
+    }
+    if (!allowSend(userId)) {
+        return res.status(429).json({ error: 'rate_limited', message: 'Too many sends. Wait a minute and try again.' });
+    }
+
+    sendsInFlight.add(lockKey);
+    try {
+        const rendered = await renderPdf(pdfRequest, { userId });
+        if (!rendered.ok) {
+            if (rendered.retryAfterSeconds) res.setHeader('Retry-After', String(rendered.retryAfterSeconds));
+            const busy = rendered.status === 503;
+            return res.status(busy ? 503 : 422).json({
+                error: 'pdf_failed',
+                message: busy ? 'PDFs are busy right now. Try again shortly.' : 'The PDF could not be made.',
+            });
+        }
+        if (rendered.pdf.length > MAX_PDF_BYTES) {
+            return res.status(413).json({ error: 'too_large', message: 'The PDF is larger than 25 MB.' });
+        }
+
+        let result;
+        try {
+            const sent = await sendPdfToDocuments({
+                client: sender.client,
+                odooTarget: sender.target,
+                db: access.db,
+                noteId,
+                title: typeof title === 'string' && title.trim() ? title : note.title,
+                pdf: rendered.pdf,
+                folderId: folderId ?? readDefaults(access.db, sender.target).folderId,
+                userId,
+            });
+            if (folderId) saveDefaults(access.db, sender.target, { folderId });
+            result = {
+                ok: true,
+                created: sent.created,
+                recreated: sent.recreated,
+                url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
+            };
+        } catch (error) {
+            logFailure('send_documents_failed', userId, error);
+            rememberConnectionError(sender.userDb, error);
+            if (!(error instanceof OdooError)) console.error('[odoo] Unexpected error sending to Documents:', error);
+            const code = error instanceof OdooError ? error.code : 'odoo_error';
+            result = { ok: false, error: code, message: DOCUMENTS_MESSAGES[code] || ERROR_MESSAGES.odoo_error };
+        }
+        return res.json({ documents: result });
+    } catch (error) {
+        console.error('[odoo] Send failed:', error);
+        return res.status(500).json({ error: 'Failed to send to Odoo' });
+    } finally {
+        sendsInFlight.delete(lockKey);
     }
 });
