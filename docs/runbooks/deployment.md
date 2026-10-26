@@ -98,6 +98,27 @@ two-account checks in `live-session-recovery.md`. Turning off the live flag reje
 sessions already held by the process remain eligible to reconnect and save while they drain.
 Recovery rows are never deleted just because the flag is off.
 
+## Odoo integration
+
+Off by default in Compose (`docs/specs/active/odoo-integration.md`):
+
+```text
+ODOO_INTEGRATION_ENABLED=false
+ODOO_CREDENTIAL_ENCRYPTION_KEY=
+ODOO_ALLOWED_PRIVATE_HOSTS=
+```
+
+The routes answer 404 unless the flag is `true` **and** `ODOO_CREDENTIAL_ENCRYPTION_KEY` is at
+least 32 characters; with the flag on and the key missing, the API logs a warning at start and
+the integration stays off. Generate the key once (`openssl rand -base64 48`) and keep it with the
+other server secrets: users' Odoo API keys are encrypted with it, so changing or losing it means
+every user has to enter their Odoo key again (the app asks them to). Unlike GitHub backup, there
+is no fallback to `JWT_SECRET`.
+
+The server only connects to Odoo over https at public addresses. A self-hosted Odoo on a private
+network needs its hostname in `ODOO_ALLOWED_PRIVATE_HOSTS` (comma-separated); listed hosts may
+also use plain http. Leave it empty unless such a server exists.
+
 ## Stream a production database backup
 
 Run the backup from a trusted local checkout:

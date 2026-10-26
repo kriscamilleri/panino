@@ -56,8 +56,23 @@
                     <Users class="w-4 h-4" />
                     <span>Manage Spaces</span>
                 </BaseButton>
+                <BaseButton
+                    v-if="odooStore.available"
+                    variant="secondary"
+                    size="md"
+                    data-testid="settings-odoo-button"
+                    @click="showOdoo = true"
+                >
+                    <Plug class="w-4 h-4" />
+                    <span>Odoo</span>
+                </BaseButton>
             </div>
         </div>
+
+        <OdooConnectionModal
+            :show="showOdoo"
+            @close="showOdoo = false"
+        />
     </AccountLayout>
 </template>
 
@@ -70,11 +85,15 @@ import { useSyncStore } from '@/store/syncStore';
 import AccountLayout from '@/components/AccountLayout.vue';
 import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 import BaseButton from '@/components/BaseButton.vue';
-import { Image, FileText, Users } from 'lucide-vue-next';
+import OdooConnectionModal from '@/components/OdooConnectionModal.vue';
+import { useOdooStore } from '@/store/odooStore';
+import { Image, FileText, Users, Plug } from 'lucide-vue-next';
 
 const authStore = useAuthStore();
 const syncStore = useSyncStore();
+const odooStore = useOdooStore();
 const router = useRouter();
+const showOdoo = ref(false);
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
 
@@ -112,6 +131,7 @@ function formatBytes(value) {
 }
 
 onMounted(async () => {
+    void odooStore.fetchStatus();
     try {
         // fetchMe might not be called before, so ensure it is.
         if (!user.value || !user.value.created_at) {

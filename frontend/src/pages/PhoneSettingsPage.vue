@@ -261,6 +261,10 @@
                 :show="ui.showGithubBackupModal"
                 @close="ui.closeGithubBackupModal()"
             />
+            <OdooConnectionModal
+                :show="showOdoo"
+                @close="showOdoo = false"
+            />
             <VariablesModal
                 :show="ui.showVariablesModal"
                 @close="ui.closeVariablesModal()"
@@ -270,11 +274,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
     ArrowLeft, ChevronRight, LogOut, UserCog, Image, FileText, Users, Upload, Download,
-    Github, Braces, MonitorSmartphone, Info, Monitor, Sun, Moon,
+    Github, Braces, MonitorSmartphone, Info, Monitor, Sun, Moon, Plug,
 } from 'lucide-vue-next'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
@@ -283,9 +287,11 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
 import GitHubBackupModal from '@/components/GitHubBackupModal.vue'
+import OdooConnectionModal from '@/components/OdooConnectionModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
 import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
+import { useOdooStore } from '@/store/odooStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiStore } from '@/store/uiStore'
@@ -320,6 +326,8 @@ const { canPrompt, installed, manualOnly, install } = usePwaInstall()
 
 const appVersion = import.meta.env.VITE_APP_VERSION || 'dev'
 const showManualInstall = ref(false)
+const odooStore = useOdooStore()
+const showOdoo = ref(false)
 
 const tools = computed(() => [
     { key: 'images', label: 'Images', icon: Image, disabled: !syncStore.isOnline, run: () => router.push('/images') },
@@ -331,7 +339,12 @@ const tools = computed(() => [
     { key: 'import', label: 'Import', icon: Upload, run: () => ui.openImportModal() },
     { key: 'export', label: 'Export all', icon: Download, run: () => ui.openExportModal() },
     { key: 'backup', label: 'GitHub backup', icon: Github, run: () => ui.openGithubBackupModal() },
+    ...(odooStore.available
+        ? [{ key: 'odoo', label: 'Odoo', icon: Plug, disabled: !syncStore.isOnline, run: () => { showOdoo.value = true } }]
+        : []),
 ])
+
+onMounted(() => { void odooStore.fetchStatus() })
 
 function goBack() {
     if (window.history.state?.back) router.back()

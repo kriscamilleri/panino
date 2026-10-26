@@ -258,7 +258,8 @@ A small JSON-2 client: `call(connection, model, method, params)`.
 - Outbound requests go through the SSRF-safe fetch extracted from `imageFetch.js`
   (`resolveChecked` + pinned socket `lookup`) into a shared `safeFetch.js`.
 - Timeouts per call (10 s; 60 s for uploads), response size cap, `User-Agent: Panino/<version>`.
-- Maps errors to a closed set: `unreachable`, `not_odoo_19`, `key_rejected`, `access_denied`,
+- Maps errors to a closed set: `bad_url`, `blocked`, `unreachable`, `not_odoo` (no JSON, or an
+  HTML 404: a wrong address or database name), `not_odoo_19`, `key_rejected`, `access_denied`,
   `missing_app`, `record_gone`, `too_large`, `upload_corrupt`, `odoo_error`. The Odoo `name` is kept in server logs
   only; `message`, `arguments` and `debug` are never forwarded.
 
@@ -339,12 +340,13 @@ never synced to browsers.
 **The connection belongs to the person**, in the user's database (`BASE_SCHEMA`):
 
 ```sql
-CREATE TABLE IF NOT EXISTS odoo_connection (
-  id TEXT PRIMARY KEY NOT NULL,          -- one row
-  base_url TEXT NOT NULL,                -- https origin, normalized
+CREATE TABLE IF NOT EXISTS odoo_connection (   -- in USER_LOCAL_SCHEMA, beside backup_config
+  singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+  base_url TEXT NOT NULL,                -- origin, normalized (https, or http for an allowed private host)
   database_name TEXT NOT NULL DEFAULT '',-- X-Odoo-Database; '' when not needed
   api_key_enc TEXT NOT NULL,             -- AES-256-GCM, §9
   key_expires_on TEXT,                   -- ISO 8601 date, entered by the user
+  odoo_uid INTEGER,                      -- from res.users/context_get
   odoo_user_name TEXT,
   odoo_version TEXT,
   apps TEXT NOT NULL DEFAULT '[]',       -- JSON: ["documents","knowledge","crm","sales"]
@@ -399,6 +401,7 @@ The connection is always the caller's own, from `req.user.user_id`. `dbKey` name
 |---|---|---|
 | `GET /integrations/odoo` | any user | own status: host, Odoo user, version, apps, expiry, last error. Never the key. |
 | `PUT /integrations/odoo` | any user | `{baseUrl, databaseName, apiKey, keyExpiresOn}`: verify (§5), then store |
+| `POST /integrations/odoo/check` | any user | re-verify the stored connection; the result shows as `lastError` |
 | `DELETE /integrations/odoo` | any user | remove own connection (links stay with the Documents) |
 | `GET /integrations/odoo/folders?q=` | connected user | folder picker |
 | `GET /integrations/odoo/articles?q=` | connected user | article picker |
@@ -574,14 +577,16 @@ sync unchanged.
 
 ## 12) Phases
 
-0. **Verify.** On the Odoo 19 Enterprise test database, confirm the §4 table through `/doc` and
-   by hand with `curl`: create/read/write on Documents and Knowledge, `message_post` with a staged
+0. **Verify.** ✅ Done 2026-10-26 on local Odoo 19 Community and Odoo 20 Enterprise (§4); a failed
+   chatter post's leftover attachment and Odoo 19 Enterprise remain unverified. Originally: confirm the §4 table through `/doc` and
+   by hand: create/read/write on Documents and Knowledge, `message_post` with a staged
    attachment on an opportunity and a sales order, checklist markup, record URLs, error shapes for
    missing records and missing rights. For sync: batch `create`, archiving and unarchiving
    articles, `sequence`, and setting read-only permissions with a write member. Record results in
    this spec.
-1. **Connection.** `safeFetch.js` extraction, `secrets.js`, `odooClient.js`, `odoo_connection`,
-   connection routes, Settings UI, feature flag.
+1. **Connection.** ✅ Done 2026-10-26. `safeFetch.js` extraction, `secrets.js`, `odooClient.js`,
+   `odoo_connection`, connection routes (`PUT` verifies before saving, `POST …/check`), the
+   `OdooConnectionModal` opened from Settings → Tools on desktop and phone, feature flag, runbook.
 2. **PDF to Documents.** `renderPdf` refactor, links and the ownership check, send route
    (Documents only), folder picker, send sheet on phone and desktop. Personal and space
    Documents.
