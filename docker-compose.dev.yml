@@ -21,6 +21,11 @@ services:
       CONTENT_MERGE_WRITEBACK_ENABLED: ${CONTENT_MERGE_WRITEBACK_ENABLED:-false}
       SHARED_SPACES_ENABLED: ${SHARED_SPACES_ENABLED:-false}
       LIVE_SESSIONS_ENABLED: ${LIVE_SESSIONS_ENABLED:-false}
+      # Odoo integration. The dev defaults reach the local Odoo containers
+      # (scripts/odoo-dev.sh); the key below is for development only.
+      ODOO_INTEGRATION_ENABLED: ${ODOO_INTEGRATION_ENABLED:-true}
+      ODOO_CREDENTIAL_ENCRYPTION_KEY: ${ODOO_CREDENTIAL_ENCRYPTION_KEY:-dev-only-odoo-credential-key-not-for-production}
+      ODOO_ALLOWED_PRIVATE_HOSTS: ${ODOO_ALLOWED_PRIVATE_HOSTS:-odoo,odoo-enterprise}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://localhost:8000}

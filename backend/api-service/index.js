@@ -15,6 +15,7 @@ import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { emailVerificationRoutes } from './emailVerification.js';
 import { backupPublicRoutes, backupRoutes } from './backup.js';
+import { odooRoutes, isOdooIntegrationEnabled } from './odoo.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 import { attachWebSocketHandlers, MAX_MESSAGE_BYTES } from './websocket.js';
@@ -92,6 +93,7 @@ export function createApp() {
     app.use(imageRoutes);
     app.use(pdfRoutes); // Mount the new PDF route
     app.use(backupRoutes);
+    app.use(odooRoutes);
     app.use(revisionRoutes);
 
     // A handler that did not catch a "database is locked" error: answer with a
@@ -111,6 +113,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     server.listen(PORT, () => {
         console.log(`API and WebSocket services listening on port ${PORT}`);
     });
+    if (process.env.ODOO_INTEGRATION_ENABLED === 'true' && !isOdooIntegrationEnabled()) {
+        console.warn('[odoo] ODOO_INTEGRATION_ENABLED is true but ODOO_CREDENTIAL_ENCRYPTION_KEY is missing or shorter than 32 characters; the Odoo integration stays off.');
+    }
 
     let shuttingDown = false;
     process.on('SIGTERM', async () => {

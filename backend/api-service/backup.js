@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import express from 'express';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
@@ -6,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { getHealthyUserDb, getUserDb } from './db.js';
+import { decryptSecret, encryptSecret } from './secrets.js';
 
 export const backupPublicRoutes = express.Router();
 export const backupRoutes = express.Router();
@@ -35,37 +35,16 @@ function isGithubOauthConfigured() {
   return Boolean(getGithubClientId() && getGithubClientSecret());
 }
 
-function getEncryptionKey() {
-  const source = process.env.GITHUB_TOKEN_ENCRYPTION_KEY || JWT_SECRET;
-  return crypto.createHash('sha256').update(String(source)).digest();
+function getEncryptionKeyMaterial() {
+  return process.env.GITHUB_TOKEN_ENCRYPTION_KEY || JWT_SECRET;
 }
 
 function encryptToken(token) {
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', getEncryptionKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(String(token), 'utf8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString('base64url')}:${authTag.toString('base64url')}:${encrypted.toString('base64url')}`;
+  return encryptSecret(token, getEncryptionKeyMaterial());
 }
 
 function decryptToken(token) {
-  const [ivPart, tagPart, payloadPart] = String(token || '').split(':');
-  if (!ivPart || !tagPart || !payloadPart) {
-    throw new Error('Stored GitHub token is invalid');
-  }
-
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    getEncryptionKey(),
-    Buffer.from(ivPart, 'base64url')
-  );
-  decipher.setAuthTag(Buffer.from(tagPart, 'base64url'));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(payloadPart, 'base64url')),
-    decipher.final(),
-  ]);
-
-  return decrypted.toString('utf8');
+  return decryptSecret(token, getEncryptionKeyMaterial());
 }
 
 function sanitizeFileSegment(value, fallback = 'Untitled') {

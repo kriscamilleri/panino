@@ -261,6 +261,23 @@ const USER_LOCAL_SCHEMA = `
     last_error TEXT,
     created_at TEXT NOT NULL
   );
+
+  -- The user's Odoo connection (odoo.js). Server-only: never a CRR, never in
+  -- the browser schema. The API key is AES-256-GCM encrypted (secrets.js).
+  CREATE TABLE IF NOT EXISTS odoo_connection (
+    singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+    base_url TEXT NOT NULL,
+    database_name TEXT NOT NULL DEFAULT '',
+    api_key_enc TEXT NOT NULL,
+    key_expires_on TEXT,
+    odoo_uid INTEGER,
+    odoo_user_name TEXT,
+    odoo_version TEXT,
+    apps TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    last_verified_at TEXT,
+    last_error TEXT
+  );
 `;
 
 // Backend-only, space-local recovery state for COLLAB-05. This table must

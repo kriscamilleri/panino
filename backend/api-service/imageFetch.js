@@ -1,5 +1,6 @@
 /**
  * Server-side fetch of an external image for embedding into a PDF as a `data:` URI.
+ * The address checks, pinning and size limit live in `safeFetch.js`.
  *
  * SSRF protections:
  * - Every hostname is resolved first and every resolved address must be a public
@@ -13,10 +14,16 @@
  *   instead of buffered.
  */
 
-import http from 'node:http';
-import https from 'node:https';
 import { promises as dns } from 'node:dns';
-import ipaddr from 'ipaddr.js';
+import {
+    FetchOutcome,
+    isPublicAddress,
+    readBodyLimited,
+    requestPinned,
+    resolveChecked,
+} from './safeFetch.js';
+
+export { isPublicAddress };
 
 export const IMAGE_FETCH_DEFAULTS = Object.freeze({
     timeoutMs: 10000,
@@ -26,133 +33,6 @@ export const IMAGE_FETCH_DEFAULTS = Object.freeze({
 });
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-
-/**
- * Whether an IP address is a public unicast address that a server-side fetch may
- * connect to. Loopback, private, link-local, carrier-grade NAT, benchmarking, reserved,
- * multicast, unspecified and every IPv6 transition range are rejected.
- *
- * @param {string} ip
- * @returns {boolean}
- */
-export function isPublicAddress(ip) {
-    // Only the canonical forms: four-part dotted IPv4 or a valid IPv6. ipaddr.js also
-    // accepts shorthand such as `1.2.3`, which no resolver or URL parser produces.
-    if (typeof ip !== 'string') return false;
-    if (!ipaddr.IPv4.isValidFourPartDecimal(ip) && !ipaddr.IPv6.isValid(ip)) return false;
-    let address;
-    try {
-        address = ipaddr.parse(ip);
-        if (address.kind() === 'ipv6' && address.isIPv4MappedAddress()) {
-            address = address.toIPv4Address();
-        }
-    } catch {
-        return false;
-    }
-    return address.range() === 'unicast';
-}
-
-function hostnameLiteral(hostname) {
-    const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
-    return ipaddr.IPv4.isValidFourPartDecimal(bare) || ipaddr.IPv6.isValid(bare) ? bare : null;
-}
-
-/**
- * Resolve a hostname and check every address. Returns the address to connect to, or
- * throws `blocked` / `failed` errors.
- */
-async function resolveChecked(hostname, { lookup, isAllowedAddress, deadline }) {
-    const literal = hostnameLiteral(hostname);
-    if (literal) {
-        if (!isAllowedAddress(literal)) throw new FetchOutcome('blocked', 'address not allowed');
-        return { address: literal, family: ipaddr.parse(literal).kind() === 'ipv6' ? 6 : 4 };
-    }
-    let results;
-    let timer;
-    try {
-        // `dns.lookup` has no timeout of its own; bound it by the fetch deadline.
-        const expiry = new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new FetchOutcome('failed', 'timeout')), Math.max(0, deadline - Date.now()));
-        });
-        results = await Promise.race([lookup(hostname, { all: true }), expiry]);
-    } catch (error) {
-        if (error instanceof FetchOutcome) throw error;
-        throw new FetchOutcome('failed', `DNS lookup failed: ${error.code || error.message}`);
-    } finally {
-        clearTimeout(timer);
-    }
-    const list = Array.isArray(results) ? results : [results];
-    if (list.length === 0) throw new FetchOutcome('failed', 'DNS lookup returned no address');
-    for (const entry of list) {
-        if (!isAllowedAddress(entry.address)) throw new FetchOutcome('blocked', 'address not allowed');
-    }
-    return { address: list[0].address, family: list[0].family };
-}
-
-class FetchOutcome extends Error {
-    constructor(reason, detail) {
-        super(detail);
-        this.reason = reason;
-    }
-}
-
-function requestOnce(url, pinned, { timeoutMs, userAgent, signal }) {
-    return new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-            reject(new Error('aborted'));
-            return;
-        }
-        const client = url.protocol === 'https:' ? https : http;
-        // `timeout` on the request is only an idle timeout; a host that trickles header
-        // bytes would never trip it. This timer is the absolute cap for the header phase.
-        let timer = null;
-        const req = client.request(url, {
-            method: 'GET',
-            headers: { 'User-Agent': userAgent, Accept: 'image/*' },
-            // Connect to the address that passed the check; keep `url.hostname` for
-            // SNI and the Host header.
-            lookup(hostname, options, callback) {
-                if (options?.all) callback(null, [{ address: pinned.address, family: pinned.family }]);
-                else callback(null, pinned.address, pinned.family);
-            },
-            timeout: timeoutMs,
-            signal,
-        }, (response) => {
-            clearTimeout(timer);
-            resolve(response);
-        });
-        timer = setTimeout(() => req.destroy(new Error('timeout')), timeoutMs);
-        req.on('timeout', () => req.destroy(new Error('timeout')));
-        req.on('error', (error) => {
-            clearTimeout(timer);
-            reject(error);
-        });
-        req.end();
-    });
-}
-
-function readBody(response, maxBytes, deadline, signal) {
-    return new Promise((resolve, reject) => {
-        const chunks = [];
-        let total = 0;
-        const timer = setTimeout(() => {
-            response.destroy(new Error('timeout'));
-        }, Math.max(0, deadline - Date.now()));
-        const onAbort = () => response.destroy(new Error('aborted'));
-        signal?.addEventListener('abort', onAbort, { once: true });
-        response.on('close', () => signal?.removeEventListener('abort', onAbort));
-        response.on('data', chunk => {
-            total += chunk.length;
-            if (total > maxBytes) {
-                response.destroy(new FetchOutcome('failed', `body exceeds ${maxBytes} bytes`));
-                return;
-            }
-            chunks.push(chunk);
-        });
-        response.on('end', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
-        response.on('error', error => { clearTimeout(timer); reject(error); });
-    });
-}
 
 /**
  * Fetch an external image and return it as a `data:` URI.
@@ -193,7 +73,11 @@ export async function fetchExternalImageAsDataUri(urlStr, options = {}) {
 
             let response;
             try {
-                response = await requestOnce(url, pinned, { ...settings, timeoutMs: remaining, signal });
+                response = await requestPinned(url, pinned, {
+                    headers: { 'User-Agent': settings.userAgent, Accept: 'image/*' },
+                    timeoutMs: remaining,
+                    signal,
+                });
             } catch (error) {
                 throw new FetchOutcome('failed', `request failed: ${error.code || error.message}`);
             }
@@ -230,7 +114,7 @@ export async function fetchExternalImageAsDataUri(urlStr, options = {}) {
 
             let body;
             try {
-                body = await readBody(response, settings.maxBytes, deadline, signal);
+                body = await readBodyLimited(response, settings.maxBytes, deadline, signal);
             } catch (error) {
                 if (error instanceof FetchOutcome) throw error;
                 throw new FetchOutcome('failed', `read failed: ${error.message}`);
