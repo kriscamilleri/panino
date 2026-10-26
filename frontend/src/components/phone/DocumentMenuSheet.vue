@@ -124,6 +124,20 @@
                 {{ syncStore.isOnline ? 'Export as PDF' : 'Export as PDF (needs a connection)' }}
             </button>
             <button
+                v-if="odooStore.available"
+                type="button"
+                class="ph-row"
+                :disabled="!syncStore.isOnline || !file"
+                data-testid="phone-menu-odoo"
+                @click="sendingToOdoo = true"
+            >
+                <Send
+                    class="h-5 w-5"
+                    aria-hidden="true"
+                />
+                {{ syncStore.isOnline ? 'Send to Odoo' : 'Send to Odoo (needs a connection)' }}
+            </button>
+            <button
                 type="button"
                 class="ph-row"
                 :disabled="!syncStore.isOnline"
@@ -191,21 +205,27 @@
             :document-title="file.title || 'Untitled'"
             @close="editingStyles = false"
         />
+        <OdooSendModal
+            :show="sendingToOdoo"
+            @close="sendingToOdoo = false"
+        />
     </BottomSheet>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon } from 'lucide-vue-next'
+import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon, Send } from 'lucide-vue-next'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
+import OdooSendModal from '@/components/OdooSendModal.vue'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
+import { useOdooStore } from '@/store/odooStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiStore } from '@/store/uiStore'
@@ -219,7 +239,7 @@ const APPEARANCE_OPTIONS = [
     { value: 'dark', label: 'Dark', icon: Moon },
 ]
 
-defineProps({
+const props = defineProps({
     open: { type: Boolean, default: false },
     folderLabel: { type: String, default: '' },
 })
@@ -237,6 +257,12 @@ const { selectedFile: file } = storeToRefs(docStore)
 
 const confirmingDelete = ref(false)
 const editingStyles = ref(false)
+const sendingToOdoo = ref(false)
+const odooStore = useOdooStore()
+
+watch(() => props.open, (isOpen) => {
+    if (isOpen) void odooStore.fetchStatus()
+}, { immediate: true })
 
 const isSpaceDocument = computed(() => Boolean(file.value?.dbKey?.startsWith('space:')))
 const isPinned = computed(() => normalizePinned(file.value?.pinned))

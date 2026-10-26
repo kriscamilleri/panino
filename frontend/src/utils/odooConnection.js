@@ -59,6 +59,25 @@ export function appLabels(apps) {
 }
 
 /**
+ * How long ago something was sent, in words.
+ *
+ * @param {string} iso
+ * @param {Date} [now]
+ * @returns {string} e.g. "just now", "5 minutes ago", "3 days ago"; '' for a bad date
+ */
+export function sentAgo(iso, now = new Date()) {
+    const then = new Date(iso).getTime();
+    if (Number.isNaN(then)) return '';
+    const seconds = Math.max(0, Math.round((now.getTime() - then) / 1000));
+    const plural = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+    if (seconds < 60) return 'just now';
+    if (seconds < 3600) return plural(Math.floor(seconds / 60), 'minute');
+    if (seconds < 86400) return plural(Math.floor(seconds / 3600), 'hour');
+    if (seconds < 86400 * 30) return plural(Math.floor(seconds / 86400), 'day');
+    return `on ${new Date(then).toISOString().slice(0, 10)}`;
+}
+
+/**
  * The Odoo host to show, without the scheme.
  *
  * @param {string} baseUrl

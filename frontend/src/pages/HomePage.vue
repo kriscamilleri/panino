@@ -28,6 +28,7 @@
             data-testid="homepage-import-modal" />
         <ExportModal :show="ui.showExportModal" @close="ui.closeExportModal()" data-testid="homepage-export-modal" />
         <GitHubBackupModal :show="ui.showGithubBackupModal" @close="ui.closeGithubBackupModal()" data-testid="homepage-github-backup-modal" />
+        <OdooSendModal :show="ui.showOdooSendModal" @close="ui.closeOdooSendModal()" />
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
         <ImageLibraryModal
             :show="ui.showImageLibraryModal"
@@ -49,6 +50,7 @@ import ContentArea from '@/components/ContentArea.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
 import GitHubBackupModal from '@/components/GitHubBackupModal.vue'
+import OdooSendModal from '@/components/OdooSendModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
 import ImageLibraryModal from '@/components/ImageLibraryModal.vue'
 import PhoneShell from '@/components/phone/PhoneShell.vue'

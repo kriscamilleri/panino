@@ -412,6 +412,16 @@
                     <Printer class="w-4 h-4" /><span class="button-text">Print</span>
                 </BaseButton>
 
+                <BaseButton
+                    v-if="odooStore.available"
+                    :disabled="!isOnline || !selectedFileId"
+                    :title="!isOnline ? 'Sending to Odoo requires an internet connection' : !selectedFileId ? 'Select a document to send it to Odoo' : 'Send this document to Odoo'"
+                    @click="ui.openOdooSendModal()"
+                    data-testid="submenu-tools-odoo"
+                >
+                    <Send class="w-4 h-4" /><span class="button-text">Odoo</span>
+                </BaseButton>
+
                 <div class="separator"></div>
 
                 <BaseButton
@@ -483,7 +493,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
@@ -491,6 +501,7 @@ import { useDictation } from '@/composables/useDictation'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
+import { useOdooStore } from '@/store/odooStore'
 import BaseButton from '@/components/BaseButton.vue'
 import {
     Folder,
@@ -518,6 +529,7 @@ import {
     Github,
     Image,
     Printer,
+    Send,
     Braces,
     Image as ImageIcon,
     Mic,
@@ -542,6 +554,8 @@ const { selectedFileId } = storeToRefs(docStore)
 const { isOnline } = storeToRefs(syncStore)
 const { isEditorAvailable } = storeToRefs(editorStore)
 const printDisabled = computed(() => !selectedFileId.value)
+const odooStore = useOdooStore()
+onMounted(() => { void odooStore.fetchStatus() })
 const imageLibraryDisabled = computed(() => !selectedFileId.value)
 const dictationDisabled = computed(() => !isEditorAvailable.value)
 const {

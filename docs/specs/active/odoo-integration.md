@@ -406,7 +406,7 @@ The connection is always the caller's own, from `req.user.user_id`. `dbKey` name
 | `GET /integrations/odoo/folders?q=` | connected user | folder picker |
 | `GET /integrations/odoo/articles?q=` | connected user | article picker |
 | `GET /integrations/odoo/records?q=` | connected user | opportunity and sales order picker |
-| `GET /integrations/odoo/links?dbKey=&noteId=` | can read the Document | last-sent state for the sheet |
+| `GET /integrations/odoo/links?dbKey=&noteId=` | can read the Document | last-sent state for the sheet, and the remembered folder (`defaults`) |
 | `POST /integrations/odoo/send` | owner of `user:`; space owner or editor | `{dbKey, noteId, title, pdfRequest?, documents?: {folderId}, knowledge?: {parentId, html}, chatter?: {resModel, resId}}` → `{documents?, knowledge?, chatter?}`, each `{ok, url, created, error?}` |
 
 `noteId` must exist in that database, which ties every link to a real Document. `folderId` and
@@ -587,9 +587,11 @@ sync unchanged.
 1. **Connection.** ✅ Done 2026-10-26. `safeFetch.js` extraction, `secrets.js`, `odooClient.js`,
    `odoo_connection`, connection routes (`PUT` verifies before saving, `POST …/check`), the
    `OdooConnectionModal` opened from Settings → Tools on desktop and phone, feature flag, runbook.
-2. **PDF to Documents.** `renderPdf` refactor, links and the ownership check, send route
-   (Documents only), folder picker, send sheet on phone and desktop. Personal and space
-   Documents.
+2. **PDF to Documents.** ✅ Done 2026-10-27. `renderPdf` refactor, links and the ownership check,
+   file-field detection and checksum verification, send route (Documents only), folder picker,
+   `OdooSendModal` from the desktop toolbar (Tools → Odoo) and the phone Document menu. Personal
+   and space Documents. Not done: the picker cannot tell apart folders with the same name and
+   parent (Odoo's demo data has two "Finance / Sales").
 3. **PDF to an opportunity or sales order.** Record picker, staged attachment and internal note,
    overwrite plus a "replaced" note on resend to the same record. Works on Community databases.
 4. **Article to Knowledge.** HTML rendering and sanitizing, checklist mapping, parent picker.

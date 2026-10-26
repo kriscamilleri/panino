@@ -116,6 +116,38 @@ export const useOdooStore = defineStore('odooStore', () => {
         }
     }
 
+    /**
+     * Documents folders matching `query`.
+     *
+     * @param {string} query
+     * @returns {Promise<{ id: number, name: string, parentName: string|null }[]>}
+     */
+    async function fetchFolders(query = '') {
+        const payload = await authFetch(`/integrations/odoo/folders?q=${encodeURIComponent(query)}`);
+        return payload?.folders || [];
+    }
+
+    /**
+     * What this Document was sent as, and the remembered folder.
+     *
+     * @param {string} dbKey
+     * @param {string} noteId
+     */
+    async function fetchLinks(dbKey, noteId) {
+        const params = new URLSearchParams({ dbKey, noteId });
+        return authFetch(`/integrations/odoo/links?${params}`);
+    }
+
+    /**
+     * Send a Document. Resolves with the server's per-destination results; a
+     * refused request rejects with the server's message.
+     *
+     * @param {{ dbKey: string, noteId: string, title: string, pdfRequest: object, documents?: { folderId?: number } }} body
+     */
+    async function send(body) {
+        return authFetch('/integrations/odoo/send', { method: 'POST', body: JSON.stringify(body) });
+    }
+
     return {
         status,
         available,
@@ -129,5 +161,8 @@ export const useOdooStore = defineStore('odooStore', () => {
         connect,
         check,
         disconnect,
+        fetchFolders,
+        fetchLinks,
+        send,
     };
 });
