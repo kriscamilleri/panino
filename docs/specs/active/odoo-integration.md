@@ -114,7 +114,7 @@ Source: <https://www.odoo.com/documentation/19.0/developer/reference/external_ap
 
 ### Verified on local Odoo 19.0 Community (2026-10-26)
 
-Against `odoo:19.0` (`19.0-20251222`) started with `scripts/odoo-dev.sh` (§12):
+Against `odoo:19.0` (`19.0-20251222`) started with `scripts/odoo-dev.sh` (§13):
 
 | What | Result |
 |---|---|
@@ -134,19 +134,43 @@ Against `odoo:19.0` (`19.0-20251222`) started with `scripts/odoo-dev.sh` (§12):
 | `crm.lead` / `sale.order` fields | `type`, `name`, `partner_id`, `stage_id` / `name` (e.g. `S00016`), `partner_id`, `state` |
 | Reaching Odoo from the API container | `http://odoo:8069` over `panino_default` |
 
-### Not yet verified: Phase 0 (needs Enterprise)
+### Verified on local Odoo 20.0 Enterprise (2026-10-26)
 
-The Enterprise model fields below come from memory of Odoo 17/18 and from third-party sources.
-They must be confirmed on the Odoo 19 Enterprise test database through its `/doc` page before any
-code depends on them:
+Against Odoo `20.0+e-20261018` (`scripts/odoo-dev.sh enterprise`, §13). Odoo 19 Enterprise was
+not available; the version-dependent parts are handled by detecting fields, not versions.
 
-| Model | Fields and methods assumed |
+**File content: the field differs by version, and the wrong one fails silently.**
+
+| | Odoo 19 | Odoo 20 |
+|---|---|---|
+| `datas` (base64) | stored correctly | **field removed**; `create` returns 200 and stores **0 bytes** |
+| `raw` (base64 string) | stores the base64 text itself (corrupt) | stored correctly |
+
+So the client uses `datas` when `fields_get` on the model lists it, otherwise `raw`, and after
+every upload reads the attachment's `checksum` (SHA-1 of the stored bytes) and compares it with
+its own SHA-1 of the PDF. A mismatch is an error (`upload_corrupt`), never a success.
+
+| What | Result |
 |---|---|
-| `documents.document` | `name`, `datas` (base64, writable), `mimetype`, `folder_id` (a `documents.document` of `type = 'folder'` since 18), `type`, `create_date` |
-| `knowledge.article` | `name`, `body` (HTML), `parent_id`, `internal_permission`, `create_date`; `create` and `write` accept a sanitized HTML `body` |
-| Knowledge checklists | the HTML Knowledge uses for checkboxes (believed `ul.o_checklist` / `li.o_checked`) |
-| Staged attachments | what happens to a staged attachment whose `message_post` failed (believed: removed by Odoo's autovacuum) |
-| Links | the web URLs in 19 (`/odoo/documents/<id>`, `/odoo/knowledge/<id>`, `/odoo/crm/<id>`, `/odoo/sales/<id>` assumed) |
+| `documents.document` fields | `name`, `folder_id` (→ `documents.document`), `type` (`url`, `binary`, `folder`, `request`), `attachment_id`, `raw` (related to `attachment_id.raw`, writable), `mimetype` (readonly), `active`, `access_internal` / `access_via_link` (`view`, `edit`, `none`), `owner_id`, `access_url` (readonly). **No `datas`.** |
+| Folders | `documents.document` with `type = 'folder'`; demo has "Inbox" at the top and "Finance" with subfolders |
+| PDF into Documents | one `create` `{name, folder_id, raw, mimetype}` makes the document and its attachment (one transaction) |
+| Replace the PDF | `documents.document/write` `{raw}` replaces the attachment's bytes (checksum matches). The document's own `file_size` is stale afterwards, so the check reads the **attachment's** `checksum` |
+| `knowledge.article` fields | `name`, `body` (html), `parent_id`, `internal_permission` (`write`, `read`, `none`), `inherited_permission`, `user_permission`, `article_member_ids`, `active`, `to_delete` (Knowledge's trash), `sequence`, `category` (readonly: `workspace`, `private`, `shared`), `is_locked`, `article_url` (readonly) |
+| Batch `create` | one call creates several articles with `parent_id` and `sequence` |
+| Body sanitizing | Odoo strips `<script>` and `onerror`; headings, lists, links and `ul.o_checklist` survive |
+| Checklists | `<ul class="o_checklist"><li>…</li><li class="o_checked">…</li></ul>` (Knowledge adds `id="checkId-…"` itself when edited) |
+| Read-only for others | root `create` with `internal_permission: 'read'` and `article_member_ids: [[0, 0, {partner_id: <key owner's partner>, permission: 'write'}]]` → category `workspace`; children inherit `read`; the key owner keeps `user_permission: write` |
+| Archive / restore | `write {active: false}` or `action_archive` archives without setting `to_delete`; `write {active: true}` or `action_unarchive` restores, keeping `parent_id` |
+| Move | `write {parent_id}` |
+| Links | `access_url` is `<web.base.url>/odoo/documents/<access token>` and `article_url` is `<web.base.url>/knowledge/article/<id>`. `web.base.url` is Odoo's own idea of its address (`localhost:8069` here), so Panino keeps only the path and puts it on the connection's base URL |
+
+### Still unverified
+
+| What | Why |
+|---|---|
+| A staged chatter attachment whose `message_post` failed | Believed removed by Odoo's autovacuum; needs a forced failure to confirm |
+| Odoo 19 **Enterprise** | No 19 Enterprise database; Documents/Knowledge behaviour is taken from 20, and the file field is detected per model |
 
 ---
 
@@ -235,7 +259,7 @@ A small JSON-2 client: `call(connection, model, method, params)`.
   (`resolveChecked` + pinned socket `lookup`) into a shared `safeFetch.js`.
 - Timeouts per call (10 s; 60 s for uploads), response size cap, `User-Agent: Panino/<version>`.
 - Maps errors to a closed set: `unreachable`, `not_odoo_19`, `key_rejected`, `access_denied`,
-  `missing_app`, `record_gone`, `too_large`, `odoo_error`. The Odoo `name` is kept in server logs
+  `missing_app`, `record_gone`, `too_large`, `upload_corrupt`, `odoo_error`. The Odoo `name` is kept in server logs
   only; `message`, `arguments` and `debug` are never forwarded.
 
 ### Only Panino's own records are written
@@ -246,7 +270,8 @@ only from the id returned by Panino's own `create`. Before any `write`:
 1. The link must match the sender's connection target (normalized base URL + database name).
 2. A `read` of `create_date` must return the value stored when Panino created the record. This
    catches a link pointing at a different database behind the same URL (a restore or a swap).
-3. Only then `write`. If step 2 finds no record, it is `record_gone` → create a new one. If it
+3. Only then `write`. If step 2 finds no record (Odoo answers `read` of a deleted id with `200 []`,
+   not an error), it is `record_gone` → create a new one. If it
    finds a different `create_date`, the link is dropped and a new record created; the existing
    one is left untouched.
 
@@ -263,14 +288,15 @@ check that the attachment still belongs to that `res_model`/`res_id`.
 
 | Step | Call |
 |---|---|
-| PDF, first send | `documents.document/create` `{vals_list: [{name, folder_id, datas, mimetype: 'application/pdf'}]}`, then `read` `create_date` |
-| PDF, again | `documents.document/read` `{ids: [id], fields: ['create_date']}`, then `write` `{ids: [id], vals: {datas, name}}` |
+| PDF, first send | `documents.document/create` `{vals_list: [{name, folder_id, <file field>, mimetype: 'application/pdf'}]}`, then `read` `create_date`, `attachment_id`; `ir.attachment/read` `checksum` |
+| PDF, again | `documents.document/read` `{ids: [id], fields: ['create_date', 'attachment_id']}`, then `write` `{ids: [id], vals: {<file field>, name}}`; `ir.attachment/read` `checksum` |
 | Article, first send | `knowledge.article/create` `{vals_list: [{name, body, parent_id}]}`, then `read` `create_date` |
 | Article, again | `knowledge.article/read` (as above), then `write` `{ids: [id], vals: {name, body}}` |
 | Folder picker | `documents.document/search_read` `{domain: [['type','=','folder']], fields: ['name','folder_id'], limit}` |
 | Article picker | `knowledge.article/search_read` `{domain: [['name','ilike',q]], fields: ['name','parent_id'], limit: 20}` |
-| Chatter, first send to a record | `<model>/read` `{ids: [resId], fields: ['name']}` (exists, readable); `ir.attachment/create` `{vals_list: [{name, datas, mimetype: 'application/pdf', res_model: 'mail.compose.message', res_id: 0}]}`; `<model>/message_post` `{ids: [resId], body: '<title> (PDF from Panino)', message_type: 'comment', subtype_xmlid: 'mail.mt_note', attachment_ids: [attachmentId]}`; `ir.attachment/read` `create_date` |
-| Chatter, again to that record | `ir.attachment/read` `{ids: [id], fields: ['create_date','res_model','res_id']}`, then `write` `{ids: [id], vals: {datas, name}}`, then `<model>/message_post` `{ids: [resId], body: '<title>.pdf was replaced with a new version from Panino.', message_type: 'comment', subtype_xmlid: 'mail.mt_note'}` |
+| Chatter, first send to a record | `<model>/read` `{ids: [resId], fields: ['name']}` (exists, readable); `ir.attachment/create` `{vals_list: [{name, <file field>, mimetype: 'application/pdf', res_model: 'mail.compose.message', res_id: 0}]}`, then `checksum`; `<model>/message_post` `{ids: [resId], body: '<title> (PDF from Panino)', message_type: 'comment', subtype_xmlid: 'mail.mt_note', attachment_ids: [attachmentId]}`; `ir.attachment/read` `create_date` |
+| Chatter, again to that record | `ir.attachment/read` `{ids: [id], fields: ['create_date','res_model','res_id']}`, then `write` `{ids: [id], vals: {<file field>, name}}`, then `checksum`, then `<model>/message_post` `{ids: [resId], body: '<title>.pdf was replaced with a new version from Panino.', message_type: 'comment', subtype_xmlid: 'mail.mt_note'}` |
+| File field | `ir.attachment/fields_get` (or `documents.document/fields_get`) `{allfields: ['datas', 'raw']}` once per connection check: `datas` if present, else `raw` |
 | Record picker | `crm.lead/search_read` `{domain: [['type','=','opportunity'], '|', ['name','ilike',q], ['partner_id','ilike',q]], fields: ['name','partner_id','stage_id'], limit: 10}` and `sale.order/search_read` `{domain: ['|', ['name','ilike',q], ['partner_id','ilike',q]], fields: ['name','partner_id','state'], limit: 10}` |
 
 The record-changing step is one call for Documents and Knowledge, so they either fully succeed or
@@ -607,10 +633,13 @@ sync unchanged.
 - **Local Odoo:** `scripts/odoo-dev.sh` starts Odoo 19 Community (`docker-compose.odoo.yml`) on
   http://localhost:8019, reachable from the API container at `http://odoo:8069`, with a `panino`
   database holding CRM, Sales and demo data, and writes an admin API key to the gitignored
-  `.odoo-dev.env`. It covers the connection and chatter destinations; Documents and Knowledge
-  need an Enterprise database.
+  `.odoo-dev.env`. `scripts/odoo-dev.sh enterprise <deb>` builds Odoo 20 Enterprise from an
+  Enterprise `.deb` kept outside the repository and runs it on http://localhost:8020
+  (`http://odoo-enterprise:8069` from the API container, database `panino_ee`, key in
+  `.odoo-dev-ee.env`) with Documents, Knowledge, CRM and Sales. Between them they cover Odoo 19
+  and 20 and every destination.
 - **Against real Odoo:** a scripted smoke test (`scripts/odoo-smoke.mjs`), run by hand against
-  the local Odoo for Community features and the Enterprise test database for the rest. Not in CI.
+  both local Odoo instances. Not in CI: it needs the Enterprise package and live keys.
 - **Browser:** phone and desktop send flows on the local stack against the fake Odoo server.
 
 ## 14) Open questions

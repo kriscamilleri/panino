@@ -1,12 +1,13 @@
-# Local Odoo 19 (Community) for developing the Odoo integration
+# Local Odoo for developing the Odoo integration
 # (docs/specs/active/odoo-integration.md). Start it with `scripts/odoo-dev.sh`.
 #
-# Community has CRM and Sales (chatter destination) and the JSON-2 API, but not
-# the Enterprise Documents and Knowledge apps; those need an Enterprise database.
+# - `odoo`: Odoo 19 Community, http://localhost:8019, `http://odoo:8069` from the
+#   API container. CRM and Sales (chatter destination) and the JSON-2 API.
+# - `odoo-enterprise` (profile `enterprise`): Odoo 20 Enterprise built from a
+#   local .deb, http://localhost:8020, `http://odoo-enterprise:8069` from the API
+#   container. Adds Documents and Knowledge.
 #
-# Odoo is published on http://localhost:8019 and joins the dev stack's network as
-# `odoo`, so the Panino API container reaches it at http://odoo:8069. Start the
-# dev stack (docker-compose.dev.yml) first so that network exists.
+# Both join the dev stack's network; start docker-compose.dev.yml first so it exists.
 
 name: panino-odoo
 
@@ -44,9 +45,32 @@ services:
       panino:
         aliases: [odoo]
 
+  # Enterprise (Documents, Knowledge), from a locally built image:
+  # `scripts/odoo-dev.sh enterprise <deb>`. Not started without that.
+  odoo-enterprise:
+    profiles: [enterprise]
+    image: panino-odoo-enterprise:20.0
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    environment:
+      HOST: odoo-db
+      USER: odoo
+      PASSWORD: odoo
+    command: ["odoo", "--db-filter=^panino_ee$$", "-d", "panino_ee"]
+    ports:
+      - "127.0.0.1:8020:8069"
+    volumes:
+      - odoo-enterprise-data:/var/lib/odoo
+    networks:
+      default:
+      panino:
+        aliases: [odoo-enterprise]
+
 volumes:
   odoo-db-data:
   odoo-data:
+  odoo-enterprise-data:
 
 networks:
   panino:
