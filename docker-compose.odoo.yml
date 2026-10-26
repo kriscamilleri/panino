@@ -1,0 +1,54 @@
+# Local Odoo 19 (Community) for developing the Odoo integration
+# (docs/specs/active/odoo-integration.md). Start it with `scripts/odoo-dev.sh`.
+#
+# Community has CRM and Sales (chatter destination) and the JSON-2 API, but not
+# the Enterprise Documents and Knowledge apps; those need an Enterprise database.
+#
+# Odoo is published on http://localhost:8019 and joins the dev stack's network as
+# `odoo`, so the Panino API container reaches it at http://odoo:8069. Start the
+# dev stack (docker-compose.dev.yml) first so that network exists.
+
+name: panino-odoo
+
+services:
+  odoo-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  odoo:
+    image: odoo:19.0
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    environment:
+      HOST: odoo-db
+      USER: odoo
+      PASSWORD: odoo
+    command: ["odoo", "--db-filter=^panino$$", "-d", "panino"]
+    ports:
+      - "127.0.0.1:8019:8069"
+    volumes:
+      - odoo-data:/var/lib/odoo
+    networks:
+      default:
+      panino:
+        aliases: [odoo]
+
+volumes:
+  odoo-db-data:
+  odoo-data:
+
+networks:
+  panino:
+    name: panino_default
+    external: true

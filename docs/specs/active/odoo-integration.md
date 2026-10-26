@@ -112,7 +112,29 @@ Source: <https://www.odoo.com/documentation/19.0/developer/reference/external_ap
 - **Documents and Knowledge are Enterprise apps; CRM and Sales also exist in Community.** Each
   destination is offered only when its app is installed in the target database.
 
-### Not yet verified: Phase 0
+### Verified on local Odoo 19.0 Community (2026-10-26)
+
+Against `odoo:19.0` (`19.0-20251222`) started with `scripts/odoo-dev.sh` (§12):
+
+| What | Result |
+|---|---|
+| `res.users/context_get` | `200 {"lang", "tz", "uid"}`: gives the key owner's user id |
+| Wrong key | `401`, `name: werkzeug.exceptions.Unauthorized` |
+| App not installed | `404`, `name: werkzeug.exceptions.NotFound`, "the model '…' does not exist" |
+| Private method (leading `_`) | `403`, `name: odoo.exceptions.AccessError` |
+| Unknown parameter | `422`, `name: werkzeug.exceptions.UnprocessableEntity` |
+| `read` of a deleted record | **`200 []`, not an error**: `record_gone` is detected from an empty result |
+| `create` | returns a list of ids, e.g. `[887]` |
+| `create_date` | `"2026-10-26 21:42:07"` (UTC, space separator, no zone) |
+| Staged attachment + `message_post` on `crm.lead` | attachment (`res_model: 'mail.compose.message', res_id: 0`) is relinked to the record; `message_post` returns `[message id]` |
+| `subtype_xmlid: 'mail.mt_note'` | subtype **Note**, `message_type: 'comment'` |
+| `body` with HTML | escaped (`&lt;b&gt;`), so bodies are plain text |
+| Author | the key owner's partner |
+| `ir.attachment/write` `{datas, name}` on Panino's attachment | `True` |
+| `crm.lead` / `sale.order` fields | `type`, `name`, `partner_id`, `stage_id` / `name` (e.g. `S00016`), `partner_id`, `state` |
+| Reaching Odoo from the API container | `http://odoo:8069` over `panino_default` |
+
+### Not yet verified: Phase 0 (needs Enterprise)
 
 The Enterprise model fields below come from memory of Odoo 17/18 and from third-party sources.
 They must be confirmed on the Odoo 19 Enterprise test database through its `/doc` page before any
@@ -123,10 +145,7 @@ code depends on them:
 | `documents.document` | `name`, `datas` (base64, writable), `mimetype`, `folder_id` (a `documents.document` of `type = 'folder'` since 18), `type`, `create_date` |
 | `knowledge.article` | `name`, `body` (HTML), `parent_id`, `internal_permission`, `create_date`; `create` and `write` accept a sanitized HTML `body` |
 | Knowledge checklists | the HTML Knowledge uses for checkboxes (believed `ul.o_checklist` / `li.o_checked`) |
-| Chatter post | `message_post` is callable over JSON-2 on `crm.lead` and `sale.order` with `body`, `message_type: 'comment'`, `subtype_xmlid: 'mail.mt_note'`, `attachment_ids`; an attachment staged as `res_model: 'mail.compose.message', res_id: 0` by the same user is moved onto the record; the plain-text `body` is escaped, not rendered |
 | Staged attachments | what happens to a staged attachment whose `message_post` failed (believed: removed by Odoo's autovacuum) |
-| `crm.lead` | `type` (`'opportunity'`), `name`, `partner_id`, `stage_id` |
-| `sale.order` | `name` (the reference, e.g. S00042), `partner_id`, `state` |
 | Links | the web URLs in 19 (`/odoo/documents/<id>`, `/odoo/knowledge/<id>`, `/odoo/crm/<id>`, `/odoo/sales/<id>` assumed) |
 
 ---
@@ -585,8 +604,13 @@ sync unchanged.
 - **Integration (backend, Docker):** routes with a fake Odoo HTTP server: authz (other user's
   `dbKey`, space viewer/editor/owner, removed member), create then update by a second space
   member, access denied for that member, partial success across destinations, flag off → 404.
+- **Local Odoo:** `scripts/odoo-dev.sh` starts Odoo 19 Community (`docker-compose.odoo.yml`) on
+  http://localhost:8019, reachable from the API container at `http://odoo:8069`, with a `panino`
+  database holding CRM, Sales and demo data, and writes an admin API key to the gitignored
+  `.odoo-dev.env`. It covers the connection and chatter destinations; Documents and Knowledge
+  need an Enterprise database.
 - **Against real Odoo:** a scripted smoke test (`scripts/odoo-smoke.mjs`), run by hand against
-  the test database. Not in CI: it needs an Enterprise database and a live key.
+  the local Odoo for Community features and the Enterprise test database for the rest. Not in CI.
 - **Browser:** phone and desktop send flows on the local stack against the fake Odoo server.
 
 ## 14) Open questions
