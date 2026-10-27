@@ -29,10 +29,10 @@ function api({ status = CONNECTED, links = { links: [], defaults: { folderId: nu
     const fetch = vi.fn((url, options = {}) => {
         const path = new URL(url, 'http://x').pathname;
         calls.push({ path, url, options });
-        const body = path === '/integrations/odoo' ? status
-            : path === '/integrations/odoo/links' ? links
-                : path === '/integrations/odoo/folders' ? FOLDERS
-                    : path === '/integrations/odoo/send' ? send
+        const body = path === '/addons/odoo' ? status
+            : path === '/addons/odoo/links' ? links
+                : path === '/addons/odoo/folders' ? FOLDERS
+                    : path === '/addons/odoo/send' ? send
                         : null;
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
     });
@@ -95,7 +95,7 @@ describe('OdooSendModal', () => {
         await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
         await flushPromises();
 
-        const sent = calls.find((c) => c.path === '/integrations/odoo/send');
+        const sent = calls.find((c) => c.path === '/addons/odoo/send');
         expect(JSON.parse(sent.options.body)).toEqual({
             dbKey: 'user:me', noteId: 'note-1', title: 'Quote',
             pdfRequest: { htmlContent: '<h1>Quote</h1>', cssStyles: '', printStyles: {} },
@@ -123,12 +123,12 @@ describe('OdooSendModal', () => {
         await flushPromises();
         expect(wrapper.find('[data-testid="odoo-send-last-sent"]').text()).toMatch(/Sent 3 days ago by Kris/);
         expect(wrapper.find('[data-testid="odoo-folder-list"]').exists()).toBe(false);
-        expect(calls.some((c) => c.path === '/integrations/odoo/folders')).toBe(false);
+        expect(calls.some((c) => c.path === '/addons/odoo/folders')).toBe(false);
         expect(wrapper.find('[data-testid="odoo-send-submit"]').text()).toBe('Update in Odoo');
 
         await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
         await flushPromises();
-        expect(JSON.parse(calls.find((c) => c.path === '/integrations/odoo/send').options.body).documents).toEqual({});
+        expect(JSON.parse(calls.find((c) => c.path === '/addons/odoo/send').options.body).documents).toEqual({});
         expect(wrapper.find('[data-testid="odoo-send-result"]').text()).toContain('Updated in Odoo Documents.');
     });
 

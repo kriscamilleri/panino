@@ -56,20 +56,25 @@
                     <Users class="w-4 h-4" />
                     <span>Manage Spaces</span>
                 </BaseButton>
+            </div>
+        </div>
+
+        <AddonsSection>
+            <template #odoo>
                 <BaseButton
-                    v-if="odooStore.available"
                     variant="secondary"
                     size="md"
                     data-testid="settings-odoo-button"
                     @click="showOdoo = true"
                 >
                     <Plug class="w-4 h-4" />
-                    <span>Odoo</span>
+                    <span>Odoo connection</span>
                 </BaseButton>
-            </div>
-        </div>
+            </template>
+        </AddonsSection>
 
         <OdooConnectionModal
+            v-if="addonsStore.isActive('odoo')"
             :show="showOdoo"
             @close="showOdoo = false"
         />
@@ -77,7 +82,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { defineAsyncComponent, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '@/store/authStore';
@@ -85,15 +90,17 @@ import { useSyncStore } from '@/store/syncStore';
 import AccountLayout from '@/components/AccountLayout.vue';
 import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 import BaseButton from '@/components/BaseButton.vue';
-import OdooConnectionModal from '@/components/OdooConnectionModal.vue';
-import { useOdooStore } from '@/store/odooStore';
+import AddonsSection from '@/components/AddonsSection.vue';
+import { useAddonsStore } from '@/store/addonsStore';
 import { Image, FileText, Users, Plug } from 'lucide-vue-next';
 
 const authStore = useAuthStore();
 const syncStore = useSyncStore();
-const odooStore = useOdooStore();
+const addonsStore = useAddonsStore();
 const router = useRouter();
 const showOdoo = ref(false);
+// Loaded only while the Odoo add-on is on (see the template).
+const OdooConnectionModal = defineAsyncComponent(() => import('@/components/OdooConnectionModal.vue'));
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
 
@@ -131,7 +138,7 @@ function formatBytes(value) {
 }
 
 onMounted(async () => {
-    void odooStore.fetchStatus();
+    void addonsStore.fetchAddons({ force: true });
     try {
         // fetchMe might not be called before, so ensure it is.
         if (!user.value || !user.value.created_at) {

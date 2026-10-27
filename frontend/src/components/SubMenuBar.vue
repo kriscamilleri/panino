@@ -413,7 +413,7 @@
                 </BaseButton>
 
                 <BaseButton
-                    v-if="odooStore.available"
+                    v-if="addonsStore.isActive('odoo')"
                     :disabled="!isOnline || !selectedFileId"
                     :title="!isOnline ? 'Sending to Odoo requires an internet connection' : !selectedFileId ? 'Select a document to send it to Odoo' : 'Send this document to Odoo'"
                     @click="ui.openOdooSendModal()"
@@ -501,7 +501,7 @@ import { useDictation } from '@/composables/useDictation'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
-import { useOdooStore } from '@/store/odooStore'
+import { useAddonsStore } from '@/store/addonsStore'
 import BaseButton from '@/components/BaseButton.vue'
 import {
     Folder,
@@ -554,8 +554,8 @@ const { selectedFileId } = storeToRefs(docStore)
 const { isOnline } = storeToRefs(syncStore)
 const { isEditorAvailable } = storeToRefs(editorStore)
 const printDisabled = computed(() => !selectedFileId.value)
-const odooStore = useOdooStore()
-onMounted(() => { void odooStore.fetchStatus() })
+const addonsStore = useAddonsStore()
+onMounted(() => { void addonsStore.fetchAddons() })
 const imageLibraryDisabled = computed(() => !selectedFileId.value)
 const dictationDisabled = computed(() => !isEditorAvailable.value)
 const {

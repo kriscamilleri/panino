@@ -196,6 +196,88 @@
                 </section>
 
                 <section
+                    v-if="addonsStore.addons.length"
+                    class="ph-settings-group"
+                    aria-labelledby="ph-settings-addons"
+                    data-testid="phone-settings-addons"
+                >
+                    <h2
+                        id="ph-settings-addons"
+                        class="ph-section-label"
+                    >Add-ons</h2>
+                    <div class="ph-card">
+                        <template
+                            v-for="addon in addonsStore.addons"
+                            :key="addon.id"
+                        >
+                            <div class="ph-settings-line">
+                                <div class="ph-settings-grow">
+                                    <p
+                                        :id="`ph-settings-addon-${addon.id}`"
+                                        class="ph-settings-strong"
+                                    >{{ addon.name }}</p>
+                                    <p class="ph-muted">{{ addon.description }}</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    class="ph-switch"
+                                    :aria-checked="addon.enabled"
+                                    :aria-labelledby="`ph-settings-addon-${addon.id}`"
+                                    :disabled="addonsStore.isSwitching(addon.id)"
+                                    :data-testid="`phone-settings-addon-${addon.id}`"
+                                    @click="toggleAddon(addon)"
+                                ><span aria-hidden="true"></span></button>
+                            </div>
+                            <div
+                                v-if="confirmingAddon === addon.id"
+                                class="ph-settings-confirm"
+                                :data-testid="`phone-settings-addon-${addon.id}-confirm`"
+                            >
+                                <p class="ph-muted">Turn off {{ addon.name }}? Your connection and what you sent are kept. Syncs pause until you turn it back on.</p>
+                                <div class="ph-settings-confirm-actions">
+                                    <button
+                                        type="button"
+                                        class="ph-btn ph-btn-danger"
+                                        :data-testid="`phone-settings-addon-${addon.id}-turn-off`"
+                                        @click="turnOffAddon(addon)"
+                                    >Turn off</button>
+                                    <button
+                                        type="button"
+                                        class="ph-btn"
+                                        @click="confirmingAddon = null"
+                                    >Keep on</button>
+                                </div>
+                            </div>
+                            <button
+                                v-else-if="addon.enabled && addon.id === 'odoo'"
+                                type="button"
+                                class="ph-row"
+                                :disabled="!syncStore.isOnline"
+                                data-testid="phone-settings-tool-odoo"
+                                @click="showOdoo = true"
+                            >
+                                <Plug
+                                    class="h-5 w-5"
+                                    aria-hidden="true"
+                                />
+                                <span class="ph-settings-grow">Odoo connection</span>
+                                <ChevronRight
+                                    class="h-5 w-5"
+                                    aria-hidden="true"
+                                />
+                            </button>
+                        </template>
+                        <p
+                            v-if="addonsStore.error"
+                            class="ph-muted ph-settings-hint"
+                            role="alert"
+                            data-testid="phone-settings-addons-error"
+                        >{{ addonsStore.error }}</p>
+                    </div>
+                </section>
+
+                <section
                     class="ph-settings-group"
                     aria-labelledby="ph-settings-app"
                 >
@@ -262,6 +344,7 @@
                 @close="ui.closeGithubBackupModal()"
             />
             <OdooConnectionModal
+                v-if="addonsStore.isActive('odoo')"
                 :show="showOdoo"
                 @close="showOdoo = false"
             />
@@ -274,7 +357,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
     ArrowLeft, ChevronRight, LogOut, UserCog, Image, FileText, Users, Upload, Download,
@@ -287,11 +370,10 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
 import GitHubBackupModal from '@/components/GitHubBackupModal.vue'
-import OdooConnectionModal from '@/components/OdooConnectionModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
 import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
-import { useOdooStore } from '@/store/odooStore'
+import { useAddonsStore } from '@/store/addonsStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiStore } from '@/store/uiStore'
@@ -326,8 +408,11 @@ const { canPrompt, installed, manualOnly, install } = usePwaInstall()
 
 const appVersion = import.meta.env.VITE_APP_VERSION || 'dev'
 const showManualInstall = ref(false)
-const odooStore = useOdooStore()
+const addonsStore = useAddonsStore()
 const showOdoo = ref(false)
+const confirmingAddon = ref(null)
+// Loaded only while the Odoo add-on is on (see the template).
+const OdooConnectionModal = defineAsyncComponent(() => import('@/components/OdooConnectionModal.vue'))
 
 const tools = computed(() => [
     { key: 'images', label: 'Images', icon: Image, disabled: !syncStore.isOnline, run: () => router.push('/images') },
@@ -339,12 +424,24 @@ const tools = computed(() => [
     { key: 'import', label: 'Import', icon: Upload, run: () => ui.openImportModal() },
     { key: 'export', label: 'Export all', icon: Download, run: () => ui.openExportModal() },
     { key: 'backup', label: 'GitHub backup', icon: Github, run: () => ui.openGithubBackupModal() },
-    ...(odooStore.available
-        ? [{ key: 'odoo', label: 'Odoo', icon: Plug, disabled: !syncStore.isOnline, run: () => { showOdoo.value = true } }]
-        : []),
 ])
 
-onMounted(() => { void odooStore.fetchStatus() })
+onMounted(() => { void addonsStore.fetchAddons({ force: true }) })
+
+function toggleAddon(addon) {
+    if (addon.enabled) {
+        confirmingAddon.value = confirmingAddon.value === addon.id ? null : addon.id
+        return
+    }
+    void addonsStore.setEnabled(addon.id, true).then((ok) => {
+        if (ok) ui.addToast(`${addon.name} is on.`, 'success')
+    })
+}
+
+async function turnOffAddon(addon) {
+    confirmingAddon.value = null
+    if (await addonsStore.setEnabled(addon.id, false)) ui.addToast(`${addon.name} is off. Your connection is kept.`, 'info')
+}
 
 function goBack() {
     if (window.history.state?.back) router.back()
@@ -435,6 +532,20 @@ function handleImportSuccess() {
 
 .ph-settings-strong {
     font-weight: 600;
+}
+
+.ph-settings-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 20px;
+    font-size: 15px;
+}
+
+.ph-settings-confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .ph-settings-grow {

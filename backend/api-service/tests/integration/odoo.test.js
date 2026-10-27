@@ -73,6 +73,10 @@ describe('Odoo connection routes', () => {
         user = await setupTestUser(`odoo-${Date.now()}@example.test`, 'password123');
         otherUser = await setupTestUser(`odoo-other-${Date.now()}@example.test`, 'password123');
         token = getTestToken(user.userId);
+        // The add-on is off until each user switches it on (addons.test.js covers the gate).
+        for (const id of [user.userId, otherUser.userId]) {
+            await request(app).put('/addons/odoo/enabled').set('Authorization', `Bearer ${getTestToken(id)}`).send({ enabled: true });
+        }
     });
 
     afterEach(() => {
@@ -86,8 +90,8 @@ describe('Odoo connection routes', () => {
         apiKey: API_KEY,
         keyExpiresOn: '2027-01-24',
     });
-    const put = (body, t = token) => request(app).put('/integrations/odoo').set('Authorization', `Bearer ${t}`).send(body);
-    const get = (t = token) => request(app).get('/integrations/odoo').set('Authorization', `Bearer ${t}`);
+    const put = (body, t = token) => request(app).put('/addons/odoo').set('Authorization', `Bearer ${t}`).send(body);
+    const get = (t = token) => request(app).get('/addons/odoo').set('Authorization', `Bearer ${t}`);
 
     it('answers 404 while the flag is off or the encryption key is missing', async () => {
         process.env.ODOO_INTEGRATION_ENABLED = 'false';
@@ -100,7 +104,7 @@ describe('Odoo connection routes', () => {
     });
 
     it('requires a signed-in user', async () => {
-        expect((await request(app).get('/integrations/odoo')).status).toBe(401);
+        expect((await request(app).get('/addons/odoo')).status).toBe(401);
     });
 
     it('starts disconnected', async () => {
@@ -186,26 +190,26 @@ describe('Odoo connection routes', () => {
     it('re-checks a stored connection and records a rejected key', async () => {
         await put(connectBody());
         odoo.state.keyValid = false;
-        const response = await request(app).post('/integrations/odoo/check').set('Authorization', `Bearer ${token}`);
+        const response = await request(app).post('/addons/odoo/check').set('Authorization', `Bearer ${token}`);
         expect(response.status).toBe(200);
         expect(response.body).toMatchObject({ connected: true, lastError: 'key_rejected' });
         expect(response.body.lastErrorMessage).toMatch(/rejected the API key/);
 
         odoo.state.keyValid = true;
-        const again = await request(app).post('/integrations/odoo/check').set('Authorization', `Bearer ${token}`);
+        const again = await request(app).post('/addons/odoo/check').set('Authorization', `Bearer ${token}`);
         expect(again.body.lastError).toBeNull();
     });
 
     it('asks for the key again when the server key changed', async () => {
         await put(connectBody());
         process.env.ODOO_CREDENTIAL_ENCRYPTION_KEY = 'a-different-server-key-0123456789abcdef';
-        const response = await request(app).post('/integrations/odoo/check').set('Authorization', `Bearer ${token}`);
+        const response = await request(app).post('/addons/odoo/check').set('Authorization', `Bearer ${token}`);
         expect(response.body.lastError).toBe('key_rejected');
     });
 
     it('disconnects', async () => {
         await put(connectBody());
-        const response = await request(app).delete('/integrations/odoo').set('Authorization', `Bearer ${token}`);
+        const response = await request(app).delete('/addons/odoo').set('Authorization', `Bearer ${token}`);
         expect(response.status).toBe(204);
         expect((await get()).body).toEqual({ connected: false });
     });

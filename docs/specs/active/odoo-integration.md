@@ -5,9 +5,11 @@
 > sales order. And keep a space, a folder or a single Document mirrored into Knowledge, the way
 > GitHub backup mirrors an account into a repository. Talks to Odoo's external JSON-2 API directly; nothing is
 > installed in Odoo.
+> Odoo is an **add-on** ([`addons.md`](../active/addons.md)): the operator offers it, each
+> user switches it on in Settings → Add-ons, and it is off by default.
 > Status: active (implementation started 2026-10-26 on `feature/odoo-integration`)
 > Created: 2026-10-25
-> Last updated: 2026-10-26
+> Last updated: 2026-10-27
 
 ---
 
@@ -53,6 +55,8 @@ order; it never changes their fields. Panino never deletes in Odoo; sync archive
 | Editing in Odoo | Synced articles are read-only in Odoo for everyone but the syncing user |
 | PDFs in sync | Yes, opt-in per sync, into a Documents folder, in a later phase |
 | Build order | Manual send first; sync builds on it |
+| Optional add-on (2026-10-26) | Odoo is an add-on ([`addons.md`](../active/addons.md)): offered by the operator, switched on per user, **off by default**. Nothing Odoo adds is visible until the user switches it on. |
+| Switching it off (2026-10-26) | Keeps the connection, links and syncs; hides every entry point; pauses the user's syncs. **Disconnect**, which removes the key, stays a separate action. |
 
 ## 3) Goals
 
@@ -176,8 +180,8 @@ its own SHA-1 of the PDF. A mismatch is an error (`upload_corrupt`), never a suc
 
 ## 5) User journeys
 
-**Connect.** Settings → Integrations → Odoo. Fields: Odoo URL, database name, API key, key
-expiry date. **Test and save** calls `/web/version` (must be ≥ 19) and `res.users/context_get`,
+**Connect.** Settings → Add-ons → switch Odoo on → the Odoo card. Fields: Odoo URL, database
+name, API key, key expiry date. **Test and save** calls `/web/version` (must be ≥ 19) and `res.users/context_get`,
 checks which of `documents.document`, `knowledge.article`, `crm.lead` and `sale.order` exist
 (`ir.model/search_count`), then stores the connection. It shows the Odoo user's name and which
 destinations are available. At least one must be.
@@ -194,8 +198,9 @@ Help text: use your own Odoo user (it is shown as the author of what you send), 
 - **Send** → progress per destination → toast "Sent to Odoo" with **Open in Odoo** links
   (`target="_blank" rel="noopener noreferrer"`).
 
-The entry shows "Connect Odoo in Settings" when the sender has no connection, and is disabled
-offline. The sheet names the Odoo host the Document is going to. **Article to Knowledge** has a
+The entry exists only when the sender has switched the add-on on (`addons.md` §5). It shows
+"Connect Odoo in Settings" when they have no connection, and is disabled offline. The sheet
+names the Odoo host the Document is going to. **Article to Knowledge** has a
 **Keep in sync** switch, which turns the send into a Document sync (§11). For a Document that is
 already synced, on its own or inside a synced folder or space, the option reads "Synced to
 Knowledge" with the time of the last sync: the sync owns that article, so a manual send cannot
@@ -222,7 +227,7 @@ fails, the overwrite still stands and the result says the note is missing. Picki
 
 **Key expiry.** From 14 days before the stored expiry date, Settings and the send sheet show
 "Your Odoo key expires on …". A 401 marks the connection **Key rejected** and points to
-Settings. Automatic rotation is Phase 6.
+Settings. Automatic rotation is Phase 7.
 
 ---
 
@@ -232,7 +237,7 @@ Settings. Automatic rotation is Phase 6.
 Client (local-first)                      Panino API                        Odoo 19+
 ────────────────────                      ──────────                        ────────
 build pdfRequest (Export code)  ─┐
-render article HTML (markdownStore)      POST /integrations/odoo/send
+render article HTML (markdownStore)      POST /addons/odoo/send
 apply front-matter variables   ─┴──────▶  authz (document dbKey, role)
                                           sender's connection
                                           renderPdf(pdfRequest)  ──────────▶ documents.document create/write
@@ -245,6 +250,9 @@ apply front-matter variables   ─┴──────▶  authz (document dbKe
 - **Content comes from the client.** Panino is local-first: the server copy may be behind or the
   Document may not have synced. The client sends exactly what the user sees, with front-matter
   variables already applied, as the PDF export does today.
+- **Every route is behind the add-on gate.** `requireAddon('odoo')` (`addons.md` §5) answers 404
+  when the operator does not offer Odoo and 403 `addon_disabled` until the caller switches the
+  add-on on. The add-on's manifest lives in `odoo.js`.
 - **The browser never calls Odoo.** Odoo sends no CORS headers, and the key must stay on the
   server.
 - **The PDF reuses the existing pipeline.** `pdf.js` gains an internal
@@ -324,8 +332,8 @@ fails, and the result reports each.
   article name as its title).
 - Task lists (`- [ ]`, `- [x]`) are converted to Knowledge checklist markup (Phase 0 confirms it).
 - Tables, code blocks, quotes and links pass through as plain HTML.
-- **Images (Phase 5).** Panino image URLs need a Panino session, so they would break in Odoo.
-  The first versions replace each image with a link-free placeholder ("Image not sent"). Phase 5
+- **Images (Phase 6).** Panino image URLs need a Panino session, so they would break in Odoo.
+  The first versions replace each image with a link-free placeholder ("Image not sent"). Phase 6
   uploads each image as an `ir.attachment` on the article and rewrites `src`; that is several
   calls, so a failure part-way leaves an article with some images missing and is reported as such.
 - No "Sent from Panino by" footer: the article's Odoo author is the sender (§2).
@@ -387,27 +395,34 @@ CREATE TABLE IF NOT EXISTS odoo_defaults (
 );
 ```
 
+The on/off switch is not in any of these tables: it is the generic `addons` row (`addons.md` §6).
+A connection can exist while the add-on is off; it is unreachable until the add-on is switched
+back on, and nothing here is deleted by the switch.
+
 A Document can be linked to several opportunities and orders, one row each. Deleting a Document
 deletes its manual-send links; a synced Document's link is kept until the sync has archived its
 article. Panino never deletes anything in Odoo.
 
 ## 9) API
 
-All routes are behind auth and `ODOO_INTEGRATION_ENABLED` (default false, like the collab flags).
+All routes live under `/addons/odoo` (Phase 3 renames them from `/integrations/odoo`) and sit
+behind auth and the add-on gate (`addons.md` §5): 404 unless the operator offers Odoo
+(`ODOO_INTEGRATION_ENABLED` plus the encryption key, default off), 403 `addon_disabled` until the
+caller has switched the add-on on in Settings → Add-ons.
 The connection is always the caller's own, from `req.user.user_id`. `dbKey` names the
 **Document's** database: `user:` must be the caller's own, `space:` requires membership.
 
 | Route | Who | Purpose |
 |---|---|---|
-| `GET /integrations/odoo` | any user | own status: host, Odoo user, version, apps, expiry, last error. Never the key. |
-| `PUT /integrations/odoo` | any user | `{baseUrl, databaseName, apiKey, keyExpiresOn}`: verify (§5), then store |
-| `POST /integrations/odoo/check` | any user | re-verify the stored connection; the result shows as `lastError` |
-| `DELETE /integrations/odoo` | any user | remove own connection (links stay with the Documents) |
-| `GET /integrations/odoo/folders?q=` | connected user | folder picker |
-| `GET /integrations/odoo/articles?q=` | connected user | article picker |
-| `GET /integrations/odoo/records?q=` | connected user | opportunity and sales order picker |
-| `GET /integrations/odoo/links?dbKey=&noteId=` | can read the Document | last-sent state for the sheet, and the remembered folder (`defaults`) |
-| `POST /integrations/odoo/send` | owner of `user:`; space owner or editor | `{dbKey, noteId, title, pdfRequest?, documents?: {folderId}, knowledge?: {parentId, html}, chatter?: {resModel, resId}}` → `{documents?, knowledge?, chatter?}`, each `{ok, url, created, error?}` |
+| `GET /addons/odoo` | any user | own status: host, Odoo user, version, apps, expiry, last error. Never the key. |
+| `PUT /addons/odoo` | any user | `{baseUrl, databaseName, apiKey, keyExpiresOn}`: verify (§5), then store |
+| `POST /addons/odoo/check` | any user | re-verify the stored connection; the result shows as `lastError` |
+| `DELETE /addons/odoo` | any user | remove own connection (links stay with the Documents) |
+| `GET /addons/odoo/folders?q=` | connected user | folder picker |
+| `GET /addons/odoo/articles?q=` | connected user | article picker |
+| `GET /addons/odoo/records?q=` | connected user | opportunity and sales order picker |
+| `GET /addons/odoo/links?dbKey=&noteId=` | can read the Document | last-sent state for the sheet, and the remembered folder (`defaults`) |
+| `POST /addons/odoo/send` | owner of `user:`; space owner or editor | `{dbKey, noteId, title, pdfRequest?, documents?: {folderId}, knowledge?: {parentId, html}, chatter?: {resModel, resId}}` → `{documents?, knowledge?, chatter?}`, each `{ok, url, created, error?}` |
 
 `noteId` must exist in that database, which ties every link to a real Document. `folderId` and
 `parentId` are used only when creating; they are ignored when a link exists. `pdfRequest` is
@@ -433,15 +448,19 @@ other than `crm.lead` or `sale.order` is rejected with 400.
 - **Limits:** request body cap for `/send` (PDF payload plus HTML; align with `/render-pdf`
   `MAX_REQUEST_BYTES` and Nginx `client_max_body_size`), PDF size cap before base64 (default
   25 MB), per-user rate limit (10 sends per minute).
-- **Errors:** only the §6 codes and a short message reach the client. `debug` tracebacks are
-  dropped before logging too (they contain Odoo server paths).
+- **Errors:** only the §6 codes, `addon_disabled`, and a short message reach the client. `debug`
+  tracebacks are dropped before logging too (they contain Odoo server paths).
 
 ---
 
 ## 10) UI
 
-- **Settings → Integrations → Odoo** (desktop Settings page and `PhoneSettingsPage`): the form,
-  status, expiry warning, Disconnect, and which destinations this Odoo offers.
+- **Settings → Add-ons → Odoo** (desktop `AddonsSection` and the phone Add-ons sheet): the switch,
+  and under it, once on, the card with the form, status, expiry warning, Disconnect, and which
+  destinations this Odoo offers. This replaces the Settings → Tools → Odoo button of Phases 1–2.
+- **Every Odoo entry point** (the Settings card, the toolbar Tools → Odoo button, the phone
+  Document menu entry, space settings) renders only when `addonsStore.isActive('odoo')`, and the
+  Odoo components load lazily (`addons.md` §5).
 - **Send sheet** (phone: a new `?sheet=odoo` on the editor route via `useSheetRoute`; desktop: a
   `BaseModal`): destination checkboxes, folder and parent pickers (first send only), opportunity
   and sales order picker, last-sent line per destination, Send / Update.
@@ -483,8 +502,8 @@ moves the article under the sync's parent if needed and rewrites it. No second a
 
 ### Setting one up
 
-- **Personal:** Settings → Integrations → Odoo → **Add sync**: pick a folder or a Document, pick
-  the Knowledge parent (or top level), optionally a Documents folder for PDFs (Phase 11).
+- **Personal:** Settings → Add-ons → Odoo → **Add sync**: pick a folder or a Document, pick
+  the Knowledge parent (or top level), optionally a Documents folder for PDFs (Phase 12).
 - **Space:** the space's settings → **Sync to Odoo**, available to the owner and editors. The
   person who sets it up is shown as "Syncing as <Odoo user>" and their connection runs it. Their
   Odoo user is the author of every article.
@@ -527,7 +546,7 @@ by both the frontend Preview and the backend. **Sync must render exactly what th
 a shared test fixture set compares the two. Manual Knowledge send (§7) switches to the shared
 renderer at the same time, so both produce the same article.
 
-PDFs in a sync (Phase 11) also mean building the print request (styles, print styles, page size)
+PDFs in a sync (Phase 12) also mean building the print request (styles, print styles, page size)
 on the server and a Puppeteer render per changed Document. That is real CPU on the server, so
 it is opt-in per sync and runs at lower priority than interactive `/render-pdf` requests.
 
@@ -535,7 +554,8 @@ it is opt-in per sync and runs at lower priority than interactive `/render-pdf` 
 
 Like the backup card: last run time, records created/updated/archived, failures with the §6 error
 codes, **key expiry** shown in red from 14 days out, and a paused state. A sync pauses, and says
-why, when the key is rejected, when the syncing user disconnects Odoo, or when they leave the
+why, when the key is rejected, when the syncing user disconnects Odoo, when they switch the
+add-on off (`addon_disabled`; switching it back on resumes the sync), or when they leave the
 space. Another owner or editor can then **take over**: their connection runs it from then on.
 Their Odoo user must be able to write the existing articles; if not, the take-over fails with
 `access_denied` and changes nothing.
@@ -551,7 +571,7 @@ CREATE TABLE IF NOT EXISTS odoo_syncs (
   source_id TEXT,                        -- folder id or note id; NULL for a whole space
   odoo_target TEXT NOT NULL,
   parent_article_id INTEGER,             -- NULL: top level of Knowledge
-  documents_folder_id INTEGER,           -- PDFs, Phase 11; NULL: off
+  documents_folder_id INTEGER,           -- PDFs, Phase 12; NULL: off
   run_as TEXT NOT NULL,                  -- Panino user id whose connection runs it
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused')),
   paused_reason TEXT,
@@ -569,11 +589,11 @@ sync unchanged.
 
 | Route | Who | Purpose |
 |---|---|---|
-| `GET /integrations/odoo/syncs?dbKey=` | can read the database | syncs and their status |
-| `POST /integrations/odoo/syncs` | owner of `user:`; space owner or editor | `{dbKey, scope, sourceId?, parentArticleId, documentsFolderId?}`; runs as the caller |
-| `POST /integrations/odoo/syncs/:id/run` | same | Sync now |
-| `POST /integrations/odoo/syncs/:id/take-over` | same | run as the caller from now on |
-| `DELETE /integrations/odoo/syncs/:id` | same | stop syncing; articles stay in Odoo, links are dropped |
+| `GET /addons/odoo/syncs?dbKey=` | can read the database | syncs and their status |
+| `POST /addons/odoo/syncs` | owner of `user:`; space owner or editor | `{dbKey, scope, sourceId?, parentArticleId, documentsFolderId?}`; runs as the caller |
+| `POST /addons/odoo/syncs/:id/run` | same | Sync now |
+| `POST /addons/odoo/syncs/:id/take-over` | same | run as the caller from now on |
+| `DELETE /addons/odoo/syncs/:id` | same | stop syncing; articles stay in Odoo, links are dropped |
 
 ## 12) Phases
 
@@ -592,24 +612,29 @@ sync unchanged.
    `OdooSendModal` from the desktop toolbar (Tools → Odoo) and the phone Document menu. Personal
    and space Documents. Not done: the picker cannot tell apart folders with the same name and
    parent (Odoo's demo data has two "Finance / Sales").
-3. **PDF to an opportunity or sales order.** Record picker, staged attachment and internal note,
+3. **Add-on framework.** ✅ Done 2026-10-27. `addons.js` registry and `requireAddon`, the `addons`
+   table, `GET /addons` and `PUT /addons/:id/enabled`, routes renamed to `/addons/odoo`,
+   `addonsStore`, `AddonsSection` on desktop and the phone Add-ons section replacing the Tools →
+   Odoo button, lazy-loaded Odoo modals, and the gate tests (table-driven over the router). Spec: [`addons.md`](../active/addons.md). Ships before any further
+   destination so every later entry point is born behind the gate.
+4. **PDF to an opportunity or sales order.** Record picker, staged attachment and internal note,
    overwrite plus a "replaced" note on resend to the same record. Works on Community databases.
-4. **Article to Knowledge.** HTML rendering and sanitizing, checklist mapping, parent picker.
+5. **Article to Knowledge.** HTML rendering and sanitizing, checklist mapping, parent picker.
    Images replaced by placeholders.
-5. **Images** uploaded into articles.
-6. **Key lifecycle.** Expiry warnings everywhere; optional rotation through
+6. **Images** uploaded into articles.
+7. **Key lifecycle.** Expiry warnings everywhere; optional rotation through
    `res.users.apikeys/generate` when allowed (generate the new key, store it, verify it, then
    revoke the old one).
-7. **Shared renderer.** Move Preview rendering into `shared/`, with fixtures proving frontend and
+8. **Shared renderer.** Move Preview rendering into `shared/`, with fixtures proving frontend and
    backend output match; manual Knowledge send switches to it.
-8. **Sync to Knowledge.** `odoo_syncs`, Document and folder syncs, adopting manually sent
+9. **Sync to Knowledge.** `odoo_syncs`, Document and folder syncs, adopting manually sent
    articles, first run by levels, change detection, archive and restore, read-only permissions,
    scheduler and daily reconcile, status card, the send sheet's Keep in sync switch. Personal
    Documents and folders.
-9. **Space sync.** Whole-space syncs and syncs of space folders and Documents, space settings,
+10. **Space sync.** Whole-space syncs and syncs of space folders and Documents, space settings,
    owner/editor rules, pause and take-over.
-10. **Images in synced articles**, reusing Phase 5.
-11. **PDFs in sync** (opt-in): server-built print request, low-priority rendering into a
+11. **Images in synced articles**, reusing Phase 6.
+12. **PDFs in sync** (opt-in): server-built print request, low-priority rendering into a
     Documents folder.
 
 ## 13) Tests
@@ -634,6 +659,10 @@ sync unchanged.
   article is adopted by a new sync, not duplicated.
 - **Renderer parity:** the shared fixtures render identically in the frontend Preview and on the
   server.
+- **Add-on gate:** with Odoo offered but off for the user, every `/addons/odoo` route answers 403
+  `addon_disabled` (table-driven over the router, so a new route cannot slip past); switching it
+  on makes them answer; switching it off keeps `odoo_connection` and `odoo_links` and pauses
+  syncs; in the browser no Odoo entry point exists until the switch is on.
 - **Integration (backend, Docker):** routes with a fake Odoo HTTP server: authz (other user's
   `dbKey`, space viewer/editor/owner, removed member), create then update by a second space
   member, access denied for that member, partial success across destinations, flag off → 404.

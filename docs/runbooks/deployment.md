@@ -108,6 +108,8 @@ ODOO_CREDENTIAL_ENCRYPTION_KEY=
 ODOO_ALLOWED_PRIVATE_HOSTS=
 ```
 
+Odoo is an add-on (`docs/specs/active/addons.md`): with the flag on it is *offered*, and each
+user still has to switch it on under Settings → Add-ons before any of it appears for them.
 The routes answer 404 unless the flag is `true` **and** `ODOO_CREDENTIAL_ENCRYPTION_KEY` is at
 least 32 characters; with the flag on and the key missing, the API logs a warning at start and
 the integration stays off. Generate the key once (`openssl rand -base64 48`) and keep it with the

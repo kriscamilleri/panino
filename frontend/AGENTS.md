@@ -39,6 +39,8 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
+| `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
+| `odooStore` | The Odoo add-on's connection, folder picker, links and send (`/addons/odoo/…`); availability is `addonsStore.isActive('odoo')` | authStore |
 
 ### Store initialization pattern
 

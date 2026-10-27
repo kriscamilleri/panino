@@ -21,6 +21,8 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `image.js` | `POST /images` (upload), `GET /images/:id` (serve) | Authenticated |
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
 | `backup.js` | GitHub OAuth, repository selection, snapshot commits, auto-backup scheduling | Mixed |
+| `addons.js` | Add-on registry and gate (`docs/specs/active/addons.md`): `GET /addons`, `PUT /addons/:id/enabled`, `requireAddon(id)` (404 unless the operator offers it, 403 `addon_disabled` until the user switches it on), the per-user `addons` table | Authenticated |
+| `odoo.js`, `odooClient.js`, `odooDocuments.js`, `odooLinks.js` | The Odoo add-on (`docs/specs/active/odoo-integration.md`): connection, folder picker, links, send; every route under `/addons/odoo` behind `requireAddon('odoo')` | Authenticated |
 | `revision.js` | Note revision capture, listing, detail, restore, and pruning; snapshots may carry a nullable server-derived `actor_user_id`/`actor_kind` (`sync`\|`collab`\|`system`) — never accepted from client input | Authenticated |
 | `db.js` | Canonical `getDb(dbKey)` content connections, user compatibility wrappers, versioned content initialization, auth/space metadata DBs, connection caching, CR-SQLite extension loading | — |
 | `spaces.js` | Flag-gated discovery and lifecycle: create/rename, hashed email-bound editor invitations, member removal, ownership transfer, editor leave, pending deletion, membership-version fan-out, and retained-space purge scheduling | Authenticated / trusted server callers |
@@ -41,7 +43,7 @@ first — it defaults to a dry run and requires `--apply` to mutate anything.
 1. Public routes: `signupRoutes`, `passwordResetRoutes`
 2. Mixed routes: `authRoutes` (login is public, /me and /refresh need auth)
 3. `authenticateToken` middleware (all routes after this require auth)
-4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `emailVerificationRoutes`, `spaceTransferRoutes`, `imageRoutes`, `pdfRoutes`
+4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `emailVerificationRoutes`, `spaceTransferRoutes`, `imageRoutes`, `pdfRoutes`, `backupRoutes`, `addonsRoutes` (before any add-on's own routes), `odooRoutes`, `revisionRoutes`
 
 ---
 

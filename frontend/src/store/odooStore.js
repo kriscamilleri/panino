@@ -7,12 +7,11 @@ const API_BASE = IS_PROD ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'ht
 
 /**
  * The user's Odoo connection (docs/specs/active/odoo-integration.md). The API key
- * goes to the server once, on connect, and never comes back.
+ * goes to the server once, on connect, and never comes back. Whether the add-on
+ * is available at all is the addonsStore's business (`isActive('odoo')`).
  */
 export const useOdooStore = defineStore('odooStore', () => {
     const status = ref(null);
-    /** False when the server has the integration switched off (404). */
-    const available = ref(false);
     const error = ref('');
     const isLoading = ref(false);
     const isSaving = ref(false);
@@ -46,16 +45,14 @@ export const useOdooStore = defineStore('odooStore', () => {
         return payload;
     }
 
-    /** Load the status; marks the integration unavailable when the server has it off. */
+    /** Load the status; null when the add-on is not offered or not switched on. */
     async function fetchStatus() {
         isLoading.value = true;
         error.value = '';
         try {
-            status.value = await authFetch('/integrations/odoo');
-            available.value = true;
+            status.value = await authFetch('/addons/odoo');
         } catch (err) {
-            if (err.status === 404) {
-                available.value = false;
+            if (err.status === 404 || err.code === 'addon_disabled') {
                 status.value = null;
             } else {
                 error.value = err.message;
@@ -77,7 +74,7 @@ export const useOdooStore = defineStore('odooStore', () => {
         isSaving.value = true;
         error.value = '';
         try {
-            status.value = await authFetch('/integrations/odoo', { method: 'PUT', body: JSON.stringify(input) });
+            status.value = await authFetch('/addons/odoo', { method: 'PUT', body: JSON.stringify(input) });
             return true;
         } catch (err) {
             error.value = err.message;
@@ -92,7 +89,7 @@ export const useOdooStore = defineStore('odooStore', () => {
         isChecking.value = true;
         error.value = '';
         try {
-            status.value = await authFetch('/integrations/odoo/check', { method: 'POST' });
+            status.value = await authFetch('/addons/odoo/check', { method: 'POST' });
         } catch (err) {
             error.value = err.message;
         } finally {
@@ -105,7 +102,7 @@ export const useOdooStore = defineStore('odooStore', () => {
         isDisconnecting.value = true;
         error.value = '';
         try {
-            await authFetch('/integrations/odoo', { method: 'DELETE' });
+            await authFetch('/addons/odoo', { method: 'DELETE' });
             status.value = { connected: false };
             return true;
         } catch (err) {
@@ -123,7 +120,7 @@ export const useOdooStore = defineStore('odooStore', () => {
      * @returns {Promise<{ id: number, name: string, parentName: string|null }[]>}
      */
     async function fetchFolders(query = '') {
-        const payload = await authFetch(`/integrations/odoo/folders?q=${encodeURIComponent(query)}`);
+        const payload = await authFetch(`/addons/odoo/folders?q=${encodeURIComponent(query)}`);
         return payload?.folders || [];
     }
 
@@ -135,7 +132,7 @@ export const useOdooStore = defineStore('odooStore', () => {
      */
     async function fetchLinks(dbKey, noteId) {
         const params = new URLSearchParams({ dbKey, noteId });
-        return authFetch(`/integrations/odoo/links?${params}`);
+        return authFetch(`/addons/odoo/links?${params}`);
     }
 
     /**
@@ -145,12 +142,11 @@ export const useOdooStore = defineStore('odooStore', () => {
      * @param {{ dbKey: string, noteId: string, title: string, pdfRequest: object, documents?: { folderId?: number } }} body
      */
     async function send(body) {
-        return authFetch('/integrations/odoo/send', { method: 'POST', body: JSON.stringify(body) });
+        return authFetch('/addons/odoo/send', { method: 'POST', body: JSON.stringify(body) });
     }
 
     return {
         status,
-        available,
         error,
         isLoading,
         isSaving,

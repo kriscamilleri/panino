@@ -142,12 +142,13 @@ describe('Sending a Document to Odoo Documents', () => {
     });
 
     async function connect(t = token) {
-        const response = await request(app).put('/integrations/odoo').set('Authorization', `Bearer ${t}`).send({
+        await request(app).put('/addons/odoo/enabled').set('Authorization', `Bearer ${t}`).send({ enabled: true });
+        const response = await request(app).put('/addons/odoo').set('Authorization', `Bearer ${t}`).send({
             baseUrl: `http://127.0.0.1:${odoo.port}`, databaseName: 'panino_ee', apiKey: API_KEY,
         });
         expect(response.status).toBe(200);
     }
-    const send = (body, t = token) => request(app).post('/integrations/odoo/send').set('Authorization', `Bearer ${t}`)
+    const send = (body, t = token) => request(app).post('/addons/odoo/send').set('Authorization', `Bearer ${t}`)
         .send({ dbKey, noteId, title: 'Quote / Acme: v1', pdfRequest: PDF_REQUEST, ...body });
     const storedPdf = (docId) => odoo.state.attachments.get(odoo.state.docs.get(docId).attachment_id);
     const link = () => getUserDb(user.userId).prepare("SELECT * FROM odoo_links WHERE source_id = ? AND destination = 'documents'").get(noteId);
@@ -256,7 +257,7 @@ describe('Sending a Document to Odoo Documents', () => {
         odoo.state.keyValid = false;
         const response = await send({ documents: { folderId: 41 } });
         expect(response.body.documents).toMatchObject({ ok: false, error: 'key_rejected' });
-        const status = await request(app).get('/integrations/odoo').set('Authorization', `Bearer ${token}`);
+        const status = await request(app).get('/addons/odoo').set('Authorization', `Bearer ${token}`);
         expect(status.body.lastError).toBe('key_rejected');
     });
 
@@ -267,20 +268,20 @@ describe('Sending a Document to Odoo Documents', () => {
         expect((await send({ documents: { folderId: 41 } }, otherToken)).status).toBe(404);
         expect((await send({ noteId: uuidv4(), documents: { folderId: 41 } })).status).toBe(404);
         expect((await send({ dbKey: 'user:not-a-uuid', documents: { folderId: 41 } })).status).toBe(400);
-        await request(app).delete('/integrations/odoo').set('Authorization', `Bearer ${token}`);
+        await request(app).delete('/addons/odoo').set('Authorization', `Bearer ${token}`);
         expect((await send({ documents: { folderId: 41 } })).status).toBe(409);
         expect(odoo.state.docs.size).toBe(0);
     });
 
     it('lists folders and what was sent, with who sent it', async () => {
         await connect();
-        const folders = await request(app).get('/integrations/odoo/folders?q=sal').set('Authorization', `Bearer ${token}`);
+        const folders = await request(app).get('/addons/odoo/folders?q=sal').set('Authorization', `Bearer ${token}`);
         expect(folders.body.folders).toContainEqual({ id: 41, name: 'Sales', parentName: 'Finance' });
         const search = odoo.state.requests.find((r) => r.url === '/json/2/documents.document/search_read');
         expect(search.params.domain).toEqual([['type', '=', 'folder'], ['name', 'ilike', 'sal']]);
 
         await send({ documents: { folderId: 41 } });
-        const links = await request(app).get('/integrations/odoo/links').query({ dbKey, noteId }).set('Authorization', `Bearer ${token}`);
+        const links = await request(app).get('/addons/odoo/links').query({ dbKey, noteId }).set('Authorization', `Bearer ${token}`);
         expect(links.status).toBe(200);
         expect(links.body.defaults).toEqual({ folderId: 41, parentArticleId: null });
         expect(links.body.links).toEqual([expect.objectContaining({
@@ -336,7 +337,7 @@ describe('Sending a Document to Odoo Documents', () => {
         it('refuses someone outside the space', async () => {
             await connect(getTestToken(outsider.userId));
             expect((await send({ documents: { folderId: 41 } }, getTestToken(outsider.userId))).status).toBe(404);
-            const links = await request(app).get('/integrations/odoo/links').query({ dbKey, noteId }).set('Authorization', `Bearer ${getTestToken(outsider.userId)}`);
+            const links = await request(app).get('/addons/odoo/links').query({ dbKey, noteId }).set('Authorization', `Bearer ${getTestToken(outsider.userId)}`);
             expect(links.status).toBe(404);
         });
     });

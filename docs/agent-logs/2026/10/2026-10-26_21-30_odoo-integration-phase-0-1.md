@@ -87,6 +87,8 @@ spec assumed (Phase 0), and let a user connect their account to Odoo 19+ (Phase 
 ## Open Items / Notes
 
 - Phase 3 (PDF to an opportunity or sales order) is next.
+- 2026-10-27: Odoo became an optional add-on (`docs/specs/proposed/addons.md`). The add-on
+  framework is the new Phase 3 of the Odoo spec; chatter and everything after moved up one.
 - In the dev stack "Open in Odoo" points at `http://odoo-enterprise:8069`, the container address
   the connection uses; a browser on the host needs `localhost:8020`. Production connections use
   the public URL.

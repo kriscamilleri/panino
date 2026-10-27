@@ -2,13 +2,16 @@
  * The user's Odoo connection (save after verifying, status, re-check, remove) and
  * sending a Document to Odoo. Spec: docs/specs/active/odoo-integration.md.
  *
- * Off unless ODOO_INTEGRATION_ENABLED is "true" and ODOO_CREDENTIAL_ENCRYPTION_KEY
- * is set; the routes answer 404 otherwise. Only public addresses over https are
+ * An add-on (addons.js): offered only when ODOO_INTEGRATION_ENABLED is "true" and
+ * ODOO_CREDENTIAL_ENCRYPTION_KEY is set (the routes answer 404 otherwise), and off
+ * for each user until they switch it on in Settings → Add-ons (403 addon_disabled
+ * until then). Only public addresses over https are
  * reachable, except hosts the operator lists in ODOO_ALLOWED_PRIVATE_HOSTS, which
  * may also be private and use plain http (a self-hosted Odoo, the dev containers).
  */
 
 import express from 'express';
+import { registerAddon, requireAddon } from './addons.js';
 import { getAuthDb, getDb, getUserDb, parseDbKey } from './db.js';
 import { isPublicAddress } from './safeFetch.js';
 import { decryptSecret, encryptSecret } from './secrets.js';
@@ -57,6 +60,15 @@ export function isOdooIntegrationEnabled() {
     return process.env.ODOO_INTEGRATION_ENABLED === 'true'
         && String(process.env.ODOO_CREDENTIAL_ENCRYPTION_KEY || '').length >= MIN_ENCRYPTION_KEY_LENGTH;
 }
+
+/** The add-on manifest (addons.js). Syncs will pause and resume through the hooks. */
+export const odooAddon = Object.freeze({
+    id: 'odoo',
+    name: 'Odoo',
+    description: 'Send Documents to your Odoo as PDFs. What you send leaves Panino and appears in Odoo under your Odoo user.',
+    isOffered: isOdooIntegrationEnabled,
+});
+registerAddon(odooAddon);
 
 /** Hostnames from ODOO_ALLOWED_PRIVATE_HOSTS, lower-cased. */
 export function allowedPrivateHosts() {
@@ -259,12 +271,9 @@ function userNames(ids) {
     return new Map(rows.map((row) => [row.id, row.name]));
 }
 
-odooRoutes.use('/integrations/odoo', (req, res, next) => {
-    if (!isOdooIntegrationEnabled()) return res.status(404).json({ error: 'Not found' });
-    return next();
-});
+odooRoutes.use('/addons/odoo', requireAddon('odoo'));
 
-odooRoutes.get('/integrations/odoo', (req, res) => {
+odooRoutes.get('/addons/odoo', (req, res) => {
     try {
         res.json(statusPayload(readConnection(getUserDb(req.user.user_id))));
     } catch (error) {
@@ -273,7 +282,7 @@ odooRoutes.get('/integrations/odoo', (req, res) => {
     }
 });
 
-odooRoutes.put('/integrations/odoo', async (req, res) => {
+odooRoutes.put('/addons/odoo', async (req, res) => {
     const userId = req.user.user_id;
     const input = validateConnectionInput(req.body);
     if (!input.ok) return res.status(400).json({ error: 'invalid', message: input.message });
@@ -321,7 +330,7 @@ odooRoutes.put('/integrations/odoo', async (req, res) => {
     }
 });
 
-odooRoutes.post('/integrations/odoo/check', async (req, res) => {
+odooRoutes.post('/addons/odoo/check', async (req, res) => {
     const userId = req.user.user_id;
     let db;
     let row;
@@ -363,7 +372,7 @@ odooRoutes.post('/integrations/odoo/check', async (req, res) => {
     res.json(statusPayload(readConnection(db)));
 });
 
-odooRoutes.delete('/integrations/odoo', (req, res) => {
+odooRoutes.delete('/addons/odoo', (req, res) => {
     try {
         getUserDb(req.user.user_id).prepare('DELETE FROM odoo_connection WHERE singleton = 1').run();
         res.status(204).end();
@@ -373,7 +382,7 @@ odooRoutes.delete('/integrations/odoo', (req, res) => {
     }
 });
 
-odooRoutes.get('/integrations/odoo/folders', async (req, res) => {
+odooRoutes.get('/addons/odoo/folders', async (req, res) => {
     const userId = req.user.user_id;
     let sender;
     try {
@@ -394,7 +403,7 @@ odooRoutes.get('/integrations/odoo/folders', async (req, res) => {
     }
 });
 
-odooRoutes.get('/integrations/odoo/links', (req, res) => {
+odooRoutes.get('/addons/odoo/links', (req, res) => {
     const userId = req.user.user_id;
     const noteId = typeof req.query.noteId === 'string' ? req.query.noteId : '';
     if (!noteId || noteId.length > 100) return res.status(400).json({ error: 'invalid', message: 'A Document is required.' });
@@ -428,7 +437,7 @@ odooRoutes.get('/integrations/odoo/links', (req, res) => {
     }
 });
 
-odooRoutes.post('/integrations/odoo/send', async (req, res) => {
+odooRoutes.post('/addons/odoo/send', async (req, res) => {
     const userId = req.user.user_id;
     const { dbKey, noteId, title, pdfRequest, documents } = req.body || {};
     if (typeof noteId !== 'string' || !noteId || noteId.length > 100) {

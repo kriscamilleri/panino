@@ -15,6 +15,7 @@ import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { emailVerificationRoutes } from './emailVerification.js';
 import { backupPublicRoutes, backupRoutes } from './backup.js';
+import { addonsRoutes } from './addons.js';
 import { odooRoutes, isOdooIntegrationEnabled } from './odoo.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
@@ -93,6 +94,7 @@ export function createApp() {
     app.use(imageRoutes);
     app.use(pdfRoutes); // Mount the new PDF route
     app.use(backupRoutes);
+    app.use(addonsRoutes);
     app.use(odooRoutes);
     app.use(revisionRoutes);
 

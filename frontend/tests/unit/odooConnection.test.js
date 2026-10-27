@@ -69,11 +69,17 @@ describe('odooStore', () => {
         vi.unstubAllGlobals();
     });
 
-    it('treats a 404 as the integration being off', async () => {
+    it('treats a 404 or a switched-off add-on as no status, not an error', async () => {
         vi.stubGlobal('fetch', vi.fn(() => respond(404, { error: 'Not found' })));
         const store = useOdooStore();
         await store.fetchStatus();
-        expect(store.available).toBe(false);
+        expect(store.status).toBeNull();
+        expect(store.error).toBe('');
+
+        vi.stubGlobal('fetch', vi.fn(() => respond(403, { error: 'addon_disabled', message: 'Turn on Odoo in Settings → Add-ons first.' })));
+        await store.fetchStatus();
+        expect(store.status).toBeNull();
+        expect(store.isConnected).toBe(false);
         expect(store.error).toBe('');
     });
 
@@ -88,7 +94,7 @@ describe('odooStore', () => {
         expect(await store.connect(input)).toBe(false);
         expect(store.error).toBe('Odoo rejected the API key.');
         const [url, options] = fetch.mock.calls[0];
-        expect(url).toMatch(/\/integrations\/odoo$/);
+        expect(url).toMatch(/\/addons\/odoo$/);
         expect(options.method).toBe('PUT');
         expect(options.headers.Authorization).toBe('Bearer jwt-token');
         expect(JSON.parse(options.body)).toEqual(input);

@@ -124,7 +124,7 @@
                 {{ syncStore.isOnline ? 'Export as PDF' : 'Export as PDF (needs a connection)' }}
             </button>
             <button
-                v-if="odooStore.available"
+                v-if="addonsStore.isActive('odoo')"
                 type="button"
                 class="ph-row"
                 :disabled="!syncStore.isOnline || !file"
@@ -206,6 +206,7 @@
             @close="editingStyles = false"
         />
         <OdooSendModal
+            v-if="addonsStore.isActive('odoo')"
             :show="sendingToOdoo"
             @close="sendingToOdoo = false"
         />
@@ -213,7 +214,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon, Send } from 'lucide-vue-next'
@@ -222,10 +223,9 @@ import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
-import OdooSendModal from '@/components/OdooSendModal.vue'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
-import { useOdooStore } from '@/store/odooStore'
+import { useAddonsStore } from '@/store/addonsStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiStore } from '@/store/uiStore'
@@ -258,10 +258,12 @@ const { selectedFile: file } = storeToRefs(docStore)
 const confirmingDelete = ref(false)
 const editingStyles = ref(false)
 const sendingToOdoo = ref(false)
-const odooStore = useOdooStore()
+const addonsStore = useAddonsStore()
+// Loaded only when the add-on is on (see the template), so it costs nothing otherwise.
+const OdooSendModal = defineAsyncComponent(() => import('@/components/OdooSendModal.vue'))
 
 watch(() => props.open, (isOpen) => {
-    if (isOpen) void odooStore.fetchStatus()
+    if (isOpen) void addonsStore.fetchAddons()
 }, { immediate: true })
 
 const isSpaceDocument = computed(() => Boolean(file.value?.dbKey?.startsWith('space:')))

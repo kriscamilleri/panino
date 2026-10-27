@@ -278,6 +278,14 @@ const USER_LOCAL_SCHEMA = `
     last_verified_at TEXT,
     last_error TEXT
   );
+
+  -- Which add-ons this user switched on (addons.js). Server-only. No row: off.
+  CREATE TABLE IF NOT EXISTS addons (
+    addon_id TEXT PRIMARY KEY NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    enabled_at TEXT,
+    disabled_at TEXT
+  );
 `;
 
 // Backend-only, space-local recovery state for COLLAB-05. This table must
