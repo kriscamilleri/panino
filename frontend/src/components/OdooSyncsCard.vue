@@ -3,7 +3,7 @@
         class="space-y-3"
         data-testid="odoo-syncs"
     >
-        <h3 class="pn-title-section">Kept in sync with Knowledge</h3>
+        <h3 class="pn-title-section">{{ spaceMode ? 'Sync to Odoo Knowledge' : 'Kept in sync with Knowledge' }}</h3>
 
         <p
             v-if="!odoo.isConnected"
@@ -44,14 +44,28 @@
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="min-w-0">
                             <p class="font-medium truncate">
-                                <span class="pn-help">{{ sync.scope === 'folder' ? 'Folder' : 'Document' }} · </span>{{ sync.sourceName || 'Removed' }}
+                                <template v-if="sync.scope === 'space'">Whole space</template>
+                                <template v-else><span class="pn-help">{{ sync.scope === 'folder' ? 'Folder' : 'Document' }} · </span>{{ sync.sourceName || 'Removed' }}</template>
                             </p>
                             <p
                                 class="pn-help"
                                 :data-testid="`odoo-sync-status-${sync.id}`"
                             >{{ statusLine(sync) }}</p>
+                            <p
+                                v-if="spaceMode"
+                                class="pn-help"
+                                :data-testid="`odoo-sync-runner-${sync.id}`"
+                            >Syncing as {{ sync.runAs === authStore.user?.id ? 'you' : (sync.runAsName || 'a member') }}, with their Odoo user.</p>
                         </div>
                         <div class="flex items-center gap-2">
+                            <BaseButton
+                                v-if="spaceMode && sync.runAs !== authStore.user?.id"
+                                variant="secondary"
+                                size="sm"
+                                :disabled="busy === sync.id"
+                                :data-testid="`odoo-sync-take-over-${sync.id}`"
+                                @click="takeOver(sync)"
+                            >Take over</BaseButton>
                             <BaseButton
                                 variant="secondary"
                                 size="sm"
@@ -127,7 +141,7 @@
                     <label
                         class="pn-label"
                         for="odoo-sync-folder"
-                    >Folder</label>
+                    >{{ spaceMode ? 'What' : 'Folder' }}</label>
                     <select
                         id="odoo-sync-folder"
                         v-model="folderId"
@@ -137,7 +151,11 @@
                         <option
                             value=""
                             disabled
-                        >Choose a folder</option>
+                        >{{ spaceMode ? 'Choose the whole space or a folder' : 'Choose a folder' }}</option>
+                        <option
+                            v-if="spaceMode"
+                            value="__space__"
+                        >The whole space</option>
                         <option
                             v-for="folder in folders"
                             :key="folder.id"
@@ -145,7 +163,7 @@
                         >{{ folder.path }}</option>
                     </select>
                     <p
-                        v-if="loadedFolders && !folders.length"
+                        v-if="loadedFolders && !folders.length && !spaceMode"
                         class="pn-help"
                     >You have no folders yet. Use "Keep in sync" in the Send to Odoo sheet for a single Document.</p>
                 </div>
@@ -218,7 +236,7 @@
                     </ul>
                 </div>
 
-                <p class="pn-help">Colleagues can read the articles in Odoo but not edit them; the next sync would overwrite their changes. Syncing as {{ odoo.status.odooUserName || 'your Odoo user' }}.</p>
+                <p class="pn-help">Colleagues can read the articles in Odoo but not edit them; the next sync would overwrite their changes. Syncing as {{ odoo.status.odooUserName || 'your Odoo user' }}<template v-if="spaceMode">, with your connection; another owner or editor can take over later</template>.</p>
 
                 <div
                     v-if="formError"
@@ -251,6 +269,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Check, Plus } from 'lucide-vue-next'
 import BaseButton from '@/components/BaseButton.vue'
+import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
 import { useOdooStore } from '@/store/odooStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -265,8 +284,11 @@ import { sentAgo } from '@/utils/odooConnection'
 const props = defineProps({
     /** The database whose syncs to show; the personal one by default. */
     dbKey: { type: String, default: '' },
+    /** A shared space: offer the whole space, show who runs each sync, allow take-over. */
+    spaceMode: { type: Boolean, default: false },
 })
 
+const authStore = useAuthStore()
 const docStore = useDocStore()
 const odoo = useOdooStore()
 const syncStore = useSyncStore()
@@ -342,6 +364,20 @@ async function runNow(sync) {
     }
 }
 
+async function takeOver(sync) {
+    busy.value = sync.id
+    error.value = ''
+    try {
+        const updated = await odoo.takeOverSync(dbKey.value, sync.id)
+        if (updated) syncs.value = syncs.value.map((s) => (s.id === updated.id ? updated : s))
+        ui.addToast?.('You run this sync now, with your Odoo user.', 'success')
+    } catch (err) {
+        error.value = err.message
+    } finally {
+        busy.value = null
+    }
+}
+
 async function remove(sync) {
     error.value = ''
     try {
@@ -389,10 +425,12 @@ async function create() {
     creating.value = true
     formError.value = ''
     try {
-        const sync = await odoo.createSync({ dbKey: dbKey.value, scope: 'folder', sourceId: folderId.value, parentArticleId: parentId.value })
+        const sync = folderId.value === '__space__'
+            ? await odoo.createSync({ dbKey: dbKey.value, scope: 'space', parentArticleId: parentId.value })
+            : await odoo.createSync({ dbKey: dbKey.value, scope: 'folder', sourceId: folderId.value, parentArticleId: parentId.value })
         if (sync) syncs.value = [...syncs.value, sync]
         adding.value = false
-        ui.addToast?.('Keeping the folder in sync with Odoo Knowledge. The first sync is on its way.', 'success')
+        ui.addToast?.(`Keeping the ${sync?.scope === 'space' ? 'space' : 'folder'} in sync with Odoo Knowledge. The first sync is on its way.`, 'success')
     } catch (err) {
         formError.value = err.message
     } finally {

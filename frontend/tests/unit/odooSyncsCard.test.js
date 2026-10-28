@@ -8,7 +8,7 @@ const listFolders = vi.fn(async () => [
     { id: 'f-sub', name: 'Sub', parentId: 'f-docs', path: 'Docs / Sub' },
 ]);
 const addToast = vi.fn();
-vi.mock('@/store/authStore', () => ({ useAuthStore: () => ({ token: 'jwt' }) }));
+vi.mock('@/store/authStore', () => ({ useAuthStore: () => ({ token: 'jwt', user: { id: 'me' } }) }));
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => ({ personalDbKey: 'user:me', isOnline: true }) }));
 vi.mock('@/store/docStore', () => ({ useDocStore: () => ({ listFolders }) }));
 vi.mock('@/store/uiStore', () => ({ useUiStore: () => ({ addToast }) }));
@@ -116,6 +116,47 @@ describe('OdooSyncsCard', () => {
         await flushPromises();
         expect(wrapper.find('[data-testid="odoo-sync-form-error"]').text()).toBe('That is already covered by a sync. Remove the other sync first.');
         expect(wrapper.find('[data-testid="odoo-syncs-form"]').exists()).toBe(true);
+    });
+
+    it('in a space: offers the whole space, says who runs each sync, and lets another member take over', async () => {
+        const calls = api({
+            syncs: [{ ...SYNC, id: 'sp', scope: 'space', sourceName: null, runAs: 'someone-else', runAsName: 'Ada', status: 'paused', pausedReason: 'left_space' }],
+            created: { ...SYNC, id: 'sp2', scope: 'space', sourceName: null, runAs: 'me', lastRunAt: null, lastResult: null },
+        });
+        vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
+            const path = new URL(url, 'http://x').pathname;
+            calls.push({ path, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null });
+            if (path === '/addons/odoo') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(CONNECTED) });
+            if (path === '/addons/odoo/syncs' && options.method === 'POST') return Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ sync: { ...SYNC, id: 'sp2', scope: 'space', sourceName: null, runAs: 'me', lastRunAt: null, lastResult: null } }) });
+            if (path === '/addons/odoo/syncs') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ syncs: [{ ...SYNC, id: 'sp', scope: 'space', sourceName: null, runAs: 'someone-else', runAsName: 'Ada', status: 'paused', pausedReason: 'left_space' }] }) });
+            if (path === '/addons/odoo/articles') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ articles: [] }) });
+            if (path === '/addons/odoo/syncs/sp/take-over') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ sync: { ...SYNC, id: 'sp', scope: 'space', sourceName: null, runAs: 'me', runAsName: 'Me', status: 'active', pausedReason: null } }) });
+            return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: 'not_found' }) });
+        }));
+        const wrapper = mount(OdooSyncsCard, { props: { dbKey: 'space:abc', spaceMode: true } });
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-sync-sp"]').text()).toContain('Whole space');
+        expect(wrapper.find('[data-testid="odoo-sync-status-sp"]').text()).toMatch(/Paused: the person running it left the space/);
+        expect(wrapper.find('[data-testid="odoo-sync-runner-sp"]').text()).toBe('Syncing as Ada, with their Odoo user.');
+        expect(calls.find((c) => c.path === '/addons/odoo/syncs').method).toBe('GET');
+        expect(new URL(`http://x${calls.find((c) => c.path === '/addons/odoo/syncs').path}`)).toBeTruthy();
+
+        await wrapper.find('[data-testid="odoo-sync-take-over-sp"]').trigger('click');
+        await flushPromises();
+        expect(calls.some((c) => c.path === '/addons/odoo/syncs/sp/take-over' && c.method === 'POST')).toBe(true);
+        expect(wrapper.find('[data-testid="odoo-sync-runner-sp"]').text()).toBe('Syncing as you, with their Odoo user.');
+        expect(wrapper.find('[data-testid="odoo-sync-take-over-sp"]').exists()).toBe(false);
+        expect(addToast).toHaveBeenCalledWith('You run this sync now, with your Odoo user.', 'success');
+
+        await wrapper.find('[data-testid="odoo-syncs-add"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.findAll('[data-testid="odoo-sync-folder"] option').map((o) => o.text())).toEqual(['Choose the whole space or a folder', 'The whole space', 'Docs', 'Docs / Sub']);
+        await wrapper.find('[data-testid="odoo-sync-folder"]').setValue('__space__');
+        await wrapper.find('[data-testid="odoo-sync-parent-top"]').trigger('click');
+        await wrapper.find('[data-testid="odoo-syncs-form"]').trigger('submit');
+        await flushPromises();
+        const created = calls.find((c) => c.path === '/addons/odoo/syncs' && c.method === 'POST');
+        expect(created.body).toEqual({ dbKey: 'space:abc', scope: 'space', parentArticleId: 0 });
     });
 
     it('asks before removing a sync, and keeps the articles', async () => {

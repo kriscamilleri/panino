@@ -31,6 +31,7 @@ const structureStore = reactive({
   moveItem: vi.fn(),
 });
 
+vi.mock('@/store/addonsStore', () => ({ useAddonsStore: () => ({ isActive: () => false, get: () => null, fetchAddons: async () => {} }) }));
 vi.mock('vue-router', () => ({ useRouter: () => router }));
 vi.mock('@/store/docStore', () => ({ useDocStore: () => docStore }));
 vi.mock('@/store/structureStore', () => ({ useStructureStore: () => structureStore }));

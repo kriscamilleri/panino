@@ -11,6 +11,7 @@
  */
 
 import { getDb, parseDbKey } from './db.js';
+import { listSpacesForUser, resolveSpaceAccess } from './spaces.js';
 import { isAddonActive } from './addons.js';
 import { OdooError } from './odooClient.js';
 import { rememberConnectionError, senderConnection } from './odooConnection.js';
@@ -169,6 +170,14 @@ async function runOne(dbKey, syncId, { reconcile }) {
         setSyncStatus(db, syncId, { status: 'paused', reason: 'addon_disabled' });
         return null;
     }
+    const parsed = parseDbKey(dbKey);
+    if (parsed.kind === 'space') {
+        const access = resolveSpaceAccess(parsed.id, sync.run_as);
+        if (!access || !['owner', 'editor'].includes(access.role)) {
+            setSyncStatus(db, syncId, { status: 'paused', reason: 'left_space' });
+            return null;
+        }
+    }
     let sender;
     try {
         sender = senderConnection(sync.run_as);
@@ -189,7 +198,6 @@ async function runOne(dbKey, syncId, { reconcile }) {
         return null;
     }
 
-    const { kind } = parseDbKey(dbKey);
     let result;
     try {
         result = await runSync({
@@ -199,7 +207,7 @@ async function runOne(dbKey, syncId, { reconcile }) {
             odooTarget: sender.target,
             userId: sync.run_as,
             readImage: (src) => readInternalImage(src, sync.run_as),
-            globals: kind === 'user' ? globalsOf(db) : globalsOf(db),
+            globals: globalsOf(db),
             reconcile,
         });
     } catch (error) {
@@ -215,25 +223,39 @@ async function runOne(dbKey, syncId, { reconcile }) {
     return result;
 }
 
+/** The databases a person's connection may run syncs in: their own and their spaces'. */
+function databasesRunBy(userId) {
+    const keys = [`user:${userId}`];
+    try {
+        for (const space of listSpacesForUser(userId).spaces || []) keys.push(`space:${space.spaceId}`);
+    } catch {
+        // Shared spaces off, or no space activity: just the personal database.
+    }
+    return keys;
+}
+
 /**
- * Pause every sync a person runs, in their own database, for a reason; resume
- * them when that reason goes away (the add-on switched back on, a new key).
+ * Pause every sync a person runs, in their own database and in their spaces, for a
+ * reason; resume them when that reason goes away (the add-on switched back on, a
+ * new key).
  */
 export function pauseSyncsRunBy(userId, reason) {
-    const dbKey = `user:${userId}`;
-    const db = getDb(dbKey);
-    for (const sync of listSyncs(db)) {
-        if (sync.run_as === userId && sync.status === 'active') setSyncStatus(db, sync.id, { status: 'paused', reason });
+    for (const dbKey of databasesRunBy(userId)) {
+        const db = getDb(dbKey);
+        for (const sync of listSyncs(db)) {
+            if (sync.run_as === userId && sync.status === 'active') setSyncStatus(db, sync.id, { status: 'paused', reason });
+        }
     }
 }
 
 export function resumeSyncsRunBy(userId, reason) {
-    const dbKey = `user:${userId}`;
-    const db = getDb(dbKey);
-    for (const sync of listSyncs(db)) {
-        if (sync.run_as === userId && sync.status === 'paused' && sync.paused_reason === reason) {
-            setSyncStatus(db, sync.id, { status: 'active' });
-            void runSyncNow(dbKey, sync.id, { trigger: 'resumed' });
+    for (const dbKey of databasesRunBy(userId)) {
+        const db = getDb(dbKey);
+        for (const sync of listSyncs(db)) {
+            if (sync.run_as === userId && sync.status === 'paused' && sync.paused_reason === reason) {
+                setSyncStatus(db, sync.id, { status: 'active' });
+                void runSyncNow(dbKey, sync.id, { trigger: 'resumed' });
+            }
         }
     }
 }

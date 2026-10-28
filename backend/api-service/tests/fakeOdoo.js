@@ -16,6 +16,8 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 
 export const API_KEY = 'f0e1d2c3b4a5968778695a4b3c2d1e0f12345678';
+/** A second Odoo user's key, for tests with two people. */
+export const OTHER_API_KEY = '0123456789abcdef0123456789abcdef01234567';
 
 const sha1 = (bytes) => crypto.createHash('sha1').update(bytes).digest('hex');
 
@@ -39,6 +41,8 @@ export function resetFakeOdoo(state) {
     Object.assign(state, {
         version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0, failNotes: false, failArticleCreates: false,
         failArticleNames: new Set(),
+        apiKeys: new Set([API_KEY, OTHER_API_KEY]),
+        writeDeniedKeys: new Set(),
         apps: ['documents', 'knowledge', 'crm', 'sales'],
         nextId: 100, requests: [], messages: [],
         docs: new Map(), attachments: new Map(), attachmentMeta: new Map(),
@@ -96,9 +100,11 @@ export function startFakeOdoo() {
             };
             const odooError = (name, message = 'error') => send(500, { name, message, debug: 'Traceback (most recent call last)…' });
             if (req.url === '/web/version') return send(200, { version_info: [state.version, 0, 0, 'final', 0, 'e'], version: `${state.version}.0+e` });
-            if (req.headers.authorization !== `bearer ${API_KEY}` || !state.keyValid) {
+            const presentedKey = String(req.headers.authorization || '').replace(/^bearer /i, '');
+            if (!state.apiKeys.has(presentedKey) || !state.keyValid) {
                 return send(401, { name: 'werkzeug.exceptions.Unauthorized', message: 'Invalid apikey', debug: 'Traceback…' });
             }
+            const writeDenied = state.writeDeniedKeys.has(presentedKey);
             const [, , , model, method] = req.url.split('?')[0].split('/');
             const appOf = { 'documents.document': 'documents', 'knowledge.article': 'knowledge', 'crm.lead': 'crm', 'sale.order': 'sales' };
             if (appOf[model] && !state.apps.includes(appOf[model])) {
@@ -106,8 +112,12 @@ export function startFakeOdoo() {
             }
 
             switch (`${model}/${method}`) {
-                case 'res.users/context_get': return send(200, { uid: 2 });
-                case 'res.users/read': return send(200, [{ id: 2, name: 'Mitchell Admin', partner_id: [3, 'Mitchell Admin'] }]);
+                case 'res.users/context_get': return send(200, { uid: presentedKey === API_KEY ? 2 : 7 });
+                case 'res.users/read': return send(200, presentedKey === API_KEY
+                    ? [{ id: 2, name: 'Mitchell Admin', partner_id: [3, 'Mitchell Admin'] }]
+                    : [{ id: 7, name: 'Marc Demo', partner_id: [8, 'Marc Demo'] }]);
+                case 'knowledge.article/has_access':
+                    return send(200, params.operation === 'write' ? !writeDenied : true);
                 case 'documents.document/search_count':
                 case 'knowledge.article/search_count':
                 case 'crm.lead/search_count':
@@ -175,6 +185,7 @@ export function startFakeOdoo() {
                         };
                     }));
                 case 'knowledge.article/write':
+                    if (writeDenied) return send(403, { name: 'odoo.exceptions.AccessError', message: 'no write', debug: 'Traceback…' });
                     for (const id of params.ids) {
                         const a = state.articles.get(id);
                         if (!a) return odooError('odoo.exceptions.MissingError', 'gone');

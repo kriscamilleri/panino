@@ -32,6 +32,7 @@ const harness = vi.hoisted(() => ({
   addToast: vi.fn(),
 }));
 
+vi.mock('@/store/addonsStore', () => ({ useAddonsStore: () => ({ isActive: () => false, get: () => null, fetchAddons: async () => {} }) }));
 vi.mock("@/store/spacesStore", () => ({ useSpacesStore: () => harness }));
 vi.mock("@/store/syncStore", () => ({
   useSyncStore: () => ({

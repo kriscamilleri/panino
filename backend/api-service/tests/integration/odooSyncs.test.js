@@ -1,4 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import request from 'supertest';
 import { v4 as uuidv4 } from 'uuid';
 import { createTestApp, cleanupTestUser, getTestToken, setupTestUser } from '../testHelpers.js';
@@ -8,6 +11,7 @@ import { resetFileFieldCache } from '../../odooClient.js';
 import { createSync, listSyncs, readSync } from '../../odooSync.js';
 import { __configureSyncSchedulerForTests, runSyncNow, scheduleSyncRunsAfterChanges, triggerDailyReconcile } from '../../odooSyncScheduler.js';
 import { API_KEY, resetFakeOdoo, startFakeOdoo } from '../fakeOdoo.js';
+import { resolveDatabaseUploadRoot } from '../../spaceStorage.js';
 
 describe('Keeping a folder or a Document in sync with Odoo Knowledge', () => {
     let app;
@@ -321,6 +325,37 @@ describe('Keeping a folder or a Document in sync with Odoo Knowledge', () => {
         expect(gamma.active).toBe(false);
         expect(JSON.parse(readSync(db, sync.id).last_result)).toMatchObject({ updated: 1, unchanged: 2, archived: 1 });
         expect(readSync(db, sync.id).last_reconcile_at).not.toBe('2020-01-01T00:00:00.000Z');
+    });
+
+    it('uploads a synced Document’s images onto its article (Phase 11)', async () => {
+        await connect();
+        const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DwHwyBFJAFBAAyGwX/eOd2EQAAAABJRU5ErkJggg==', 'base64');
+        const imageId = uuidv4();
+        const root = resolveDatabaseUploadRoot(dbKey);
+        fs.mkdirSync(root, { recursive: true });
+        const file = path.join(root, `${imageId}.png`);
+        fs.writeFileSync(file, PNG);
+        db.prepare('INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(imageId, user.userId, 'plan.png', 'image/png', `${imageId}.png`, PNG.length, crypto.createHash('sha256').update(PNG).digest('hex'), now());
+        try {
+            const docs = folder('Docs');
+            const a = note('Plan', `# Plan\n\n![Floor](/images/${imageId})\n\n![Lost](/images/${uuidv4()})`, docs);
+            const sync = folderSync(docs);
+            expect(await run(sync.id)).toMatchObject({ created: 1, failures: [] });
+            const article = byName('Plan');
+            const [[attachmentId, meta]] = [...odoo.state.attachmentMeta.entries()].filter(([, m]) => m.res_model === 'knowledge.article' && m.res_id === article.id);
+            expect(meta.name).toBe(`${imageId}.png`);
+            expect(article.body).toBe(`<p><img src="/web/image/${attachmentId}" alt="Floor"></p>\n<p><span class="o_panino_image_placeholder">Image not sent: Lost</span></p>`);
+            // The create carried placeholders; the image body came with the second write.
+            expect(calls('/knowledge.article/create')[0].params.vals_list[0].body).not.toContain('/images/');
+            expect(linkOf(a).content_hash).toBeTruthy();
+
+            odoo.state.requests = [];
+            expect(await run(sync.id)).toMatchObject({ unchanged: 1 });
+            expect(calls('/ir.attachment/create')).toHaveLength(0);
+        } finally {
+            fs.rmSync(file, { force: true });
+        }
     });
 
     describe('routes', () => {

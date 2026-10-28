@@ -182,6 +182,22 @@
               </BaseButton>
             </form>
 
+            <section
+              v-if="canEdit && addonsStore.isActive('odoo')"
+              class="mt-6"
+              data-testid="space-odoo-sync"
+            >
+              <OdooSyncsCard
+                :db-key="`space:${selectedId}`"
+                space-mode
+              />
+            </section>
+            <p
+              v-else-if="canEdit && addonsStore.get('odoo')"
+              class="pn-help mt-6"
+              data-testid="space-odoo-sync-hint"
+            >Turn on the Odoo add-on in Settings → Add-ons to keep this space in sync with Odoo Knowledge.</p>
+
             <section v-if="isOwner" class="mt-6">
               <h3 class="pn-title-section">Invite an editor</h3>
               <form class="mt-3 flex flex-col gap-3 sm:flex-row" @submit.prevent="invite">
@@ -298,7 +314,7 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { MailPlus, Plus } from "lucide-vue-next";
 import { useRoute } from "vue-router";
 import AccountLayout from "@/components/AccountLayout.vue";
@@ -306,6 +322,7 @@ import AvatarStack from "@/components/AvatarStack.vue";
 import BaseButton from "@/components/BaseButton.vue";
 import BaseModal from "@/components/BaseModal.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
+import { useAddonsStore } from "@/store/addonsStore";
 import { useSpacesStore } from "@/store/spacesStore";
 import { useSyncStore } from "@/store/syncStore";
 import { useUiStore } from "@/store/uiStore";
@@ -326,6 +343,10 @@ const verificationSent = ref(false);
 const confirm = reactive({ kind: "", member: null });
 
 const isOwner = computed(() => isSpaceOwner(spacesStore.detail?.space));
+const canEdit = computed(() => ["owner", "editor"].includes(spacesStore.detail?.space?.role));
+const addonsStore = useAddonsStore();
+// Loaded only while the Odoo add-on is on (see the template).
+const OdooSyncsCard = defineAsyncComponent(() => import("@/components/OdooSyncsCard.vue"));
 const confirmTitle = computed(() => ({
   transfer: "Transfer ownership?",
   remove: "Remove this member?",
@@ -345,6 +366,7 @@ const canConfirm = computed(() => (
 watch(() => spacesStore.detail?.space?.name, (name) => { renameName.value = name || ""; });
 
 onMounted(() => {
+  void addonsStore.fetchAddons();
   void spacesStore.loadPendingInvitations().catch(() => {});
   const requested = typeof route.query.space === "string" ? route.query.space : "";
   selectedId.value = spacesStore.spaces.some((space) => space.id === requested)

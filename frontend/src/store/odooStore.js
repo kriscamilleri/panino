@@ -193,6 +193,12 @@ export const useOdooStore = defineStore('odooStore', () => {
         return payload?.sync || null;
     }
 
+    /** Run a sync with the caller's connection from now on. Rejects with the server's message. */
+    async function takeOverSync(dbKey, syncId) {
+        const payload = await authFetch(`/addons/odoo/syncs/${encodeURIComponent(syncId)}/take-over?${new URLSearchParams({ dbKey })}`, { method: 'POST' });
+        return payload?.sync || null;
+    }
+
     async function removeSync(dbKey, syncId) {
         await authFetch(`/addons/odoo/syncs/${encodeURIComponent(syncId)}?${new URLSearchParams({ dbKey })}`, { method: 'DELETE' });
     }
@@ -227,6 +233,7 @@ export const useOdooStore = defineStore('odooStore', () => {
         fetchSyncs,
         createSync,
         runSync,
+        takeOverSync,
         removeSync,
     };
 });

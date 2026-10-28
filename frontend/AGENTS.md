@@ -40,7 +40,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
 | `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
-| `odooStore` | The Odoo add-on's connection, folder, article and record pickers, links, send and Knowledge syncs (`/addons/odoo/…`); availability is `addonsStore.isActive('odoo')`. Article HTML comes from `composables/useDocumentArticle.js` (`utils/odooArticle.js`); `OdooSyncsCard` lists and adds syncs in Settings | authStore |
+| `odooStore` | The Odoo add-on's connection, folder, article and record pickers, links, send and Knowledge syncs (`/addons/odoo/…`); availability is `addonsStore.isActive('odoo')`. Article HTML comes from `composables/useDocumentArticle.js` (`utils/odooArticle.js`); `OdooSyncsCard` lists and adds syncs in Settings and, in space mode, on the Spaces page | authStore |
 
 ### Store initialization pattern
 

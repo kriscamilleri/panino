@@ -602,8 +602,9 @@ caller's own, `space:` a space they belong to; owner or editor to create, run or
 | Route | Who | Purpose |
 |---|---|---|
 | `GET /addons/odoo/syncs?dbKey=` | can read the database | the syncs with source name, status, pause reason, last run and its counts and failures, whether a run is in progress |
-| `POST /addons/odoo/syncs` | owner or editor, connected, Knowledge app | `{dbKey, scope: 'folder' \| 'note', sourceId, parentArticleId?}` (`null` or `0` = top level): refuses an overlap (`409 overlap`), a gone parent (`record_gone`), a missing app; starts the first run |
+| `POST /addons/odoo/syncs` | owner or editor, connected, Knowledge app | `{dbKey, scope: 'space' \| 'folder' \| 'note', sourceId?, parentArticleId?}` (`null` or `0` = top level; `space` only for a `space:` key, no `sourceId`): refuses an overlap (`409 overlap`), a gone parent (`record_gone`), a missing app; starts the first run |
 | `POST /addons/odoo/syncs/:id/run?dbKey=` | owner or editor | Sync now (`409 paused` while paused) |
+| `POST /addons/odoo/syncs/:id/take-over?dbKey=` | owner or editor, connected to the same Odoo | the caller's connection runs the sync from now on; `knowledge.article/has_access` (`write`) on the sync's articles must say yes (`403 access_denied` otherwise, nothing changes); `409 different_odoo` when the caller's Odoo is another one |
 | `DELETE /addons/odoo/syncs/:id?dbKey=` | owner or editor | stop syncing; articles stay, links lose their `sync_id` |
 | `GET /addons/odoo/links` | | also returns `sync` (the sync covering the Document) and `syncId` per link |
 
@@ -686,9 +687,18 @@ A manual Knowledge send of a Document under a sync answers `knowledge: {ok: fals
    desktop and phone Settings (list, status, Sync now, Remove, Add sync for a folder), the send
    sheet's **Keep in sync** switch and "Synced to Knowledge" state. Checked headless against
    local Odoo 20 Enterprise. Space syncs are Phase 10.
-10. **Space sync.** Whole-space syncs and syncs of space folders and Documents, space settings,
-   owner/editor rules, pause and take-over.
-11. **Images in synced articles**, reusing Phase 6.
+10. **Space sync.** ✅ Done 2026-10-28. `scope: 'space'` syncs (top-level folders and Documents
+   as the roots), space folders and Documents through the same routes with owner/editor rules,
+   a run-time membership check that pauses a sync whose runner left or lost editing rights
+   (`left_space`), pause and resume across the runner's spaces when they switch the add-on off,
+   disconnect or reconnect, and **take over** (`POST …/take-over`, checked with
+   `has_access('write')`, which is public on Odoo 19 and 20). `OdooSyncsCard` in space mode on
+   the Spaces page for owners and editors ("The whole space", "Syncing as …", Take over), with a
+   hint when the viewer's add-on is off.
+11. **Images in synced articles**, reusing Phase 6. ✅ Done 2026-10-28 with Phase 9: a run
+   writes each article with placeholders, uploads its Panino images through
+    `uploadArticleImages` and writes the image body; the same bytes are reused on later runs
+    (`odooSyncs.test.js`, "uploads a synced Document's images").
 12. **PDFs in sync** (opt-in): server-built print request, low-priority rendering into a
     Documents folder.
 
