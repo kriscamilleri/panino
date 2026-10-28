@@ -31,7 +31,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `authStore` | JWT auth, login/logout/signup, token refresh scheduling | syncStore |
 | `structureStore` | Document/folder tree, selection, CRUD operations | syncStore, authStore |
 | `docStore` | **Facade** — re-exports from structureStore + markdownStore, orchestrates coordinated operations | structureStore, markdownStore, syncStore, importExportStore |
-| `markdownStore` | MarkdownIt rendering, preview/print style management, front-matter parsing, variable substitution | syncStore, authStore, globalVariablesStore |
+| `markdownStore` | Preview/print renderers built on the shared `@panino/content-merge/markdown-render` (MarkdownIt setup, front matter, variable substitution live in `shared/`), preview/print style management | syncStore, authStore, globalVariablesStore |
 | `draftStore` | Ephemeral in-memory draft content (keystroke-speed, not persisted to DB) | — (independent) |
 | `editorStore` | Bridge/proxy to Editor component's exposed methods for toolbar actions | — (independent) |
 | `historyStore` | Per-document undo/redo stack (max 100 entries per document) | — (independent) |
@@ -173,7 +173,9 @@ Today: {{ GLOBAL_DATE }}
 - Document-level variables defined in YAML-style front-matter block (not rendered in preview/PDF).
 - Global variables stored in the `globals` table, managed via `globalVariablesStore`.
 - Built-in globals: `GLOBAL_DATE`, `GLOBAL_TIME`.
-- `markdownStore.applyMetadataVariables()` performs substitution before rendering.
+- `markdownStore.applyMetadataVariables()` performs substitution before rendering; it delegates to
+  `applyDocumentVariables` in `shared/markdownRender.js`, the same code the API uses, and
+  `shared/tests/fixtures/document.{md,html}` is the recorded rendering both sides' tests compare against.
 
 ---
 

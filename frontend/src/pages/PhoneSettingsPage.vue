@@ -267,6 +267,10 @@
                                     aria-hidden="true"
                                 />
                             </button>
+                            <OdooKeyNotice
+                                v-if="addon.enabled && addon.id === 'odoo'"
+                                class="mx-4 my-2"
+                            />
                         </template>
                         <p
                             v-if="addonsStore.error"
@@ -413,6 +417,7 @@ const showOdoo = ref(false)
 const confirmingAddon = ref(null)
 // Loaded only while the Odoo add-on is on (see the template).
 const OdooConnectionModal = defineAsyncComponent(() => import('@/components/OdooConnectionModal.vue'))
+const OdooKeyNotice = defineAsyncComponent(() => import('@/components/OdooKeyNotice.vue'))
 
 const tools = computed(() => [
     { key: 'images', label: 'Images', icon: Image, disabled: !syncStore.isOnline, run: () => router.push('/images') },

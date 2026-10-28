@@ -105,6 +105,9 @@ a compatible extension on another platform.
   `sanitizeDeclarations`): the request stylesheet, Custom CSS, per-element values, and the
   `<style>` elements and `style` attributes in Document HTML (via DOMPurify hooks). `@import`
   and `url()` survive only for `data:`, fragments and Google Fonts.
+- Server-side Markdown rendering (Odoo syncs) uses `@panino/content-merge/markdown-render`
+  (`shared/markdownRender.js`), the Preview's own renderer; `tests/unit/sharedRender.test.js`
+  checks the shared fixture renders to the recorded bytes
 - Structured print-style settings are validated with `shared/printStyleRules.js`
   (`validatePrintStyles`); invalid values fall back to the defaults and unknown keys are
   dropped. The frontend Print Styles page uses the same rules for inline hints.

@@ -34,6 +34,12 @@
                     data-testid="odoo-send-target"
                 >To {{ host }} as {{ odoo.status.odooUserName || 'your Odoo user' }}</p>
 
+                <OdooKeyNotice
+                    settings-link
+                    :fetch="false"
+                    @open-settings="openSettings"
+                />
+
                 <div
                     v-if="loadError"
                     class="pn-alert pn-alert-error"
@@ -385,6 +391,21 @@
                     role="alert"
                     data-testid="odoo-send-error"
                 >{{ sendError }}</div>
+
+                <div
+                    v-if="keyRejected"
+                    class="pn-alert pn-alert-error"
+                    role="alert"
+                    data-testid="odoo-send-key-rejected"
+                >
+                    <span>Odoo rejected your API key, so nothing was sent. Update the key in Settings → Add-ons.</span>
+                    <button
+                        type="button"
+                        class="ml-1 font-medium underline underline-offset-2"
+                        data-testid="odoo-send-key-rejected-settings"
+                        @click="openSettings"
+                    >Open Settings</button>
+                </div>
             </template>
         </div>
 
@@ -418,6 +439,7 @@ import { storeToRefs } from 'pinia'
 import { Check, Send, Settings } from 'lucide-vue-next'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
+import OdooKeyNotice from '@/components/OdooKeyNotice.vue'
 import { useDocStore } from '@/store/docStore'
 import { useOdooStore } from '@/store/odooStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -500,6 +522,7 @@ const allUpdates = computed(() => wantsAny.value
     && (!wantsDocuments.value || Boolean(documentsLink.value))
     && (!wantsKnowledge.value || Boolean(knowledgeLink.value))
     && (!wantsChatter.value || Boolean(selectedRecordLink.value)))
+const keyRejected = computed(() => Object.values(results.value).some((result) => result?.error === 'key_rejected'))
 const allSent = computed(() => {
     const done = Object.values(results.value)
     return done.length > 0 && done.every((result) => result.ok)

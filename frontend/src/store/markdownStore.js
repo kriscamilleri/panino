@@ -1,8 +1,7 @@
 // /frontend/src/store/markdownStore.js
 import { defineStore } from 'pinia'
 import { ref, watch, computed } from 'vue'
-import MarkdownIt from 'markdown-it'
-import markdownItTaskLists from 'markdown-it-task-lists'
+import { applyDocumentVariables, createDocumentRenderer } from '@panino/content-merge/markdown-render'
 import { useSyncStore } from './syncStore'
 import { useAuthStore } from './authStore'
 import { useGlobalVariablesStore } from './globalVariablesStore'
@@ -15,38 +14,13 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
   const authStore = useAuthStore();
   const globalVariablesStore = useGlobalVariablesStore();
 
-  function normalizeVariableName(name) {
-    return (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  }
-
   function extractDocumentMetadata(markdown) {
     return parseFrontMatter(markdown).metadata;
   }
 
+  // The shared renderer does the substitution, so the API renders the same way.
   function applyMetadataVariables(markdown) {
-    if (!markdown) return '';
-    const { metadata, body } = parseFrontMatter(markdown);
-    const variableMap = new Map();
-
-    const now = new Date();
-    variableMap.set(normalizeVariableName('GLOBAL_DATE'), now.toLocaleDateString());
-    variableMap.set(normalizeVariableName('GLOBAL_TIME'), now.toLocaleTimeString());
-
-    globalVariablesStore.globalsMap.forEach((value, key) => {
-      if (key) variableMap.set(key, value);
-    });
-
-    Object.entries(metadata).forEach(([key, value]) => {
-      const normalizedKey = normalizeVariableName(key);
-      if (normalizedKey) variableMap.set(normalizedKey, value);
-    });
-
-    return body.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, name) => {
-      const normalizedName = normalizeVariableName(name);
-      if (!normalizedName) return match;
-      const value = variableMap.get(normalizedName);
-      return value !== undefined ? value : match;
-    });
+    return applyDocumentVariables(markdown, { globals: globalVariablesStore.globalsMap });
   }
 
   const printStylesCssString = computed(() => buildPrintCss(printStyles.value));
@@ -134,14 +108,8 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
     saveStylesToDB();
   }
 
-  // Create a base instance of MarkdownIt with common plugins
-  const baseMd = () => {
-    return new MarkdownIt({
-      html: true,
-      linkify: true,
-      typographer: true,
-    }).use(markdownItTaskLists);
-  };
+  // The shared MarkdownIt setup (shared/markdownRender.js); the styles below are layered on.
+  const baseMd = () => createDocumentRenderer();
 
   // Inject CSS into document head
   function addCustomCSSToDocument(cssContent, targetDoc = document) {

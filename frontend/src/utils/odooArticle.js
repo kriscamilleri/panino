@@ -1,17 +1,15 @@
-import MarkdownIt from 'markdown-it'
-import markdownItTaskLists from 'markdown-it-task-lists'
 import DOMPurify from 'dompurify'
+import { renderDocumentHtml } from '@panino/content-merge/markdown-render'
 
 /**
  * Render a Document for Odoo Knowledge (docs/specs/active/odoo-integration.md §7):
- * the same MarkdownIt setup as the Preview, without Panino's print styling, then
- * sanitized. The server sanitizes again, turns task lists into Knowledge
- * checklists and replaces images with placeholders.
+ * the shared renderer the Preview and the API use, without Panino's print
+ * styling, then sanitized. The server sanitizes again, turns task lists into
+ * Knowledge checklists and uploads the images.
  *
  * @param {string} markdown with front-matter variables already applied
  * @returns {string}
  */
 export function renderArticleHtml(markdown) {
-    const md = new MarkdownIt({ html: true, linkify: true, typographer: true }).use(markdownItTaskLists)
-    return DOMPurify.sanitize(md.render(String(markdown ?? '')))
+    return DOMPurify.sanitize(renderDocumentHtml(markdown))
 }

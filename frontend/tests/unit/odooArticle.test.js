@@ -26,3 +26,24 @@ describe('renderArticleHtml', () => {
         expect(renderArticleHtml(undefined)).toBe('');
     });
 });
+
+describe('renderer parity with the API', () => {
+    it('renders the shared fixture exactly as recorded', async () => {
+        const fs = await import('node:fs');
+        const path = await import('node:path');
+        const { applyDocumentVariables } = await import('@panino/content-merge/markdown-render');
+        const fixtures = path.resolve(__dirname, '../../../shared/tests/fixtures');
+        const markdown = fs.readFileSync(path.join(fixtures, 'document.md'), 'utf8');
+        const expected = fs.readFileSync(path.join(fixtures, 'document.html'), 'utf8');
+        const body = applyDocumentVariables(markdown, {
+            globals: { Author: 'Kris', customer: 'ignored by front matter' },
+            now: new Date('2026-10-28T09:30:00Z'),
+            formatDate: () => '2026-10-28',
+            formatTime: () => '09:30',
+        });
+        const { renderDocumentHtml } = await import('@panino/content-merge/markdown-render');
+        expect(renderDocumentHtml(body)).toBe(expected);
+        // What the Odoo send sheet sends is that HTML, sanitized: nothing the sanitizer drops here.
+        expect(renderArticleHtml(body)).toBe(expected);
+    });
+});

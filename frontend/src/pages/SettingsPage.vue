@@ -61,15 +61,18 @@
 
         <AddonsSection>
             <template #odoo>
-                <BaseButton
-                    variant="secondary"
-                    size="md"
-                    data-testid="settings-odoo-button"
-                    @click="showOdoo = true"
-                >
-                    <Plug class="w-4 h-4" />
-                    <span>Odoo connection</span>
-                </BaseButton>
+                <div class="space-y-3">
+                    <BaseButton
+                        variant="secondary"
+                        size="md"
+                        data-testid="settings-odoo-button"
+                        @click="showOdoo = true"
+                    >
+                        <Plug class="w-4 h-4" />
+                        <span>Odoo connection</span>
+                    </BaseButton>
+                    <OdooKeyNotice />
+                </div>
             </template>
         </AddonsSection>
 
@@ -101,6 +104,7 @@ const router = useRouter();
 const showOdoo = ref(false);
 // Loaded only while the Odoo add-on is on (see the template).
 const OdooConnectionModal = defineAsyncComponent(() => import('@/components/OdooConnectionModal.vue'));
+const OdooKeyNotice = defineAsyncComponent(() => import('@/components/OdooKeyNotice.vue'));
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
 

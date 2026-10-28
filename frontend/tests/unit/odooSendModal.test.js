@@ -319,6 +319,23 @@ describe('OdooSendModal', () => {
         expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toBe('Sent to Odoo Knowledge. 2 images could not be sent and show as "Image not sent".');
     });
 
+    it('warns about the key and points to Settings when Odoo rejects it', async () => {
+        const inDays = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+        api({ status: { ...CONNECTED, keyExpiresOn: inDays(2) }, links: { links: [], defaults: { folderId: 2 } }, send: { documents: { ok: false, error: 'key_rejected', message: 'Odoo rejected the API key.' } } });
+        const wrapper = mountModal();
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-key-notice"]').text()).toMatch(/expires in 2 days/);
+        expect(wrapper.find('[data-testid="odoo-send-key-rejected"]').exists()).toBe(false);
+
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-result"]').text()).toBe('Odoo rejected the API key.');
+        expect(wrapper.find('[data-testid="odoo-send-key-rejected"]').exists()).toBe(true);
+        await wrapper.find('[data-testid="odoo-send-key-rejected-settings"]').trigger('click');
+        expect(push).toHaveBeenCalledWith('/settings');
+        expect(wrapper.emitted('close')).toHaveLength(1);
+    });
+
     it('cannot send with nothing ticked', async () => {
         api();
         const wrapper = mountModal();

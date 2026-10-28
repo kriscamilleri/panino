@@ -1,17 +1,21 @@
 {
     "name": "@panino/content-merge",
     "version": "0.1.0",
-    "description": "Canonical normalization, hashing and three-way document-body merge for Panino, plus the print-style validation rules shared by the API and the Styles pages.",
+    "description": "Canonical normalization, hashing and three-way document-body merge for Panino, the print-style validation rules shared by the API and the Styles pages, and the one Markdown renderer (front matter, variables, MarkdownIt setup) the Preview and the API both use.",
     "type": "module",
     "main": "contentMerge.js",
     "exports": {
         ".": "./contentMerge.js",
-        "./print-style-rules": "./printStyleRules.js"
+        "./print-style-rules": "./printStyleRules.js",
+        "./markdown-render": "./markdownRender.js",
+        "./front-matter": "./frontMatter.js"
     },
     "scripts": {
         "test": "vitest run"
     },
     "dependencies": {
+        "markdown-it": "14.1.0",
+        "markdown-it-task-lists": "2.1.1",
         "node-diff3": "3.2.1"
     },
     "devDependencies": {

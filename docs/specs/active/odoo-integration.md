@@ -138,6 +138,7 @@ Against `odoo:19.0` (`19.0-20251222`) started with `scripts/odoo-dev.sh` (§13):
 | `crm.lead` / `sale.order` fields | `type`, `name`, `partner_id`, `stage_id` / `name` (e.g. `S00016`), `partner_id`, `state` |
 | Reaching Odoo from the API container | `http://odoo:8069` over `panino_default` |
 | Record URL | `/odoo/<model>/<id>` (e.g. `/odoo/crm.lead/1`) opens the record's form in the web client; checked logged in, headless, on 2026-10-28 |
+| `res.users.apikeys/generate`, `/revoke` | **Do not exist** through JSON-2 on 19.0 (`404`, "The method … does not exist"); `_generate` is private. `search_read` on `res.users.apikeys` works and shows the key owner's keys with `expiration_date`. Panino cannot rotate keys; people make a new key in Odoo and use **Change key or address** |
 
 ### Verified on local Odoo 20.0 Enterprise (2026-10-26)
 
@@ -650,11 +651,18 @@ sync unchanged.
    `imagesUploaded` / `imagesMissing` and the sheet says how many were not sent. Checked
    headless against local Odoo 20 Enterprise: attachment on the article, one attachment after
    a resend, the image renders for a logged-in Odoo reader.
-7. **Key lifecycle.** Expiry warnings everywhere; optional rotation through
-   `res.users.apikeys/generate` when allowed (generate the new key, store it, verify it, then
-   revoke the old one).
-8. **Shared renderer.** Move Preview rendering into `shared/`, with fixtures proving frontend and
-   backend output match; manual Knowledge send switches to it.
+7. **Key lifecycle.** ✅ Done 2026-10-28, without rotation: `res.users.apikeys/generate` and
+   `/revoke` are not public through JSON-2 on Odoo 19 (§4), so rotation stays manual (Settings →
+   **Change key or address**). `OdooKeyNotice` shows the expiry warning (14 days) or the rejected
+   key under the Odoo switch on desktop and phone Settings and at the top of the send sheet,
+   pointing to Settings; a send answered `key_rejected` adds the pointer under the results.
+8. **Shared renderer.** ✅ Done 2026-10-28. `shared/markdownRender.js` (`createDocumentRenderer`,
+   `renderDocumentHtml`, `applyDocumentVariables`, `normalizeVariableName`) and
+   `shared/frontMatter.js`, exported as `@panino/content-merge/markdown-render` and
+   `/front-matter`; `markdownStore` builds its Preview and print renderers on it and delegates
+   variable substitution to it (`frontend/src/utils/frontMatter.js` re-exports), the Knowledge
+   send renders with it. `shared/tests/fixtures/document.{md,html}` is the recorded rendering; the
+   shared, frontend and API test suites each render it and compare bytes.
 9. **Sync to Knowledge.** `odoo_syncs`, Document and folder syncs, adopting manually sent
    articles, first run by levels, change detection, archive and restore, read-only permissions,
    scheduler and daily reconcile, status card, the send sheet's Keep in sync switch. Personal
