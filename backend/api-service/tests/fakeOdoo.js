@@ -37,7 +37,8 @@ function demoRecords() {
 /** Put `state` back to a fresh Odoo 20 with the demo records. */
 export function resetFakeOdoo(state) {
     Object.assign(state, {
-        version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0, failNotes: false,
+        version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0, failNotes: false, failArticleCreates: false,
+        failArticleNames: new Set(),
         apps: ['documents', 'knowledge', 'crm', 'sales'],
         nextId: 100, requests: [], messages: [],
         docs: new Map(), attachments: new Map(), attachmentMeta: new Map(),
@@ -106,7 +107,7 @@ export function startFakeOdoo() {
 
             switch (`${model}/${method}`) {
                 case 'res.users/context_get': return send(200, { uid: 2 });
-                case 'res.users/read': return send(200, [{ id: 2, name: 'Mitchell Admin' }]);
+                case 'res.users/read': return send(200, [{ id: 2, name: 'Mitchell Admin', partner_id: [3, 'Mitchell Admin'] }]);
                 case 'documents.document/search_count':
                 case 'knowledge.article/search_count':
                 case 'crm.lead/search_count':
@@ -147,11 +148,19 @@ export function startFakeOdoo() {
                         .slice(0, params.limit || 80)
                         .map(({ id, name, parent_id }) => ({ id, name, parent_id })));
                 case 'knowledge.article/create': {
+                    if (state.failArticleCreates) return odooError('odoo.exceptions.UserError', 'Creating is failing today');
+                    if (params.vals_list.some((vals) => state.failArticleNames.has(vals.name))) return odooError('odoo.exceptions.ValidationError', 'That name is refused');
                     const ids = params.vals_list.map((vals) => {
                         const id = state.nextId++;
                         const parent = vals.parent_id ? state.articles.get(vals.parent_id) : null;
                         if (vals.parent_id && !parent) return null;
-                        state.articles.set(id, { id, name: vals.name, body: vals.body, parent_id: parent ? [parent.id, parent.name] : false, create_date: createDate(id) });
+                        state.articles.set(id, {
+                            id, name: vals.name, body: vals.body, parent_id: parent ? [parent.id, parent.name] : false,
+                            sequence: vals.sequence ?? 0, active: true,
+                            internal_permission: vals.internal_permission ?? (parent ? parent.internal_permission : 'write'),
+                            members: vals.article_member_ids || [],
+                            create_date: createDate(id),
+                        });
                         return id;
                     });
                     if (ids.includes(null)) return odooError('odoo.exceptions.MissingError', 'parent gone');
@@ -160,13 +169,22 @@ export function startFakeOdoo() {
                 case 'knowledge.article/read':
                     return send(200, params.ids.filter((id) => state.articles.has(id)).map((id) => {
                         const a = state.articles.get(id);
-                        return { id, create_date: a.create_date, article_url: `http://localhost:8069/knowledge/article/${id}`, name: a.name, body: a.body };
+                        return {
+                            id, create_date: a.create_date, article_url: `http://localhost:8069/knowledge/article/${id}`,
+                            name: a.name, body: a.body, parent_id: a.parent_id, sequence: a.sequence ?? 0, active: a.active !== false,
+                        };
                     }));
                 case 'knowledge.article/write':
                     for (const id of params.ids) {
                         const a = state.articles.get(id);
                         if (!a) return odooError('odoo.exceptions.MissingError', 'gone');
-                        Object.assign(a, params.vals);
+                        const vals = { ...params.vals };
+                        if ('parent_id' in vals) {
+                            const parent = vals.parent_id ? state.articles.get(vals.parent_id) : null;
+                            if (vals.parent_id && !parent) return odooError('odoo.exceptions.MissingError', 'parent gone');
+                            vals.parent_id = parent ? [parent.id, parent.name] : false;
+                        }
+                        Object.assign(a, vals);
                     }
                     return send(200, true);
 

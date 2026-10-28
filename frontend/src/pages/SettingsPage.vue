@@ -72,6 +72,7 @@
                         <span>Odoo connection</span>
                     </BaseButton>
                     <OdooKeyNotice />
+                    <OdooSyncsCard ref="syncsCard" />
                 </div>
             </template>
         </AddonsSection>
@@ -79,7 +80,7 @@
         <OdooConnectionModal
             v-if="addonsStore.isActive('odoo')"
             :show="showOdoo"
-            @close="showOdoo = false"
+            @close="closeOdoo"
         />
     </AccountLayout>
 </template>
@@ -105,6 +106,14 @@ const showOdoo = ref(false);
 // Loaded only while the Odoo add-on is on (see the template).
 const OdooConnectionModal = defineAsyncComponent(() => import('@/components/OdooConnectionModal.vue'));
 const OdooKeyNotice = defineAsyncComponent(() => import('@/components/OdooKeyNotice.vue'));
+const OdooSyncsCard = defineAsyncComponent(() => import('@/components/OdooSyncsCard.vue'));
+const syncsCard = ref(null);
+
+// A connection change (new key, disconnect) changes what the syncs card can show.
+function closeOdoo() {
+    showOdoo.value = false;
+    syncsCard.value?.load?.();
+}
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
 

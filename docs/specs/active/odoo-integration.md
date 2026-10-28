@@ -596,8 +596,18 @@ sync unchanged.
 
 ### API
 
+All under `/addons/odoo`, behind the add-on gate; `dbKey` names the synced database (`user:` the
+caller's own, `space:` a space they belong to; owner or editor to create, run or remove).
+
 | Route | Who | Purpose |
 |---|---|---|
+| `GET /addons/odoo/syncs?dbKey=` | can read the database | the syncs with source name, status, pause reason, last run and its counts and failures, whether a run is in progress |
+| `POST /addons/odoo/syncs` | owner or editor, connected, Knowledge app | `{dbKey, scope: 'folder' \| 'note', sourceId, parentArticleId?}` (`null` or `0` = top level): refuses an overlap (`409 overlap`), a gone parent (`record_gone`), a missing app; starts the first run |
+| `POST /addons/odoo/syncs/:id/run?dbKey=` | owner or editor | Sync now (`409 paused` while paused) |
+| `DELETE /addons/odoo/syncs/:id?dbKey=` | owner or editor | stop syncing; articles stay, links lose their `sync_id` |
+| `GET /addons/odoo/links` | | also returns `sync` (the sync covering the Document) and `syncId` per link |
+
+A manual Knowledge send of a Document under a sync answers `knowledge: {ok: false, error: 'synced'}`.
 | `GET /addons/odoo/syncs?dbKey=` | can read the database | syncs and their status |
 | `POST /addons/odoo/syncs` | owner of `user:`; space owner or editor | `{dbKey, scope, sourceId?, parentArticleId, documentsFolderId?}`; runs as the caller |
 | `POST /addons/odoo/syncs/:id/run` | same | Sync now |
@@ -663,10 +673,19 @@ sync unchanged.
    variable substitution to it (`frontend/src/utils/frontMatter.js` re-exports), the Knowledge
    send renders with it. `shared/tests/fixtures/document.{md,html}` is the recorded rendering; the
    shared, frontend and API test suites each render it and compare bytes.
-9. **Sync to Knowledge.** `odoo_syncs`, Document and folder syncs, adopting manually sent
-   articles, first run by levels, change detection, archive and restore, read-only permissions,
-   scheduler and daily reconcile, status card, the send sheet's Keep in sync switch. Personal
-   Documents and folders.
+9. **Sync to Knowledge.** ✅ Done 2026-10-28, for personal databases. `odooSync.js` (rows,
+   `syncTree` level by level in title order, `runSync`: hash-based change detection, batch
+   `create` per level with a one-by-one fallback, `write` of name/body/parent/sequence/active,
+   adoption of manually sent articles, archive on delete or move-out and restore on return,
+   read-only root articles with the runner as write member, images after the body, per-record
+   failures, pause on a rejected key, daily reconcile that rewrites drift and re-archives what
+   Odoo unarchived), `odooSyncScheduler.js` (3-minute debounce after `/sync` changes, job map,
+   60 calls a minute per target, daily reconcile trigger, pause and resume through the add-on
+   hooks, connect and disconnect), `odooConnection.js` (the connection helpers shared with the
+   routes), the `odoo_syncs` table, the routes above, `OdooSyncsCard` under the Odoo switch on
+   desktop and phone Settings (list, status, Sync now, Remove, Add sync for a folder), the send
+   sheet's **Keep in sync** switch and "Synced to Knowledge" state. Checked headless against
+   local Odoo 20 Enterprise. Space syncs are Phase 10.
 10. **Space sync.** Whole-space syncs and syncs of space folders and Documents, space settings,
    owner/editor rules, pause and take-over.
 11. **Images in synced articles**, reusing Phase 6.

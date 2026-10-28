@@ -307,6 +307,62 @@ describe('OdooSendModal', () => {
         expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toContain('Updated in Odoo Knowledge.');
     });
 
+    it('keeps a Document in sync instead of sending it once', async () => {
+        const calls = api({ links: { links: [], defaults: { folderId: null, parentArticleId: 10 } } });
+        vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
+            const path = new URL(url, 'http://x').pathname;
+            calls.push({ path, url, options });
+            if (path === '/addons/odoo/syncs' && options.method === 'POST') {
+                return Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ sync: { id: 's1', scope: 'note', status: 'active', lastRunAt: null } }) });
+            }
+            const body = path === '/addons/odoo' ? CONNECTED
+                : path === '/addons/odoo/links' ? { links: [], defaults: { folderId: null, parentArticleId: 10 } }
+                    : path === '/addons/odoo/articles' ? ARTICLES
+                        : null;
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+        }));
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        await wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').setValue(true);
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-keep-in-sync"]').setValue(true);
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+
+        expect(calls.some((c) => c.path === '/addons/odoo/send')).toBe(false);
+        const created = calls.find((c) => c.path === '/addons/odoo/syncs' && c.options.method === 'POST');
+        expect(JSON.parse(created.options.body)).toEqual({ dbKey: 'user:me', scope: 'note', sourceId: 'note-1', parentArticleId: 10 });
+        expect(buildArticle).not.toHaveBeenCalled();
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toContain('Kept in sync with Odoo Knowledge from now on.');
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-synced"]').text()).toContain('Kept in sync on its own, first sync on its way.');
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').attributes('disabled')).toBeDefined();
+    });
+
+    it('shows a synced Document as such and will not send it by hand', async () => {
+        const calls = api({
+            links: {
+                links: [{ destination: 'knowledge', targetKey: '', sameOdoo: true, url: 'https://acme.odoo.com/knowledge/article/5', lastSentAt: new Date().toISOString(), lastSentBy: 'Kris', syncId: 's1' }],
+                defaults: {},
+                sync: { id: 's1', scope: 'folder', sourceName: 'Docs', status: 'active', lastRunAt: new Date(Date.now() - 120000).toISOString() },
+            },
+            send: { documents: { ok: true, created: true } },
+        });
+        const wrapper = mountModal();
+        await flushPromises();
+        const synced = wrapper.find('[data-testid="odoo-send-knowledge-synced"]');
+        expect(synced.text()).toContain('Kept in sync with the folder "Docs", last synced 2 minutes ago.');
+        expect(synced.find('a').attributes('href')).toBe('https://acme.odoo.com/knowledge/article/5');
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').attributes('disabled')).toBeDefined();
+        expect(wrapper.find('[data-testid="odoo-send-knowledge"]').text()).toContain('Synced to Knowledge');
+
+        await wrapper.find('[data-testid="odoo-folder-41"]').trigger('click');
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        expect(sentBody(calls).knowledge).toBeUndefined();
+        expect(sentBody(calls).documents).toEqual({ folderId: 41 });
+    });
+
     it('says when images could not be sent', async () => {
         api({ links: { links: [], defaults: { folderId: null, parentArticleId: 0 } }, send: { knowledge: { ok: true, created: true, imagesUploaded: 1, imagesMissing: 2 } } });
         const wrapper = mountModal();

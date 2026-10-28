@@ -22,7 +22,7 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
 | `backup.js` | GitHub OAuth, repository selection, snapshot commits, auto-backup scheduling | Mixed |
 | `addons.js` | Add-on registry and gate (`docs/specs/active/addons.md`): `GET /addons`, `PUT /addons/:id/enabled`, `requireAddon(id)` (404 unless the operator offers it, 403 `addon_disabled` until the user switches it on), the per-user `addons` table | Authenticated |
-| `odoo.js`, `odooClient.js`, `odooDocuments.js`, `odooKnowledge.js`, `odooArticleImages.js`, `odooChatter.js`, `odooLinks.js` | The Odoo add-on (`docs/specs/active/odoo-integration.md`): connection, folder, article and record pickers, links, send to Documents, to Knowledge (article HTML sanitized and converted in `odooKnowledge.js`) and to an opportunity's or sales order's chatter; every route under `/addons/odoo` behind `requireAddon('odoo')`. Tests use `tests/fakeOdoo.js` | Authenticated |
+| `odoo.js`, `odooConnection.js`, `odooClient.js`, `odooDocuments.js`, `odooKnowledge.js`, `odooArticleImages.js`, `odooChatter.js`, `odooLinks.js`, `odooSync.js`, `odooSyncScheduler.js` | The Odoo add-on (`docs/specs/active/odoo-integration.md`): connection, folder, article and record pickers, links, send to Documents, to Knowledge (article HTML sanitized and converted in `odooKnowledge.js`) and to an opportunity's or sales order's chatter; Knowledge syncs (`odooSync.js` runs one, `odooSyncScheduler.js` decides when: after `/sync` changes, Sync now, daily). Every route under `/addons/odoo` behind `requireAddon('odoo')`. Tests use `tests/fakeOdoo.js` | Authenticated |
 | `revision.js` | Note revision capture, listing, detail, restore, and pruning; snapshots may carry a nullable server-derived `actor_user_id`/`actor_kind` (`sync`\|`collab`\|`system`) — never accepted from client input | Authenticated |
 | `db.js` | Canonical `getDb(dbKey)` content connections, user compatibility wrappers, versioned content initialization, auth/space metadata DBs, connection caching, CR-SQLite extension loading | — |
 | `spaces.js` | Flag-gated discovery and lifecycle: create/rename, hashed email-bound editor invitations, member removal, ownership transfer, editor leave, pending deletion, membership-version fan-out, and retained-space purge scheduling | Authenticated / trusted server callers |
@@ -105,6 +105,9 @@ a compatible extension on another platform.
   `sanitizeDeclarations`): the request stylesheet, Custom CSS, per-element values, and the
   `<style>` elements and `style` attributes in Document HTML (via DOMPurify hooks). `@import`
   and `url()` survive only for `data:`, fragments and Google Fonts.
+- The dev stack keeps `/app/shared/node_modules` in an anonymous volume filled from the image, so
+  after a change to `shared/package.json` recreate it: `docker compose -f docker-compose.dev.yml
+  up -d --build -V api-service` (otherwise the API fails to import the new dependency)
 - Server-side Markdown rendering (Odoo syncs) uses `@panino/content-merge/markdown-render`
   (`shared/markdownRender.js`), the Preview's own renderer; `tests/unit/sharedRender.test.js`
   checks the shared fixture renders to the recorded bytes

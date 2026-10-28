@@ -2,6 +2,7 @@
 import express from "express";
 import { getDb, invalidateDb } from "./db.js";
 import { triggerDailyAutoBackup } from "./backup.js";
+import { scheduleSyncRunsAfterChanges, triggerDailyReconcile } from "./odooSyncScheduler.js";
 import {
   createRevisionSnapshot,
   deleteNoteRevisionsForDeletedNote,
@@ -533,6 +534,8 @@ router.post("/sync", (req, res, next) => {
         }
       });
       applyChanges(changes, noteMutations);
+      // A synced folder or Document mirrors to Odoo Knowledge a while after the last change.
+      scheduleSyncRunsAfterChanges(dbKey);
 
       // Notify other clients, excluding the one that sent the changes.
       // Personal sync keeps the exact legacy `{type:'sync'}` poke; a space
@@ -586,6 +589,7 @@ router.post("/sync", (req, res, next) => {
     if (!isSpaceSync) {
       void triggerDailyAutoBackup(userId);
     }
+    triggerDailyReconcile(dbKey);
   } catch (err) {
     if (mergeAttempted) {
       const failedChange = mergeChange;

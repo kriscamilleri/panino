@@ -358,6 +358,22 @@ const ODOO_LINK_SCHEMA = `
     folder_id INTEGER,
     parent_article_id INTEGER
   );
+  CREATE TABLE IF NOT EXISTS odoo_syncs (
+    id TEXT PRIMARY KEY NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('space', 'folder', 'note')),
+    source_id TEXT,
+    odoo_target TEXT NOT NULL,
+    parent_article_id INTEGER,
+    documents_folder_id INTEGER,
+    run_as TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused')),
+    paused_reason TEXT,
+    last_run_at TEXT,
+    last_reconcile_at TEXT,
+    last_result TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `;
 
 const CONTENT_SCHEMA_METADATA = `

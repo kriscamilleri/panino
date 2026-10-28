@@ -167,13 +167,34 @@
                             v-model="toKnowledge"
                             type="checkbox"
                             class="pn-checkbox"
+                            :disabled="Boolean(syncInfo)"
                             data-testid="odoo-send-knowledge-toggle"
                         >
-                        Article to Knowledge
+                        {{ syncInfo ? 'Synced to Knowledge' : 'Article to Knowledge' }}
                     </label>
 
                     <div
-                        v-if="knowledgeLink"
+                        v-if="syncInfo"
+                        class="pn-body"
+                        data-testid="odoo-send-knowledge-synced"
+                    >
+                        <span v-if="syncInfo.scope === 'note'">Kept in sync on its own</span>
+                        <span v-else>Kept in sync with the {{ syncInfo.scope === 'folder' ? `folder "${syncInfo.sourceName || 'Untitled'}"` : 'space' }}</span>
+                        <span v-if="syncInfo.lastRunAt">, last synced {{ sentAgo(syncInfo.lastRunAt) }}</span>
+                        <span v-else>, first sync on its way</span>.
+                        <span v-if="syncInfo.status === 'paused'">The sync is paused; see Settings → Add-ons.</span>
+                        <span v-else>Changes reach Odoo a few minutes after you make them.</span>
+                        <a
+                            v-if="knowledgeLink?.url"
+                            :href="knowledgeLink.url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="font-medium underline underline-offset-2"
+                        >Open in Odoo</a>
+                    </div>
+
+                    <div
+                        v-else-if="knowledgeLink"
                         class="pn-body"
                         data-testid="odoo-send-knowledge-last-sent"
                     >
@@ -262,6 +283,15 @@
                                 class="px-3 py-2 pn-help"
                             >No articles match.</li>
                         </ul>
+                        <label class="flex items-start gap-2 pn-body">
+                            <input
+                                v-model="keepInSync"
+                                type="checkbox"
+                                class="pn-checkbox mt-0.5"
+                                data-testid="odoo-send-keep-in-sync"
+                            >
+                            <span>Keep in sync: changes to this Document reach the article on their own, a few minutes after you make them. Colleagues can read it in Odoo but not edit it.</span>
+                        </label>
                     </div>
 
                     <div
@@ -474,6 +504,8 @@ const articleQuery = ref('')
 const parentId = ref(null)
 const loadingArticles = ref(false)
 const toKnowledge = ref(false)
+const keepInSync = ref(false)
+const syncInfo = ref(null)
 const records = ref([])
 const recordQuery = ref('')
 const selectedRecordKey = ref(null)
@@ -507,7 +539,7 @@ const selectedRecord = computed(() => records.value.find((record) => recordKey(r
 const selectedRecordLink = computed(() => (selectedRecord.value ? sentTo(selectedRecord.value) : null))
 
 const wantsDocuments = computed(() => hasDocumentsApp.value && toDocuments.value)
-const wantsKnowledge = computed(() => hasKnowledgeApp.value && toKnowledge.value)
+const wantsKnowledge = computed(() => hasKnowledgeApp.value && toKnowledge.value && !syncInfo.value)
 const wantsChatter = computed(() => hasChatterApps.value && toChatter.value)
 const wantsAny = computed(() => wantsDocuments.value || wantsKnowledge.value || wantsChatter.value)
 const documentsReady = computed(() => Boolean(documentsLink.value || folderId.value))
@@ -539,6 +571,7 @@ const knowledgeResultMessage = computed(() => {
     const result = results.value.knowledge
     if (!result) return ''
     if (!result.ok) return result.message
+    if (result.synced) return 'Kept in sync with Odoo Knowledge from now on. The first sync is on its way.'
     const base = result.recreated
         ? 'The earlier article was gone from Odoo, so a new one was made.'
         : (result.created ? 'Sent to Odoo Knowledge.' : 'Updated in Odoo Knowledge.')
@@ -633,6 +666,8 @@ watch(() => props.show, async (open) => {
     articleQuery.value = ''
     parentId.value = null
     toKnowledge.value = false
+    keepInSync.value = false
+    syncInfo.value = null
     try {
         await odoo.fetchStatus()
         toDocuments.value = hasDocumentsApp.value
@@ -641,6 +676,7 @@ watch(() => props.show, async (open) => {
             links.value = data?.links || []
             folderId.value = data?.defaults?.folderId ?? null
             parentId.value = data?.defaults?.parentArticleId ?? null
+            syncInfo.value = data?.sync || null
             if (hasDocumentsApp.value && !documentsLink.value) await loadFolders()
         }
     } catch (error) {
@@ -663,17 +699,31 @@ async function send() {
         }
         if (wantsDocuments.value || wantsChatter.value) body.pdfRequest = await buildForSelected()
         if (wantsDocuments.value) body.documents = documentsLink.value ? {} : { folderId: folderId.value }
-        if (wantsKnowledge.value) {
+        // What was ticked when Send was pressed; a sync set up below changes the computeds.
+        const wanted = { documents: wantsDocuments.value, knowledge: wantsKnowledge.value, chatter: wantsChatter.value }
+        // "Keep in sync" sets up a Document sync instead of a one-off article.
+        const syncing = wanted.knowledge && keepInSync.value && !knowledgeLink.value
+        if (wantsKnowledge.value && !syncing) {
             const html = await buildArticleForSelected()
             body.knowledge = knowledgeLink.value ? { html } : { parentId: parentId.value, html }
         }
         if (wantsChatter.value) body.chatter = { resModel: selectedRecord.value.resModel, resId: selectedRecord.value.resId }
-        const response = await odoo.send(body)
         const missing = { ok: false, message: 'Odoo did not answer.' }
+        const response = (body.documents || body.knowledge || body.chatter) ? await odoo.send(body) : {}
+        let syncResult = null
+        if (syncing) {
+            try {
+                const sync = await odoo.createSync({ dbKey: file.value.dbKey, scope: 'note', sourceId: file.value.id, parentArticleId: parentId.value })
+                syncInfo.value = sync
+                syncResult = { ok: true, synced: true, url: null }
+            } catch (error) {
+                syncResult = { ok: false, message: error.message }
+            }
+        }
         results.value = {
-            ...(wantsDocuments.value ? { documents: response?.documents || missing } : {}),
-            ...(wantsKnowledge.value ? { knowledge: response?.knowledge || missing } : {}),
-            ...(wantsChatter.value ? { chatter: response?.chatter || missing } : {}),
+            ...(wanted.documents ? { documents: response?.documents || missing } : {}),
+            ...(wanted.knowledge ? { knowledge: syncing ? syncResult : (response?.knowledge || missing) } : {}),
+            ...(wanted.chatter ? { chatter: response?.chatter || missing } : {}),
         }
         if (Object.values(results.value).some((result) => result.ok)) {
             const data = await odoo.fetchLinks(file.value.dbKey, file.value.id)

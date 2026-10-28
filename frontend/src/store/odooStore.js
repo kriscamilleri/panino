@@ -165,6 +165,39 @@ export const useOdooStore = defineStore('odooStore', () => {
     }
 
     /**
+     * The syncs of a database (docs/specs/active/odoo-integration.md §11).
+     *
+     * @param {string} dbKey
+     * @returns {Promise<object[]>}
+     */
+    async function fetchSyncs(dbKey) {
+        const payload = await authFetch(`/addons/odoo/syncs?${new URLSearchParams({ dbKey })}`);
+        return payload?.syncs || [];
+    }
+
+    /**
+     * Keep a folder or a Document in sync with Knowledge. Rejects with the
+     * server's message.
+     *
+     * @param {{ dbKey: string, scope: 'folder'|'note', sourceId: string, parentArticleId?: number|null }} input
+     * @returns {Promise<object>} the sync
+     */
+    async function createSync(input) {
+        const payload = await authFetch('/addons/odoo/syncs', { method: 'POST', body: JSON.stringify(input) });
+        return payload?.sync || null;
+    }
+
+    /** @returns {Promise<object>} the sync after the run */
+    async function runSync(dbKey, syncId) {
+        const payload = await authFetch(`/addons/odoo/syncs/${encodeURIComponent(syncId)}/run?${new URLSearchParams({ dbKey })}`, { method: 'POST' });
+        return payload?.sync || null;
+    }
+
+    async function removeSync(dbKey, syncId) {
+        await authFetch(`/addons/odoo/syncs/${encodeURIComponent(syncId)}?${new URLSearchParams({ dbKey })}`, { method: 'DELETE' });
+    }
+
+    /**
      * Send a Document. Resolves with the server's per-destination results; a
      * refused request rejects with the server's message.
      *
@@ -191,5 +224,9 @@ export const useOdooStore = defineStore('odooStore', () => {
         fetchRecords,
         fetchLinks,
         send,
+        fetchSyncs,
+        createSync,
+        runSync,
+        removeSync,
     };
 });

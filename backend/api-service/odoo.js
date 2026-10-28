@@ -13,13 +13,17 @@
 import express from 'express';
 import { registerAddon, requireAddon } from './addons.js';
 import { getAuthDb, getDb, getUserDb, parseDbKey } from './db.js';
-import { isPublicAddress } from './safeFetch.js';
 import { decryptSecret, encryptSecret } from './secrets.js';
-import { OdooError, createOdooClient, normalizeBaseUrl, odooTarget, verifyConnection } from './odooClient.js';
+import { OdooError, normalizeBaseUrl, verifyConnection } from './odooClient.js';
+import {
+    allowedPrivateHosts, encryptionKey, odooClientFor, readConnection, rememberConnectionError, senderConnection,
+} from './odooConnection.js';
 import { CHATTER_MODELS, chatterTargetKey, parseChatterTarget, readRecords, searchRecords, sendPdfToChatter } from './odooChatter.js';
 import { pdfFileName, searchFolders, sendPdfToDocuments } from './odooDocuments.js';
 import { MAX_ARTICLE_HTML_BYTES, articleBody, searchArticles, sendArticleToKnowledge } from './odooKnowledge.js';
 import { listLinks, readDefaults, saveDefaults } from './odooLinks.js';
+import { SYNC_SCOPES, createSync, deleteSync, listSyncs, readSync, syncCovering, syncOverlapping } from './odooSync.js';
+import { pauseSyncsRunBy, resumeSyncsRunBy, runSyncNow, syncJobStatus } from './odooSyncScheduler.js';
 import { readInternalImage, renderPdf } from './pdf.js';
 import { resolveSpaceAccess } from './spaces.js';
 
@@ -63,6 +67,7 @@ const KNOWLEDGE_MESSAGES = Object.freeze({
     access_denied: "Your Odoo user can't create or update this article in Odoo Knowledge.",
     missing_app: "Odoo Knowledge isn't installed in this Odoo, or your Odoo user can't use it.",
     record_gone: 'The article was removed from Odoo while sending. Send it again.',
+    synced: 'This Document is kept in sync with Knowledge, so it updates on its own.',
 });
 
 /** Messages for the same codes when posting on an opportunity or a sales order. */
@@ -79,43 +84,18 @@ export function isOdooIntegrationEnabled() {
         && String(process.env.ODOO_CREDENTIAL_ENCRYPTION_KEY || '').length >= MIN_ENCRYPTION_KEY_LENGTH;
 }
 
-/** The add-on manifest (addons.js). Syncs will pause and resume through the hooks. */
+/** The add-on manifest (addons.js). Switching off pauses the person's syncs; on resumes them. */
 export const odooAddon = Object.freeze({
     id: 'odoo',
     name: 'Odoo',
-    description: 'Send Documents to your Odoo as PDFs. What you send leaves Panino and appears in Odoo under your Odoo user.',
+    description: 'Send Documents to your Odoo as PDFs or Knowledge articles, or keep a folder in sync with Knowledge. What you send leaves Panino and appears in Odoo under your Odoo user.',
     isOffered: isOdooIntegrationEnabled,
+    onDisabled: (userId) => pauseSyncsRunBy(userId, 'addon_disabled'),
+    onEnabled: (userId) => resumeSyncsRunBy(userId, 'addon_disabled'),
 });
 registerAddon(odooAddon);
 
-/** Hostnames from ODOO_ALLOWED_PRIVATE_HOSTS, lower-cased. */
-export function allowedPrivateHosts() {
-    return new Set(String(process.env.ODOO_ALLOWED_PRIVATE_HOSTS || '')
-        .split(',')
-        .map((host) => host.trim().toLowerCase())
-        .filter(Boolean));
-}
-
-/** The address policy for Odoo requests: public, or a host the operator allowed. */
-function isAllowedOdooAddress(ip, hostname) {
-    return isPublicAddress(ip) || allowedPrivateHosts().has(String(hostname).toLowerCase());
-}
-
-/**
- * A client for a connection, under the server's address policy.
- *
- * @param {{ baseUrl: string, databaseName?: string, apiKey: string }} connection
- */
-export function odooClientFor(connection) {
-    return createOdooClient(connection, {
-        isAllowedAddress: isAllowedOdooAddress,
-        allowHttpHosts: allowedPrivateHosts(),
-    });
-}
-
-function encryptionKey() {
-    return process.env.ODOO_CREDENTIAL_ENCRYPTION_KEY;
-}
+export { allowedPrivateHosts, odooClientFor };
 
 function maskUserId(userId) {
     const value = String(userId ?? '');
@@ -135,10 +115,6 @@ function logFailure(event, userId, error) {
 function sendOdooError(res, error) {
     const code = error instanceof OdooError ? error.code : 'odoo_error';
     return res.status(400).json({ error: code, message: ERROR_MESSAGES[code] || ERROR_MESSAGES.odoo_error });
-}
-
-function readConnection(db) {
-    return db.prepare('SELECT * FROM odoo_connection WHERE singleton = 1').get() || null;
 }
 
 /** The status the client sees. Never includes the key. */
@@ -250,38 +226,6 @@ function documentDatabase(userId, rawDbKey, { forSending }) {
     return { db: getDb(parsed.dbKey), dbKey: parsed.dbKey };
 }
 
-/**
- * The caller's connection and a client for it, or null when not connected.
- * A key that no longer decrypts is recorded as rejected.
- */
-function senderConnection(userId) {
-    const userDb = getUserDb(userId);
-    const row = readConnection(userDb);
-    if (!row) return null;
-    let apiKey;
-    try {
-        apiKey = decryptSecret(row.api_key_enc, encryptionKey());
-    } catch {
-        userDb.prepare("UPDATE odoo_connection SET last_error = 'key_rejected' WHERE singleton = 1").run();
-        throw new OdooError('key_rejected');
-    }
-    const connection = { baseUrl: row.base_url, databaseName: row.database_name, apiKey };
-    let apps;
-    try {
-        apps = JSON.parse(row.apps);
-    } catch {
-        apps = [];
-    }
-    return { row, userDb, apps: Array.isArray(apps) ? apps : [], client: odooClientFor(connection), target: odooTarget(connection) };
-}
-
-/** A rejected key is remembered on the connection so Settings shows it. */
-function rememberConnectionError(userDb, error) {
-    if (error instanceof OdooError && ['key_rejected', 'not_odoo', 'unreachable', 'blocked'].includes(error.code)) {
-        userDb.prepare('UPDATE odoo_connection SET last_error = ? WHERE singleton = 1').run(error.code);
-    }
-}
-
 function baseUrlOfTarget(target) {
     return String(target).split('|')[0];
 }
@@ -348,6 +292,7 @@ odooRoutes.put('/addons/odoo', async (req, res) => {
             verified.uid, verified.userName, verified.version, JSON.stringify(verified.apps), now, now,
         );
         res.json(statusPayload(readConnection(db)));
+        for (const reason of ['not_connected', 'key_rejected']) resumeSyncsRunBy(userId, reason);
     } catch (error) {
         console.error('[odoo] Failed to save the connection:', error);
         res.status(500).json({ error: 'Failed to save the Odoo connection' });
@@ -399,6 +344,7 @@ odooRoutes.post('/addons/odoo/check', async (req, res) => {
 odooRoutes.delete('/addons/odoo', (req, res) => {
     try {
         getUserDb(req.user.user_id).prepare('DELETE FROM odoo_connection WHERE singleton = 1').run();
+        pauseSyncsRunBy(req.user.user_id, 'not_connected');
         res.status(204).end();
     } catch (error) {
         console.error('[odoo] Failed to remove the connection:', error);
@@ -512,6 +458,7 @@ odooRoutes.get('/addons/odoo/links', (req, res) => {
         })();
         const links = listLinks(db, noteId);
         const names = userNames(links.flatMap((link) => [link.last_sent_by, link.first_sent_by]));
+        const sync = syncCovering(db, { sourceType: 'note', sourceId: noteId });
         res.json({
             links: links.map((link) => ({
                 destination: link.destination,
@@ -520,8 +467,10 @@ odooRoutes.get('/addons/odoo/links', (req, res) => {
                 url: link.odoo_url_path ? `${baseUrlOfTarget(link.odoo_target)}${link.odoo_url_path}` : null,
                 lastSentAt: link.last_sent_at,
                 lastSentBy: names.get(link.last_sent_by) || null,
+                syncId: link.sync_id || null,
             })),
             defaults: sender ? readDefaults(db, sender.target) : { folderId: null, parentArticleId: null },
+            sync: sync ? syncPayload(db, sync, access.dbKey) : null,
         });
     } catch (error) {
         console.error('[odoo] Failed to load links:', error);
@@ -630,7 +579,9 @@ odooRoutes.post('/addons/odoo/send', async (req, res) => {
         const documentTitle = typeof title === 'string' && title.trim() ? title : note.title;
         const shared = { client: sender.client, odooTarget: sender.target, db: access.db, noteId, pdf, userId };
         const results = {};
-        if (wantsKnowledge) {
+        if (wantsKnowledge && syncCovering(access.db, { sourceType: 'note', sourceId: noteId })) {
+            results.knowledge = { ok: false, error: 'synced', message: KNOWLEDGE_MESSAGES.synced };
+        } else if (wantsKnowledge) {
             results.knowledge = sender.apps.includes('knowledge')
                 ? await destinationResult(async () => {
                     const remembered = readDefaults(access.db, sender.target).parentArticleId;
@@ -693,5 +644,161 @@ odooRoutes.post('/addons/odoo/send', async (req, res) => {
         return res.status(500).json({ error: 'Failed to send to Odoo' });
     } finally {
         sendsInFlight.delete(lockKey);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Syncs (spec §11)
+// ---------------------------------------------------------------------------
+
+/** What the client sees of a sync. */
+function syncPayload(db, sync, dbKey) {
+    let sourceName = null;
+    if (sync.scope === 'folder') sourceName = db.prepare('SELECT name FROM folders WHERE id = ?').get(sync.source_id)?.name ?? null;
+    if (sync.scope === 'note') sourceName = db.prepare('SELECT title FROM notes WHERE id = ?').get(sync.source_id)?.title ?? null;
+    let lastResult;
+    try {
+        lastResult = sync.last_result ? JSON.parse(sync.last_result) : null;
+    } catch {
+        lastResult = null;
+    }
+    const names = userNames([sync.run_as]);
+    return {
+        id: sync.id,
+        scope: sync.scope,
+        sourceId: sync.source_id,
+        sourceName,
+        odooHost: baseUrlOfTarget(sync.odoo_target),
+        parentArticleId: sync.parent_article_id,
+        runAs: sync.run_as,
+        runAsName: names.get(sync.run_as) || null,
+        status: sync.status,
+        pausedReason: sync.paused_reason,
+        lastRunAt: sync.last_run_at,
+        lastResult,
+        running: syncJobStatus(dbKey, sync.id).running,
+        createdAt: sync.created_at,
+    };
+}
+
+odooRoutes.get('/addons/odoo/syncs', (req, res) => {
+    const userId = req.user.user_id;
+    try {
+        const access = documentDatabase(userId, req.query.dbKey, { forSending: false });
+        if (access.status) return res.status(access.status).json({ error: 'not_found', message: 'Database not found.' });
+        res.json({ syncs: listSyncs(access.db).map((sync) => syncPayload(access.db, sync, access.dbKey)) });
+    } catch (error) {
+        console.error('[odoo] Failed to list syncs:', error);
+        res.status(500).json({ error: 'Failed to load the syncs' });
+    }
+});
+
+odooRoutes.post('/addons/odoo/syncs', async (req, res) => {
+    const userId = req.user.user_id;
+    const { dbKey, scope, sourceId } = req.body || {};
+    if (!SYNC_SCOPES.includes(scope) || scope === 'space') {
+        return res.status(400).json({ error: 'invalid', message: 'Choose a folder or a Document to keep in sync.' });
+    }
+    if (typeof sourceId !== 'string' || !sourceId || sourceId.length > 100) {
+        return res.status(400).json({ error: 'invalid', message: 'Choose a folder or a Document to keep in sync.' });
+    }
+    const parentArticleId = req.body?.parentArticleId != null ? Number(req.body.parentArticleId) : null;
+    if (parentArticleId !== null && (!Number.isInteger(parentArticleId) || parentArticleId < 0)) {
+        return res.status(400).json({ error: 'invalid', message: 'Choose where in Knowledge the articles go.' });
+    }
+
+    let access;
+    let sender;
+    try {
+        access = documentDatabase(userId, dbKey, { forSending: true });
+        if (access.status === 403) {
+            return res.status(403).json({ error: 'forbidden', message: 'Only owners and editors of this space can set up a sync.' });
+        }
+        if (access.status) return res.status(access.status).json({ error: 'not_found', message: 'Database not found.' });
+        const exists = scope === 'folder'
+            ? access.db.prepare('SELECT id FROM folders WHERE id = ?').get(sourceId)
+            : access.db.prepare('SELECT id FROM notes WHERE id = ?').get(sourceId);
+        if (!exists) return res.status(404).json({ error: 'not_found', message: scope === 'folder' ? 'Folder not found.' : 'Document not found.' });
+        sender = senderConnection(userId);
+    } catch (error) {
+        if (error instanceof OdooError) return sendOdooError(res, error);
+        console.error('[odoo] Failed to prepare a sync:', error);
+        return res.status(500).json({ error: 'Failed to set up the sync' });
+    }
+    if (!sender) return res.status(409).json({ error: 'not_connected', message: 'Connect Odoo in Settings first.' });
+    if (!sender.apps.includes('knowledge')) {
+        return res.status(400).json({ error: 'missing_app', message: KNOWLEDGE_MESSAGES.missing_app });
+    }
+    const overlap = syncOverlapping(access.db, { scope, sourceId });
+    if (overlap) {
+        return res.status(409).json({ error: 'overlap', message: 'That is already covered by a sync. Remove the other sync first.' });
+    }
+    if (parentArticleId) {
+        try {
+            const rows = await sender.client.call('knowledge.article', 'read', { ids: [parentArticleId], fields: ['name'] });
+            if (!Array.isArray(rows) || rows.length === 0) throw new OdooError('record_gone');
+        } catch (error) {
+            logFailure('sync_parent_failed', userId, error);
+            rememberConnectionError(sender.userDb, error);
+            const code = error instanceof OdooError ? error.code : 'odoo_error';
+            return res.status(400).json({ error: code, message: KNOWLEDGE_MESSAGES[code] || ERROR_MESSAGES.odoo_error });
+        }
+    }
+
+    try {
+        const sync = createSync(access.db, {
+            scope, sourceId, odooTarget: sender.target, parentArticleId: parentArticleId || null, runAs: userId, createdBy: userId,
+        });
+        void runSyncNow(access.dbKey, sync.id, { trigger: 'created' });
+        res.status(201).json({ sync: syncPayload(access.db, sync, access.dbKey) });
+    } catch (error) {
+        console.error('[odoo] Failed to create a sync:', error);
+        res.status(500).json({ error: 'Failed to set up the sync' });
+    }
+});
+
+function syncForRequest(req, res, { forSending }) {
+    const access = documentDatabase(req.user.user_id, req.query.dbKey, { forSending });
+    if (access.status === 403) {
+        res.status(403).json({ error: 'forbidden', message: 'Only owners and editors of this space can change its syncs.' });
+        return null;
+    }
+    if (access.status) {
+        res.status(access.status).json({ error: 'not_found', message: 'Database not found.' });
+        return null;
+    }
+    const sync = readSync(access.db, String(req.params.id || ''));
+    if (!sync) {
+        res.status(404).json({ error: 'not_found', message: 'Sync not found.' });
+        return null;
+    }
+    return { access, sync };
+}
+
+odooRoutes.post('/addons/odoo/syncs/:id/run', async (req, res) => {
+    try {
+        const found = syncForRequest(req, res, { forSending: true });
+        if (!found) return;
+        const { access, sync } = found;
+        if (sync.status !== 'active') {
+            return res.status(409).json({ error: 'paused', message: 'This sync is paused.' });
+        }
+        const started = await runSyncNow(access.dbKey, sync.id, { trigger: 'manual' });
+        res.json({ started: started.started, sync: syncPayload(access.db, readSync(access.db, sync.id), access.dbKey) });
+    } catch (error) {
+        console.error('[odoo] Failed to run a sync:', error);
+        res.status(500).json({ error: 'Failed to run the sync' });
+    }
+});
+
+odooRoutes.delete('/addons/odoo/syncs/:id', (req, res) => {
+    try {
+        const found = syncForRequest(req, res, { forSending: true });
+        if (!found) return;
+        deleteSync(found.access.db, found.sync.id);
+        res.status(204).end();
+    } catch (error) {
+        console.error('[odoo] Failed to remove a sync:', error);
+        res.status(500).json({ error: 'Failed to remove the sync' });
     }
 });

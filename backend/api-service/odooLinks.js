@@ -15,6 +15,9 @@
  * @property {number|null} odoo_message_id
  * @property {string|null} odoo_create_date
  * @property {string|null} odoo_url_path
+ * @property {string|null} sync_id the sync that owns this record, if one does
+ * @property {string|null} content_hash sync only: what was last written
+ * @property {string|null} archived_at sync only: archived in Odoo after a delete or move-out
  * @property {string} first_sent_by
  * @property {string} last_sent_at
  * @property {string} last_sent_by
@@ -44,28 +47,36 @@ export function listLinks(db, sourceId) {
 }
 
 /**
- * Record a record Panino created, or a later send to it.
+ * Record a record Panino created, or a later send to it. A manual send leaves
+ * `syncId`, `contentHash` and `archivedAt` out and keeps whatever a sync stored;
+ * a sync passes all three.
  *
  * @param {import('better-sqlite3').Database} db
  * @param {object} link
  */
 export function saveLink(db, link) {
+    const syncFields = 'syncId' in link;
     db.prepare(`
         INSERT INTO odoo_links (source_id, source_type, destination, odoo_target, target_key, odoo_record_id,
-            odoo_message_id, odoo_create_date, odoo_url_path, first_sent_by, last_sent_at, last_sent_by)
-        VALUES (@sourceId, 'note', @destination, @odooTarget, @targetKey, @recordId,
-            @messageId, @createDate, @urlPath, @userId, @now, @userId)
+            odoo_message_id, odoo_create_date, odoo_url_path, sync_id, content_hash, archived_at,
+            first_sent_by, last_sent_at, last_sent_by)
+        VALUES (@sourceId, @sourceType, @destination, @odooTarget, @targetKey, @recordId,
+            @messageId, @createDate, @urlPath, @syncId, @contentHash, @archivedAt, @userId, @now, @userId)
         ON CONFLICT (source_id, destination, odoo_target, target_key) DO UPDATE SET
             odoo_record_id = excluded.odoo_record_id,
             odoo_message_id = COALESCE(excluded.odoo_message_id, odoo_links.odoo_message_id),
             odoo_create_date = COALESCE(excluded.odoo_create_date, odoo_links.odoo_create_date),
             odoo_url_path = COALESCE(excluded.odoo_url_path, odoo_links.odoo_url_path),
+            sync_id = CASE WHEN @syncFields THEN excluded.sync_id ELSE odoo_links.sync_id END,
+            content_hash = CASE WHEN @syncFields THEN excluded.content_hash ELSE NULL END,
+            archived_at = CASE WHEN @syncFields THEN excluded.archived_at ELSE odoo_links.archived_at END,
             first_sent_by = CASE WHEN odoo_links.odoo_record_id = excluded.odoo_record_id
                                  THEN odoo_links.first_sent_by ELSE excluded.first_sent_by END,
             last_sent_at = excluded.last_sent_at,
             last_sent_by = excluded.last_sent_by
     `).run({
         sourceId: link.sourceId,
+        sourceType: link.sourceType || 'note',
         destination: link.destination,
         odooTarget: link.odooTarget,
         targetKey: link.targetKey || '',
@@ -73,6 +84,10 @@ export function saveLink(db, link) {
         messageId: link.messageId ?? null,
         createDate: link.createDate ?? null,
         urlPath: link.urlPath ?? null,
+        syncId: link.syncId ?? null,
+        contentHash: link.contentHash ?? null,
+        archivedAt: link.archivedAt ?? null,
+        syncFields: syncFields ? 1 : 0,
         userId: link.userId,
         now: link.now,
     });
