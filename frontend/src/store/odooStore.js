@@ -125,6 +125,24 @@ export const useOdooStore = defineStore('odooStore', () => {
     }
 
     /**
+     * Opportunities and sales orders matching `query`. With a Document named, the
+     * records it was already sent to come first, flagged `sent`.
+     *
+     * @param {string} query
+     * @param {{ dbKey?: string, noteId?: string }} [document]
+     * @returns {Promise<{ resModel: string, resId: number, name: string, partnerName: string|null, status: string|null, sent: boolean }[]>}
+     */
+    async function fetchRecords(query = '', { dbKey, noteId } = {}) {
+        const params = new URLSearchParams({ q: query });
+        if (dbKey && noteId) {
+            params.set('dbKey', dbKey);
+            params.set('noteId', noteId);
+        }
+        const payload = await authFetch(`/addons/odoo/records?${params}`);
+        return payload?.records || [];
+    }
+
+    /**
      * What this Document was sent as, and the remembered folder.
      *
      * @param {string} dbKey
@@ -139,7 +157,7 @@ export const useOdooStore = defineStore('odooStore', () => {
      * Send a Document. Resolves with the server's per-destination results; a
      * refused request rejects with the server's message.
      *
-     * @param {{ dbKey: string, noteId: string, title: string, pdfRequest: object, documents?: { folderId?: number } }} body
+     * @param {{ dbKey: string, noteId: string, title: string, pdfRequest: object, documents?: { folderId?: number }, chatter?: { resModel: string, resId: number } }} body
      */
     async function send(body) {
         return authFetch('/addons/odoo/send', { method: 'POST', body: JSON.stringify(body) });
@@ -158,6 +176,7 @@ export const useOdooStore = defineStore('odooStore', () => {
         check,
         disconnect,
         fetchFolders,
+        fetchRecords,
         fetchLinks,
         send,
     };

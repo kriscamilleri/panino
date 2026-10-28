@@ -1,6 +1,4 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import crypto from 'node:crypto';
-import http from 'node:http';
 import request from 'supertest';
 import { v4 as uuidv4 } from 'uuid';
 import { createTestApp, cleanupTestUser, getTestToken, setupTestUser } from '../testHelpers.js';
@@ -8,84 +6,7 @@ import { deleteTestDb, getDb, getSpacesDb, getUserDb } from '../../db.js';
 import { resetOdooRateLimits } from '../../odoo.js';
 import { resetFileFieldCache } from '../../odooClient.js';
 import { addEditorMember, createSpace } from '../../spaces.js';
-
-const API_KEY = 'f0e1d2c3b4a5968778695a4b3c2d1e0f12345678';
-const sha1 = (bytes) => crypto.createHash('sha1').update(bytes).digest('hex');
-
-/**
- * A stand-in Odoo Documents behaving as Odoo 19 and 20 did in Phase 0:
- * - v19 takes base64 in `datas`; v20 has no `datas` and takes base64 in `raw`;
- *   the wrong field is accepted and stores nothing (Odoo 20) or the base64 text (Odoo 19);
- * - `read` of a missing id answers `[]`;
- * - `access_url` is built on Odoo's own `web.base.url`.
- */
-function startFakeOdoo() {
-    const state = {
-        version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0,
-        nextId: 100, docs: new Map(), attachments: new Map(), requests: [],
-    };
-    const fileFieldName = () => (state.version >= 20 ? 'raw' : 'datas');
-    const store = (vals) => {
-        const field = fileFieldName();
-        if (state.ignoreContent || !(field in vals)) return Buffer.alloc(0);
-        return Buffer.from(vals[field], 'base64');
-    };
-    const server = http.createServer((req, res) => {
-        let body = '';
-        req.on('data', (chunk) => { body += chunk; });
-        req.on('end', async () => {
-            const params = body ? JSON.parse(body) : {};
-            state.requests.push({ url: req.url, params });
-            const send = (status, value) => {
-                res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-                res.end(JSON.stringify(value));
-            };
-            if (req.url === '/web/version') return send(200, { version_info: [state.version, 0, 0, 'final', 0, 'e'], version: `${state.version}.0+e` });
-            if (req.headers.authorization !== `bearer ${API_KEY}` || !state.keyValid) {
-                return send(401, { name: 'werkzeug.exceptions.Unauthorized', message: 'Invalid apikey', debug: 'Traceback…' });
-            }
-            switch (req.url) {
-                case '/json/2/res.users/context_get': return send(200, { uid: 2 });
-                case '/json/2/res.users/read': return send(200, [{ id: 2, name: 'Mitchell Admin' }]);
-                case '/json/2/documents.document/search_count':
-                case '/json/2/crm.lead/search_count': return send(200, 0);
-                case '/json/2/documents.document/fields_get':
-                    return send(200, state.version >= 20 ? { raw: { type: 'binary' } } : { datas: { type: 'binary' }, raw: { type: 'binary' } });
-                case '/json/2/documents.document/search_read':
-                    return send(200, [{ id: 2, name: 'Inbox', folder_id: false }, { id: 41, name: 'Sales', folder_id: [3, 'Finance'] }]);
-                case '/json/2/documents.document/create': {
-                    if (state.createDelayMs) await new Promise((r) => setTimeout(r, state.createDelayMs));
-                    const ids = params.vals_list.map((vals) => {
-                        const id = state.nextId++;
-                        const attachmentId = state.nextId++;
-                        state.attachments.set(attachmentId, store(vals));
-                        state.docs.set(id, { id, name: vals.name, folder_id: vals.folder_id, attachment_id: attachmentId, create_date: `2026-10-27 09:00:${String(id % 60).padStart(2, '0')}` });
-                        return id;
-                    });
-                    return send(200, ids);
-                }
-                case '/json/2/documents.document/read':
-                    return send(200, params.ids.filter((id) => state.docs.has(id)).map((id) => {
-                        const doc = state.docs.get(id);
-                        return { id, create_date: doc.create_date, attachment_id: [doc.attachment_id, doc.name], access_url: `http://localhost:8069/odoo/documents/tok${id}` };
-                    }));
-                case '/json/2/documents.document/write':
-                    for (const id of params.ids) {
-                        const doc = state.docs.get(id);
-                        if (!doc) return send(500, { name: 'odoo.exceptions.MissingError', message: 'gone' });
-                        if (params.vals.name) doc.name = params.vals.name;
-                        state.attachments.set(doc.attachment_id, store(params.vals));
-                    }
-                    return send(200, true);
-                case '/json/2/ir.attachment/read':
-                    return send(200, params.ids.filter((id) => state.attachments.has(id)).map((id) => ({ id, checksum: sha1(state.attachments.get(id)) })));
-                default:
-                    return send(404, { name: 'werkzeug.exceptions.NotFound', message: 'the model does not exist' });
-            }
-        });
-    });
-    return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, state, port: server.address().port })));
-}
+import { API_KEY, resetFakeOdoo, startFakeOdoo } from '../fakeOdoo.js';
 
 const PDF_REQUEST = { htmlContent: '<h1>Quote</h1><p>Hello Odoo</p>', cssStyles: '', printStyles: {} };
 
@@ -117,10 +38,7 @@ describe('Sending a Document to Odoo Documents', () => {
         process.env.ODOO_INTEGRATION_ENABLED = 'true';
         process.env.ODOO_CREDENTIAL_ENCRYPTION_KEY = 'test-odoo-credential-key-0123456789abcdef';
         process.env.ODOO_ALLOWED_PRIVATE_HOSTS = '127.0.0.1';
-        Object.assign(odoo.state, { version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0 });
-        odoo.state.docs.clear();
-        odoo.state.attachments.clear();
-        odoo.state.requests = [];
+        resetFakeOdoo(odoo.state);
         resetOdooRateLimits();
         resetFileFieldCache();
         const stamp = Date.now();

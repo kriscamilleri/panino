@@ -16,7 +16,8 @@ import { getAuthDb, getDb, getUserDb, parseDbKey } from './db.js';
 import { isPublicAddress } from './safeFetch.js';
 import { decryptSecret, encryptSecret } from './secrets.js';
 import { OdooError, createOdooClient, normalizeBaseUrl, odooTarget, verifyConnection } from './odooClient.js';
-import { searchFolders, sendPdfToDocuments } from './odooDocuments.js';
+import { CHATTER_MODELS, chatterTargetKey, parseChatterTarget, readRecords, searchRecords, sendPdfToChatter } from './odooChatter.js';
+import { pdfFileName, searchFolders, sendPdfToDocuments } from './odooDocuments.js';
 import { listLinks, readDefaults, saveDefaults } from './odooLinks.js';
 import { renderPdf } from './pdf.js';
 import { resolveSpaceAccess } from './spaces.js';
@@ -53,6 +54,14 @@ const DOCUMENTS_MESSAGES = Object.freeze({
     access_denied: "Your Odoo user can't create or update this document in Odoo Documents.",
     missing_app: "Odoo Documents isn't installed in this Odoo, or your Odoo user can't use it.",
     record_gone: 'The document was removed from Odoo while sending. Send it again.',
+});
+
+/** Messages for the same codes when posting on an opportunity or a sales order. */
+const CHATTER_MESSAGES = Object.freeze({
+    ...ERROR_MESSAGES,
+    access_denied: "Your Odoo user can't update this record.",
+    missing_app: "This Odoo has no CRM or Sales app your Odoo user can use.",
+    record_gone: 'That opportunity or sales order no longer exists in Odoo.',
 });
 
 /** @returns {boolean} */
@@ -248,7 +257,13 @@ function senderConnection(userId) {
         throw new OdooError('key_rejected');
     }
     const connection = { baseUrl: row.base_url, databaseName: row.database_name, apiKey };
-    return { row, userDb, client: odooClientFor(connection), target: odooTarget(connection) };
+    let apps;
+    try {
+        apps = JSON.parse(row.apps);
+    } catch {
+        apps = [];
+    }
+    return { row, userDb, apps: Array.isArray(apps) ? apps : [], client: odooClientFor(connection), target: odooTarget(connection) };
 }
 
 /** A rejected key is remembered on the connection so Settings shows it. */
@@ -403,6 +418,53 @@ odooRoutes.get('/addons/odoo/folders', async (req, res) => {
     }
 });
 
+odooRoutes.get('/addons/odoo/records', async (req, res) => {
+    const userId = req.user.user_id;
+    let sender;
+    try {
+        sender = senderConnection(userId);
+    } catch (error) {
+        return sendOdooError(res, error);
+    }
+    if (!sender) return res.status(404).json({ error: 'not_connected', message: 'Connect Odoo in Settings first.' });
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+
+    // The records this Document was already sent to come first, when the caller names it.
+    let sentTargets = [];
+    const noteId = typeof req.query.noteId === 'string' ? req.query.noteId : '';
+    if (noteId && noteId.length <= 100 && req.query.dbKey) {
+        const access = documentDatabase(userId, req.query.dbKey, { forSending: false });
+        if (!access.status) {
+            sentTargets = listLinks(access.db, noteId)
+                .filter((link) => link.destination === 'chatter' && link.odoo_target === sender.target)
+                .map((link) => {
+                    const [resModel, resId] = String(link.target_key).split(':');
+                    return { resModel, resId: Number(resId) };
+                })
+                .filter((target) => Object.hasOwn(CHATTER_MODELS, target.resModel) && Number.isInteger(target.resId));
+        }
+    }
+
+    try {
+        const sent = sentTargets.length ? await readRecords(sender.client, sentTargets) : [];
+        const sentKeys = new Set(sent.map((record) => chatterTargetKey(record.resModel, record.resId)));
+        const found = (await searchRecords(sender.client, sender.apps, query))
+            .filter((record) => !sentKeys.has(chatterTargetKey(record.resModel, record.resId)));
+        res.json({
+            records: [
+                ...sent.map((record) => ({ ...record, sent: true })),
+                ...found.map((record) => ({ ...record, sent: false })),
+            ],
+        });
+    } catch (error) {
+        logFailure('records_failed', userId, error);
+        rememberConnectionError(sender.userDb, error);
+        if (!(error instanceof OdooError)) console.error('[odoo] Unexpected error listing records:', error);
+        const code = error instanceof OdooError ? error.code : 'odoo_error';
+        res.status(400).json({ error: code, message: CHATTER_MESSAGES[code] || ERROR_MESSAGES.odoo_error });
+    }
+});
+
 odooRoutes.get('/addons/odoo/links', (req, res) => {
     const userId = req.user.user_id;
     const noteId = typeof req.query.noteId === 'string' ? req.query.noteId : '';
@@ -437,21 +499,43 @@ odooRoutes.get('/addons/odoo/links', (req, res) => {
     }
 });
 
+/**
+ * Run one destination and shape its result; an Odoo failure becomes `{ ok: false }`
+ * with one of the closed error codes, never a thrown error.
+ */
+async function destinationResult(run, { userId, userDb, event, messages }) {
+    try {
+        return { ok: true, ...(await run()) };
+    } catch (error) {
+        logFailure(event, userId, error);
+        rememberConnectionError(userDb, error);
+        if (!(error instanceof OdooError)) console.error(`[odoo] Unexpected error (${event}):`, error);
+        const code = error instanceof OdooError ? error.code : 'odoo_error';
+        return { ok: false, error: code, message: messages[code] || ERROR_MESSAGES.odoo_error };
+    }
+}
+
 odooRoutes.post('/addons/odoo/send', async (req, res) => {
     const userId = req.user.user_id;
-    const { dbKey, noteId, title, pdfRequest, documents } = req.body || {};
+    const { dbKey, noteId, title, pdfRequest, documents, chatter } = req.body || {};
     if (typeof noteId !== 'string' || !noteId || noteId.length > 100) {
         return res.status(400).json({ error: 'invalid', message: 'A Document is required.' });
     }
-    if (!documents || typeof documents !== 'object') {
+    const wantsDocuments = documents != null;
+    const wantsChatter = chatter != null;
+    if ((!wantsDocuments && !wantsChatter) || (wantsDocuments && typeof documents !== 'object')) {
         return res.status(400).json({ error: 'invalid', message: 'Choose where to send the Document.' });
     }
     if (!pdfRequest || typeof pdfRequest !== 'object') {
         return res.status(400).json({ error: 'invalid', message: 'The PDF is missing.' });
     }
-    const folderId = documents.folderId == null ? null : Number(documents.folderId);
+    const folderId = wantsDocuments && documents.folderId != null ? Number(documents.folderId) : null;
     if (folderId !== null && (!Number.isInteger(folderId) || folderId <= 0)) {
         return res.status(400).json({ error: 'invalid', message: 'Choose a Documents folder.' });
+    }
+    const target = wantsChatter ? parseChatterTarget(chatter) : null;
+    if (wantsChatter && !target.ok) {
+        return res.status(400).json({ error: 'invalid', message: 'Choose an opportunity or sales order.' });
     }
 
     let access;
@@ -496,33 +580,45 @@ odooRoutes.post('/addons/odoo/send', async (req, res) => {
             return res.status(413).json({ error: 'too_large', message: 'The PDF is larger than 25 MB.' });
         }
 
-        let result;
-        try {
-            const sent = await sendPdfToDocuments({
-                client: sender.client,
-                odooTarget: sender.target,
-                db: access.db,
-                noteId,
-                title: typeof title === 'string' && title.trim() ? title : note.title,
-                pdf: rendered.pdf,
-                folderId: folderId ?? readDefaults(access.db, sender.target).folderId,
-                userId,
-            });
-            if (folderId) saveDefaults(access.db, sender.target, { folderId });
-            result = {
-                ok: true,
-                created: sent.created,
-                recreated: sent.recreated,
-                url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
-            };
-        } catch (error) {
-            logFailure('send_documents_failed', userId, error);
-            rememberConnectionError(sender.userDb, error);
-            if (!(error instanceof OdooError)) console.error('[odoo] Unexpected error sending to Documents:', error);
-            const code = error instanceof OdooError ? error.code : 'odoo_error';
-            result = { ok: false, error: code, message: DOCUMENTS_MESSAGES[code] || ERROR_MESSAGES.odoo_error };
+        const documentTitle = typeof title === 'string' && title.trim() ? title : note.title;
+        const shared = { client: sender.client, odooTarget: sender.target, db: access.db, noteId, pdf: rendered.pdf, userId };
+        const results = {};
+        // One destination after the other: they are independent, and each reports for itself.
+        if (wantsDocuments) {
+            results.documents = await destinationResult(async () => {
+                const sent = await sendPdfToDocuments({
+                    ...shared,
+                    title: documentTitle,
+                    folderId: folderId ?? readDefaults(access.db, sender.target).folderId,
+                });
+                if (folderId) saveDefaults(access.db, sender.target, { folderId });
+                return {
+                    created: sent.created,
+                    recreated: sent.recreated,
+                    url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
+                };
+            }, { userId, userDb: sender.userDb, event: 'send_documents_failed', messages: DOCUMENTS_MESSAGES });
         }
-        return res.json({ documents: result });
+        if (wantsChatter) {
+            const app = CHATTER_MODELS[target.resModel];
+            results.chatter = sender.apps.includes(app)
+                ? await destinationResult(async () => {
+                    const sent = await sendPdfToChatter({
+                        ...shared,
+                        fileName: pdfFileName(documentTitle),
+                        resModel: target.resModel,
+                        resId: target.resId,
+                    });
+                    return {
+                        created: sent.created,
+                        recreated: sent.recreated,
+                        noteMissing: sent.noteMissing,
+                        url: `${sender.row.base_url}${sent.urlPath}`,
+                    };
+                }, { userId, userDb: sender.userDb, event: 'send_chatter_failed', messages: CHATTER_MESSAGES })
+                : { ok: false, error: 'missing_app', message: CHATTER_MESSAGES.missing_app };
+        }
+        return res.json(results);
     } catch (error) {
         console.error('[odoo] Send failed:', error);
         return res.status(500).json({ error: 'Failed to send to Odoo' });

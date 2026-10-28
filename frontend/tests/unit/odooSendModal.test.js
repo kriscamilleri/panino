@@ -20,11 +20,16 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }));
 
 const { default: OdooSendModal } = await import('@/components/OdooSendModal.vue');
 
-const CONNECTED = { connected: true, baseUrl: 'https://acme.odoo.com', odooUserName: 'Mitchell Admin', apps: ['documents', 'crm'] };
+const CONNECTED = { connected: true, baseUrl: 'https://acme.odoo.com', odooUserName: 'Mitchell Admin', apps: ['documents', 'crm', 'sales'] };
 const FOLDERS = { folders: [{ id: 2, name: 'Inbox', parentName: null }, { id: 41, name: 'Sales', parentName: 'Finance' }] };
+const RECORDS = { records: [
+    { resModel: 'crm.lead', resId: 1, name: 'Club Office Furnitures', partnerName: 'Azure Interior', status: 'Qualified', sent: false },
+    { resModel: 'sale.order', resId: 7, name: 'S00007', partnerName: 'Deco Addict', status: 'Quotation', sent: false },
+] };
+const PDF_REQUEST = { htmlContent: '<h1>Quote</h1>', cssStyles: '', printStyles: {} };
 
 /** fetch answering by path; `send` is the response to POST /send. */
-function api({ status = CONNECTED, links = { links: [], defaults: { folderId: null } }, send } = {}) {
+function api({ status = CONNECTED, links = { links: [], defaults: { folderId: null } }, records = RECORDS, send } = {}) {
     const calls = [];
     const fetch = vi.fn((url, options = {}) => {
         const path = new URL(url, 'http://x').pathname;
@@ -32,8 +37,9 @@ function api({ status = CONNECTED, links = { links: [], defaults: { folderId: nu
         const body = path === '/addons/odoo' ? status
             : path === '/addons/odoo/links' ? links
                 : path === '/addons/odoo/folders' ? FOLDERS
-                    : path === '/addons/odoo/send' ? send
-                        : null;
+                    : path === '/addons/odoo/records' ? records
+                        : path === '/addons/odoo/send' ? send
+                            : null;
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
     });
     vi.stubGlobal('fetch', fetch);
@@ -42,6 +48,7 @@ function api({ status = CONNECTED, links = { links: [], defaults: { folderId: nu
 
 const ModalStub = { props: ['show', 'title'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' };
 const mountModal = () => mount(OdooSendModal, { props: { show: true }, global: { stubs: { BaseModal: ModalStub } } });
+const sentBody = (calls) => JSON.parse(calls.find((c) => c.path === '/addons/odoo/send').options.body);
 
 describe('sentAgo', () => {
     const now = new Date('2026-10-27T12:00:00Z');
@@ -76,12 +83,22 @@ describe('OdooSendModal', () => {
         expect(wrapper.emitted('close')).toHaveLength(1);
     });
 
-    it('explains when this Odoo has no Documents app', async () => {
+    it('explains when this Odoo has nowhere to send a PDF', async () => {
+        api({ status: { ...CONNECTED, apps: [] } });
+        const wrapper = mountModal();
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-no-destination"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').exists()).toBe(false);
+    });
+
+    it('offers only the chatter when there is no Documents app', async () => {
         api({ status: { ...CONNECTED, apps: ['crm'] } });
         const wrapper = mountModal();
         await flushPromises();
-        expect(wrapper.find('[data-testid="odoo-send-no-documents"]').exists()).toBe(true);
-        expect(wrapper.find('[data-testid="odoo-send-submit"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="odoo-send-documents"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="odoo-send-chatter"]').text()).toContain('PDF to an opportunity');
+        expect(wrapper.find('[data-testid="odoo-send-chatter"]').text()).not.toContain('sales order');
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeDefined();
     });
 
     it('sends a first PDF to the chosen folder', async () => {
@@ -95,15 +112,13 @@ describe('OdooSendModal', () => {
         await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
         await flushPromises();
 
-        const sent = calls.find((c) => c.path === '/addons/odoo/send');
-        expect(JSON.parse(sent.options.body)).toEqual({
-            dbKey: 'user:me', noteId: 'note-1', title: 'Quote',
-            pdfRequest: { htmlContent: '<h1>Quote</h1>', cssStyles: '', printStyles: {} },
-            documents: { folderId: 41 },
+        expect(sentBody(calls)).toEqual({
+            dbKey: 'user:me', noteId: 'note-1', title: 'Quote', pdfRequest: PDF_REQUEST, documents: { folderId: 41 },
         });
         expect(wrapper.find('[data-testid="odoo-send-result"]').text()).toContain('Sent to Odoo Documents.');
         const open = wrapper.find('[data-testid="odoo-send-open"]');
         expect(open.attributes()).toMatchObject({ href: 'https://acme.odoo.com/odoo/documents/tok1', target: '_blank', rel: 'noopener noreferrer' });
+        expect(wrapper.find('[data-testid="odoo-send-chatter-result"]').exists()).toBe(false);
     });
 
     it('preselects the remembered folder', async () => {
@@ -116,7 +131,7 @@ describe('OdooSendModal', () => {
 
     it('updates what was sent before, without asking for a folder', async () => {
         const calls = api({
-            links: { links: [{ destination: 'documents', sameOdoo: true, url: 'https://acme.odoo.com/odoo/documents/tok1', lastSentAt: new Date(Date.now() - 3 * 86400000).toISOString(), lastSentBy: 'Kris' }], defaults: {} },
+            links: { links: [{ destination: 'documents', targetKey: '', sameOdoo: true, url: 'https://acme.odoo.com/odoo/documents/tok1', lastSentAt: new Date(Date.now() - 3 * 86400000).toISOString(), lastSentBy: 'Kris' }], defaults: {} },
             send: { documents: { ok: true, created: false, url: 'https://acme.odoo.com/odoo/documents/tok1' } },
         });
         const wrapper = mountModal();
@@ -128,12 +143,12 @@ describe('OdooSendModal', () => {
 
         await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
         await flushPromises();
-        expect(JSON.parse(calls.find((c) => c.path === '/addons/odoo/send').options.body).documents).toEqual({});
+        expect(sentBody(calls).documents).toEqual({});
         expect(wrapper.find('[data-testid="odoo-send-result"]').text()).toContain('Updated in Odoo Documents.');
     });
 
     it('ignores a link to a different Odoo', async () => {
-        api({ links: { links: [{ destination: 'documents', sameOdoo: false, lastSentAt: new Date().toISOString() }], defaults: {} } });
+        api({ links: { links: [{ destination: 'documents', targetKey: '', sameOdoo: false, lastSentAt: new Date().toISOString() }], defaults: {} } });
         const wrapper = mountModal();
         await flushPromises();
         expect(wrapper.find('[data-testid="odoo-send-last-sent"]').exists()).toBe(false);
@@ -147,5 +162,95 @@ describe('OdooSendModal', () => {
         await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
         await flushPromises();
         expect(wrapper.find('[data-testid="odoo-send-result"]').text()).toBe("Your Odoo user can't create or update this document in Odoo Documents.");
+    });
+
+    it('posts the PDF on a chosen opportunity as an internal note', async () => {
+        const calls = api({ send: { chatter: { ok: true, created: true, recreated: false, noteMissing: false, url: 'https://acme.odoo.com/odoo/crm.lead/1' } } });
+        const wrapper = mountModal();
+        await flushPromises();
+        // The picker is not fetched until the destination is ticked.
+        expect(calls.some((c) => c.path === '/addons/odoo/records')).toBe(false);
+        expect(wrapper.find('[data-testid="odoo-send-chatter"]').text()).toContain('PDF to an opportunity or sales order');
+
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        await wrapper.find('[data-testid="odoo-send-chatter-toggle"]').setValue(true);
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-chatter"]').text()).toContain("Posted as an internal note. The customer isn't emailed.");
+        const picker = calls.find((c) => c.path === '/addons/odoo/records');
+        expect(new URL(picker.url).searchParams.get('noteId')).toBe('note-1');
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeDefined();
+
+        const option = wrapper.find('[data-testid="odoo-record-crm.lead-1"]');
+        expect(option.text()).toContain('Club Office Furnitures');
+        expect(option.text()).toContain('Azure Interior · Qualified');
+        await option.trigger('click');
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').text()).toBe('Send');
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+
+        const body = sentBody(calls);
+        expect(body.documents).toBeUndefined();
+        expect(body.chatter).toEqual({ resModel: 'crm.lead', resId: 1 });
+        expect(wrapper.find('[data-testid="odoo-send-chatter-result"]').text()).toContain('Posted as an internal note.');
+        expect(wrapper.find('[data-testid="odoo-send-chatter-open"]').attributes('href')).toBe('https://acme.odoo.com/odoo/crm.lead/1');
+    });
+
+    it('lists the records already sent to first, and updates there', async () => {
+        const lastSentAt = new Date(Date.now() - 2 * 3600000).toISOString();
+        const calls = api({
+            links: { links: [{ destination: 'chatter', targetKey: 'sale.order:7', sameOdoo: true, url: 'https://acme.odoo.com/odoo/sale.order/7', lastSentAt, lastSentBy: 'Kris' }], defaults: {} },
+            records: { records: [{ ...RECORDS.records[1], sent: true }, RECORDS.records[0]] },
+            send: { chatter: { ok: true, created: false, recreated: false, noteMissing: true, url: 'https://acme.odoo.com/odoo/sale.order/7' } },
+        });
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        await wrapper.find('[data-testid="odoo-send-chatter-toggle"]').setValue(true);
+        await flushPromises();
+
+        const options = wrapper.findAll('[data-testid="odoo-record-list"] [role="option"]');
+        expect(options[0].text()).toContain('S00007');
+        expect(wrapper.find('[data-testid="odoo-record-sent-sale.order-7"]').text()).toBe('· Sent 2 hours ago by Kris');
+        await wrapper.find('[data-testid="odoo-record-sale.order-7"]').trigger('click');
+        expect(wrapper.find('[data-testid="odoo-send-chatter-last-sent"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').text()).toBe('Update in Odoo');
+
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        expect(sentBody(calls).chatter).toEqual({ resModel: 'sale.order', resId: 7 });
+        expect(wrapper.find('[data-testid="odoo-send-chatter-result"]').text()).toContain('The PDF was replaced, but the note saying so could not be posted.');
+    });
+
+    it('sends to both destinations and reports each on its own', async () => {
+        const calls = api({
+            links: { links: [], defaults: { folderId: 2 } },
+            send: {
+                documents: { ok: false, error: 'access_denied', message: "Your Odoo user can't create or update this document in Odoo Documents." },
+                chatter: { ok: true, created: true, url: 'https://acme.odoo.com/odoo/crm.lead/1' },
+            },
+        });
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-chatter-toggle"]').setValue(true);
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-record-crm.lead-1"]').trigger('click');
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+
+        expect(sentBody(calls)).toMatchObject({ documents: { folderId: 2 }, chatter: { resModel: 'crm.lead', resId: 1 } });
+        expect(wrapper.find('[data-testid="odoo-send-result"]').classes()).toContain('pn-alert-error');
+        expect(wrapper.find('[data-testid="odoo-send-chatter-result"]').classes()).toContain('pn-alert-success');
+        // Not everything went through, so the footer still offers Cancel, not Done.
+        expect(wrapper.text()).toContain('Cancel');
+    });
+
+    it('cannot send with nothing ticked', async () => {
+        api();
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-folder-41"]').trigger('click');
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeUndefined();
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeDefined();
     });
 });

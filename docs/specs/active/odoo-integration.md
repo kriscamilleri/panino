@@ -137,6 +137,7 @@ Against `odoo:19.0` (`19.0-20251222`) started with `scripts/odoo-dev.sh` (§13):
 | `ir.attachment/write` `{datas, name}` on Panino's attachment | `True` |
 | `crm.lead` / `sale.order` fields | `type`, `name`, `partner_id`, `stage_id` / `name` (e.g. `S00016`), `partner_id`, `state` |
 | Reaching Odoo from the API container | `http://odoo:8069` over `panino_default` |
+| Record URL | `/odoo/<model>/<id>` (e.g. `/odoo/crm.lead/1`) opens the record's form in the web client; checked logged in, headless, on 2026-10-28 |
 
 ### Verified on local Odoo 20.0 Enterprise (2026-10-26)
 
@@ -617,8 +618,14 @@ sync unchanged.
    `addonsStore`, `AddonsSection` on desktop and the phone Add-ons section replacing the Tools →
    Odoo button, lazy-loaded Odoo modals, and the gate tests (table-driven over the router). Spec: [`addons.md`](../active/addons.md). Ships before any further
    destination so every later entry point is born behind the gate.
-4. **PDF to an opportunity or sales order.** Record picker, staged attachment and internal note,
-   overwrite plus a "replaced" note on resend to the same record. Works on Community databases.
+4. **PDF to an opportunity or sales order.** ✅ Done 2026-10-28. `odooChatter.js`: record picker
+   over `crm.lead` opportunities and `sale.order` (`GET /addons/odoo/records`, the records this
+   Document was sent to first), staged `ir.attachment` checked by checksum, `message_post` with
+   `mail.mt_note` fixed on the server, overwrite of Panino's own attachment on a resend (after the
+   `create_date`, `res_model` and `res_id` check) plus the "replaced" note, whose failure is
+   reported as `noteMissing`. `/send` takes `documents` and/or `chatter`, renders the PDF once and
+   reports each destination. The send sheet's chatter section on desktop and phone; the shared
+   `tests/fakeOdoo.js`. Checked headless against local Odoo 19 Community at 1280px and 375px.
 5. **Article to Knowledge.** HTML rendering and sanitizing, checklist mapping, parent picker.
    Images replaced by placeholders.
 6. **Images** uploaded into articles.
