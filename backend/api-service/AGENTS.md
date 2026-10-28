@@ -22,7 +22,7 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
 | `backup.js` | GitHub OAuth, repository selection, snapshot commits, auto-backup scheduling | Mixed |
 | `addons.js` | Add-on registry and gate (`docs/specs/active/addons.md`): `GET /addons`, `PUT /addons/:id/enabled`, `requireAddon(id)` (404 unless the operator offers it, 403 `addon_disabled` until the user switches it on), the per-user `addons` table | Authenticated |
-| `odoo.js`, `odooConnection.js`, `odooClient.js`, `odooDocuments.js`, `odooKnowledge.js`, `odooArticleImages.js`, `odooChatter.js`, `odooLinks.js`, `odooSync.js`, `odooSyncScheduler.js` | The Odoo add-on (`docs/specs/active/odoo-integration.md`): connection, folder, article and record pickers, links, send to Documents, to Knowledge (article HTML sanitized and converted in `odooKnowledge.js`) and to an opportunity's or sales order's chatter; Knowledge syncs (`odooSync.js` runs one, `odooSyncScheduler.js` decides when: after `/sync` changes, Sync now, daily). Every route under `/addons/odoo` behind `requireAddon('odoo')`. Tests use `tests/fakeOdoo.js` | Authenticated |
+| `odoo.js`, `odooConnection.js`, `odooClient.js`, `odooDocuments.js`, `odooKnowledge.js`, `odooArticleImages.js`, `odooChatter.js`, `odooLinks.js`, `odooSync.js`, `odooSyncScheduler.js`, `odooSyncPdf.js` | The Odoo add-on (`docs/specs/active/odoo-integration.md`): connection, folder, article and record pickers, links, send to Documents, to Knowledge (article HTML sanitized and converted in `odooKnowledge.js`) and to an opportunity's or sales order's chatter; Knowledge syncs (`odooSync.js` runs one, `odooSyncScheduler.js` decides when: after `/sync` changes, Sync now, daily; `odooSyncPdf.js` builds a Document's print request on the server from the shared style modules for the PDFs a sync files). Every route under `/addons/odoo` behind `requireAddon('odoo')`. Tests use `tests/fakeOdoo.js` | Authenticated |
 | `revision.js` | Note revision capture, listing, detail, restore, and pruning; snapshots may carry a nullable server-derived `actor_user_id`/`actor_kind` (`sync`\|`collab`\|`system`) — never accepted from client input | Authenticated |
 | `db.js` | Canonical `getDb(dbKey)` content connections, user compatibility wrappers, versioned content initialization, auth/space metadata DBs, connection caching, CR-SQLite extension loading | — |
 | `spaces.js` | Flag-gated discovery and lifecycle: create/rename, hashed email-bound editor invitations, member removal, ownership transfer, editor leave, pending deletion, membership-version fan-out, and retained-space purge scheduling | Authenticated / trusted server callers |
@@ -110,7 +110,9 @@ a compatible extension on another platform.
   up -d --build -V api-service` (otherwise the API fails to import the new dependency)
 - Server-side Markdown rendering (Odoo syncs) uses `@panino/content-merge/markdown-render`
   (`shared/markdownRender.js`), the Preview's own renderer; `tests/unit/sharedRender.test.js`
-  checks the shared fixture renders to the recorded bytes
+  checks the shared fixture renders to the recorded bytes. Server-side PDFs add the shared
+  `styled-renderer`, `style-defaults`, `style-presets` and `pdf-request` modules, and
+  `renderPdf(payload, { userId, priority: 'low' })` waits behind interactive exports
 - Structured print-style settings are validated with `shared/printStyleRules.js`
   (`validatePrintStyles`); invalid values fall back to the defaults and unknown keys are
   dropped. The frontend Print Styles page uses the same rules for inline hints.

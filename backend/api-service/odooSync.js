@@ -19,7 +19,9 @@ import { applyDocumentVariables, renderDocumentHtml } from '@panino/content-merg
 import { OdooError, odooUrlPath } from './odooClient.js';
 import { articleBody } from './odooKnowledge.js';
 import { internalImageSources, uploadArticleImages } from './odooArticleImages.js';
-import { dropLink, saveLink } from './odooLinks.js';
+import { sendPdfToDocuments } from './odooDocuments.js';
+import { buildSyncPdfRequest } from './odooSyncPdf.js';
+import { dropLink, readLink, saveLink } from './odooLinks.js';
 
 const MODEL = 'knowledge.article';
 export const SYNC_SCOPES = Object.freeze(['space', 'folder', 'note']);
@@ -123,14 +125,16 @@ export function syncOverlapping(db, { scope, sourceId }) {
 export function createSync(db, values) {
     if (!SYNC_SCOPES.includes(values.scope)) throw new Error(`Not a sync scope: ${values.scope}`);
     const id = uuidv4();
+    const now = new Date().toISOString();
+    // The first run writes everything anyway, so the first daily reconcile is due a day later.
     db.prepare(`
         INSERT INTO odoo_syncs (id, scope, source_id, odoo_target, parent_article_id, documents_folder_id,
-            run_as, status, paused_reason, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?)
+            run_as, status, paused_reason, last_reconcile_at, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?)
     `).run(
         id, values.scope, values.scope === 'space' ? null : values.sourceId, values.odooTarget,
         values.parentArticleId ?? null, values.documentsFolderId ?? null,
-        values.runAs, values.createdBy, new Date().toISOString(),
+        values.runAs, now, values.createdBy, now,
     );
     return readSync(db, id);
 }
@@ -288,7 +292,8 @@ export function contentHash({ name, parentArticleId, body, sequence }) {
  * @property {number} unchanged
  * @property {number} archived
  * @property {number} restored
- * @property {{ sourceId: string, name: string, error: string }[]} failures
+ * @property {number} pdfs PDFs filed in Documents (Phase 12)
+ * @property {{ sourceId: string, name: string, error: string, pdf?: boolean }[]} failures
  * @property {string|null} paused the reason the run stopped the sync, if it did
  */
 
@@ -304,12 +309,14 @@ export function contentHash({ name, parentArticleId, body, sequence }) {
  * @param {(src: string) => object|null} [options.readImage]
  * @param {Map<string,string>|object} [options.globals] the account's global variables
  * @param {boolean} [options.reconcile] compare with Odoo's side too (daily)
+ * @param {(request: object) => Promise<{ ok: boolean, pdf?: Buffer }>} [options.renderPdf]
+ *   renders a Document's PDF for the sync's Documents folder (Phase 12); none: no PDFs
  * @param {Date} [options.now]
  * @returns {Promise<SyncRunResult>}
  */
-export async function runSync({ db, sync, client, odooTarget, userId, readImage = null, globals = {}, reconcile = false, now = new Date() }) {
+export async function runSync({ db, sync, client, odooTarget, userId, readImage = null, globals = {}, reconcile = false, renderPdf = null, now = new Date() }) {
     if (odooTarget !== sync.odoo_target) throw new OdooError('access_denied');
-    const result = { created: 0, updated: 0, unchanged: 0, archived: 0, restored: 0, failures: [], paused: null };
+    const result = { created: 0, updated: 0, unchanged: 0, archived: 0, restored: 0, pdfs: 0, failures: [], paused: null };
     const fail = (record, error) => {
         const code = error instanceof OdooError ? error.code : 'odoo_error';
         if (!(error instanceof OdooError)) console.error('[odoo-sync] Unexpected error:', error);
@@ -356,6 +363,48 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
         articleIds.set(record.sourceId, recordId);
     };
 
+    /**
+     * File the Document's PDF in the sync's Documents folder when the sync asks for it
+     * and the PDF would differ from the one filed last. Returns a failure code to stop on,
+     * or '' (a lost PDF never stops the articles).
+     */
+    const filePdf = async (record) => {
+        if (!renderPdf || !sync.documents_folder_id || record.sourceType !== 'note') return '';
+        const note = db.prepare('SELECT id, title, content, folder_id FROM notes WHERE id = ?').get(record.sourceId);
+        if (!note) return '';
+        let built;
+        try {
+            built = buildSyncPdfRequest({ db, note, globals, now });
+        } catch (error) {
+            console.error('[odoo-sync] Could not build a PDF request:', error);
+            result.failures.push({ sourceId: record.sourceId, name: record.name, error: 'odoo_error', pdf: true });
+            return '';
+        }
+        const key = { sourceId: record.sourceId, destination: 'documents', odooTarget };
+        const existing = readLink(db, key);
+        if (existing && existing.sync_id === sync.id && existing.content_hash === built.hash) return '';
+        try {
+            const rendered = await renderPdf(built.request);
+            if (!rendered?.ok) {
+                result.failures.push({ sourceId: record.sourceId, name: record.name, error: 'pdf_failed', pdf: true });
+                return '';
+            }
+            await sendPdfToDocuments({
+                client, odooTarget, db, noteId: record.sourceId, title: record.name, pdf: rendered.pdf,
+                folderId: sync.documents_folder_id, userId,
+            });
+            db.prepare('UPDATE odoo_links SET sync_id = ?, content_hash = ? WHERE source_id = ? AND destination = ? AND odoo_target = ? AND target_key = ?')
+                .run(sync.id, built.hash, record.sourceId, 'documents', odooTarget, '');
+            result.pdfs += 1;
+            return '';
+        } catch (error) {
+            const code = error instanceof OdooError ? error.code : 'odoo_error';
+            if (!(error instanceof OdooError)) console.error('[odoo-sync] Unexpected error filing a PDF:', error);
+            result.failures.push({ sourceId: record.sourceId, name: record.name, error: code, pdf: true });
+            return ['key_rejected', 'not_odoo', 'unreachable', 'blocked'].includes(code) ? code : '';
+        }
+    };
+
     const depths = [...new Set(tree.map((record) => record.depth))].sort((a, b) => a - b);
     for (const depth of depths) {
         const level = tree.filter((record) => record.depth === depth);
@@ -381,6 +430,7 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
             }
             if (!reconcile && !link.archived_at && link.sync_id === sync.id && link.content_hash === hash) {
                 result.unchanged += 1;
+                if (stop(await filePdf(record))) return result;
                 continue;
             }
             try {
@@ -391,6 +441,7 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
                     result.updated += 1;
                     if (link.archived_at) result.restored += 1;
                 }
+                if (outcome !== 'gone' && stop(await filePdf(record))) return result;
             } catch (error) {
                 if (stop(fail(record, error))) return result;
             }
@@ -434,7 +485,9 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
                         result.created += 1;
                     } catch (inner) {
                         if (stop(fail(prepared.record, inner))) return result;
+                        continue;
                     }
+                    if (stop(await filePdf(prepared.record))) return result;
                 }
                 continue;
             }
@@ -450,6 +503,7 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
                 } catch (error) {
                     if (stop(fail(prepared.record, error))) return result;
                 }
+                if (stop(await filePdf(prepared.record))) return result;
             }
         }
     }

@@ -159,6 +159,37 @@ describe('OdooSyncsCard', () => {
         expect(created.body).toEqual({ dbKey: 'space:abc', scope: 'space', parentArticleId: 0 });
     });
 
+    it('can file PDFs in a Documents folder when this Odoo has Documents', async () => {
+        const calls = api({ status: { ...CONNECTED, apps: ['knowledge', 'documents'] }, created: { ...SYNC, id: 's3', documentsFolderId: 41, lastRunAt: null, lastResult: null } });
+        vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
+            const path = new URL(url, 'http://x').pathname;
+            calls.push({ path, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null });
+            if (path === '/addons/odoo') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ...CONNECTED, apps: ['knowledge', 'documents'] }) });
+            if (path === '/addons/odoo/syncs' && options.method === 'POST') return Promise.resolve({ ok: true, status: 201, json: () => Promise.resolve({ sync: { ...SYNC, id: 's3', documentsFolderId: 41, lastRunAt: null, lastResult: null } }) });
+            if (path === '/addons/odoo/syncs') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ syncs: [] }) });
+            if (path === '/addons/odoo/articles') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ articles: [] }) });
+            if (path === '/addons/odoo/folders') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ folders: [{ id: 2, name: 'Inbox', parentName: null }, { id: 41, name: 'Sales', parentName: 'Finance' }] }) });
+            return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: 'not_found' }) });
+        }));
+        const wrapper = mount(OdooSyncsCard);
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-syncs-add"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-sync-pdf-option"]').exists()).toBe(true);
+        expect(calls.some((c) => c.path === '/addons/odoo/folders')).toBe(false);
+        await wrapper.find('[data-testid="odoo-sync-folder"]').setValue('f-docs');
+        await wrapper.find('[data-testid="odoo-sync-parent-top"]').trigger('click');
+        await wrapper.find('[data-testid="odoo-sync-with-pdfs"]').setValue(true);
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-sync-create"]').attributes('disabled')).toBeDefined();
+        await wrapper.find('[data-testid="odoo-sync-pdf-folder-41"]').trigger('click');
+        expect(wrapper.find('[data-testid="odoo-sync-create"]').attributes('disabled')).toBeUndefined();
+        await wrapper.find('[data-testid="odoo-syncs-form"]').trigger('submit');
+        await flushPromises();
+        expect(calls.find((c) => c.path === '/addons/odoo/syncs' && c.method === 'POST').body).toEqual({ dbKey: 'user:me', scope: 'folder', sourceId: 'f-docs', parentArticleId: 0, documentsFolderId: 41 });
+        expect(wrapper.find('[data-testid="odoo-sync-pdfs-s3"]').text()).toContain('A PDF of each Document is filed in Odoo Documents too.');
+    });
+
     it('asks before removing a sync, and keeps the articles', async () => {
         const calls = api({ syncs: [SYNC] });
         const wrapper = mount(OdooSyncsCard);

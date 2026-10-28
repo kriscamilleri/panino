@@ -8,7 +8,11 @@
         ".": "./contentMerge.js",
         "./print-style-rules": "./printStyleRules.js",
         "./markdown-render": "./markdownRender.js",
-        "./front-matter": "./frontMatter.js"
+        "./front-matter": "./frontMatter.js",
+        "./style-defaults": "./styleDefaults.js",
+        "./style-presets": "./stylePresets.js",
+        "./pdf-request": "./pdfRequest.js",
+        "./styled-renderer": "./styledRenderer.js"
     },
     "scripts": {
         "test": "vitest run"

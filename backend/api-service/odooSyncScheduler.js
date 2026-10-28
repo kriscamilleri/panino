@@ -16,7 +16,7 @@ import { isAddonActive } from './addons.js';
 import { OdooError } from './odooClient.js';
 import { rememberConnectionError, senderConnection } from './odooConnection.js';
 import { listSyncs, readSync, runSync, saveSyncRun, setSyncStatus } from './odooSync.js';
-import { readInternalImage } from './pdf.js';
+import { readInternalImage, renderPdf } from './pdf.js';
 
 export const SYNC_DEBOUNCE_MS = 3 * 60 * 1000;
 export const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -209,10 +209,13 @@ async function runOne(dbKey, syncId, { reconcile }) {
             readImage: (src) => readInternalImage(src, sync.run_as),
             globals: globalsOf(db),
             reconcile,
+            renderPdf: sync.documents_folder_id
+                ? (request) => renderPdf(request, { userId: sync.run_as, priority: 'low' })
+                : null,
         });
     } catch (error) {
         console.error('[odoo-sync] Run failed:', error instanceof OdooError ? error.code : error);
-        result = { created: 0, updated: 0, unchanged: 0, archived: 0, restored: 0, failures: [{ sourceId: null, name: 'Run', error: error instanceof OdooError ? error.code : 'odoo_error' }], paused: null };
+        result = { created: 0, updated: 0, unchanged: 0, archived: 0, restored: 0, pdfs: 0, failures: [{ sourceId: null, name: 'Run', error: error instanceof OdooError ? error.code : 'odoo_error' }], paused: null };
         if (error instanceof OdooError) rememberConnectionError(sender.userDb, error);
     }
     saveSyncRun(db, syncId, { result, reconcile: reconcile && !result.paused });

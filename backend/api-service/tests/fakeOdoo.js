@@ -139,9 +139,13 @@ export function startFakeOdoo() {
                     return send(200, ids);
                 }
                 case 'documents.document/read':
-                    return send(200, params.ids.filter((id) => state.docs.has(id)).map((id) => {
+                    return send(200, params.ids.flatMap((id) => {
+                        // The two demo folders are documents too.
+                        if (id === 2) return [{ id, name: 'Inbox', type: 'folder', create_date: '2026-01-01 08:00:00' }];
+                        if (id === 41) return [{ id, name: 'Sales', type: 'folder', create_date: '2026-01-01 08:00:00' }];
+                        if (!state.docs.has(id)) return [];
                         const doc = state.docs.get(id);
-                        return { id, create_date: doc.create_date, attachment_id: [doc.attachment_id, doc.name], access_url: `http://localhost:8069/odoo/documents/tok${id}` };
+                        return [{ id, create_date: doc.create_date, attachment_id: [doc.attachment_id, doc.name], access_url: `http://localhost:8069/odoo/documents/tok${id}` }];
                     }));
                 case 'documents.document/write':
                     for (const id of params.ids) {

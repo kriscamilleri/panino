@@ -56,6 +56,11 @@
                                 class="pn-help"
                                 :data-testid="`odoo-sync-runner-${sync.id}`"
                             >Syncing as {{ sync.runAs === authStore.user?.id ? 'you' : (sync.runAsName || 'a member') }}, with their Odoo user.</p>
+                            <p
+                                v-if="sync.documentsFolderId"
+                                class="pn-help"
+                                :data-testid="`odoo-sync-pdfs-${sync.id}`"
+                            >A PDF of each Document is filed in Odoo Documents too.</p>
                         </div>
                         <div class="flex items-center gap-2">
                             <BaseButton
@@ -236,6 +241,74 @@
                     </ul>
                 </div>
 
+                <div
+                    v-if="hasDocuments"
+                    class="space-y-2"
+                    data-testid="odoo-sync-pdf-option"
+                >
+                    <label class="flex items-start gap-2 pn-body">
+                        <input
+                            v-model="withPdfs"
+                            type="checkbox"
+                            class="pn-checkbox mt-0.5"
+                            data-testid="odoo-sync-with-pdfs"
+                        >
+                        <span>Also file a PDF of each Document in Odoo Documents. PDFs are made on the server, after other exports, and use each Document's print style.</span>
+                    </label>
+                    <template v-if="withPdfs">
+                        <label
+                            class="pn-label"
+                            for="odoo-sync-pdf-folder-search"
+                        >Documents folder</label>
+                        <input
+                            id="odoo-sync-pdf-folder-search"
+                            v-model="pdfFolderQuery"
+                            class="pn-input"
+                            type="search"
+                            placeholder="Search folders"
+                            autocomplete="off"
+                            data-testid="odoo-sync-pdf-folder-search"
+                        >
+                        <ul
+                            class="max-h-40 overflow-y-auto rounded-md border border-gray-200"
+                            role="listbox"
+                            aria-label="Documents folders"
+                            data-testid="odoo-sync-pdf-folder-list"
+                        >
+                            <li
+                                v-for="folder in pdfFolders"
+                                :key="folder.id"
+                                role="option"
+                                :aria-selected="folder.id === pdfFolderId"
+                            >
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                                    :class="{ 'bg-gray-100 font-medium': folder.id === pdfFolderId }"
+                                    :data-testid="`odoo-sync-pdf-folder-${folder.id}`"
+                                    @click="pdfFolderId = folder.id"
+                                >
+                                    <span class="min-w-0 truncate">
+                                        <span
+                                            v-if="folder.parentName"
+                                            class="pn-help"
+                                        >{{ folder.parentName }} / </span>{{ folder.name }}
+                                    </span>
+                                    <Check
+                                        v-if="folder.id === pdfFolderId"
+                                        class="h-4 w-4 shrink-0"
+                                        aria-hidden="true"
+                                    />
+                                </button>
+                            </li>
+                            <li
+                                v-if="!pdfFolders.length"
+                                class="px-3 py-2 pn-help"
+                            >No folders match.</li>
+                        </ul>
+                    </template>
+                </div>
+
                 <p class="pn-help">Colleagues can read the articles in Odoo but not edit them; the next sync would overwrite their changes. Syncing as {{ odoo.status.odooUserName || 'your Odoo user' }}<template v-if="spaceMode">, with your connection; another owner or editor can take over later</template>.</p>
 
                 <div
@@ -256,7 +329,7 @@
                         variant="primary"
                         size="sm"
                         type="submit"
-                        :disabled="!folderId || parentId === null || creating"
+                        :disabled="!folderId || parentId === null || creating || (withPdfs && !pdfFolderId)"
                         data-testid="odoo-sync-create"
                     >{{ creating ? 'Starting…' : 'Start syncing' }}</BaseButton>
                 </div>
@@ -308,9 +381,14 @@ const folderId = ref('')
 const articles = ref([])
 const articleQuery = ref('')
 const parentId = ref(null)
+const withPdfs = ref(false)
+const pdfFolders = ref([])
+const pdfFolderQuery = ref('')
+const pdfFolderId = ref(null)
 
 const dbKey = computed(() => props.dbKey || syncStore.personalDbKey)
 const hasKnowledge = computed(() => Boolean(odoo.status?.apps?.includes('knowledge')))
+const hasDocuments = computed(() => Boolean(odoo.status?.apps?.includes('documents')))
 
 const PAUSE_TEXT = {
     key_rejected: 'Paused: Odoo rejected the API key. Connect again with a new key.',
@@ -333,6 +411,7 @@ function statusLine(sync) {
     if (r.created) parts.push(`${r.created} created`)
     if (r.updated) parts.push(`${r.updated} updated`)
     if (r.archived) parts.push(`${r.archived} archived`)
+    if (r.pdfs) parts.push(`${r.pdfs} ${r.pdfs === 1 ? 'PDF' : 'PDFs'} filed`)
     if (!parts.length) parts.push('nothing to change')
     return `Last sync ${sentAgo(sync.lastRunAt)}: ${parts.join(', ')}.`
 }
@@ -396,6 +475,10 @@ async function startAdding() {
     folderId.value = ''
     parentId.value = null
     articleQuery.value = ''
+    withPdfs.value = false
+    pdfFolderId.value = null
+    pdfFolderQuery.value = ''
+    pdfFolders.value = []
     try {
         folders.value = await docStore.listFolders(dbKey.value)
     } catch (err) {
@@ -414,6 +497,23 @@ async function loadArticles() {
     }
 }
 
+async function loadPdfFolders() {
+    try {
+        pdfFolders.value = await odoo.fetchFolders(pdfFolderQuery.value.trim())
+    } catch (err) {
+        formError.value = err.message
+    }
+}
+
+let pdfFolderTimer = null
+watch(pdfFolderQuery, () => {
+    clearTimeout(pdfFolderTimer)
+    pdfFolderTimer = setTimeout(loadPdfFolders, 250)
+})
+watch(withPdfs, (on) => {
+    if (on && !pdfFolders.value.length) void loadPdfFolders()
+})
+
 let articleTimer = null
 watch(articleQuery, () => {
     clearTimeout(articleTimer)
@@ -425,9 +525,10 @@ async function create() {
     creating.value = true
     formError.value = ''
     try {
+        const pdfs = withPdfs.value && pdfFolderId.value ? { documentsFolderId: pdfFolderId.value } : {}
         const sync = folderId.value === '__space__'
-            ? await odoo.createSync({ dbKey: dbKey.value, scope: 'space', parentArticleId: parentId.value })
-            : await odoo.createSync({ dbKey: dbKey.value, scope: 'folder', sourceId: folderId.value, parentArticleId: parentId.value })
+            ? await odoo.createSync({ dbKey: dbKey.value, scope: 'space', parentArticleId: parentId.value, ...pdfs })
+            : await odoo.createSync({ dbKey: dbKey.value, scope: 'folder', sourceId: folderId.value, parentArticleId: parentId.value, ...pdfs })
         if (sync) syncs.value = [...syncs.value, sync]
         adding.value = false
         ui.addToast?.(`Keeping the ${sync?.scope === 'space' ? 'space' : 'folder'} in sync with Odoo Knowledge. The first sync is on its way.`, 'success')

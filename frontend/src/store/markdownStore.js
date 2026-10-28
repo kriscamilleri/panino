@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref, watch, computed } from 'vue'
 import { applyDocumentVariables, createDocumentRenderer } from '@panino/content-merge/markdown-render'
+import { applyStyleMap } from '@panino/content-merge/styled-renderer'
 import { useSyncStore } from './syncStore'
 import { useAuthStore } from './authStore'
 import { useGlobalVariablesStore } from './globalVariablesStore'
@@ -149,100 +150,26 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
       addCustomCSSToDocument(combinedCSS);
     }
 
-    // Helper to safely get and wrap the original renderer rule
-    const wrapRule = (ruleName, styleKey) => {
-      const originalRule = md.renderer.rules[ruleName] || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
-      md.renderer.rules[ruleName] = (tokens, idx, options, env, self) => {
-        const css = styleMap[styleKey];
-        if (css) tokens[idx].attrSet('style', css);
-        return originalRule(tokens, idx, options, env, self);
-      };
-    };
-
-    // Headings - special handling to get tag name (h1, h2, etc.)
-    const originalHeadingOpen = md.renderer.rules.heading_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
-      const token = tokens[idx];
-      const css = styleMap[token.tag];
-      if (css) token.attrSet('style', css);
-      return originalHeadingOpen(tokens, idx, opts, env, self);
-    };
-
-    // Basic rules
-    wrapRule('paragraph_open', 'p');
-    wrapRule('bullet_list_open', 'ul');
-    wrapRule('ordered_list_open', 'ol');
-    wrapRule('list_item_open', 'li');
-    wrapRule('blockquote_open', 'blockquote');
-    wrapRule('em_open', 'em');
-    wrapRule('strong_open', 'strong');
-    wrapRule('code_inline', 'code');
-    wrapRule('hr', 'hr');
-
-    // Code blocks (fence for ```, code_block for indented)
-    const originalFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-      const css = styleMap.pre;
-      if (css) tokens[idx].attrSet('style', css);
-      return originalFence(tokens, idx, options, env, self);
-    };
-    const originalCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
-      const css = styleMap.pre;
-      if (css) tokens[idx].attrSet('style', css);
-      return originalCodeBlock(tokens, idx, options, env, self);
-    };
-
-
-    // Links
-    const originalLinkOpen = md.renderer.rules.link_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-      const css = styleMap.a;
-      if (css) tokens[idx].attrSet('style', css);
-      const href = tokens[idx].attrGet('href');
-      if (href && (href.startsWith('http') || href.startsWith('//'))) {
-        tokens[idx].attrSet('target', '_blank');
-        tokens[idx].attrSet('rel', 'noopener noreferrer');
-      }
-      return originalLinkOpen(tokens, idx, options, env, self);
-    };
-
-    // Image
-    const originalImage = md.renderer.rules.image || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.image = (tokens, idx, options, env, self) => {
-      const token = tokens[idx];
-      const srcIndex = token.attrIndex('src');
-
-      if (srcIndex >= 0) {
-        let src = token.attrs[srcIndex][1];
-        const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
-
+    // The inline styles and external-link attributes come from the shared renderer
+    // (shared/styledRenderer.js), the same code the API uses for PDFs; the browser only
+    // adds the auth token Panino's own image URLs need.
+    const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
+    applyStyleMap(md, styleMap, {
+      rewriteImageSrc: (src) => {
         const isInternalImage = (apiUrl && src.startsWith(apiUrl) && src.includes('/images/')) ||
           (!src.startsWith('http') && (src.startsWith('/images/') || src.startsWith('/api/images/')));
-
-        if (isInternalImage && authStore.token) {
-          try {
-            token.attrs[srcIndex][1] = withImageAuthToken(src, authStore.token, {
-              origin: apiUrl || window.location.origin,
-              absolute: Boolean(apiUrl),
-            });
-          } catch (e) {
-            console.error("Failed to parse image URL for token injection:", src, e);
-          }
+        if (!isInternalImage || !authStore.token) return src;
+        try {
+          return withImageAuthToken(src, authStore.token, {
+            origin: apiUrl || window.location.origin,
+            absolute: Boolean(apiUrl),
+          });
+        } catch (e) {
+          console.error("Failed to parse image URL for token injection:", src, e);
+          return src;
         }
-      }
-
-      const css = styleMap.img;
-      if (css) token.attrSet('style', css);
-
-      return originalImage(tokens, idx, options, env, self);
-    };
-
-    // Table styles
-    wrapRule('table_open', 'table');
-    wrapRule('tr_open', 'tr');
-    wrapRule('th_open', 'th');
-    wrapRule('td_open', 'td');
+      },
+    });
   }
 
   /**

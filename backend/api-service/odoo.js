@@ -670,6 +670,7 @@ function syncPayload(db, sync, dbKey) {
         sourceName,
         odooHost: baseUrlOfTarget(sync.odoo_target),
         parentArticleId: sync.parent_article_id,
+        documentsFolderId: sync.documents_folder_id,
         runAs: sync.run_as,
         runAsName: names.get(sync.run_as) || null,
         status: sync.status,
@@ -710,6 +711,10 @@ odooRoutes.post('/addons/odoo/syncs', async (req, res) => {
     if (parentArticleId !== null && (!Number.isInteger(parentArticleId) || parentArticleId < 0)) {
         return res.status(400).json({ error: 'invalid', message: 'Choose where in Knowledge the articles go.' });
     }
+    const documentsFolderId = req.body?.documentsFolderId != null ? Number(req.body.documentsFolderId) : null;
+    if (documentsFolderId !== null && (!Number.isInteger(documentsFolderId) || documentsFolderId <= 0)) {
+        return res.status(400).json({ error: 'invalid', message: 'Choose a Documents folder for the PDFs.' });
+    }
 
     let access;
     let sender;
@@ -748,10 +753,24 @@ odooRoutes.post('/addons/odoo/syncs', async (req, res) => {
             return res.status(400).json({ error: code, message: KNOWLEDGE_MESSAGES[code] || ERROR_MESSAGES.odoo_error });
         }
     }
+    if (documentsFolderId) {
+        if (!sender.apps.includes('documents')) {
+            return res.status(400).json({ error: 'missing_app', message: DOCUMENTS_MESSAGES.missing_app });
+        }
+        try {
+            const rows = await sender.client.call('documents.document', 'read', { ids: [documentsFolderId], fields: ['name'] });
+            if (!Array.isArray(rows) || rows.length === 0) throw new OdooError('record_gone');
+        } catch (error) {
+            logFailure('sync_folder_failed', userId, error);
+            rememberConnectionError(sender.userDb, error);
+            const code = error instanceof OdooError ? error.code : 'odoo_error';
+            return res.status(400).json({ error: code, message: code === 'record_gone' ? 'That Documents folder no longer exists in Odoo.' : (DOCUMENTS_MESSAGES[code] || ERROR_MESSAGES.odoo_error) });
+        }
+    }
 
     try {
         const sync = createSync(access.db, {
-            scope, sourceId, odooTarget: sender.target, parentArticleId: parentArticleId || null, runAs: userId, createdBy: userId,
+            scope, sourceId, odooTarget: sender.target, parentArticleId: parentArticleId || null, documentsFolderId, runAs: userId, createdBy: userId,
         });
         void runSyncNow(access.dbKey, sync.id, { trigger: 'created' });
         res.status(201).json({ sync: syncPayload(access.db, sync, access.dbKey) });

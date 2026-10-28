@@ -7,9 +7,10 @@
 > installed in Odoo.
 > Odoo is an **add-on** ([`addons.md`](../active/addons.md)): the operator offers it, each
 > user switches it on in Settings → Add-ons, and it is off by default.
-> Status: active (implementation started 2026-10-26 on `feature/odoo-integration`)
+> Status: active — every phase (0–12) implemented on `feature/odoo-integration` by 2026-10-28;
+> moves to `shipped/` with the pull request
 > Created: 2026-10-25
-> Last updated: 2026-10-27
+> Last updated: 2026-10-28
 
 ---
 
@@ -602,7 +603,7 @@ caller's own, `space:` a space they belong to; owner or editor to create, run or
 | Route | Who | Purpose |
 |---|---|---|
 | `GET /addons/odoo/syncs?dbKey=` | can read the database | the syncs with source name, status, pause reason, last run and its counts and failures, whether a run is in progress |
-| `POST /addons/odoo/syncs` | owner or editor, connected, Knowledge app | `{dbKey, scope: 'space' \| 'folder' \| 'note', sourceId?, parentArticleId?}` (`null` or `0` = top level; `space` only for a `space:` key, no `sourceId`): refuses an overlap (`409 overlap`), a gone parent (`record_gone`), a missing app; starts the first run |
+| `POST /addons/odoo/syncs` | owner or editor, connected, Knowledge app | `{dbKey, scope: 'space' \| 'folder' \| 'note', sourceId?, parentArticleId?, documentsFolderId?}` (`null` or `0` = top level; `space` only for a `space:` key, no `sourceId`; `documentsFolderId` needs the Documents app and an existing folder, and makes the sync file PDFs): refuses an overlap (`409 overlap`), a gone parent or folder (`record_gone`), a missing app; starts the first run |
 | `POST /addons/odoo/syncs/:id/run?dbKey=` | owner or editor | Sync now (`409 paused` while paused) |
 | `POST /addons/odoo/syncs/:id/take-over?dbKey=` | owner or editor, connected to the same Odoo | the caller's connection runs the sync from now on; `knowledge.article/has_access` (`write`) on the sync's articles must say yes (`403 access_denied` otherwise, nothing changes); `409 different_odoo` when the caller's Odoo is another one |
 | `DELETE /addons/odoo/syncs/:id?dbKey=` | owner or editor | stop syncing; articles stay, links lose their `sync_id` |
@@ -699,8 +700,17 @@ A manual Knowledge send of a Document under a sync answers `knowledge: {ok: fals
    writes each article with placeholders, uploads its Panino images through
     `uploadArticleImages` and writes the image body; the same bytes are reused on later runs
     (`odooSyncs.test.js`, "uploads a synced Document's images").
-12. **PDFs in sync** (opt-in): server-built print request, low-priority rendering into a
-    Documents folder.
+12. **PDFs in sync** (opt-in). ✅ Done 2026-10-28. `shared/styleDefaults.js`, `stylePresets.js`,
+    `pdfRequest.js` and `styledRenderer.js` (the Preview's inline styles) moved out of the
+    frontend, which re-exports them; `odooSyncPdf.js` builds a Document's print request on the
+    server the way Export does (its front-matter style, the nearest folder default, else the
+    account's saved print styles) and hashes what the PDF depends on; `renderPdf` gained a
+    low-priority lane that runs only while no interactive export is queued; a sync with
+    `documents_folder_id` files each changed Document's PDF through `sendPdfToDocuments`
+    (links carry `sync_id` and the PDF hash; a style change alone re-renders), counts them as
+    `pdfs` and reports lost ones with `pdf: true`. `POST /addons/odoo/syncs` takes
+    `documentsFolderId` (checked with `documents.document/read`); the card's Add sync offers
+    "Also file a PDF of each Document".
 
 ## 13) Tests
 

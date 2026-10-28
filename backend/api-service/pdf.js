@@ -485,11 +485,15 @@ async function runJob(job) {
     clearTimeout(settle);
 }
 
+// Background work (Odoo syncs) waits in its own lane and only runs while nobody is
+// waiting on an interactive export.
+const lowPriorityQueue = [];
+
 async function processQueue() {
-    if (isProcessing || queue.length === 0) return;
+    if (isProcessing || (queue.length === 0 && lowPriorityQueue.length === 0)) return;
 
     isProcessing = true;
-    const job = queue.shift();
+    const job = queue.length ? queue.shift() : lowPriorityQueue.shift();
 
     try {
         await runJob(job);
@@ -498,7 +502,7 @@ async function processQueue() {
     } finally {
         isProcessing = false;
         job.resolve();
-        if (queue.length > 0) setTimeout(processQueue, 50);
+        if (queue.length > 0 || lowPriorityQueue.length > 0) setTimeout(processQueue, 50);
     }
 }
 
@@ -508,11 +512,13 @@ async function processQueue() {
  * A full queue answers 503 at once, with `retryAfterSeconds`.
  *
  * @param {{ htmlContent?: string, cssStyles?: string, printStyles?: object }} payload
- * @param {{ userId: string }} options the user whose images may be embedded
+ * @param {{ userId: string, priority?: 'normal'|'low' }} options the user whose images may be
+ *   embedded; `low` puts the job behind every interactive export (Odoo syncs)
  * @returns {Promise<{ ok: true, pdf: Buffer } | { ok: false, status: number, message: string, retryAfterSeconds?: number }>}
  */
-export function renderPdf(payload, { userId }) {
-    if (queue.length >= PDF_RUNTIME.queueLimit) {
+export function renderPdf(payload, { userId, priority = 'normal' }) {
+    const lane = priority === 'low' ? lowPriorityQueue : queue;
+    if (lane.length >= PDF_RUNTIME.queueLimit) {
         logWarn(`Queue full (${queue.length}); rejecting request`);
         return Promise.resolve({
             ok: false,
@@ -523,7 +529,7 @@ export function renderPdf(payload, { userId }) {
     }
     return new Promise((resolveResult) => {
         let result;
-        queue.push({
+        lane.push({
             payload: payload || {},
             userId,
             deliver: (value) => { result = value; resolveResult(value); },
