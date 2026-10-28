@@ -626,8 +626,17 @@ sync unchanged.
    reported as `noteMissing`. `/send` takes `documents` and/or `chatter`, renders the PDF once and
    reports each destination. The send sheet's chatter section on desktop and phone; the shared
    `tests/fakeOdoo.js`. Checked headless against local Odoo 19 Community at 1280px and 375px.
-5. **Article to Knowledge.** HTML rendering and sanitizing, checklist mapping, parent picker.
-   Images replaced by placeholders.
+5. **Article to Knowledge.** ✅ Done 2026-10-28. `odooKnowledge.js`: `articleBody` (DOMPurify
+   with a Knowledge allow-list, the title heading dropped, `contains-task-list` → `ul.o_checklist`
+   / `li.o_checked`, images → "Image not sent" placeholders, links `target=_blank`), `searchArticles`
+   (`GET /addons/odoo/articles`, templates excluded), `sendArticleToKnowledge` (create under the
+   chosen parent or at the top level, `parent_article_id` remembered with `0` meaning top level;
+   update writes `name` and `body` after the `create_date` check). The client renders with a plain
+   MarkdownIt + task lists + DOMPurify (`utils/odooArticle.js`, `composables/useDocumentArticle.js`);
+   `/send` takes `knowledge: {parentId?, html}` and needs `pdfRequest` only for Documents or the
+   chatter. The send sheet's Knowledge section with the parent picker ("Top level" first). Checked
+   headless against local Odoo 20 Enterprise at 1280px and 375px: body, checklist, placeholder,
+   table and update verified on Odoo's side. Keep in sync is Phase 9.
 6. **Images** uploaded into articles.
 7. **Key lifecycle.** Expiry warnings everywhere; optional rotation through
    `res.users.apikeys/generate` when allowed (generate the new key, store it, verify it, then

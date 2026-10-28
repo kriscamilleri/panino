@@ -125,6 +125,17 @@ export const useOdooStore = defineStore('odooStore', () => {
     }
 
     /**
+     * Knowledge articles matching `query`, for the parent picker.
+     *
+     * @param {string} query
+     * @returns {Promise<{ id: number, name: string, parentName: string|null }[]>}
+     */
+    async function fetchArticles(query = '') {
+        const payload = await authFetch(`/addons/odoo/articles?q=${encodeURIComponent(query)}`);
+        return payload?.articles || [];
+    }
+
+    /**
      * Opportunities and sales orders matching `query`. With a Document named, the
      * records it was already sent to come first, flagged `sent`.
      *
@@ -157,7 +168,7 @@ export const useOdooStore = defineStore('odooStore', () => {
      * Send a Document. Resolves with the server's per-destination results; a
      * refused request rejects with the server's message.
      *
-     * @param {{ dbKey: string, noteId: string, title: string, pdfRequest: object, documents?: { folderId?: number }, chatter?: { resModel: string, resId: number } }} body
+     * @param {{ dbKey: string, noteId: string, title: string, pdfRequest?: object, documents?: { folderId?: number }, chatter?: { resModel: string, resId: number }, knowledge?: { parentId?: number|null, html: string } }} body
      */
     async function send(body) {
         return authFetch('/addons/odoo/send', { method: 'POST', body: JSON.stringify(body) });
@@ -176,6 +187,7 @@ export const useOdooStore = defineStore('odooStore', () => {
         check,
         disconnect,
         fetchFolders,
+        fetchArticles,
         fetchRecords,
         fetchLinks,
         send,

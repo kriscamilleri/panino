@@ -44,7 +44,7 @@
                     v-if="!hasDestination"
                     class="pn-alert pn-alert-info"
                     data-testid="odoo-send-no-destination"
-                >This Odoo has none of Documents, CRM or Sales available to your Odoo user, so there is nowhere to send a PDF yet.</div>
+                >This Odoo has none of Documents, Knowledge, CRM or Sales available to your Odoo user, so there is nowhere to send the Document yet.</div>
 
                 <section
                     v-if="hasDocumentsApp"
@@ -147,6 +147,131 @@
                             rel="noopener noreferrer"
                             class="ml-1 font-medium underline underline-offset-2"
                             data-testid="odoo-send-open"
+                        >Open in Odoo</a>
+                    </div>
+                </section>
+
+                <section
+                    v-if="hasKnowledgeApp"
+                    class="pn-panel p-4 space-y-3"
+                    data-testid="odoo-send-knowledge"
+                >
+                    <label class="flex items-center gap-2 pn-title-section">
+                        <input
+                            v-model="toKnowledge"
+                            type="checkbox"
+                            class="pn-checkbox"
+                            data-testid="odoo-send-knowledge-toggle"
+                        >
+                        Article to Knowledge
+                    </label>
+
+                    <div
+                        v-if="knowledgeLink"
+                        class="pn-body"
+                        data-testid="odoo-send-knowledge-last-sent"
+                    >
+                        Sent {{ sentAgo(knowledgeLink.lastSentAt) }}<span v-if="knowledgeLink.lastSentBy"> by {{ knowledgeLink.lastSentBy }}</span>.
+                        Sending again replaces that article's text in Odoo, including edits made there.
+                        <a
+                            v-if="knowledgeLink.url"
+                            :href="knowledgeLink.url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="font-medium underline underline-offset-2"
+                        >Open in Odoo</a>
+                    </div>
+
+                    <div
+                        v-else-if="toKnowledge"
+                        class="space-y-2"
+                    >
+                        <p class="pn-help">Images are not sent yet; the article shows "Image not sent" in their place.</p>
+                        <label
+                            class="pn-label"
+                            for="odoo-article-search"
+                        >Under</label>
+                        <input
+                            id="odoo-article-search"
+                            v-model="articleQuery"
+                            class="pn-input"
+                            type="search"
+                            placeholder="Search articles"
+                            autocomplete="off"
+                            data-testid="odoo-article-search"
+                        >
+                        <ul
+                            class="max-h-48 overflow-y-auto rounded-md border border-gray-200"
+                            role="listbox"
+                            aria-label="Knowledge articles"
+                            data-testid="odoo-article-list"
+                        >
+                            <li
+                                role="option"
+                                :aria-selected="parentId === 0"
+                            >
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                                    :class="{ 'bg-gray-100 font-medium': parentId === 0 }"
+                                    data-testid="odoo-article-top"
+                                    @click="parentId = 0"
+                                >
+                                    <span class="min-w-0 truncate">Top level</span>
+                                    <Check
+                                        v-if="parentId === 0"
+                                        class="h-4 w-4 shrink-0"
+                                        aria-hidden="true"
+                                    />
+                                </button>
+                            </li>
+                            <li
+                                v-for="article in articles"
+                                :key="article.id"
+                                role="option"
+                                :aria-selected="article.id === parentId"
+                            >
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50"
+                                    :class="{ 'bg-gray-100 font-medium': article.id === parentId }"
+                                    :data-testid="`odoo-article-${article.id}`"
+                                    @click="parentId = article.id"
+                                >
+                                    <span class="min-w-0 truncate">
+                                        <span
+                                            v-if="article.parentName"
+                                            class="pn-help"
+                                        >{{ article.parentName }} / </span>{{ article.name }}
+                                    </span>
+                                    <Check
+                                        v-if="article.id === parentId"
+                                        class="h-4 w-4 shrink-0"
+                                        aria-hidden="true"
+                                    />
+                                </button>
+                            </li>
+                            <li
+                                v-if="!articles.length && !loadingArticles && articleQuery"
+                                class="px-3 py-2 pn-help"
+                            >No articles match.</li>
+                        </ul>
+                    </div>
+
+                    <div
+                        v-if="results.knowledge"
+                        :class="results.knowledge.ok ? 'pn-alert pn-alert-success' : 'pn-alert pn-alert-error'"
+                        role="status"
+                        data-testid="odoo-send-knowledge-result"
+                    >
+                        <span>{{ knowledgeResultMessage }}</span>
+                        <a
+                            v-if="results.knowledge.ok && results.knowledge.url"
+                            :href="results.knowledge.url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="ml-1 font-medium underline underline-offset-2"
+                            data-testid="odoo-send-knowledge-open"
                         >Open in Odoo</a>
                     </div>
                 </section>
@@ -297,6 +422,7 @@ import { useDocStore } from '@/store/docStore'
 import { useOdooStore } from '@/store/odooStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useDocumentPdfRequest } from '@/composables/useDocumentPdfRequest'
+import { useDocumentArticle } from '@/composables/useDocumentArticle'
 import { odooHost, sentAgo } from '@/utils/odooConnection'
 
 const props = defineProps({
@@ -309,6 +435,7 @@ const docStore = useDocStore()
 const odoo = useOdooStore()
 const syncStore = useSyncStore()
 const { buildForSelected } = useDocumentPdfRequest()
+const { buildForSelected: buildArticleForSelected } = useDocumentArticle()
 const { selectedFile: file } = storeToRefs(docStore)
 
 const loading = ref(false)
@@ -320,6 +447,11 @@ const folderQuery = ref('')
 const folderId = ref(null)
 const loadingFolders = ref(false)
 const toDocuments = ref(true)
+const articles = ref([])
+const articleQuery = ref('')
+const parentId = ref(null)
+const loadingArticles = ref(false)
+const toKnowledge = ref(false)
 const records = ref([])
 const recordQuery = ref('')
 const selectedRecordKey = ref(null)
@@ -331,10 +463,11 @@ const results = ref({})
 const host = computed(() => odooHost(odoo.status?.baseUrl))
 const apps = computed(() => odoo.status?.apps || [])
 const hasDocumentsApp = computed(() => apps.value.includes('documents'))
+const hasKnowledgeApp = computed(() => apps.value.includes('knowledge'))
 const hasCrm = computed(() => apps.value.includes('crm'))
 const hasSales = computed(() => apps.value.includes('sales'))
 const hasChatterApps = computed(() => hasCrm.value || hasSales.value)
-const hasDestination = computed(() => hasDocumentsApp.value || hasChatterApps.value)
+const hasDestination = computed(() => hasDocumentsApp.value || hasKnowledgeApp.value || hasChatterApps.value)
 const chatterLabel = computed(() => {
     if (hasCrm.value && hasSales.value) return 'an opportunity or sales order'
     return hasCrm.value ? 'an opportunity' : 'a sales order'
@@ -345,21 +478,27 @@ const chatterLabelCapitalized = computed(() => {
 })
 
 const documentsLink = computed(() => links.value.find((link) => link.destination === 'documents' && link.sameOdoo) || null)
+const knowledgeLink = computed(() => links.value.find((link) => link.destination === 'knowledge' && link.sameOdoo) || null)
 const recordKey = (record) => `${record.resModel}:${record.resId}`
 const sentTo = (record) => links.value.find((link) => link.destination === 'chatter' && link.sameOdoo && link.targetKey === recordKey(record)) || null
 const selectedRecord = computed(() => records.value.find((record) => recordKey(record) === selectedRecordKey.value) || null)
 const selectedRecordLink = computed(() => (selectedRecord.value ? sentTo(selectedRecord.value) : null))
 
 const wantsDocuments = computed(() => hasDocumentsApp.value && toDocuments.value)
+const wantsKnowledge = computed(() => hasKnowledgeApp.value && toKnowledge.value)
 const wantsChatter = computed(() => hasChatterApps.value && toChatter.value)
+const wantsAny = computed(() => wantsDocuments.value || wantsKnowledge.value || wantsChatter.value)
 const documentsReady = computed(() => Boolean(documentsLink.value || folderId.value))
+const knowledgeReady = computed(() => Boolean(knowledgeLink.value) || parentId.value !== null)
 const chatterReady = computed(() => Boolean(selectedRecord.value))
 const canSend = computed(() => !sending.value && syncStore.isOnline && Boolean(file.value)
-    && (wantsDocuments.value || wantsChatter.value)
+    && wantsAny.value
     && (!wantsDocuments.value || documentsReady.value)
+    && (!wantsKnowledge.value || knowledgeReady.value)
     && (!wantsChatter.value || chatterReady.value))
-const allUpdates = computed(() => (wantsDocuments.value || wantsChatter.value)
+const allUpdates = computed(() => wantsAny.value
     && (!wantsDocuments.value || Boolean(documentsLink.value))
+    && (!wantsKnowledge.value || Boolean(knowledgeLink.value))
     && (!wantsChatter.value || Boolean(selectedRecordLink.value)))
 const allSent = computed(() => {
     const done = Object.values(results.value)
@@ -372,6 +511,13 @@ const documentsResultMessage = computed(() => {
     if (!result.ok) return result.message
     if (result.recreated) return 'The earlier PDF was gone from Odoo, so a new one was made.'
     return result.created ? 'Sent to Odoo Documents.' : 'Updated in Odoo Documents.'
+})
+const knowledgeResultMessage = computed(() => {
+    const result = results.value.knowledge
+    if (!result) return ''
+    if (!result.ok) return result.message
+    if (result.recreated) return 'The earlier article was gone from Odoo, so a new one was made.'
+    return result.created ? 'Sent to Odoo Knowledge.' : 'Updated in Odoo Knowledge.'
 })
 const chatterResultMessage = computed(() => {
     const result = results.value.chatter
@@ -393,6 +539,17 @@ async function loadFolders() {
     }
 }
 
+async function loadArticles() {
+    loadingArticles.value = true
+    try {
+        articles.value = await odoo.fetchArticles(articleQuery.value.trim())
+    } catch (error) {
+        loadError.value = error.message
+    } finally {
+        loadingArticles.value = false
+    }
+}
+
 async function loadRecords() {
     if (!file.value) return
     loadingRecords.value = true
@@ -409,6 +566,16 @@ let folderTimer = null
 watch(folderQuery, () => {
     clearTimeout(folderTimer)
     folderTimer = setTimeout(loadFolders, 250)
+})
+
+let articleTimer = null
+watch(articleQuery, () => {
+    clearTimeout(articleTimer)
+    articleTimer = setTimeout(loadArticles, 250)
+})
+
+watch(toKnowledge, (on) => {
+    if (on && !knowledgeLink.value && !articles.value.length && !loadingArticles.value) void loadArticles()
 })
 
 let recordTimer = null
@@ -435,6 +602,10 @@ watch(() => props.show, async (open) => {
     recordQuery.value = ''
     selectedRecordKey.value = null
     toChatter.value = false
+    articles.value = []
+    articleQuery.value = ''
+    parentId.value = null
+    toKnowledge.value = false
     try {
         await odoo.fetchStatus()
         toDocuments.value = hasDocumentsApp.value
@@ -442,6 +613,7 @@ watch(() => props.show, async (open) => {
             const data = await odoo.fetchLinks(file.value.dbKey, file.value.id)
             links.value = data?.links || []
             folderId.value = data?.defaults?.folderId ?? null
+            parentId.value = data?.defaults?.parentArticleId ?? null
             if (hasDocumentsApp.value && !documentsLink.value) await loadFolders()
         }
     } catch (error) {
@@ -457,19 +629,24 @@ async function send() {
     sendError.value = ''
     results.value = {}
     try {
-        const pdfRequest = await buildForSelected()
         const body = {
             dbKey: file.value.dbKey,
             noteId: file.value.id,
             title: file.value.title,
-            pdfRequest,
         }
+        if (wantsDocuments.value || wantsChatter.value) body.pdfRequest = await buildForSelected()
         if (wantsDocuments.value) body.documents = documentsLink.value ? {} : { folderId: folderId.value }
+        if (wantsKnowledge.value) {
+            const html = await buildArticleForSelected()
+            body.knowledge = knowledgeLink.value ? { html } : { parentId: parentId.value, html }
+        }
         if (wantsChatter.value) body.chatter = { resModel: selectedRecord.value.resModel, resId: selectedRecord.value.resId }
         const response = await odoo.send(body)
+        const missing = { ok: false, message: 'Odoo did not answer.' }
         results.value = {
-            ...(wantsDocuments.value ? { documents: response?.documents || { ok: false, message: 'Odoo did not answer.' } } : {}),
-            ...(wantsChatter.value ? { chatter: response?.chatter || { ok: false, message: 'Odoo did not answer.' } } : {}),
+            ...(wantsDocuments.value ? { documents: response?.documents || missing } : {}),
+            ...(wantsKnowledge.value ? { knowledge: response?.knowledge || missing } : {}),
+            ...(wantsChatter.value ? { chatter: response?.chatter || missing } : {}),
         }
         if (Object.values(results.value).some((result) => result.ok)) {
             const data = await odoo.fetchLinks(file.value.dbKey, file.value.id)

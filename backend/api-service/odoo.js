@@ -18,6 +18,7 @@ import { decryptSecret, encryptSecret } from './secrets.js';
 import { OdooError, createOdooClient, normalizeBaseUrl, odooTarget, verifyConnection } from './odooClient.js';
 import { CHATTER_MODELS, chatterTargetKey, parseChatterTarget, readRecords, searchRecords, sendPdfToChatter } from './odooChatter.js';
 import { pdfFileName, searchFolders, sendPdfToDocuments } from './odooDocuments.js';
+import { MAX_ARTICLE_HTML_BYTES, articleBody, searchArticles, sendArticleToKnowledge } from './odooKnowledge.js';
 import { listLinks, readDefaults, saveDefaults } from './odooLinks.js';
 import { renderPdf } from './pdf.js';
 import { resolveSpaceAccess } from './spaces.js';
@@ -54,6 +55,14 @@ const DOCUMENTS_MESSAGES = Object.freeze({
     access_denied: "Your Odoo user can't create or update this document in Odoo Documents.",
     missing_app: "Odoo Documents isn't installed in this Odoo, or your Odoo user can't use it.",
     record_gone: 'The document was removed from Odoo while sending. Send it again.',
+});
+
+/** Messages for the same codes when sending to Knowledge. */
+const KNOWLEDGE_MESSAGES = Object.freeze({
+    ...ERROR_MESSAGES,
+    access_denied: "Your Odoo user can't create or update this article in Odoo Knowledge.",
+    missing_app: "Odoo Knowledge isn't installed in this Odoo, or your Odoo user can't use it.",
+    record_gone: 'The article was removed from Odoo while sending. Send it again.',
 });
 
 /** Messages for the same codes when posting on an opportunity or a sales order. */
@@ -418,6 +427,27 @@ odooRoutes.get('/addons/odoo/folders', async (req, res) => {
     }
 });
 
+odooRoutes.get('/addons/odoo/articles', async (req, res) => {
+    const userId = req.user.user_id;
+    let sender;
+    try {
+        sender = senderConnection(userId);
+    } catch (error) {
+        return sendOdooError(res, error);
+    }
+    if (!sender) return res.status(404).json({ error: 'not_connected', message: 'Connect Odoo in Settings first.' });
+    const query = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
+    try {
+        res.json({ articles: await searchArticles(sender.client, query) });
+    } catch (error) {
+        logFailure('articles_failed', userId, error);
+        rememberConnectionError(sender.userDb, error);
+        if (!(error instanceof OdooError)) console.error('[odoo] Unexpected error listing articles:', error);
+        const code = error instanceof OdooError ? error.code : 'odoo_error';
+        res.status(400).json({ error: code, message: KNOWLEDGE_MESSAGES[code] || ERROR_MESSAGES.odoo_error });
+    }
+});
+
 odooRoutes.get('/addons/odoo/records', async (req, res) => {
     const userId = req.user.user_id;
     let sender;
@@ -517,17 +547,30 @@ async function destinationResult(run, { userId, userDb, event, messages }) {
 
 odooRoutes.post('/addons/odoo/send', async (req, res) => {
     const userId = req.user.user_id;
-    const { dbKey, noteId, title, pdfRequest, documents, chatter } = req.body || {};
+    const { dbKey, noteId, title, pdfRequest, documents, chatter, knowledge } = req.body || {};
     if (typeof noteId !== 'string' || !noteId || noteId.length > 100) {
         return res.status(400).json({ error: 'invalid', message: 'A Document is required.' });
     }
     const wantsDocuments = documents != null;
     const wantsChatter = chatter != null;
-    if ((!wantsDocuments && !wantsChatter) || (wantsDocuments && typeof documents !== 'object')) {
+    const wantsKnowledge = knowledge != null;
+    const wantsPdf = wantsDocuments || wantsChatter;
+    if ((!wantsPdf && !wantsKnowledge) || (wantsDocuments && typeof documents !== 'object') || (wantsKnowledge && typeof knowledge !== 'object')) {
         return res.status(400).json({ error: 'invalid', message: 'Choose where to send the Document.' });
     }
-    if (!pdfRequest || typeof pdfRequest !== 'object') {
+    if (wantsPdf && (!pdfRequest || typeof pdfRequest !== 'object')) {
         return res.status(400).json({ error: 'invalid', message: 'The PDF is missing.' });
+    }
+    if (wantsKnowledge && typeof knowledge.html !== 'string') {
+        return res.status(400).json({ error: 'invalid', message: 'The article is missing.' });
+    }
+    if (wantsKnowledge && Buffer.byteLength(knowledge.html, 'utf8') > MAX_ARTICLE_HTML_BYTES) {
+        return res.status(413).json({ error: 'too_large', message: 'The article is larger than Odoo Knowledge accepts.' });
+    }
+    // `parentId` null or 0 means the top level; it is used only when creating.
+    const parentId = wantsKnowledge && knowledge.parentId != null ? Number(knowledge.parentId) : null;
+    if (parentId !== null && (!Number.isInteger(parentId) || parentId < 0)) {
+        return res.status(400).json({ error: 'invalid', message: 'Choose where in Knowledge the article goes.' });
     }
     const folderId = wantsDocuments && documents.folderId != null ? Number(documents.folderId) : null;
     if (folderId !== null && (!Number.isInteger(folderId) || folderId <= 0)) {
@@ -567,22 +610,45 @@ odooRoutes.post('/addons/odoo/send', async (req, res) => {
 
     sendsInFlight.add(lockKey);
     try {
-        const rendered = await renderPdf(pdfRequest, { userId });
-        if (!rendered.ok) {
-            if (rendered.retryAfterSeconds) res.setHeader('Retry-After', String(rendered.retryAfterSeconds));
-            const busy = rendered.status === 503;
-            return res.status(busy ? 503 : 422).json({
-                error: 'pdf_failed',
-                message: busy ? 'PDFs are busy right now. Try again shortly.' : 'The PDF could not be made.',
-            });
-        }
-        if (rendered.pdf.length > MAX_PDF_BYTES) {
-            return res.status(413).json({ error: 'too_large', message: 'The PDF is larger than 25 MB.' });
+        let pdf = null;
+        if (wantsPdf) {
+            const rendered = await renderPdf(pdfRequest, { userId });
+            if (!rendered.ok) {
+                if (rendered.retryAfterSeconds) res.setHeader('Retry-After', String(rendered.retryAfterSeconds));
+                const busy = rendered.status === 503;
+                return res.status(busy ? 503 : 422).json({
+                    error: 'pdf_failed',
+                    message: busy ? 'PDFs are busy right now. Try again shortly.' : 'The PDF could not be made.',
+                });
+            }
+            if (rendered.pdf.length > MAX_PDF_BYTES) {
+                return res.status(413).json({ error: 'too_large', message: 'The PDF is larger than 25 MB.' });
+            }
+            pdf = rendered.pdf;
         }
 
         const documentTitle = typeof title === 'string' && title.trim() ? title : note.title;
-        const shared = { client: sender.client, odooTarget: sender.target, db: access.db, noteId, pdf: rendered.pdf, userId };
+        const shared = { client: sender.client, odooTarget: sender.target, db: access.db, noteId, pdf, userId };
         const results = {};
+        if (wantsKnowledge) {
+            results.knowledge = sender.apps.includes('knowledge')
+                ? await destinationResult(async () => {
+                    const remembered = readDefaults(access.db, sender.target).parentArticleId;
+                    const sent = await sendArticleToKnowledge({
+                        ...shared,
+                        title: documentTitle,
+                        body: articleBody(knowledge.html, documentTitle),
+                        parentId: parentId ?? remembered,
+                    });
+                    if (parentId !== null) saveDefaults(access.db, sender.target, { parentArticleId: parentId });
+                    return {
+                        created: sent.created,
+                        recreated: sent.recreated,
+                        url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
+                    };
+                }, { userId, userDb: sender.userDb, event: 'send_knowledge_failed', messages: KNOWLEDGE_MESSAGES })
+                : { ok: false, error: 'missing_app', message: KNOWLEDGE_MESSAGES.missing_app };
+        }
         // One destination after the other: they are independent, and each reports for itself.
         if (wantsDocuments) {
             results.documents = await destinationResult(async () => {

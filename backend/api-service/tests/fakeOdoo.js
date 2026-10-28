@@ -38,9 +38,13 @@ function demoRecords() {
 export function resetFakeOdoo(state) {
     Object.assign(state, {
         version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0, failNotes: false,
-        apps: ['documents', 'crm', 'sales'],
+        apps: ['documents', 'knowledge', 'crm', 'sales'],
         nextId: 100, requests: [], messages: [],
         docs: new Map(), attachments: new Map(), attachmentMeta: new Map(),
+        articles: new Map([
+            [10, { id: 10, name: 'Company handbook', parent_id: false, body: '<p>Welcome</p>', create_date: '2026-01-01 08:00:00' }],
+            [11, { id: 11, name: 'Sales playbook', parent_id: [10, 'Company handbook'], body: '<p>Sell</p>', create_date: '2026-01-02 08:00:00' }],
+        ]),
         ...demoRecords(),
     });
 }
@@ -95,7 +99,7 @@ export function startFakeOdoo() {
                 return send(401, { name: 'werkzeug.exceptions.Unauthorized', message: 'Invalid apikey', debug: 'Traceback…' });
             }
             const [, , , model, method] = req.url.split('?')[0].split('/');
-            const appOf = { 'documents.document': 'documents', 'crm.lead': 'crm', 'sale.order': 'sales' };
+            const appOf = { 'documents.document': 'documents', 'knowledge.article': 'knowledge', 'crm.lead': 'crm', 'sale.order': 'sales' };
             if (appOf[model] && !state.apps.includes(appOf[model])) {
                 return send(404, { name: 'werkzeug.exceptions.NotFound', message: `the model '${model}' does not exist` });
             }
@@ -104,6 +108,7 @@ export function startFakeOdoo() {
                 case 'res.users/context_get': return send(200, { uid: 2 });
                 case 'res.users/read': return send(200, [{ id: 2, name: 'Mitchell Admin' }]);
                 case 'documents.document/search_count':
+                case 'knowledge.article/search_count':
                 case 'crm.lead/search_count':
                 case 'sale.order/search_count': return send(200, 0);
                 case 'documents.document/fields_get':
@@ -133,6 +138,35 @@ export function startFakeOdoo() {
                         if (!doc) return odooError('odoo.exceptions.MissingError', 'gone');
                         if (params.vals.name) doc.name = params.vals.name;
                         state.attachments.set(doc.attachment_id, store(params.vals));
+                    }
+                    return send(200, true);
+
+                case 'knowledge.article/search_read':
+                    return send(200, [...state.articles.values()]
+                        .filter((row) => matches(row, (params.domain || []).filter((t) => !(Array.isArray(t) && t[0] === 'is_template'))))
+                        .slice(0, params.limit || 80)
+                        .map(({ id, name, parent_id }) => ({ id, name, parent_id })));
+                case 'knowledge.article/create': {
+                    const ids = params.vals_list.map((vals) => {
+                        const id = state.nextId++;
+                        const parent = vals.parent_id ? state.articles.get(vals.parent_id) : null;
+                        if (vals.parent_id && !parent) return null;
+                        state.articles.set(id, { id, name: vals.name, body: vals.body, parent_id: parent ? [parent.id, parent.name] : false, create_date: createDate(id) });
+                        return id;
+                    });
+                    if (ids.includes(null)) return odooError('odoo.exceptions.MissingError', 'parent gone');
+                    return send(200, ids);
+                }
+                case 'knowledge.article/read':
+                    return send(200, params.ids.filter((id) => state.articles.has(id)).map((id) => {
+                        const a = state.articles.get(id);
+                        return { id, create_date: a.create_date, article_url: `http://localhost:8069/knowledge/article/${id}`, name: a.name, body: a.body };
+                    }));
+                case 'knowledge.article/write':
+                    for (const id of params.ids) {
+                        const a = state.articles.get(id);
+                        if (!a) return odooError('odoo.exceptions.MissingError', 'gone');
+                        Object.assign(a, params.vals);
                     }
                     return send(200, true);
 

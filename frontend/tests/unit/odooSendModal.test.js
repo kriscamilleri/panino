@@ -16,17 +16,20 @@ vi.mock('@/store/docStore', async () => {
 });
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => ({ isOnline: true }) }));
 vi.mock('@/composables/useDocumentPdfRequest', () => ({ useDocumentPdfRequest: () => ({ buildForSelected }) }));
+const buildArticle = vi.fn(async () => '<h1>Quote</h1><p>Hi</p>');
+vi.mock('@/composables/useDocumentArticle', () => ({ useDocumentArticle: () => ({ buildForSelected: buildArticle }) }));
 vi.mock('vue-router', () => ({ useRouter: () => ({ push }) }));
 
 const { default: OdooSendModal } = await import('@/components/OdooSendModal.vue');
 
-const CONNECTED = { connected: true, baseUrl: 'https://acme.odoo.com', odooUserName: 'Mitchell Admin', apps: ['documents', 'crm', 'sales'] };
+const CONNECTED = { connected: true, baseUrl: 'https://acme.odoo.com', odooUserName: 'Mitchell Admin', apps: ['documents', 'knowledge', 'crm', 'sales'] };
 const FOLDERS = { folders: [{ id: 2, name: 'Inbox', parentName: null }, { id: 41, name: 'Sales', parentName: 'Finance' }] };
 const RECORDS = { records: [
     { resModel: 'crm.lead', resId: 1, name: 'Club Office Furnitures', partnerName: 'Azure Interior', status: 'Qualified', sent: false },
     { resModel: 'sale.order', resId: 7, name: 'S00007', partnerName: 'Deco Addict', status: 'Quotation', sent: false },
 ] };
 const PDF_REQUEST = { htmlContent: '<h1>Quote</h1>', cssStyles: '', printStyles: {} };
+const ARTICLES = { articles: [{ id: 10, name: 'Company handbook', parentName: null }, { id: 11, name: 'Sales playbook', parentName: 'Company handbook' }] };
 
 /** fetch answering by path; `send` is the response to POST /send. */
 function api({ status = CONNECTED, links = { links: [], defaults: { folderId: null } }, records = RECORDS, send } = {}) {
@@ -37,6 +40,7 @@ function api({ status = CONNECTED, links = { links: [], defaults: { folderId: nu
         const body = path === '/addons/odoo' ? status
             : path === '/addons/odoo/links' ? links
                 : path === '/addons/odoo/folders' ? FOLDERS
+                    : path === '/addons/odoo/articles' ? ARTICLES
                     : path === '/addons/odoo/records' ? records
                         : path === '/addons/odoo/send' ? send
                             : null;
@@ -66,6 +70,7 @@ describe('OdooSendModal', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         buildForSelected.mockClear();
+        buildArticle.mockClear();
         push.mockClear();
     });
 
@@ -242,6 +247,64 @@ describe('OdooSendModal', () => {
         expect(wrapper.find('[data-testid="odoo-send-chatter-result"]').classes()).toContain('pn-alert-success');
         // Not everything went through, so the footer still offers Cancel, not Done.
         expect(wrapper.text()).toContain('Cancel');
+    });
+
+    it('sends an article to Knowledge under a chosen parent, without building a PDF', async () => {
+        const calls = api({ send: { knowledge: { ok: true, created: true, url: 'https://acme.odoo.com/knowledge/article/120' } } });
+        const wrapper = mountModal();
+        await flushPromises();
+        expect(calls.some((c) => c.path === '/addons/odoo/articles')).toBe(false);
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        await wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').setValue(true);
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-knowledge"]').text()).toContain('Image not sent');
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeDefined();
+        expect(wrapper.find('[data-testid="odoo-article-top"]').text()).toBe('Top level');
+        expect(wrapper.find('[data-testid="odoo-article-11"]').text()).toBe('Company handbook / Sales playbook');
+
+        await wrapper.find('[data-testid="odoo-article-11"]').trigger('click');
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+
+        expect(buildForSelected).not.toHaveBeenCalled();
+        expect(buildArticle).toHaveBeenCalledTimes(1);
+        expect(sentBody(calls)).toEqual({ dbKey: 'user:me', noteId: 'note-1', title: 'Quote', knowledge: { parentId: 11, html: '<h1>Quote</h1><p>Hi</p>' } });
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toContain('Sent to Odoo Knowledge.');
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-open"]').attributes('href')).toBe('https://acme.odoo.com/knowledge/article/120');
+    });
+
+    it('puts an article at the top level, and preselects the remembered parent next time', async () => {
+        const calls = api({ links: { links: [], defaults: { folderId: null, parentArticleId: 0 } }, send: { knowledge: { ok: true, created: true } } });
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        await wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').setValue(true);
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-article-top"]').classes()).toContain('font-medium');
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeUndefined();
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        expect(sentBody(calls).knowledge).toEqual({ parentId: 0, html: '<h1>Quote</h1><p>Hi</p>' });
+    });
+
+    it('updates an article sent before, without asking where it goes', async () => {
+        const calls = api({
+            links: { links: [{ destination: 'knowledge', targetKey: '', sameOdoo: true, url: 'https://acme.odoo.com/knowledge/article/120', lastSentAt: new Date(Date.now() - 60000).toISOString(), lastSentBy: 'Kris' }], defaults: {} },
+            send: { knowledge: { ok: true, created: false, url: 'https://acme.odoo.com/knowledge/article/120' } },
+        });
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        await wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').setValue(true);
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-last-sent"]').text()).toMatch(/Sent 1 minute ago by Kris/);
+        expect(wrapper.find('[data-testid="odoo-article-list"]').exists()).toBe(false);
+        expect(calls.some((c) => c.path === '/addons/odoo/articles')).toBe(false);
+        expect(wrapper.find('[data-testid="odoo-send-submit"]').text()).toBe('Update in Odoo');
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        expect(sentBody(calls).knowledge).toEqual({ html: '<h1>Quote</h1><p>Hi</p>' });
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toContain('Updated in Odoo Knowledge.');
     });
 
     it('cannot send with nothing ticked', async () => {
