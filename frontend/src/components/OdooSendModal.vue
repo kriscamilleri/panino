@@ -186,7 +186,7 @@
                         v-else-if="toKnowledge"
                         class="space-y-2"
                     >
-                        <p class="pn-help">Images are not sent yet; the article shows "Image not sent" in their place.</p>
+                        <p class="pn-help">Images are uploaded into the article. Task lists become checklists.</p>
                         <label
                             class="pn-label"
                             for="odoo-article-search"
@@ -516,8 +516,12 @@ const knowledgeResultMessage = computed(() => {
     const result = results.value.knowledge
     if (!result) return ''
     if (!result.ok) return result.message
-    if (result.recreated) return 'The earlier article was gone from Odoo, so a new one was made.'
-    return result.created ? 'Sent to Odoo Knowledge.' : 'Updated in Odoo Knowledge.'
+    const base = result.recreated
+        ? 'The earlier article was gone from Odoo, so a new one was made.'
+        : (result.created ? 'Sent to Odoo Knowledge.' : 'Updated in Odoo Knowledge.')
+    const missing = Number(result.imagesMissing) || 0
+    if (!missing) return base
+    return `${base} ${missing === 1 ? 'One image' : `${missing} images`} could not be sent and ${missing === 1 ? 'shows' : 'show'} as "Image not sent".`
 })
 const chatterResultMessage = computed(() => {
     const result = results.value.chatter

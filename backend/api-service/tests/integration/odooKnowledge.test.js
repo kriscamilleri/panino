@@ -1,8 +1,12 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import request from 'supertest';
 import { v4 as uuidv4 } from 'uuid';
 import { createTestApp, cleanupTestUser, getTestToken, setupTestUser } from '../testHelpers.js';
 import { getUserDb } from '../../db.js';
+import { resolveDatabaseUploadRoot } from '../../spaceStorage.js';
 import { resetOdooRateLimits } from '../../odoo.js';
 import { resetFileFieldCache } from '../../odooClient.js';
 import { API_KEY, resetFakeOdoo, startFakeOdoo } from '../fakeOdoo.js';
@@ -186,6 +190,70 @@ describe('Sending a Document to Odoo Knowledge', () => {
         const response = await send({ documents: { folderId: 41 }, knowledge: { html: HTML } });
         expect(response.status).toBe(400);
         expect(response.body.message).toBe('The PDF is missing.');
+    });
+
+    describe('with images', () => {
+        const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DwHwyBFJAFBAAyGwX/eOd2EQAAAABJRU5ErkJggg==', 'base64');
+        const files = [];
+
+        afterEach(() => {
+            for (const file of files.splice(0)) fs.rmSync(file, { force: true });
+        });
+
+        function seedImage() {
+            const imageId = uuidv4();
+            const root = resolveDatabaseUploadRoot(dbKey);
+            fs.mkdirSync(root, { recursive: true });
+            const file = path.join(root, `${imageId}.png`);
+            fs.writeFileSync(file, PNG);
+            files.push(file);
+            getUserDb(user.userId).prepare(`
+                INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at)
+                VALUES (?, ?, 'plan.png', 'image/png', ?, ?, ?, ?)
+            `).run(imageId, user.userId, `${imageId}.png`, PNG.length, crypto.createHash('sha256').update(PNG).digest('hex'), new Date().toISOString());
+            return imageId;
+        }
+        const attachmentsOn = (articleId) => [...odoo.state.attachmentMeta.entries()].filter(([, m]) => m.res_model === 'knowledge.article' && m.res_id === articleId);
+
+        it('uploads Panino images onto the article, reuses them on a resend, and reports the rest', async () => {
+            await connect();
+            const imageId = seedImage();
+            const missingId = uuidv4();
+            const html = `<p>Plan</p><p><img src="/images/${imageId}" alt="Ground"></p><p><img src="/api/images/${imageId}"></p>`
+                + `<p><img src="/images/${missingId}" alt="Lost"></p><p><img src="https://example.com/x.png"></p>`;
+            const response = await send({ knowledge: { parentId: 0, html } });
+            expect(response.body.knowledge).toMatchObject({ ok: true, created: true, imagesUploaded: 1, imagesMissing: 1 });
+
+            const [article] = created();
+            const [[attachmentId, meta]] = attachmentsOn(article.id);
+            expect(meta).toMatchObject({ name: `${imageId}.png`, res_model: 'knowledge.article', res_id: article.id });
+            expect(odoo.state.attachments.get(attachmentId).equals(PNG)).toBe(true);
+            expect(article.body).toBe(
+                `<p>Plan</p><p><img src="/web/image/${attachmentId}" alt="Ground"></p><p><img src="/web/image/${attachmentId}"></p>`
+                + '<p><span class="o_panino_image_placeholder">Image not sent: Lost</span></p><p><img src="https://example.com/x.png"></p>',
+            );
+            // Created with placeholders, then written with the images: never a Panino URL in Odoo.
+            const createdBody = calls('/knowledge.article/create')[0].params.vals_list[0].body;
+            expect(createdBody).not.toContain('/images/');
+            expect(createdBody).toContain('Image not sent: Ground');
+
+            const again = await send({ knowledge: { html } });
+            expect(again.body.knowledge).toMatchObject({ ok: true, created: false, imagesUploaded: 1, imagesMissing: 1 });
+            expect(attachmentsOn(article.id)).toHaveLength(1);
+            expect(calls('/ir.attachment/create')).toHaveLength(1);
+            expect(odoo.state.articles.get(article.id).body).toContain(`/web/image/${attachmentId}`);
+        });
+
+        it('never reads another user’s image', async () => {
+            await connect();
+            const imageId = seedImage();
+            // Pretend the image belongs to someone else.
+            getUserDb(user.userId).prepare('UPDATE images SET user_id = ? WHERE id = ?').run(uuidv4(), imageId);
+            const response = await send({ knowledge: { parentId: 0, html: `<p><img src="/images/${imageId}"></p>` } });
+            expect(response.body.knowledge).toMatchObject({ ok: true, imagesUploaded: 0, imagesMissing: 1 });
+            expect(calls('/ir.attachment/create')).toHaveLength(0);
+            expect(created()[0].body).toContain('Image not sent');
+        });
     });
 
     it('lists articles for the parent picker', async () => {

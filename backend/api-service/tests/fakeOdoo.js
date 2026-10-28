@@ -189,6 +189,13 @@ export function startFakeOdoo() {
                         }
                     }
                     return send(200, true);
+                case 'ir.attachment/search_read': {
+                    const want = Object.fromEntries((params.domain || []).filter(Array.isArray).map(([f, , v]) => [f, v]));
+                    const rows = [...state.attachmentMeta.entries()]
+                        .filter(([id, meta]) => meta.res_model === want.res_model && meta.res_id === want.res_id && sha1(state.attachments.get(id)) === want.checksum)
+                        .map(([id]) => ({ id }));
+                    return send(200, rows.slice(0, params.limit || 80));
+                }
                 case 'ir.attachment/read':
                     return send(200, params.ids.filter((id) => state.attachments.has(id)).map((id) => ({
                         id,

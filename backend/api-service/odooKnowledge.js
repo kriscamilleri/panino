@@ -5,13 +5,16 @@
  * heading that repeats the title, and replaces images with placeholders (Phase 6
  * uploads them). The first send creates an article under the chosen parent; later
  * sends overwrite that article's name and body, after checking it is still the
- * record Panino created.
+ * record Panino created. Panino's own images are uploaded onto the article
+ * (odooArticleImages.js) once it exists.
  */
 
 import { JSDOM } from 'jsdom';
 import DOMPurify from 'dompurify';
 import { OdooError, odooUrlPath } from './odooClient.js';
+import { internalImageSources, uploadArticleImages } from './odooArticleImages.js';
 import { dropLink, readLink, saveLink } from './odooLinks.js';
+import { parseInternalImageSource } from './pdf.js';
 
 const MODEL = 'knowledge.article';
 /** Knowledge's own editor keeps roughly this much; anything bigger is refused. */
@@ -35,9 +38,11 @@ const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'class', 'type', 'checked',
  *
  * @param {unknown} html the client's rendered, sanitized Preview HTML
  * @param {string} title the Document's title; a first `<h1>` saying the same is dropped
+ * @param {{ keepInternalImages?: boolean }} [options] keep Panino's own `<img>` elements
+ *   for `uploadArticleImages` instead of replacing them with placeholders
  * @returns {string}
  */
-export function articleBody(html, title) {
+export function articleBody(html, title, { keepInternalImages = false } = {}) {
     const clean = purify.sanitize(typeof html === 'string' ? html : '', {
         ALLOWED_TAGS,
         ALLOWED_ATTR,
@@ -74,8 +79,13 @@ export function articleBody(html, title) {
     // Stray checkboxes outside task lists have no place in an article.
     for (const input of body.querySelectorAll('input')) input.remove();
 
-    // Panino image URLs need a Panino session, so they would break in Odoo (Phase 6 uploads them).
+    // Panino image URLs need a Panino session, so they would break in Odoo: they are
+    // uploaded onto the article (`keepInternalImages`) or shown as placeholders. Other
+    // images keep their address; `data:` ones were already dropped by the sanitizer.
     for (const img of body.querySelectorAll('img')) {
+        const src = img.getAttribute('src') || '';
+        if (/^https?:\/\//i.test(src) && !parseInternalImageSource(src)) continue;
+        if (keepInternalImages && parseInternalImageSource(src)) continue;
         const placeholder = doc.createElement('span');
         placeholder.className = 'o_panino_image_placeholder';
         placeholder.textContent = img.getAttribute('alt') ? `${IMAGE_PLACEHOLDER}: ${img.getAttribute('alt')}` : IMAGE_PLACEHOLDER;
@@ -124,40 +134,61 @@ export async function searchArticles(client, query) {
  * @param {import('better-sqlite3').Database} options.db the Document's database
  * @param {string} options.noteId
  * @param {string} options.title the article name
- * @param {string} options.body from `articleBody`
+ * @param {string} options.body from `articleBody` with `keepInternalImages`
  * @param {number|null} options.parentId used only when creating; null for the top level
  * @param {string} options.userId the sender
- * @returns {Promise<{ created: boolean, recreated: boolean, recordId: number, urlPath: string|null }>}
+ * @param {(src: string) => ({ imageId: string, mimeType: string, buffer: Buffer } | null)} [options.readImage]
+ *   reads one of Panino's own images for the sender; without it images become placeholders
+ * @returns {Promise<{ created: boolean, recreated: boolean, recordId: number, urlPath: string|null, imagesUploaded: number, imagesMissing: number }>}
  * @throws {OdooError}
  */
-export async function sendArticleToKnowledge({ client, odooTarget, db, noteId, title, body, parentId, userId }) {
+export async function sendArticleToKnowledge({ client, odooTarget, db, noteId, title, body, parentId, userId, readImage = null }) {
     const name = String(title ?? '').replace(/\s+/g, ' ').trim().slice(0, 200) || 'Untitled';
     const key = { sourceId: noteId, destination: 'knowledge', odooTarget };
     const link = readLink(db, key);
+    const hasImages = Boolean(readImage) && internalImageSources(body).length > 0;
+    // Written first; the body with the uploaded images follows once the article exists.
+    const firstBody = hasImages ? await uploadArticleImages({ client, odooTarget, articleId: 0, body, readImage: () => null }).then((r) => r.body) : body;
 
     let recreated = false;
+    let recordId = null;
+    let urlPath = null;
+    let created = false;
     if (link) {
         const rows = await client.call(MODEL, 'read', { ids: [link.odoo_record_id], fields: ['create_date', 'article_url'] });
         const record = Array.isArray(rows) ? rows[0] : null;
         const stillOurs = record && (!link.odoo_create_date || record.create_date === link.odoo_create_date);
         if (stillOurs) {
-            await client.call(MODEL, 'write', { ids: [link.odoo_record_id], vals: { name, body } });
-            const urlPath = odooUrlPath(record.article_url) || link.odoo_url_path;
-            saveLink(db, { ...key, recordId: link.odoo_record_id, createDate: record.create_date, urlPath, userId, now: new Date().toISOString() });
-            return { created: false, recreated: false, recordId: link.odoo_record_id, urlPath };
+            await client.call(MODEL, 'write', { ids: [link.odoo_record_id], vals: { name, body: firstBody } });
+            recordId = link.odoo_record_id;
+            urlPath = odooUrlPath(record.article_url) || link.odoo_url_path;
+            saveLink(db, { ...key, recordId, createDate: record.create_date, urlPath, userId, now: new Date().toISOString() });
+        } else {
+            dropLink(db, key);
+            recreated = true;
         }
-        dropLink(db, key);
-        recreated = true;
     }
 
-    const ids = await client.call(MODEL, 'create', {
-        vals_list: [{ name, body, parent_id: Number.isInteger(parentId) && parentId > 0 ? parentId : false }],
-    });
-    const recordId = Array.isArray(ids) ? ids[0] : null;
-    if (!Number.isInteger(recordId)) throw new OdooError('odoo_error');
-    const rows = await client.call(MODEL, 'read', { ids: [recordId], fields: ['create_date', 'article_url'] });
-    const record = Array.isArray(rows) ? rows[0] : null;
-    const urlPath = odooUrlPath(record?.article_url) || `/knowledge/article/${recordId}`;
-    saveLink(db, { ...key, recordId, createDate: record?.create_date ?? null, urlPath, userId, now: new Date().toISOString() });
-    return { created: true, recreated, recordId, urlPath };
+    if (recordId === null) {
+        const ids = await client.call(MODEL, 'create', {
+            vals_list: [{ name, body: firstBody, parent_id: Number.isInteger(parentId) && parentId > 0 ? parentId : false }],
+        });
+        recordId = Array.isArray(ids) ? ids[0] : null;
+        if (!Number.isInteger(recordId)) throw new OdooError('odoo_error');
+        created = true;
+        const rows = await client.call(MODEL, 'read', { ids: [recordId], fields: ['create_date', 'article_url'] });
+        const record = Array.isArray(rows) ? rows[0] : null;
+        urlPath = odooUrlPath(record?.article_url) || `/knowledge/article/${recordId}`;
+        saveLink(db, { ...key, recordId, createDate: record?.create_date ?? null, urlPath, userId, now: new Date().toISOString() });
+    }
+
+    let imagesUploaded = 0;
+    let imagesMissing = 0;
+    if (hasImages) {
+        const images = await uploadArticleImages({ client, odooTarget, articleId: recordId, body, readImage });
+        imagesUploaded = images.uploaded + images.reused;
+        imagesMissing = images.missing;
+        await client.call(MODEL, 'write', { ids: [recordId], vals: { body: images.body } });
+    }
+    return { created, recreated, recordId, urlPath, imagesUploaded, imagesMissing };
 }

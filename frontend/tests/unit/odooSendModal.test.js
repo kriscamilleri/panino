@@ -257,7 +257,7 @@ describe('OdooSendModal', () => {
         await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
         await wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').setValue(true);
         await flushPromises();
-        expect(wrapper.find('[data-testid="odoo-send-knowledge"]').text()).toContain('Image not sent');
+        expect(wrapper.find('[data-testid="odoo-send-knowledge"]').text()).toContain('Images are uploaded into the article.');
         expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeDefined();
         expect(wrapper.find('[data-testid="odoo-article-top"]').text()).toBe('Top level');
         expect(wrapper.find('[data-testid="odoo-article-11"]').text()).toBe('Company handbook / Sales playbook');
@@ -305,6 +305,18 @@ describe('OdooSendModal', () => {
         await flushPromises();
         expect(sentBody(calls).knowledge).toEqual({ html: '<h1>Quote</h1><p>Hi</p>' });
         expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toContain('Updated in Odoo Knowledge.');
+    });
+
+    it('says when images could not be sent', async () => {
+        api({ links: { links: [], defaults: { folderId: null, parentArticleId: 0 } }, send: { knowledge: { ok: true, created: true, imagesUploaded: 1, imagesMissing: 2 } } });
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
+        await wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').setValue(true);
+        await flushPromises();
+        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toBe('Sent to Odoo Knowledge. 2 images could not be sent and show as "Image not sent".');
     });
 
     it('cannot send with nothing ticked', async () => {

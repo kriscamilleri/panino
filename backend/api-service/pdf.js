@@ -239,7 +239,15 @@ export function parseInternalImageSource(source) {
     return { imageId: link.imageId, spaceId: link.spaceId };
 }
 
-function getInternalImageAsDataUri(source, userId) {
+/**
+ * The bytes of one of this installation's own images, if `userId` may read it: their
+ * personal image, or an image of a space they belong to.
+ *
+ * @param {string} source an `<img src>` value
+ * @param {string} userId
+ * @returns {{ imageId: string, mimeType: string, buffer: Buffer } | null}
+ */
+export function readInternalImage(source, userId) {
     try {
         const target = parseInternalImageSource(source);
         if (!target) return null;
@@ -258,11 +266,15 @@ function getInternalImageAsDataUri(source, userId) {
         const absolutePath = resolveStoredImagePath(dbKey, image.path);
         if (!absolutePath || !fs.existsSync(absolutePath)) return null;
 
-        const buffer = fs.readFileSync(absolutePath);
-        return `data:${image.mime_type};base64,${buffer.toString('base64')}`;
+        return { imageId: target.imageId, mimeType: image.mime_type, buffer: fs.readFileSync(absolutePath) };
     } catch {
         return null;
     }
+}
+
+function getInternalImageAsDataUri(source, userId) {
+    const image = readInternalImage(source, userId);
+    return image ? `data:${image.mimeType};base64,${image.buffer.toString('base64')}` : null;
 }
 
 const IMAGE_PLACEHOLDER = '<!-- image unavailable -->';

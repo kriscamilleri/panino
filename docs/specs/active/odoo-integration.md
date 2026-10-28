@@ -333,10 +333,17 @@ fails, and the result reports each.
   article name as its title).
 - Task lists (`- [ ]`, `- [x]`) are converted to Knowledge checklist markup (Phase 0 confirms it).
 - Tables, code blocks, quotes and links pass through as plain HTML.
-- **Images (Phase 6).** Panino image URLs need a Panino session, so they would break in Odoo.
-  The first versions replace each image with a link-free placeholder ("Image not sent"). Phase 6
-  uploads each image as an `ir.attachment` on the article and rewrites `src`; that is several
-  calls, so a failure part-way leaves an article with some images missing and is reported as such.
+- **Images.** Panino image URLs need a Panino session, so they would break in Odoo. Each of
+  Panino's own images (`parseInternalImageSource`, the sender's personal images or those of a
+  space they belong to) is uploaded as an `ir.attachment` on the article (`res_model`
+  `knowledge.article`, `res_id`, checksum-verified) and its `src` rewritten to `/web/image/<id>`,
+  which the article's readers may open because the attachment belongs to the article. An
+  attachment the article already has for the same bytes is reused, so resends add nothing. The
+  article is created or written with placeholders first and written again with the images once
+  they are up, so Odoo never holds a Panino URL. An image that cannot be read or stored becomes
+  a placeholder ("Image not sent") and is counted in `imagesMissing`; a rejected key or lost
+  article fails the send instead. External `https?` images keep their address; `data:` images
+  are dropped by the sanitizer. At most 50 images of 10 MB each per article.
 - No "Sent from Panino by" footer: the article's Odoo author is the sender (§2).
 
 ---
@@ -637,7 +644,12 @@ sync unchanged.
    chatter. The send sheet's Knowledge section with the parent picker ("Top level" first). Checked
    headless against local Odoo 20 Enterprise at 1280px and 375px: body, checklist, placeholder,
    table and update verified on Odoo's side. Keep in sync is Phase 9.
-6. **Images** uploaded into articles.
+6. **Images** uploaded into articles. ✅ Done 2026-10-28. `odooArticleImages.js`
+   (`internalImageSources`, `uploadArticleImages`), `readInternalImage` shared with the PDF
+   pipeline, `sendArticleToKnowledge` writes the image body after the uploads, results carry
+   `imagesUploaded` / `imagesMissing` and the sheet says how many were not sent. Checked
+   headless against local Odoo 20 Enterprise: attachment on the article, one attachment after
+   a resend, the image renders for a logged-in Odoo reader.
 7. **Key lifecycle.** Expiry warnings everywhere; optional rotation through
    `res.users.apikeys/generate` when allowed (generate the new key, store it, verify it, then
    revoke the old one).

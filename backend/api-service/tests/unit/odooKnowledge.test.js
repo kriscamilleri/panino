@@ -20,13 +20,22 @@ describe('articleBody', () => {
         );
     });
 
-    it('replaces images with placeholders and keeps plain lists, tables and code', () => {
-        const html = '<p><img src="/images/a.png" alt="Diagram"></p><p><img src="https://x/y.png"></p>'
+    it('replaces Panino images with placeholders, keeps external ones, and keeps lists, tables and code', () => {
+        const html = '<p><img src="/images/a.png" alt="Diagram"></p><p><img src="https://x/y.png"></p><p><img src="data:image/png;base64,AAAA"></p>'
             + '<ul><li>a</li></ul><table><thead><tr><th>h</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table><pre><code>x = 1</code></pre>';
         expect(articleBody(html, 'T')).toBe(
             `<p><span class="o_panino_image_placeholder">${IMAGE_PLACEHOLDER}: Diagram</span></p>`
+            + '<p><img src="https://x/y.png"></p>'
             + `<p><span class="o_panino_image_placeholder">${IMAGE_PLACEHOLDER}</span></p>`
             + '<ul><li>a</li></ul><table><thead><tr><th>h</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table><pre><code>x = 1</code></pre>',
+        );
+    });
+
+    it('keeps Panino images for upload when asked, and only those', () => {
+        const id = '11111111-1111-4111-8111-111111111111';
+        const html = `<p><img src="/images/${id}" alt="Mine"><img src="/images/not-an-id.png" alt="Odd"><img src="https://x/y.png"></p>`;
+        expect(articleBody(html, 'T', { keepInternalImages: true })).toBe(
+            `<p><img src="/images/${id}" alt="Mine"><span class="o_panino_image_placeholder">${IMAGE_PLACEHOLDER}: Odd</span><img src="https://x/y.png"></p>`,
         );
     });
 

@@ -20,7 +20,7 @@ import { CHATTER_MODELS, chatterTargetKey, parseChatterTarget, readRecords, sear
 import { pdfFileName, searchFolders, sendPdfToDocuments } from './odooDocuments.js';
 import { MAX_ARTICLE_HTML_BYTES, articleBody, searchArticles, sendArticleToKnowledge } from './odooKnowledge.js';
 import { listLinks, readDefaults, saveDefaults } from './odooLinks.js';
-import { renderPdf } from './pdf.js';
+import { readInternalImage, renderPdf } from './pdf.js';
 import { resolveSpaceAccess } from './spaces.js';
 
 export const odooRoutes = express.Router();
@@ -637,13 +637,16 @@ odooRoutes.post('/addons/odoo/send', async (req, res) => {
                     const sent = await sendArticleToKnowledge({
                         ...shared,
                         title: documentTitle,
-                        body: articleBody(knowledge.html, documentTitle),
+                        body: articleBody(knowledge.html, documentTitle, { keepInternalImages: true }),
                         parentId: parentId ?? remembered,
+                        readImage: (src) => readInternalImage(src, userId),
                     });
                     if (parentId !== null) saveDefaults(access.db, sender.target, { parentArticleId: parentId });
                     return {
                         created: sent.created,
                         recreated: sent.recreated,
+                        imagesUploaded: sent.imagesUploaded,
+                        imagesMissing: sent.imagesMissing,
                         url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
                     };
                 }, { userId, userDb: sender.userDb, event: 'send_knowledge_failed', messages: KNOWLEDGE_MESSAGES })
