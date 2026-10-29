@@ -412,25 +412,7 @@
                     <Printer class="w-4 h-4" /><span class="button-text">Print</span>
                 </BaseButton>
 
-                <BaseButton
-                    v-if="addonsStore.isActive('odoo')"
-                    :disabled="!isOnline || !selectedFileId"
-                    :title="!isOnline ? 'Sending to Odoo requires an internet connection' : !selectedFileId ? 'Select a document to send it to Odoo' : 'Send this document to Odoo'"
-                    @click="ui.openOdooSendModal()"
-                    data-testid="submenu-tools-odoo"
-                >
-                    <Send class="w-4 h-4" /><span class="button-text">Odoo</span>
-                </BaseButton>
-
-                <BaseButton
-                    v-if="addonsStore.isActive('odoo')"
-                    :disabled="!isOnline || !selectedFileId"
-                    :title="!isOnline ? 'Reading from Odoo requires an internet connection' : !selectedFileId ? 'Select a document to add Odoo data to it' : 'Insert or refresh sales orders from Odoo'"
-                    @click="ui.openOdooDataModal()"
-                    data-testid="submenu-tools-odoo-data"
-                >
-                    <Sheet class="w-4 h-4" /><span class="button-text">Odoo data</span>
-                </BaseButton>
+                <AddonActions surface="toolbar" />
 
                 <div class="separator"></div>
 
@@ -446,13 +428,6 @@
                     data-testid="submenu-tools-export"
                 >
                     <Download class="w-4 h-4" /><span class="button-text">Export</span>
-                </BaseButton>
-
-                <BaseButton
-                    @click="ui.openGithubBackupModal()"
-                    data-testid="submenu-tools-github-backup"
-                >
-                    <Github class="w-4 h-4" /><span class="button-text">Backup</span>
                 </BaseButton>
 
                 <BaseButton
@@ -512,6 +487,7 @@ import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useAddonsStore } from '@/store/addonsStore'
+import AddonActions from '@/components/addons/AddonActions.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import {
     Folder,
@@ -536,11 +512,8 @@ import {
     ArrowRight,
     Upload,
     Download,
-    Github,
     Image,
     Printer,
-    Send,
-    Sheet,
     Braces,
     Image as ImageIcon,
     Mic,

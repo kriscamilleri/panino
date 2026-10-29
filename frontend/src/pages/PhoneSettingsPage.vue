@@ -249,31 +249,11 @@
                                     >Keep on</button>
                                 </div>
                             </div>
-                            <button
-                                v-else-if="addon.enabled && addon.id === 'odoo'"
-                                type="button"
-                                class="ph-row"
-                                :disabled="!syncStore.isOnline"
-                                data-testid="phone-settings-tool-odoo"
-                                @click="showOdoo = true"
-                            >
-                                <Plug
-                                    class="h-5 w-5"
-                                    aria-hidden="true"
-                                />
-                                <span class="ph-settings-grow">Odoo connection</span>
-                                <ChevronRight
-                                    class="h-5 w-5"
-                                    aria-hidden="true"
-                                />
-                            </button>
-                            <OdooKeyNotice
-                                v-if="addon.enabled && addon.id === 'odoo'"
-                                class="mx-4 my-2"
-                            />
-                            <OdooSyncsCard
-                                v-if="addon.enabled && addon.id === 'odoo'"
-                                class="mx-4 my-3"
+                            <AddonCard
+                                v-else-if="addon.enabled"
+                                :addon-id="addon.id"
+                                point="settingsCard"
+                                layout="phone"
                             />
                         </template>
                         <p
@@ -347,15 +327,6 @@
                 :show="ui.showExportModal"
                 @close="ui.closeExportModal()"
             />
-            <GitHubBackupModal
-                :show="ui.showGithubBackupModal"
-                @close="ui.closeGithubBackupModal()"
-            />
-            <OdooConnectionModal
-                v-if="addonsStore.isActive('odoo')"
-                :show="showOdoo"
-                @close="showOdoo = false"
-            />
             <VariablesModal
                 :show="ui.showVariablesModal"
                 @close="ui.closeVariablesModal()"
@@ -365,11 +336,11 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
     ArrowLeft, ChevronRight, LogOut, UserCog, Image, FileText, Users, Upload, Download,
-    Github, Braces, MonitorSmartphone, Info, Monitor, Sun, Moon, Plug,
+    Braces, MonitorSmartphone, Info, Monitor, Sun, Moon,
 } from 'lucide-vue-next'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
@@ -377,8 +348,8 @@ import SortControls from '@/components/phone/SortControls.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
-import GitHubBackupModal from '@/components/GitHubBackupModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
+import AddonCard from '@/components/addons/AddonCard.vue'
 import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
 import { useAddonsStore } from '@/store/addonsStore'
@@ -417,12 +388,7 @@ const { canPrompt, installed, manualOnly, install } = usePwaInstall()
 const appVersion = import.meta.env.VITE_APP_VERSION || 'dev'
 const showManualInstall = ref(false)
 const addonsStore = useAddonsStore()
-const showOdoo = ref(false)
 const confirmingAddon = ref(null)
-// Loaded only while the Odoo add-on is on (see the template).
-const OdooConnectionModal = defineAsyncComponent(() => import('@/components/OdooConnectionModal.vue'))
-const OdooKeyNotice = defineAsyncComponent(() => import('@/components/OdooKeyNotice.vue'))
-const OdooSyncsCard = defineAsyncComponent(() => import('@/components/OdooSyncsCard.vue'))
 
 const tools = computed(() => [
     { key: 'images', label: 'Images', icon: Image, disabled: !syncStore.isOnline, run: () => router.push('/images') },
@@ -433,7 +399,6 @@ const tools = computed(() => [
     { key: 'variables', label: 'Variables', icon: Braces, run: () => ui.openVariablesModal() },
     { key: 'import', label: 'Import', icon: Upload, run: () => ui.openImportModal() },
     { key: 'export', label: 'Export all', icon: Download, run: () => ui.openExportModal() },
-    { key: 'backup', label: 'GitHub backup', icon: Github, run: () => ui.openGithubBackupModal() },
 ])
 
 onMounted(() => { void addonsStore.fetchAddons({ force: true }) })

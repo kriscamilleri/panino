@@ -7,9 +7,76 @@
 //
 // Named .mjs, not .js, because the root package.json has no "type": "module".
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import js from "@eslint/js";
 import pluginVue from "eslint-plugin-vue";
 import globals from "globals";
+
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
+
+/** The two folders add-ons live in, one per layer (docs/specs/active/addon-folders.md). */
+const ADDON_ROOTS = ["backend/api-service/addons", "frontend/src/addons"].map((dir) => path.join(repoRoot, dir));
+
+/**
+ * Where a file sits relative to the add-ons: `{ addon: '<id>' }` inside an
+ * add-on's folder, `{ registry: true }` directly in an add-ons folder (the
+ * registry and index), `{}` in core.
+ */
+function addonPlace(file) {
+  for (const root of ADDON_ROOTS) {
+    const rel = path.relative(root, file);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    const parts = rel.split(path.sep);
+    return parts.length > 1 ? { addon: parts[0] } : { registry: true };
+  }
+  return {};
+}
+
+/**
+ * Core never imports an add-on, only the registry; add-ons never import each
+ * other. Resolves relative and `@/` specifiers against the importing file, so it
+ * holds at any folder depth. Bare package specifiers are not add-ons.
+ */
+const addonBoundaries = {
+  meta: {
+    type: "problem",
+    messages: {
+      core: "Core code must not import the {{addon}} add-on. Reach it through the add-on registry (addons/registry.js) and its manifest.",
+      cross: "The {{from}} add-on must not import the {{addon}} add-on.",
+    },
+  },
+  create(context) {
+    const file = context.filename;
+    const here = addonPlace(file);
+    if (here.registry) return {};
+    function check(node, source) {
+      if (!source || source.type !== "Literal" || typeof source.value !== "string") return;
+      const spec = source.value;
+      let target;
+      if (spec.startsWith("@/")) target = path.join(repoRoot, "frontend/src", spec.slice(2));
+      else if (spec.startsWith(".")) target = path.resolve(path.dirname(file), spec);
+      else return;
+      const there = addonPlace(target);
+      if (!there.addon || there.addon === here.addon) return;
+      if (here.addon) context.report({ node, messageId: "cross", data: { from: here.addon, addon: there.addon } });
+      else context.report({ node, messageId: "core", data: { addon: there.addon } });
+    }
+    return {
+      ImportDeclaration: (node) => check(node, node.source),
+      ImportExpression: (node) => check(node, node.source),
+      ExportNamedDeclaration: (node) => check(node, node.source),
+      ExportAllDeclaration: (node) => check(node, node.source),
+      // vi.mock('…') in tests names a module just as an import does.
+      CallExpression: (node) => {
+        const callee = node.callee;
+        if (callee.type === "MemberExpression" && callee.object.name === "vi" && ["mock", "doMock"].includes(callee.property.name)) {
+          check(node, node.arguments[0]);
+        }
+      },
+    };
+  },
+};
 
 /** Vue rules from vue3-recommended that only concern formatting. */
 const vueStylisticOff = {
@@ -73,6 +140,13 @@ export default [
       // file-specific exemptions below.
       "vue/no-v-html": "warn",
     },
+  },
+
+  // Add-on boundaries, both layers: core reaches add-ons only through the registry.
+  {
+    files: ["frontend/**/*.{js,vue}", "backend/api-service/**/*.{js,mjs}"],
+    plugins: { panino: { rules: { "addon-boundaries": addonBoundaries } } },
+    rules: { "panino/addon-boundaries": "error" },
   },
 
   // Frontend: browser runtime, ES modules.

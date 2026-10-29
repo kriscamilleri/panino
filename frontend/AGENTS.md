@@ -40,7 +40,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
 | `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
-| `odooStore` | The Odoo add-on's connection, folder, article and record pickers, links, send and Knowledge syncs (`/addons/odoo/…`); availability is `addonsStore.isActive('odoo')`. Article HTML comes from `composables/useDocumentArticle.js` (`utils/odooArticle.js`); `OdooSyncsCard` lists and adds syncs in Settings and, in space mode, on the Spaces page. Sales order blocks: `OdooDataBlockModal` inserts, edits and refreshes them through `editorStore.transformText` with the pure `utils/odooSaleOrderBlock.js`; the block is plain Markdown between marker comments, so no renderer knows about it; a block may carry a Markdown layout (`utils/odooSaleOrderLayout.js`) | authStore |
+| `odooStore` (`addons/odoo/store.js`) | The Odoo add-on's store; see `src/addons/odoo/README.md`. Core never imports it | authStore |
 
 ### Store initialization pattern
 
@@ -96,6 +96,38 @@ Keystroke → draftStore.setDraft() (instant)
 - **Editor.vue** — Uses OverType library for the markdown textarea. Exposes methods via `defineExpose()` for `editorStore` bridge. Handles image paste upload to `POST /images`. Intercepts Ctrl+Z/Y for custom undo/redo via `historyStore`. Three-layer update: keystroke → `draftStore` (instant) → debounced DB write.
 - **Preview.vue** — Purely computed-driven. Reads from `draftStore` for instant preview. Sanitizes rendered HTML via DOMPurify. Applies front-matter variable substitution. No watchers or methods — reactive rendering only.
 - **`@` alias** — Vite resolves `@/` to `frontend/src/`.
+
+---
+
+## Add-ons
+
+To add or extend an add-on, load the `add-on-development` skill
+(`.github/skills/add-on-development/SKILL.md`).
+
+Add-ons live in `src/addons/<id>/` (store, components, utils, tests and a `README.md`);
+`src/addons/registry.js` lists their manifests, one import each
+(`docs/specs/active/addon-folders.md`). **Core never imports an add-on**, only the registry, and
+add-ons never import each other: ESLint `panino/addon-boundaries` enforces both.
+
+A manifest declares where the add-on appears. Core renders the contribution points with three
+components in `src/components/addons/`:
+
+| Point | Core component | Rendered by |
+|---|---|---|
+| `actions` | `AddonActions` (`surface="toolbar"` / `"menu"`) | `SubMenuBar`, `phone/DocumentMenuSheet` |
+| `modals` | `AddonModalHost` | `HomePage` (desktop branch), `phone/DocumentMenuSheet` (never both on screen) |
+| `settingsCard` | `AddonCard point="settingsCard"` | `AddonsSection`, `PhoneSettingsPage` |
+| `spaceCard` | `AddonCard point="spaceCard"` | `SpacesPage` |
+
+Everything renders only while `addonsStore.isActive(id)`. An action shows on both surfaces unless
+its `surfaces` lists one (GitHub backup's is `['toolbar']`). Actions open modals with
+`ui.openAddonModal(addonId, modalId)`; closing the phone Document menu closes the add-on modal.
+Manifests import components only through `() => import(…)`, so an add-on stays out of the main
+bundle. Test ids are derived: `submenu-tools-addon-<id>-<action>`, `phone-menu-addon-<id>-<action>`,
+`settings-addon-<id>`, `space-addon-<id>` (and `-hint`).
+
+Today: `src/addons/github/` (GitHub backup: toolbar **Backup** action, its modal, and a settings
+card that also finishes the OAuth return on `/settings?githubBackup=…`) and `src/addons/odoo/`.
 
 ---
 

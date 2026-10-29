@@ -182,21 +182,16 @@
               </BaseButton>
             </form>
 
-            <section
-              v-if="canEdit && addonsStore.isActive('odoo')"
-              class="mt-6"
-              data-testid="space-odoo-sync"
-            >
-              <OdooSyncsCard
-                :db-key="`space:${selectedId}`"
-                space-mode
+            <template v-if="canEdit">
+              <AddonCard
+                v-for="manifest in spaceAddons"
+                :key="manifest.id"
+                class="mt-6"
+                :addon-id="manifest.id"
+                point="spaceCard"
+                :context="{ spaceId: selectedId }"
               />
-            </section>
-            <p
-              v-else-if="canEdit && addonsStore.get('odoo')"
-              class="pn-help mt-6"
-              data-testid="space-odoo-sync-hint"
-            >Turn on the Odoo add-on in Settings → Add-ons to keep this space in sync with Odoo Knowledge.</p>
+            </template>
 
             <section v-if="isOwner" class="mt-6">
               <h3 class="pn-title-section">Invite an editor</h3>
@@ -314,7 +309,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { MailPlus, Plus } from "lucide-vue-next";
 import { useRoute } from "vue-router";
 import AccountLayout from "@/components/AccountLayout.vue";
@@ -322,6 +317,8 @@ import AvatarStack from "@/components/AvatarStack.vue";
 import BaseButton from "@/components/BaseButton.vue";
 import BaseModal from "@/components/BaseModal.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
+import AddonCard from "@/components/addons/AddonCard.vue";
+import { addonsContributing } from "@/addons/registry";
 import { useAddonsStore } from "@/store/addonsStore";
 import { useSpacesStore } from "@/store/spacesStore";
 import { useSyncStore } from "@/store/syncStore";
@@ -345,8 +342,8 @@ const confirm = reactive({ kind: "", member: null });
 const isOwner = computed(() => isSpaceOwner(spacesStore.detail?.space));
 const canEdit = computed(() => ["owner", "editor"].includes(spacesStore.detail?.space?.role));
 const addonsStore = useAddonsStore();
-// Loaded only while the Odoo add-on is on (see the template).
-const OdooSyncsCard = defineAsyncComponent(() => import("@/components/OdooSyncsCard.vue"));
+// Add-ons that put a card on a space (their manifest's spaceCard).
+const spaceAddons = addonsContributing("spaceCard");
 const confirmTitle = computed(() => ({
   transfer: "Transfer ownership?",
   remove: "Remove this member?",

@@ -9,6 +9,10 @@
 > user switches it on in Settings → Add-ons, and it is off by default.
 > Status: active — every phase (0–12) implemented on `feature/odoo-integration` by 2026-10-28;
 > moves to `shipped/` with the pull request
+> Files: since 2026-10-29 the add-on lives in `backend/api-service/addons/odoo/` and
+> `frontend/src/addons/odoo/`, with the `odoo` prefix dropped from file names (`odooClient.js` is
+> now `addons/odoo/client.js`; [`addon-folders.md`](addon-folders.md)). The phase notes below keep
+> the names the files had when each phase was done; each folder's `README.md` maps them.
 > Created: 2026-10-25
 > Last updated: 2026-10-28
 
@@ -255,14 +259,14 @@ apply front-matter variables   ─┴──────▶  authz (document dbKe
   variables already applied, as the PDF export does today.
 - **Every route is behind the add-on gate.** `requireAddon('odoo')` (`addons.md` §5) answers 404
   when the operator does not offer Odoo and 403 `addon_disabled` until the caller switches the
-  add-on on. The add-on's manifest lives in `odoo.js`.
+  add-on on. The add-on's manifest lives in `addons/odoo/index.js`.
 - **The browser never calls Odoo.** Odoo sends no CORS headers, and the key must stay on the
   server.
 - **The PDF reuses the existing pipeline.** `pdf.js` gains an internal
   `renderPdf(payload, { signal })` sharing the current queue and limits; `POST /render-pdf`
   becomes a thin wrapper. The send route calls it directly; no PDF round-trips through the client.
 
-### Odoo client (`backend/api-service/odooClient.js`)
+### Odoo client (`backend/api-service/addons/odoo/client.js`)
 
 A small JSON-2 client: `call(connection, model, method, params)`.
 

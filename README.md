@@ -245,7 +245,7 @@ DOMAIN="panino.sh"
 EMAIL="your-email@example.com"
 # --- GitHub OAuth (for GitHub Backup) ---
 # One GitHub OAuth app per deployment. For panino.sh, the callback URL should be:
-# https://panino.sh/api/backup/github/callback
+# https://panino.sh/api/addons/github/callback
 GITHUB_CLIENT_ID=Iv1.yourgithubclientid
 GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
 # --- SMTP Server Settings (for password resets) ---
@@ -276,12 +276,17 @@ VITE_TURNSTILE_SITE_KEY=0x4...SITEKEY...f0
 > #### Where to Get Keys
 > - JWT_SECRET: You should generate this yourself. A good method is to run openssl rand -hex 32 in your terminal.
 > - TURNSTILE_SECRET_KEY & VITE_TURNSTILE_SITE_KEY: These are obtained for free from the Cloudflare Turnstile dashboard after you add your site.
-> - GITHUB_CLIENT_ID & GITHUB_CLIENT_SECRET: Create a GitHub OAuth App in GitHub Developer Settings. For the deployed Panino instance at `panino.sh`, use homepage URL `https://panino.sh` and authorization callback URL `https://panino.sh/api/backup/github/callback`.
+> - GITHUB_CLIENT_ID & GITHUB_CLIENT_SECRET: Create a GitHub OAuth App in GitHub Developer Settings. For the deployed Panino instance at `panino.sh`, use homepage URL `https://panino.sh` and authorization callback URL `https://panino.sh/api/addons/github/callback`.
 > - SMTP_*: These settings are provided by your email service (e.g., Mailgun, SendGrid, Amazon SES, or your personal email provider).
 
 ### GitHub Backup OAuth Setup
 
-Panino's GitHub Backup feature uses a standard GitHub OAuth App.
+Panino's GitHub Backup is an add-on: setting `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` offers it
+on the server, and each user switches it on in `Settings -> Add-ons`. It uses a standard GitHub OAuth App.
+Users who connected GitHub before backup became an add-on have it switched on for them, so their
+daily backup carries on. Tokens are encrypted with `GITHUB_TOKEN_ENCRYPTION_KEY`, or with `JWT_SECRET`
+when that is unset (as in the shipped `docker-compose.yml`). Changing whichever key is in use disconnects
+every user, who then has to connect GitHub again.
 
 ### How automatic backups run
 
@@ -299,7 +304,7 @@ Create a GitHub OAuth App with:
 
 - Application name: `Panino`
 - Homepage URL: `https://panino.sh`
-- Authorization callback URL: `https://panino.sh/api/backup/github/callback`
+- Authorization callback URL: `https://panino.sh/api/addons/github/callback`
 
 Set these values in the root `.env` used by production:
 
@@ -321,7 +326,7 @@ docker compose up --build -d api-service
 Use a separate GitHub OAuth App for local testing:
 
 - Homepage URL: `http://localhost:5173`
-- Authorization callback URL: `http://localhost:8000/backup/github/callback`
+- Authorization callback URL: `http://localhost:8000/addons/github/callback`
 
 Example local `.env` additions:
 
@@ -337,7 +342,7 @@ GITHUB_CLIENT_SECRET=your_local_dev_client_secret
 After configuration:
 
 1. Log into Panino.
-2. Open `Tools -> Backup`.
+2. Switch on `GitHub backup` in `Settings -> Add-ons`, then open `Tools -> Backup`.
 3. Click `Connect GitHub`.
 4. Authorize the app on GitHub and return to Panino.
 5. Select or create a repository, then run `Back Up Now`.

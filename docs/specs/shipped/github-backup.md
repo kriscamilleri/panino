@@ -5,7 +5,7 @@
 > Created: 2026-03-21
 > Last updated: 2026-08-08
 > Shipped: 2026-03-21 (see `docs/agent-logs/2026/03/2026-03-21_15-20_github-backup.md`)
-> Implementation: `frontend/src/store/githubBackupStore.js`, `frontend/src/components/GitHubBackupModal.vue`, `backend/api-service/backup.js`
+> Implementation: since 2026-10-29 an add-on, in `backend/api-service/addons/github/` and `frontend/src/addons/github/`. Routes moved from `/backup/github/…` to `/addons/github/…`; see [`../active/github-integration.md`](../active/github-integration.md).
 
 ---
 

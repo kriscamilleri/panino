@@ -8,7 +8,7 @@
 > [`addons.md`](addons.md)): invisible until the person switches Odoo on.
 > Status: active — implemented on `feature/odoo-sale-order-blocks` 2026-10-29
 > Created: 2026-10-29
-> Last updated: 2026-10-29
+> Last updated: 2026-10-29 — files moved into the add-on folders ([`addon-folders.md`](addon-folders.md))
 
 ---
 
@@ -93,7 +93,7 @@ on the next refresh.
 
 ## 4a) Layouts
 
-A layout is Markdown with placeholders (`frontend/src/utils/odooSaleOrderLayout.js`):
+A layout is Markdown with placeholders (`frontend/src/addons/odoo/utils/saleOrderLayout.js`):
 
 | Placeholder | Means |
 |---|---|
@@ -155,30 +155,32 @@ OdooDataBlockModal ──▶ odooStore ──▶ GET /addons/odoo/sale-orders?q=
         │                            GET /addons/odoo/sale-orders/:id?fields=&columns=  (snapshot)
         │                                     │ requireAddon('odoo'), sender's connection
         │                                     ▼
-        │                         odooSaleOrderBlocks.js ──▶ fields_get, read sale.order,
-        │                                                    read sale.order.line, display names,
-        │                                                    res.currency
+        │                         saleOrderBlocks.js ──▶ fields_get, read sale.order,
+        │                                                read sale.order.line, display names,
+        │                                                res.currency
         ▼
-utils/odooSaleOrderBlock.js (pure: parse, format, build Markdown, insert/replace)
+utils/saleOrderBlock.js (pure: parse, format, build Markdown, insert/replace)
         ▼
 editorStore.transformText()  (undo, draft, save, live session as any edit)
 ```
 
+Paths are relative to the Odoo add-on's folders, `backend/api-service/addons/odoo/` (API) and
+`frontend/src/addons/odoo/` (app).
+
 | File | Role |
 |---|---|
-| `backend/api-service/odooSaleOrderBlocks.js` | Field catalog (cached per Odoo database), defaults, reading and normalizing an order; registers its routes on the Odoo router after the gate |
-| `backend/api-service/odoo.js` | Two lines: import, and register the routes |
-| `frontend/src/utils/odooSaleOrderBlock.js` | Parse blocks, escape and format cells, build the Markdown, insert and replace in an editor state |
-| `frontend/src/store/odooStore.js` | `searchSaleOrders`, `fetchSaleOrderFields`, `fetchSaleOrder` |
-| `frontend/src/components/OdooDataBlockModal.vue` | The dialog |
-| `SubMenuBar.vue`, `phone/DocumentMenuSheet.vue` | One entry point each, behind `addonsStore.isActive('odoo')` |
-| `frontend/src/utils/odooSaleOrderLayout.js` | Layout parsing, validation, the fields a layout uses, rendering, starters, the table-as-layout conversion |
-| `backend/api-service/db.js` | `odoo_block_layouts` in `USER_LOCAL_SCHEMA` |
-| `pages/HomePage.vue`, `store/uiStore.js` | Desktop hosts the dialog beside the send dialog (`showOdooDataModal`), loaded with `defineAsyncComponent`; the toolbar unmounts when its menu changes, so it cannot host it. The phone menu hosts its own copy, as it does for Send |
+| API `saleOrderBlocks.js` | Field catalog (cached per Odoo database), defaults, reading and normalizing an order; registers its routes on the Odoo router |
+| API `routes.js` | Two lines: import, and register the routes |
+| API `schema.js` | `odoo_block_layouts` in the add-on's user schema |
+| App `utils/saleOrderBlock.js` | Parse blocks, escape and format cells, build the Markdown, insert and replace in an editor state |
+| App `utils/saleOrderLayout.js` | Layout parsing, validation, the fields a layout uses, rendering, starters, the table-as-layout conversion |
+| App `store.js` | `searchSaleOrders`, `fetchSaleOrderFields`, `fetchSaleOrder` |
+| App `components/OdooDataBlockModal.vue` | The dialog |
+| App `manifest.js` | The `data` action (toolbar "Odoo data", phone "Sales orders from Odoo") and the `data` modal; core renders both through `AddonActions` and `AddonModalHost` |
 
 Removing the feature is deleting the two new modules, the dialog, their tests, two lines in
-`odoo.js`, three store functions, the two entry points and the two hosting lines. Documents keep
-their tables.
+`routes.js`, the table in `schema.js`, three store functions, and the `data` action and modal in
+`manifest.js`. Documents keep their tables.
 
 The marker comments survive only in the Markdown: DOMPurify drops HTML comments, so the Preview,
 the PDF and Knowledge never carry the settings.

@@ -6,7 +6,8 @@
 > shape.
 > Status: active (framework and Odoo adoption implemented 2026-10-27 on `feature/odoo-integration`)
 > Created: 2026-10-27
-> Last updated: 2026-10-27
+> Last updated: 2026-10-29 — add-ons live in their own folders and plug into core through the
+> manifest ([`addon-folders.md`](addon-folders.md))
 
 ---
 
@@ -33,7 +34,7 @@ back on is instant. Removing credentials is the add-on's own **Disconnect**, as 
 | Default | Off for every user. An operator offering an add-on does not switch it on for anyone. |
 | Off versus disconnected | Two switches. Off keeps the add-on's data and credentials and pauses its jobs. Disconnect removes credentials. |
 | Who can switch | Each user, for their own account only. There is no space-level switch. |
-| GitHub backup | Stays as it is for now. Converting it is a possible later change, not part of this spec. |
+| GitHub backup | Converted to an add-on on 2026-10-29 (`docs/specs/active/github-integration.md`). Principle: every integration with an outside service is an add-on. |
 | Naming | **Add-ons** in the product. `addons` in code, tables and routes. |
 
 ## 3) Goals
@@ -50,7 +51,6 @@ back on is instant. Removing credentials is the add-on's own **Disconnect**, as 
 
 - Space-level or operator-level enablement per user.
 - Add-on marketplaces, third-party add-ons, or loading code at runtime. Add-ons ship with Panino.
-- Converting GitHub backup into an add-on (see §2).
 - Per-add-on permissions finer than on/off.
 
 ---
@@ -88,7 +88,7 @@ isActive('odoo') ──▶ /addons/odoo/… ──▶ requireAddon('odoo') ─�
                                            403 addon_disabled when off for the caller
 ```
 
-### Registry (`backend/api-service/addons.js`)
+### Registry (`backend/api-service/addons/registry.js`)
 
 Each add-on exports a manifest; the registry is the list of them:
 
@@ -105,8 +105,10 @@ Each add-on exports a manifest; the registry is the list of them:
 ```
 
 The registry exposes `offeredAddons()`, `isAddonActive(userId, id)` (offered **and** enabled)
-and the `requireAddon(id)` middleware. Add-on files may stay flat (`odoo.js`, `odooClient.js`,
-…); the manifest is what makes something an add-on, not a folder.
+and the `requireAddon(id)` middleware. Since 2026-10-29 each add-on lives in its own folder per
+layer and core reaches it only through its manifest, which also declares its schema, hooks and
+UI contribution points: see [`addon-folders.md`](addon-folders.md), which supersedes the
+earlier "files may stay flat" note here.
 
 ### The gate
 
@@ -137,15 +139,16 @@ paused for that reason. Jobs never delete anything when an add-on is switched of
   `PhoneSettingsPage` renders the same list as its own **Add-ons** section (a section, not a
   sheet: it is one card and the phone Settings page already scrolls).
 - Every entry point an add-on adds is guarded by `addonsStore.isActive(id)` and is absent, not
-  disabled, when that is false.
-- An add-on's components are imported with `defineAsyncComponent`, so an add-on that is off
-  costs nothing in the main bundle. That matters for a PWA.
+  disabled, when that is false. Since 2026-10-29 the core components in
+  `components/addons/` do the guarding for every add-on ([`addon-folders.md`](addon-folders.md) §6).
+- An add-on's components are imported lazily (`() => import(…)` in its manifest), so an add-on
+  that is off costs nothing in the main bundle. That matters for a PWA.
 
 ---
 
 ## 6) Data
 
-Server-only, in `USER_LOCAL_SCHEMA` beside `backup_config`: not a CRR, not in the frontend
+Server-only, in `USER_LOCAL_SCHEMA`: not a CRR, not in the frontend
 `DB_SCHEMA`, never synced to browsers.
 
 ```sql
@@ -218,7 +221,7 @@ availability check: the routes answer 404 when the operator flag is off, and the
 1. **Framework and Odoo adoption.** ✅ Done 2026-10-27. `addons.js`, the `addons` table, `GET /addons` and `PUT /addons/:id/enabled`,
    `requireAddon`, `addonsStore`, `AddonsSection` on desktop and phone, the Odoo route rename and
    lazy loading, tests above. This is Odoo Phase 3 and ships before any further Odoo destination.
-2. **Later add-ons** register a manifest. GitHub backup is a candidate, decided separately.
+2. **Later add-ons** register a manifest. GitHub backup was the second (2026-10-29).
 
 ## 11) Open questions
 

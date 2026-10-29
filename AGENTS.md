@@ -129,6 +129,7 @@ Read these only when working in the relevant area:
 | Sync incident response | [`docs/runbooks/sync-incident-response.md`](docs/runbooks/sync-incident-response.md) |
 | Production debugging | [`.github/skills/prod-server-debug/SKILL.md`](.github/skills/prod-server-debug/SKILL.md) |
 | Full feature SDLC | [`.github/skills/feature-development/SKILL.md`](.github/skills/feature-development/SKILL.md) |
+| Add-ons (new integration, or extending one) | [`.github/skills/add-on-development/SKILL.md`](.github/skills/add-on-development/SKILL.md) |
 
 ---
 
@@ -147,5 +148,6 @@ Read these only when working in the relevant area:
 | Images | `backend/api-service/image.js`, `frontend/src/components/Editor.vue` |
 | PDF | `backend/api-service/pdf.js` |
 | Import/export | `frontend/src/store/importExportStore.js` |
-| Tests | `frontend/tests/unit/`, `backend/api-service/tests/` |
+| Add-ons (Odoo) | `backend/api-service/addons/`, `frontend/src/addons/`; each add-on's `README.md`; load the `add-on-development` skill first |
+| Tests | `frontend/tests/unit/`, `backend/api-service/tests/`, `*/addons/<id>/tests/` |
 | Deployment | `docker-compose*.yml`, `deploy.sh`, `nginx.conf.template` |

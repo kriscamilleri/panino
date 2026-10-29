@@ -247,50 +247,7 @@ const BASE_SCHEMA = `
 `;
 
 const USER_LOCAL_SCHEMA = `
-  CREATE TABLE IF NOT EXISTS backup_config (
-    id TEXT PRIMARY KEY NOT NULL,
-    provider TEXT NOT NULL UNIQUE,
-    access_token_enc TEXT,
-    username TEXT,
-    avatar_url TEXT,
-    repo_full_name TEXT,
-    auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
-    last_backup_at TEXT,
-    last_backup_sha TEXT,
-    last_warning TEXT,
-    last_error TEXT,
-    created_at TEXT NOT NULL
-  );
-
-  -- The user's Odoo connection (odoo.js). Server-only: never a CRR, never in
-  -- the browser schema. The API key is AES-256-GCM encrypted (secrets.js).
-  CREATE TABLE IF NOT EXISTS odoo_connection (
-    singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
-    base_url TEXT NOT NULL,
-    database_name TEXT NOT NULL DEFAULT '',
-    api_key_enc TEXT NOT NULL,
-    key_expires_on TEXT,
-    odoo_uid INTEGER,
-    odoo_user_name TEXT,
-    odoo_version TEXT,
-    apps TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL,
-    last_verified_at TEXT,
-    last_error TEXT
-  );
-
-  -- The user's saved layouts for Odoo data blocks (odooSaleOrderBlocks.js).
-  -- Server-only. A block carries its own layout, so these are only for reuse.
-  CREATE TABLE IF NOT EXISTS odoo_block_layouts (
-    id TEXT PRIMARY KEY NOT NULL,
-    model TEXT NOT NULL,
-    name TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  -- Which add-ons this user switched on (addons.js). Server-only. No row: off.
+  -- Which add-ons this user switched on (addons/registry.js). Server-only. No row: off.
   CREATE TABLE IF NOT EXISTS addons (
     addon_id TEXT PRIMARY KEY NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 0,
@@ -342,50 +299,29 @@ const SPACE_LOCAL_SCHEMA = `
   );
 `;
 
-// Odoo send and sync bookkeeping (odoo.js), kept in the database the Document
-// lives in so every member of a space updates the same Odoo record. Server-only:
-// never CRRs, never in the browser schema.
-const ODOO_LINK_SCHEMA = `
-  CREATE TABLE IF NOT EXISTS odoo_links (
-    source_id TEXT NOT NULL,
-    source_type TEXT NOT NULL DEFAULT 'note' CHECK (source_type IN ('note', 'folder')),
-    destination TEXT NOT NULL CHECK (destination IN ('documents', 'knowledge', 'chatter')),
-    odoo_target TEXT NOT NULL,
-    target_key TEXT NOT NULL DEFAULT '',
-    odoo_record_id INTEGER NOT NULL,
-    odoo_message_id INTEGER,
-    odoo_create_date TEXT,
-    odoo_url_path TEXT,
-    sync_id TEXT,
-    content_hash TEXT,
-    archived_at TEXT,
-    first_sent_by TEXT NOT NULL,
-    last_sent_at TEXT NOT NULL,
-    last_sent_by TEXT NOT NULL,
-    PRIMARY KEY (source_id, destination, odoo_target, target_key)
-  );
-  CREATE TABLE IF NOT EXISTS odoo_defaults (
-    odoo_target TEXT PRIMARY KEY NOT NULL,
-    folder_id INTEGER,
-    parent_article_id INTEGER
-  );
-  CREATE TABLE IF NOT EXISTS odoo_syncs (
-    id TEXT PRIMARY KEY NOT NULL,
-    scope TEXT NOT NULL CHECK (scope IN ('space', 'folder', 'note')),
-    source_id TEXT,
-    odoo_target TEXT NOT NULL,
-    parent_article_id INTEGER,
-    documents_folder_id INTEGER,
-    run_as TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused')),
-    paused_reason TEXT,
-    last_run_at TEXT,
-    last_reconcile_at TEXT,
-    last_result TEXT,
-    created_by TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-`;
+// Add-on tables (addons/registry.js), by add-on id. Applied to every content
+// database as it opens, so every add-on registers before the first one opens
+// (index.js imports addons/index.js first). Server-only: never CRRs, never in
+// the browser schema.
+const addonSchemas = new Map();
+
+/**
+ * @param {string} addonId
+ * @param {{ user?: string, content?: string,
+ *   upgrade?: (db: import('better-sqlite3').Database, kind: 'user' | 'space') => void }} schema
+ *   `user` runs on user databases, `content` on every content database, then
+ *   `upgrade` on both, for what plain SQL cannot do idempotently (adding a
+ *   column to an older table). All three must be idempotent.
+ */
+export function registerAddonSchema(addonId, { user = "", content = "", upgrade = null } = {}) {
+  if (/crsql_as_crr/i.test(`${user}\n${content}`)) {
+    throw new Error(`Add-on ${addonId}: add-on tables are server-only and cannot be CRRs.`);
+  }
+  if (upgrade !== null && typeof upgrade !== "function") {
+    throw new Error(`Add-on ${addonId}: schema.upgrade must be a function.`);
+  }
+  addonSchemas.set(addonId, { user, content, upgrade });
+}
 
 const CONTENT_SCHEMA_METADATA = `
   CREATE TABLE IF NOT EXISTS application_schema (
@@ -677,85 +613,6 @@ function ensureGlobalsSchema(db) {
   }
 }
 
-function ensureBackupConfigSchema(db) {
-  try {
-    const columns = db.prepare("PRAGMA table_info('backup_config')").all();
-    if (!columns || columns.length === 0) {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS backup_config (
-          id TEXT PRIMARY KEY NOT NULL,
-          provider TEXT NOT NULL UNIQUE,
-          access_token_enc TEXT,
-          username TEXT,
-          avatar_url TEXT,
-          repo_full_name TEXT,
-          auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
-          last_backup_at TEXT,
-          last_backup_sha TEXT,
-          last_warning TEXT,
-          last_error TEXT,
-          created_at TEXT NOT NULL
-        )
-      `);
-      return;
-    }
-
-    const names = new Set(columns.map((column) => column.name));
-
-    if (!names.has("provider")) {
-      db.exec(
-        "ALTER TABLE backup_config ADD COLUMN provider TEXT NOT NULL DEFAULT 'github'",
-      );
-      db.exec(
-        "UPDATE backup_config SET provider = 'github' WHERE provider IS NULL OR provider = ''",
-      );
-    }
-    if (!names.has("access_token_enc")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN access_token_enc TEXT");
-    }
-    if (!names.has("username")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN username TEXT");
-    }
-    if (!names.has("avatar_url")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN avatar_url TEXT");
-    }
-    if (!names.has("repo_full_name")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN repo_full_name TEXT");
-    }
-    if (!names.has("auto_backup_enabled")) {
-      db.exec(
-        "ALTER TABLE backup_config ADD COLUMN auto_backup_enabled INTEGER NOT NULL DEFAULT 1",
-      );
-      db.exec(
-        "UPDATE backup_config SET auto_backup_enabled = 1 WHERE auto_backup_enabled IS NULL",
-      );
-    }
-    if (!names.has("last_backup_at")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_backup_at TEXT");
-    }
-    if (!names.has("last_backup_sha")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_backup_sha TEXT");
-    }
-    if (!names.has("last_warning")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_warning TEXT");
-    }
-    if (!names.has("last_error")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_error TEXT");
-    }
-    if (!names.has("created_at")) {
-      db.exec(
-        "ALTER TABLE backup_config ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))",
-      );
-      db.exec(
-        "UPDATE backup_config SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''",
-      );
-    }
-  } catch (err) {
-    console.error("[db] Failed to ensure backup config schema:", err);
-    throw err;
-  }
-}
-
 function ensureTemplatesSchema(db) {
   try {
     const columns = db.prepare("PRAGMA table_info('templates')").all();
@@ -965,11 +822,14 @@ export function initializeContentDb(db, kind) {
   db.exec(BASE_SCHEMA);
   if (kind === "user") db.exec(USER_LOCAL_SCHEMA);
   if (kind === "space") db.exec(SPACE_LOCAL_SCHEMA);
-  db.exec(ODOO_LINK_SCHEMA);
+  for (const schema of addonSchemas.values()) {
+    if (schema.content) db.exec(schema.content);
+    if (kind === "user" && schema.user) db.exec(schema.user);
+    if (schema.upgrade) schema.upgrade(db, kind);
+  }
   ensureNotesSchema(db);
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
-  if (kind === "user") ensureBackupConfigSchema(db);
   ensureTemplatesSchema(db);
   ensureNoteRevisionsSchema(db);
   ensureCrr(db);

@@ -27,9 +27,8 @@
         <ImportModal :show="ui.showImportModal" @close="ui.closeImportModal()" @import-success="handleImportSuccess"
             data-testid="homepage-import-modal" />
         <ExportModal :show="ui.showExportModal" @close="ui.closeExportModal()" data-testid="homepage-export-modal" />
-        <GitHubBackupModal :show="ui.showGithubBackupModal" @close="ui.closeGithubBackupModal()" data-testid="homepage-github-backup-modal" />
-        <OdooSendModal v-if="addonsStore.isActive('odoo')" :show="ui.showOdooSendModal" @close="ui.closeOdooSendModal()" />
-        <OdooDataBlockModal v-if="addonsStore.isActive('odoo')" :show="ui.showOdooDataModal" @close="ui.closeOdooDataModal()" />
+        <!-- Add-on modals on desktop; on a phone the Document menu hosts them. -->
+        <AddonModalHost />
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
         <ImageLibraryModal
             :show="ui.showImageLibraryModal"
@@ -42,7 +41,7 @@
 </template>
 
 <script setup>
-import { defineAsyncComponent, onMounted, watch } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import Navbar from '@/components/Navbar.vue'
 import SubMenuBar from '@/components/SubMenuBar.vue'
@@ -50,9 +49,9 @@ import SidebarWithResizer from '@/components/SidebarWithResizer.vue'
 import ContentArea from '@/components/ContentArea.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
-import GitHubBackupModal from '@/components/GitHubBackupModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
 import ImageLibraryModal from '@/components/ImageLibraryModal.vue'
+import AddonModalHost from '@/components/addons/AddonModalHost.vue'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
 import PhoneEditor from '@/components/phone/PhoneEditor.vue'
 import PhoneHome from '@/components/phone/PhoneHome.vue'
@@ -64,22 +63,15 @@ import { useViewport } from '@/composables/useViewport'
 import { useSheetRoute } from '@/composables/useSheetRoute'
 import { usePhoneSelection } from '@/composables/usePhoneSelection'
 import { useUiStore } from '@/store/uiStore'
-import { useAddonsStore } from '@/store/addonsStore'
 import { useDocStore } from '@/store/docStore'
 import { useEditorStore } from '@/store/editorStore'
 import { useGlobalVariablesStore } from '@/store/globalVariablesStore'
-import { useRouter } from 'vue-router'
 
 const ui = useUiStore()
-const addonsStore = useAddonsStore()
-// Loaded only when the Odoo add-on is on, so it costs nothing otherwise.
-const OdooSendModal = defineAsyncComponent(() => import('@/components/OdooSendModal.vue'))
-const OdooDataBlockModal = defineAsyncComponent(() => import('@/components/OdooDataBlockModal.vue'))
 const docStore = useDocStore()
 const editorStore = useEditorStore()
 const globalVariablesStore = useGlobalVariablesStore()
 const route = useRoute()
-const router = useRouter()
 
 const { isPhone } = useViewport()
 const { activeSheet, sheetArg, closeSheet } = useSheetRoute()
@@ -119,23 +111,4 @@ function handleInsertSelectedImages(images) {
     editorStore.insertImageFromLibrary(images)
     ui.closeImageLibraryModal()
 }
-
-watch(() => route.query.githubBackup, async (value) => {
-    if (!value) {
-        return;
-    }
-
-    ui.openGithubBackupModal();
-    if (value === 'connected') {
-        ui.addToast('GitHub backup connected.', 'success');
-    } else if (value === 'error') {
-        const message = String(route.query.message || 'GitHub backup connection failed.');
-        ui.addToast(message, 'error');
-    }
-
-    const nextQuery = { ...route.query };
-    delete nextQuery.githubBackup;
-    delete nextQuery.message;
-    await router.replace({ query: nextQuery });
-}, { immediate: true });
 </script>

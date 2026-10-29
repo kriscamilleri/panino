@@ -59,34 +59,12 @@
             </div>
         </div>
 
-        <AddonsSection>
-            <template #odoo>
-                <div class="space-y-3">
-                    <BaseButton
-                        variant="secondary"
-                        size="md"
-                        data-testid="settings-odoo-button"
-                        @click="showOdoo = true"
-                    >
-                        <Plug class="w-4 h-4" />
-                        <span>Odoo connection</span>
-                    </BaseButton>
-                    <OdooKeyNotice />
-                    <OdooSyncsCard ref="syncsCard" />
-                </div>
-            </template>
-        </AddonsSection>
-
-        <OdooConnectionModal
-            v-if="addonsStore.isActive('odoo')"
-            :show="showOdoo"
-            @close="closeOdoo"
-        />
+        <AddonsSection />
     </AccountLayout>
 </template>
 
 <script setup>
-import { defineAsyncComponent, ref, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAuthStore } from '@/store/authStore';
@@ -96,24 +74,12 @@ import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 import BaseButton from '@/components/BaseButton.vue';
 import AddonsSection from '@/components/AddonsSection.vue';
 import { useAddonsStore } from '@/store/addonsStore';
-import { Image, FileText, Users, Plug } from 'lucide-vue-next';
+import { Image, FileText, Users } from 'lucide-vue-next';
 
 const authStore = useAuthStore();
 const syncStore = useSyncStore();
 const addonsStore = useAddonsStore();
 const router = useRouter();
-const showOdoo = ref(false);
-// Loaded only while the Odoo add-on is on (see the template).
-const OdooConnectionModal = defineAsyncComponent(() => import('@/components/OdooConnectionModal.vue'));
-const OdooKeyNotice = defineAsyncComponent(() => import('@/components/OdooKeyNotice.vue'));
-const OdooSyncsCard = defineAsyncComponent(() => import('@/components/OdooSyncsCard.vue'));
-const syncsCard = ref(null);
-
-// A connection change (new key, disconnect) changes what the syncs card can show.
-function closeOdoo() {
-    showOdoo.value = false;
-    syncsCard.value?.load?.();
-}
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
 

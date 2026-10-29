@@ -123,34 +123,7 @@
                 />
                 {{ syncStore.isOnline ? 'Export as PDF' : 'Export as PDF (needs a connection)' }}
             </button>
-            <button
-                v-if="addonsStore.isActive('odoo')"
-                type="button"
-                class="ph-row"
-                :disabled="!syncStore.isOnline || !file"
-                data-testid="phone-menu-odoo"
-                @click="sendingToOdoo = true"
-            >
-                <Send
-                    class="h-5 w-5"
-                    aria-hidden="true"
-                />
-                {{ syncStore.isOnline ? 'Send to Odoo' : 'Send to Odoo (needs a connection)' }}
-            </button>
-            <button
-                v-if="addonsStore.isActive('odoo')"
-                type="button"
-                class="ph-row"
-                :disabled="!syncStore.isOnline || !file"
-                data-testid="phone-menu-odoo-data"
-                @click="openingOdooData = true"
-            >
-                <Sheet
-                    class="h-5 w-5"
-                    aria-hidden="true"
-                />
-                {{ syncStore.isOnline ? 'Sales orders from Odoo' : 'Sales orders from Odoo (needs a connection)' }}
-            </button>
+            <AddonActions surface="menu" />
             <button
                 type="button"
                 class="ph-row"
@@ -219,29 +192,23 @@
             :document-title="file.title || 'Untitled'"
             @close="editingStyles = false"
         />
-        <OdooSendModal
-            v-if="addonsStore.isActive('odoo')"
-            :show="sendingToOdoo"
-            @close="sendingToOdoo = false"
-        />
-        <OdooDataBlockModal
-            v-if="addonsStore.isActive('odoo')"
-            :show="openingOdooData"
-            @close="openingOdooData = false"
-        />
+        <!-- On a phone, add-on modals open over this sheet and close with it. -->
+        <AddonModalHost />
     </BottomSheet>
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon, Send, Sheet } from 'lucide-vue-next'
+import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon } from 'lucide-vue-next'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
+import AddonActions from '@/components/addons/AddonActions.vue'
+import AddonModalHost from '@/components/addons/AddonModalHost.vue'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useAddonsStore } from '@/store/addonsStore'
@@ -276,15 +243,13 @@ const { selectedFile: file } = storeToRefs(docStore)
 
 const confirmingDelete = ref(false)
 const editingStyles = ref(false)
-const sendingToOdoo = ref(false)
-const openingOdooData = ref(false)
 const addonsStore = useAddonsStore()
-// Loaded only when the add-on is on (see the template), so it costs nothing otherwise.
-const OdooSendModal = defineAsyncComponent(() => import('@/components/OdooSendModal.vue'))
-const OdooDataBlockModal = defineAsyncComponent(() => import('@/components/OdooDataBlockModal.vue'))
 
 watch(() => props.open, (isOpen) => {
     if (isOpen) void addonsStore.fetchAddons()
+    // The add-on modal lives in this sheet: closing the sheet (the back gesture
+    // too) closes it, and reopening the sheet must not bring it back.
+    else ui.closeAddonModal()
 }, { immediate: true })
 
 const isSpaceDocument = computed(() => Boolean(file.value?.dbKey?.startsWith('space:')))

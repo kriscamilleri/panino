@@ -20,9 +20,8 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `sync.js` | `POST /sync` — bidirectional CR-SQLite change set exchange; optional flag-gated `space` UUID routes the batch at a shared-space content DB behind membership + an exact table/column allowlist (Phase 2; no public space routes yet) | Authenticated |
 | `image.js` | `POST /images` (upload), `GET /images/:id` (serve) | Authenticated |
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
-| `backup.js` | GitHub OAuth, repository selection, snapshot commits, auto-backup scheduling | Mixed |
-| `addons.js` | Add-on registry and gate (`docs/specs/active/addons.md`): `GET /addons`, `PUT /addons/:id/enabled`, `requireAddon(id)` (404 unless the operator offers it, 403 `addon_disabled` until the user switches it on), the per-user `addons` table | Authenticated |
-| `odoo.js`, `odooConnection.js`, `odooClient.js`, `odooDocuments.js`, `odooKnowledge.js`, `odooArticleImages.js`, `odooChatter.js`, `odooLinks.js`, `odooSync.js`, `odooSyncScheduler.js`, `odooSyncPdf.js`, `odooSaleOrderBlocks.js` | The Odoo add-on (`docs/specs/active/odoo-integration.md`): connection, folder, article and record pickers, links, send to Documents, to Knowledge (article HTML sanitized and converted in `odooKnowledge.js`) and to an opportunity's or sales order's chatter; Knowledge syncs (`odooSync.js` runs one, `odooSyncScheduler.js` decides when: after `/sync` changes, Sync now, daily; `odooSyncPdf.js` builds a Document's print request on the server from the shared style modules for the PDFs a sync files); sales order blocks (`odooSaleOrderBlocks.js`, `docs/specs/active/odoo-sales-order-blocks.md`): read-only order search, field catalog and order snapshot, registered on the Odoo router after the gate. Every route under `/addons/odoo` behind `requireAddon('odoo')`. Tests use `tests/fakeOdoo.js` | Authenticated |
+| `addons/registry.js`, `addons/index.js` | Add-on registry and gate (`docs/specs/active/addons.md`, `docs/specs/active/addon-folders.md`): `GET /addons`, `PUT /addons/:id/enabled`, `requireAddon(id)` (404 unless the operator offers it, 403 `addon_disabled` until the user switches it on), the per-user `addons` table. A manifest may declare `routes` (mounted at `/addons/<id>` behind the gate by `mountAddonRoutes`, paths relative), `publicRoutes` (same prefix, mounted before sign-in by `mountAddonPublicRoutes` behind the offered check only, for OAuth callbacks that prove the user themselves and check the switch), `schema` (`user` / `content` SQL applied by `db.js` through `registerAddonSchema`, then an optional idempotent `upgrade(db, kind)`), `hooks` (`afterChangesApplied`, `afterSyncRequest`, run from `sync.js` by `runAddonHooks`) and `configWarnings`. `addons/index.js` imports each add-on, one line each | Authenticated |
+| `addons/<id>/` | One folder per add-on, each with a `README.md` listing its manifest and files. To add or extend one, load the `add-on-development` skill (`.github/skills/add-on-development/SKILL.md`). **Core never imports an add-on module**, only the registry; add-ons never import each other (ESLint `panino/addon-boundaries`). Today: `addons/github/` (`docs/specs/active/github-integration.md`): GitHub OAuth, repository selection, snapshot commits of personal Documents, the daily backup from `afterSyncRequest`, the `backup_config` table; tests in `addons/github/tests/`. `addons/odoo/` (`docs/specs/active/odoo-integration.md`, `docs/specs/active/odoo-sales-order-blocks.md`): connection, pickers, links, send to Documents, Knowledge and chatter, Knowledge syncs, sales order blocks; tests in `addons/odoo/tests/` with `tests/fakeOdoo.js` | Authenticated |
 | `revision.js` | Note revision capture, listing, detail, restore, and pruning; snapshots may carry a nullable server-derived `actor_user_id`/`actor_kind` (`sync`\|`collab`\|`system`) — never accepted from client input | Authenticated |
 | `db.js` | Canonical `getDb(dbKey)` content connections, user compatibility wrappers, versioned content initialization, auth/space metadata DBs, connection caching, CR-SQLite extension loading | — |
 | `spaces.js` | Flag-gated discovery and lifecycle: create/rename, hashed email-bound editor invitations, member removal, ownership transfer, editor leave, pending deletion, membership-version fan-out, and retained-space purge scheduling | Authenticated / trusted server callers |
@@ -40,10 +39,10 @@ first — it defaults to a dry run and requires `--apply` to mutate anything.
 
 ## Route Mounting Order (in `index.js`)
 
-1. Public routes: `signupRoutes`, `passwordResetRoutes`
+1. Public routes: `signupRoutes`, `passwordResetRoutes`, `mountAddonPublicRoutes(app)` (add-on OAuth callbacks at `/addons/<id>/…`)
 2. Mixed routes: `authRoutes` (login is public, /me and /refresh need auth)
 3. `authenticateToken` middleware (all routes after this require auth)
-4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `emailVerificationRoutes`, `spaceTransferRoutes`, `imageRoutes`, `pdfRoutes`, `backupRoutes`, `addonsRoutes` (before any add-on's own routes), `odooRoutes`, `revisionRoutes`
+4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `emailVerificationRoutes`, `spaceTransferRoutes`, `imageRoutes`, `pdfRoutes`, `addonsRoutes` (owns `PUT /addons/:id/enabled`, so it comes first), `mountAddonRoutes(app)` (every add-on's routes at `/addons/<id>` behind `requireAddon`), `revisionRoutes`. `index.js` imports `addons/index.js` before anything else so add-on tables exist before the first database opens
 
 ---
 
@@ -191,7 +190,6 @@ tests/
 │   └── sync.test.js      # Sync helper function tests
 └── integration/
     ├── auth.test.js               # POST /login, token validation end-to-end
-    ├── backup.test.js             # GitHub backup flow
     ├── emailVerification.test.js  # Verify my email: request, confirm, who may confirm, limits
     ├── image.test.js              # Image upload, retrieval, and orphan prune
     ├── me.test.js                 # GET /me, POST /me/password
@@ -203,8 +201,15 @@ tests/
     ├── sync.revision.test.js      # Revision capture driven by incoming change sets
     ├── sync.spaces.test.js        # Flag-gated space-aware /sync: membership, allowlist, actor, invalidation
     ├── websocket.test.js          # Legacy handshake + personal poke tests
-    └── websocket.spaces.test.js   # v1 subscribe/unsubscribe protocol + space-scoped poke tests
+    ├── websocket.spaces.test.js   # v1 subscribe/unsubscribe protocol + space-scoped poke tests
+    └── addonsRegistry.test.js     # Add-on extension points with a throwaway add-on
 ```
+
+An add-on's own tests live in its folder (`addons/<id>/tests/unit/`, `addons/<id>/tests/integration/`);
+Vitest finds them with the default include. Integration tests get the add-ons registered through
+`createTestApp()`. A unit test that needs an add-on's tables without the app imports that add-on's
+`index.js`. Do not import add-ons from `tests/setup.js`: that loads core modules before a test file's
+`vi.mock` of them applies.
 
 ### Test helper API
 

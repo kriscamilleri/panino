@@ -16,7 +16,7 @@ backend-only operational tables. The backend also has a separate authentication 
 | `settings` | CRR | JSON-encoded user settings |
 | `globals` | CRR | Global template variables |
 | `templates` | CRR | Document templates |
-| `backup_config` | Local/backend-only | Provider credentials and backup state |
+| `backup_config` | Local/backend-only | GitHub add-on (`addons/github/schema.js`): GitHub credentials and backup state |
 | `note_revisions` | Local/backend-only | Compressed revision snapshots |
 | `note_revision_meta` | Local/backend-only | Revision pruning metadata |
 
@@ -27,7 +27,7 @@ configuration are deliberate non-CRR exceptions.
 
 ### Shared-space content databases
 
-Shared spaces use `data/spaces/{spaceId}.db` and the same CRR content tables as personal databases. Backend content connections use canonical `space:<uuid>` keys; personal databases use `user:<uuid>`. `application_schema` is a local, non-CRR table that records the content database kind and ordered schema version. Personal-only `backup_config` is not created in a space database.
+Shared spaces use `data/spaces/{spaceId}.db` and the same CRR content tables as personal databases. Backend content connections use canonical `space:<uuid>` keys; personal databases use `user:<uuid>`. `application_schema` is a local, non-CRR table that records the content database kind and ordered schema version. Personal-only `backup_config` (GitHub add-on) is not created in a space database.
 
 Content schema v2 adds `collab_sessions`, `collab_session_acks`, and
 `collab_recovery_archives` only to space databases. All are backend-local, non-CRR recovery

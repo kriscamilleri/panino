@@ -96,9 +96,10 @@
                     class="mt-3"
                     :data-testid="`addon-${addon.id}-card`"
                 >
-                    <slot
-                        :name="addon.id"
-                        :addon="addon"
+                    <AddonCard
+                        :addon-id="addon.id"
+                        point="settingsCard"
+                        layout="desktop"
                     />
                 </div>
             </li>
@@ -109,11 +110,12 @@
 <script setup>
 /**
  * Settings → Add-ons (docs/specs/active/addons.md): the add-ons this server
- * offers, each with a switch. An add-on's own card goes in the slot named after
- * its id and renders only while the add-on is on.
+ * offers, each with a switch. An add-on's own card (its manifest's
+ * `settingsCard`) renders under the switch only while the add-on is on.
  */
 import { ref } from 'vue';
 import BaseButton from '@/components/BaseButton.vue';
+import AddonCard from '@/components/addons/AddonCard.vue';
 import { useAddonsStore } from '@/store/addonsStore';
 import { useUiStore } from '@/store/uiStore';
 

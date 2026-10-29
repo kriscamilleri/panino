@@ -7,6 +7,8 @@ import fs from 'fs';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 
+// First: registers every add-on (routes, tables, hooks) before anything opens a database.
+import './addons/index.js';
 import { authRoutes, authenticateToken } from './auth.js';
 import { syncRoutes } from './sync.js';
 import { imageRoutes, startImageOrphanPruneJob } from './image.js';
@@ -14,9 +16,7 @@ import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { emailVerificationRoutes } from './emailVerification.js';
-import { backupPublicRoutes, backupRoutes } from './backup.js';
-import { addonsRoutes } from './addons.js';
-import { odooRoutes, isOdooIntegrationEnabled } from './odoo.js';
+import { addonConfigWarnings, addonsRoutes, mountAddonPublicRoutes, mountAddonRoutes } from './addons/registry.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 import { attachWebSocketHandlers, MAX_MESSAGE_BYTES } from './websocket.js';
@@ -80,7 +80,7 @@ export function createApp() {
     // Public routes
     app.use(signupRoutes);
     app.use(passwordResetRoutes);
-    app.use(backupPublicRoutes);
+    mountAddonPublicRoutes(app); // OAuth returns; each checks its own proof and the switch
 
     // Routes that are mixed public/private
     app.use(authRoutes);
@@ -93,9 +93,8 @@ export function createApp() {
     app.use(spaceTransferRoutes);
     app.use(imageRoutes);
     app.use(pdfRoutes); // Mount the new PDF route
-    app.use(backupRoutes);
     app.use(addonsRoutes);
-    app.use(odooRoutes);
+    mountAddonRoutes(app);
     app.use(revisionRoutes);
 
     // A handler that did not catch a "database is locked" error: answer with a
@@ -115,9 +114,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     server.listen(PORT, () => {
         console.log(`API and WebSocket services listening on port ${PORT}`);
     });
-    if (process.env.ODOO_INTEGRATION_ENABLED === 'true' && !isOdooIntegrationEnabled()) {
-        console.warn('[odoo] ODOO_INTEGRATION_ENABLED is true but ODOO_CREDENTIAL_ENCRYPTION_KEY is missing or shorter than 32 characters; the Odoo integration stays off.');
-    }
+    for (const warning of addonConfigWarnings()) console.warn(warning);
 
     let shuttingDown = false;
     process.on('SIGTERM', async () => {

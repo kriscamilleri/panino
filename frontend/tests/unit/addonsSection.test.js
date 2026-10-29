@@ -6,6 +6,13 @@ import { createPinia, setActivePinia } from 'pinia';
 const addToast = vi.fn();
 vi.mock('@/store/authStore', () => ({ useAuthStore: () => ({ token: 'jwt', user: { id: 'me' } }) }));
 vi.mock('@/store/uiStore', () => ({ useUiStore: () => ({ addToast }) }));
+// The card under the switch comes from the add-on's manifest (settingsCard).
+vi.mock('@/addons/registry', async () => {
+    const { h } = await import('vue');
+    const card = { props: ['layout'], render: () => h('button', { 'data-testid': 'odoo-card' }, 'Odoo connection') };
+    const manifest = { id: 'odoo', settingsCard: { component: () => Promise.resolve({ __esModule: true, default: card }) } };
+    return { ADDON_MANIFESTS: [manifest], addonManifest: (id) => (id === 'odoo' ? manifest : null), addonsContributing: () => [] };
+});
 
 const { default: AddonsSection } = await import('@/components/AddonsSection.vue');
 const { useAddonsStore } = await import('@/store/addonsStore');
@@ -26,9 +33,7 @@ function api(list = { addons: [ODOO] }) {
     return puts;
 }
 
-const mountSection = () => mount(AddonsSection, {
-    slots: { odoo: '<button data-testid="odoo-card">Odoo connection</button>' },
-});
+const mountSection = () => mount(AddonsSection);
 
 describe('AddonsSection', () => {
     beforeEach(() => {
@@ -46,7 +51,7 @@ describe('AddonsSection', () => {
         expect(toggle.attributes('aria-checked')).toBe('false');
         expect(toggle.attributes('role')).toBe('switch');
         expect(wrapper.text()).toContain('Send Documents to your Odoo.');
-        expect(wrapper.find('[data-testid="odoo-card"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="settings-addon-odoo"]').exists()).toBe(false);
     });
 
     it('says when the server offers none', async () => {
@@ -66,7 +71,7 @@ describe('AddonsSection', () => {
         await flushPromises();
         expect(puts).toEqual([{ path: '/addons/odoo/enabled', body: { enabled: true } }]);
         expect(wrapper.get('[data-testid="addon-odoo-switch"]').attributes('aria-checked')).toBe('true');
-        expect(wrapper.get('[data-testid="odoo-card"]').text()).toBe('Odoo connection');
+        expect(wrapper.get('[data-testid="settings-addon-odoo"]').text()).toBe('Odoo connection');
         expect(addToast).toHaveBeenCalledWith('Odoo is on.', 'success');
     });
 
@@ -75,26 +80,26 @@ describe('AddonsSection', () => {
         const wrapper = mountSection();
         await useAddonsStore().fetchAddons();
         await flushPromises();
-        expect(wrapper.find('[data-testid="odoo-card"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="settings-addon-odoo"]').exists()).toBe(true);
 
         await wrapper.get('[data-testid="addon-odoo-switch"]').trigger('click');
         expect(puts).toEqual([]);
         const confirm = wrapper.get('[data-testid="addon-odoo-confirm"]');
         expect(confirm.text()).toContain('Your connection and what you sent are kept');
-        expect(wrapper.find('[data-testid="odoo-card"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="settings-addon-odoo"]').exists()).toBe(false);
 
         const buttons = confirm.findAll('button');
         await buttons.find((b) => b.text() === 'Keep on').trigger('click');
         expect(wrapper.find('[data-testid="addon-odoo-confirm"]').exists()).toBe(false);
         expect(wrapper.get('[data-testid="addon-odoo-switch"]').attributes('aria-checked')).toBe('true');
-        expect(wrapper.find('[data-testid="odoo-card"]').exists()).toBe(true);
+        expect(wrapper.find('[data-testid="settings-addon-odoo"]').exists()).toBe(true);
 
         await wrapper.get('[data-testid="addon-odoo-switch"]').trigger('click');
         await wrapper.get('[data-testid="addon-odoo-turn-off"]').trigger('click');
         await flushPromises();
         expect(puts).toEqual([{ path: '/addons/odoo/enabled', body: { enabled: false } }]);
         expect(wrapper.get('[data-testid="addon-odoo-switch"]').attributes('aria-checked')).toBe('false');
-        expect(wrapper.find('[data-testid="odoo-card"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="settings-addon-odoo"]').exists()).toBe(false);
         expect(addToast).toHaveBeenCalledWith('Odoo is off. Your connection is kept.', 'info');
     });
 

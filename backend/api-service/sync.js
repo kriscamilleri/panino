@@ -1,8 +1,7 @@
 // backend/api-service/sync.js
 import express from "express";
 import { getDb, invalidateDb } from "./db.js";
-import { triggerDailyAutoBackup } from "./backup.js";
-import { scheduleSyncRunsAfterChanges, triggerDailyReconcile } from "./odooSyncScheduler.js";
+import { runAddonHooks } from "./addons/registry.js";
 import {
   createRevisionSnapshot,
   deleteNoteRevisionsForDeletedNote,
@@ -534,8 +533,7 @@ router.post("/sync", (req, res, next) => {
         }
       });
       applyChanges(changes, noteMutations);
-      // A synced folder or Document mirrors to Odoo Knowledge a while after the last change.
-      scheduleSyncRunsAfterChanges(dbKey);
+      runAddonHooks("afterChangesApplied", dbKey);
 
       // Notify other clients, excluding the one that sent the changes.
       // Personal sync keeps the exact legacy `{type:'sync'}` poke; a space
@@ -583,13 +581,7 @@ router.post("/sync", (req, res, next) => {
     }
     res.json(responseBody);
 
-    // A shared space has no personal GitHub auto backup target (Phase 6
-    // will add a dedicated space backup producer); never trigger the
-    // per-user backup job for a space sync.
-    if (!isSpaceSync) {
-      void triggerDailyAutoBackup(userId);
-    }
-    triggerDailyReconcile(dbKey);
+    runAddonHooks("afterSyncRequest", dbKey);
   } catch (err) {
     if (mergeAttempted) {
       const failedChange = mergeChange;

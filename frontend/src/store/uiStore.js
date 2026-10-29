@@ -40,9 +40,9 @@ export const useUiStore = defineStore("uiStore", () => {
   // Modal and Toast state (transient)
   const showImportModal = ref(false);
   const showExportModal = ref(false);
-  const showGithubBackupModal = ref(false);
-  const showOdooSendModal = ref(false);
-  const showOdooDataModal = ref(false);
+  // The add-on modal that is open, if any (components/addons/AddonModalHost.vue).
+  /** @type {import('vue').Ref<{ addonId: string, modalId: string } | null>} */
+  const addonModal = ref(null);
   const showVariablesModal = ref(false);
   const showImageLibraryModal = ref(false);
   const toasts = ref([]);
@@ -221,9 +221,7 @@ export const useUiStore = defineStore("uiStore", () => {
     showFileMenu,
     showImportModal,
     showExportModal,
-    showGithubBackupModal,
-    showOdooSendModal,
-    showOdooDataModal,
+    addonModal,
     showVariablesModal,
     toasts,
     showImageLibraryModal,
@@ -258,12 +256,8 @@ export const useUiStore = defineStore("uiStore", () => {
     closeImportModal: () => (showImportModal.value = false),
     openExportModal: () => (showExportModal.value = true),
     closeExportModal: () => (showExportModal.value = false),
-    openGithubBackupModal: () => (showGithubBackupModal.value = true),
-    closeGithubBackupModal: () => (showGithubBackupModal.value = false),
-    openOdooSendModal: () => (showOdooSendModal.value = true),
-    closeOdooSendModal: () => (showOdooSendModal.value = false),
-    openOdooDataModal: () => (showOdooDataModal.value = true),
-    closeOdooDataModal: () => (showOdooDataModal.value = false),
+    openAddonModal: (addonId, modalId) => (addonModal.value = { addonId, modalId }),
+    closeAddonModal: () => (addonModal.value = null),
     openVariablesModal: () => (showVariablesModal.value = true),
     closeVariablesModal: () => (showVariablesModal.value = false),
     openImageLibraryModal: () => (showImageLibraryModal.value = true),

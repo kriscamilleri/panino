@@ -10,7 +10,7 @@
  * - The size limit is enforced while streaming, so an oversized body is cut off
  *   instead of buffered.
  *
- * `imageFetch.js` builds on these pieces for PDF images; `odooClient.js` uses
+ * `imageFetch.js` builds on these pieces for PDF images; `addons/odoo/client.js` uses
  * `safeRequest` for the Odoo API.
  */
 
