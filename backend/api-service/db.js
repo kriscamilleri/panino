@@ -279,6 +279,17 @@ const USER_LOCAL_SCHEMA = `
     last_error TEXT
   );
 
+  -- The user's saved layouts for Odoo data blocks (odooSaleOrderBlocks.js).
+  -- Server-only. A block carries its own layout, so these are only for reuse.
+  CREATE TABLE IF NOT EXISTS odoo_block_layouts (
+    id TEXT PRIMARY KEY NOT NULL,
+    model TEXT NOT NULL,
+    name TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   -- Which add-ons this user switched on (addons.js). Server-only. No row: off.
   CREATE TABLE IF NOT EXISTS addons (
     addon_id TEXT PRIMARY KEY NOT NULL,

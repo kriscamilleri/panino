@@ -29,6 +29,7 @@
         <ExportModal :show="ui.showExportModal" @close="ui.closeExportModal()" data-testid="homepage-export-modal" />
         <GitHubBackupModal :show="ui.showGithubBackupModal" @close="ui.closeGithubBackupModal()" data-testid="homepage-github-backup-modal" />
         <OdooSendModal v-if="addonsStore.isActive('odoo')" :show="ui.showOdooSendModal" @close="ui.closeOdooSendModal()" />
+        <OdooDataBlockModal v-if="addonsStore.isActive('odoo')" :show="ui.showOdooDataModal" @close="ui.closeOdooDataModal()" />
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
         <ImageLibraryModal
             :show="ui.showImageLibraryModal"
@@ -73,6 +74,7 @@ const ui = useUiStore()
 const addonsStore = useAddonsStore()
 // Loaded only when the Odoo add-on is on, so it costs nothing otherwise.
 const OdooSendModal = defineAsyncComponent(() => import('@/components/OdooSendModal.vue'))
+const OdooDataBlockModal = defineAsyncComponent(() => import('@/components/OdooDataBlockModal.vue'))
 const docStore = useDocStore()
 const editorStore = useEditorStore()
 const globalVariablesStore = useGlobalVariablesStore()

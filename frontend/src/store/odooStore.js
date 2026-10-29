@@ -213,6 +213,59 @@ export const useOdooStore = defineStore('odooStore', () => {
         return authFetch('/addons/odoo/send', { method: 'POST', body: JSON.stringify(body) });
     }
 
+    /**
+     * Sales orders for the block picker (docs/specs/active/odoo-sales-order-blocks.md).
+     *
+     * @param {string} query reference or customer
+     * @returns {Promise<{ id: number, name: string, partnerName: string|null, status: string|null }[]>}
+     */
+    async function searchSaleOrders(query = '') {
+        const payload = await authFetch(`/addons/odoo/sale-orders?${new URLSearchParams({ q: query })}`);
+        return payload?.orders || [];
+    }
+
+    /**
+     * The order values and line columns a block may show, and the defaults.
+     *
+     * @returns {Promise<{ order: object[], line: object[], defaults: { fields: string[], columns: string[] } }>}
+     */
+    async function fetchSaleOrderFields() {
+        return authFetch('/addons/odoo/sale-orders/fields');
+    }
+
+    /**
+     * One sales order with the chosen values and columns, as a block snapshot.
+     * Rejects with the server's message.
+     *
+     * @param {number} orderId
+     * @param {{ fields: string[], columns: string[] }} choice
+     */
+    async function fetchSaleOrder(orderId, { fields, columns }) {
+        const params = new URLSearchParams({ fields: fields.join(','), columns: columns.join(',') });
+        return authFetch(`/addons/odoo/sale-orders/${encodeURIComponent(orderId)}?${params}`);
+    }
+
+    /** The person's saved block layouts. */
+    async function fetchLayouts() {
+        const payload = await authFetch('/addons/odoo/sale-order-layouts');
+        return payload?.layouts || [];
+    }
+
+    /**
+     * Save a block layout: a new one, or the one with `id`. Rejects with the server's message.
+     *
+     * @param {{ id?: string, name: string, body: string }} layout
+     * @returns {Promise<{ id: string, name: string, body: string }>}
+     */
+    async function saveLayout({ id, name, body }) {
+        const path = id ? `/addons/odoo/sale-order-layouts/${encodeURIComponent(id)}` : '/addons/odoo/sale-order-layouts';
+        return authFetch(path, { method: id ? 'PUT' : 'POST', body: JSON.stringify({ name, body }) });
+    }
+
+    async function deleteLayout(id) {
+        await authFetch(`/addons/odoo/sale-order-layouts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    }
+
     return {
         status,
         error,
@@ -235,5 +288,11 @@ export const useOdooStore = defineStore('odooStore', () => {
         runSync,
         takeOverSync,
         removeSync,
+        searchSaleOrders,
+        fetchSaleOrderFields,
+        fetchSaleOrder,
+        fetchLayouts,
+        saveLayout,
+        deleteLayout,
     };
 });

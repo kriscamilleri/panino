@@ -30,11 +30,67 @@ function demoRecords() {
             [3, { id: 3, name: 'Modern Open Space', type: 'opportunity', partner_id: [9, 'Deco Addict'], stage_id: [3, 'Proposition'] }],
         ]),
         orders: new Map([
-            [1, { id: 1, name: 'S00001', partner_id: [7, 'Azure Interior'], state: 'sale' }],
-            [2, { id: 2, name: 'S00002', partner_id: [9, 'Deco Addict'], state: 'draft' }],
+            [1, {
+                id: 1, name: 'S00001', partner_id: [7, 'Azure Interior'], state: 'sale',
+                date_order: '2026-09-26 21:41:22', validity_date: '2026-11-25', user_id: [2, 'Mitchell Admin'],
+                amount_untaxed: 1186.5, amount_tax: 177.98, amount_total: 1364.48, currency_id: [1, 'USD'],
+                tag_ids: [4], client_order_ref: false, order_line: [34, 35, 36, 37],
+            }],
+            [2, { id: 2, name: 'S00002', partner_id: [9, 'Deco Addict'], state: 'draft', currency_id: [1, 'USD'], order_line: [] }],
+        ]),
+        orderLines: new Map([
+            [34, {
+                id: 34, display_type: false, name: '[FURN_6667] Acoustic Bloc Screens\nNoise-reducing panels', product_id: [38, '[FURN_6667] Acoustic Bloc Screens'],
+                product_uom_qty: 3, price_unit: 275, discount: 0, tax_ids: [3], price_subtotal: 825, currency_id: [1, 'USD'],
+            }],
+            [35, { id: 35, display_type: 'line_section', name: 'Services', product_id: false, product_uom_qty: 0, price_unit: 0, discount: 0, tax_ids: [], price_subtotal: 0, currency_id: [1, 'USD'] }],
+            [36, {
+                id: 36, display_type: false, name: 'Installation | on site', product_id: [40, 'Installation'],
+                product_uom_qty: 1.5, price_unit: 241, discount: 10, tax_ids: [3, 5], price_subtotal: 361.5, currency_id: [1, 'USD'],
+            }],
+            [37, { id: 37, display_type: 'line_note', name: 'Delivered <b>Monday</b>', product_id: false, product_uom_qty: 0, price_unit: 0, discount: 0, tax_ids: [], price_subtotal: 0, currency_id: [1, 'USD'] }],
         ]),
     };
 }
+
+/** `fields_get` of the sales models, trimmed to what the tests use. */
+const SALES_FIELDS = {
+    'sale.order': {
+        id: { type: 'integer', string: 'ID' },
+        name: { type: 'char', string: 'Order Reference' },
+        partner_id: { type: 'many2one', string: 'Customer', relation: 'res.partner' },
+        state: { type: 'selection', string: 'Status', selection: [['draft', 'Quotation'], ['sent', 'Quotation Sent'], ['sale', 'Sales Order'], ['cancel', 'Cancelled']] },
+        date_order: { type: 'datetime', string: 'Order Date' },
+        validity_date: { type: 'date', string: 'Expiration' },
+        user_id: { type: 'many2one', string: 'Salesperson', relation: 'res.users' },
+        amount_untaxed: { type: 'monetary', string: 'Untaxed Amount' },
+        amount_tax: { type: 'monetary', string: 'Taxes' },
+        amount_total: { type: 'monetary', string: 'Total' },
+        currency_id: { type: 'many2one', string: 'Currency', relation: 'res.currency' },
+        tag_ids: { type: 'many2many', string: 'Tags', relation: 'crm.tag' },
+        client_order_ref: { type: 'char', string: 'Customer Reference' },
+        note: { type: 'html', string: 'Terms and conditions' },
+        order_line: { type: 'one2many', string: 'Order Lines', relation: 'sale.order.line' },
+        message_ids: { type: 'one2many', string: 'Messages', relation: 'mail.message' },
+        access_token: { type: 'char', string: 'Security Token' },
+    },
+    'sale.order.line': {
+        name: { type: 'text', string: 'Description' },
+        display_type: { type: 'selection', string: 'Display Type', selection: [['line_section', 'Section'], ['line_subsection', 'Subsection'], ['line_note', 'Note']] },
+        product_id: { type: 'many2one', string: 'Product', relation: 'product.product' },
+        product_uom_qty: { type: 'float', string: 'Quantity' },
+        price_unit: { type: 'float', string: 'Unit Price' },
+        discount: { type: 'float', string: 'Discount (%)' },
+        tax_ids: { type: 'many2many', string: 'Taxes', relation: 'account.tax' },
+        price_subtotal: { type: 'monetary', string: 'Subtotal' },
+        currency_id: { type: 'many2one', string: 'Currency', relation: 'res.currency' },
+        product_image: { type: 'binary', string: 'Image' },
+    },
+};
+const RELATED_NAMES = {
+    'account.tax': new Map([[3, '15%'], [5, 'Eco tax']]),
+    'crm.tag': new Map([[4, 'Office']]),
+};
 
 /** Put `state` back to a fresh Odoo 20 with the demo records. */
 export function resetFakeOdoo(state) {
@@ -106,7 +162,7 @@ export function startFakeOdoo() {
             }
             const writeDenied = state.writeDeniedKeys.has(presentedKey);
             const [, , , model, method] = req.url.split('?')[0].split('/');
-            const appOf = { 'documents.document': 'documents', 'knowledge.article': 'knowledge', 'crm.lead': 'crm', 'sale.order': 'sales' };
+            const appOf = { 'documents.document': 'documents', 'knowledge.article': 'knowledge', 'crm.lead': 'crm', 'sale.order': 'sales', 'sale.order.line': 'sales' };
             if (appOf[model] && !state.apps.includes(appOf[model])) {
                 return send(404, { name: 'werkzeug.exceptions.NotFound', message: `the model '${model}' does not exist` });
             }
@@ -244,6 +300,16 @@ export function startFakeOdoo() {
                 case 'crm.lead/read':
                 case 'sale.order/read':
                     return send(200, params.ids.filter((id) => recordsOf(model).has(id)).map((id) => recordsOf(model).get(id)));
+                case 'sale.order/fields_get':
+                case 'sale.order.line/fields_get':
+                    return send(200, SALES_FIELDS[model]);
+                case 'sale.order.line/read':
+                    return send(200, params.ids.filter((id) => state.orderLines.has(id)).map((id) => state.orderLines.get(id)));
+                case 'res.currency/read':
+                    return send(200, params.ids.filter((id) => id === 1).map((id) => ({ id, name: 'USD', symbol: '$', position: 'before', decimal_places: 2 })));
+                case 'account.tax/read':
+                case 'crm.tag/read':
+                    return send(200, params.ids.filter((id) => RELATED_NAMES[model].has(id)).map((id) => ({ id, display_name: RELATED_NAMES[model].get(id) })));
                 case 'crm.lead/search_read':
                 case 'sale.order/search_read':
                     return send(200, [...recordsOf(model).values()].filter((row) => matches(row, params.domain || [])).slice(0, params.limit || 80));

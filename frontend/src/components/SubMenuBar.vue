@@ -422,6 +422,16 @@
                     <Send class="w-4 h-4" /><span class="button-text">Odoo</span>
                 </BaseButton>
 
+                <BaseButton
+                    v-if="addonsStore.isActive('odoo')"
+                    :disabled="!isOnline || !selectedFileId"
+                    :title="!isOnline ? 'Reading from Odoo requires an internet connection' : !selectedFileId ? 'Select a document to add Odoo data to it' : 'Insert or refresh sales orders from Odoo'"
+                    @click="ui.openOdooDataModal()"
+                    data-testid="submenu-tools-odoo-data"
+                >
+                    <Sheet class="w-4 h-4" /><span class="button-text">Odoo data</span>
+                </BaseButton>
+
                 <div class="separator"></div>
 
                 <BaseButton
@@ -530,6 +540,7 @@ import {
     Image,
     Printer,
     Send,
+    Sheet,
     Braces,
     Image as ImageIcon,
     Mic,

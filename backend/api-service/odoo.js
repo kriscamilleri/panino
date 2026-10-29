@@ -22,6 +22,7 @@ import { CHATTER_MODELS, chatterTargetKey, parseChatterTarget, readRecords, sear
 import { pdfFileName, searchFolders, sendPdfToDocuments } from './odooDocuments.js';
 import { MAX_ARTICLE_HTML_BYTES, articleBody, searchArticles, sendArticleToKnowledge } from './odooKnowledge.js';
 import { listLinks, readDefaults, saveDefaults } from './odooLinks.js';
+import { registerSaleOrderBlockRoutes } from './odooSaleOrderBlocks.js';
 import { SYNC_SCOPES, createSync, deleteSync, listSyncs, readSync, setSyncStatus, syncCovering, syncOverlapping } from './odooSync.js';
 import { pauseSyncsRunBy, resumeSyncsRunBy, runSyncNow, syncJobStatus } from './odooSyncScheduler.js';
 import { readInternalImage, renderPdf } from './pdf.js';
@@ -240,6 +241,8 @@ function userNames(ids) {
 }
 
 odooRoutes.use('/addons/odoo', requireAddon('odoo'));
+// Sales order blocks: read-only, behind the same gate (odooSaleOrderBlocks.js).
+registerSaleOrderBlockRoutes(odooRoutes, { messages: ERROR_MESSAGES, logFailure });
 
 odooRoutes.get('/addons/odoo', (req, res) => {
     try {

@@ -138,6 +138,20 @@
                 {{ syncStore.isOnline ? 'Send to Odoo' : 'Send to Odoo (needs a connection)' }}
             </button>
             <button
+                v-if="addonsStore.isActive('odoo')"
+                type="button"
+                class="ph-row"
+                :disabled="!syncStore.isOnline || !file"
+                data-testid="phone-menu-odoo-data"
+                @click="openingOdooData = true"
+            >
+                <Sheet
+                    class="h-5 w-5"
+                    aria-hidden="true"
+                />
+                {{ syncStore.isOnline ? 'Sales orders from Odoo' : 'Sales orders from Odoo (needs a connection)' }}
+            </button>
+            <button
                 type="button"
                 class="ph-row"
                 :disabled="!syncStore.isOnline"
@@ -210,6 +224,11 @@
             :show="sendingToOdoo"
             @close="sendingToOdoo = false"
         />
+        <OdooDataBlockModal
+            v-if="addonsStore.isActive('odoo')"
+            :show="openingOdooData"
+            @close="openingOdooData = false"
+        />
     </BottomSheet>
 </template>
 
@@ -217,7 +236,7 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon, Send } from 'lucide-vue-next'
+import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon, Send, Sheet } from 'lucide-vue-next'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import BaseModal from '@/components/BaseModal.vue'
@@ -258,9 +277,11 @@ const { selectedFile: file } = storeToRefs(docStore)
 const confirmingDelete = ref(false)
 const editingStyles = ref(false)
 const sendingToOdoo = ref(false)
+const openingOdooData = ref(false)
 const addonsStore = useAddonsStore()
 // Loaded only when the add-on is on (see the template), so it costs nothing otherwise.
 const OdooSendModal = defineAsyncComponent(() => import('@/components/OdooSendModal.vue'))
+const OdooDataBlockModal = defineAsyncComponent(() => import('@/components/OdooDataBlockModal.vue'))
 
 watch(() => props.open, (isOpen) => {
     if (isOpen) void addonsStore.fetchAddons()

@@ -42,6 +42,7 @@ export const useUiStore = defineStore("uiStore", () => {
   const showExportModal = ref(false);
   const showGithubBackupModal = ref(false);
   const showOdooSendModal = ref(false);
+  const showOdooDataModal = ref(false);
   const showVariablesModal = ref(false);
   const showImageLibraryModal = ref(false);
   const toasts = ref([]);
@@ -222,6 +223,7 @@ export const useUiStore = defineStore("uiStore", () => {
     showExportModal,
     showGithubBackupModal,
     showOdooSendModal,
+    showOdooDataModal,
     showVariablesModal,
     toasts,
     showImageLibraryModal,
@@ -260,6 +262,8 @@ export const useUiStore = defineStore("uiStore", () => {
     closeGithubBackupModal: () => (showGithubBackupModal.value = false),
     openOdooSendModal: () => (showOdooSendModal.value = true),
     closeOdooSendModal: () => (showOdooSendModal.value = false),
+    openOdooDataModal: () => (showOdooDataModal.value = true),
+    closeOdooDataModal: () => (showOdooDataModal.value = false),
     openVariablesModal: () => (showVariablesModal.value = true),
     closeVariablesModal: () => (showVariablesModal.value = false),
     openImageLibraryModal: () => (showImageLibraryModal.value = true),
