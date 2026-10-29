@@ -40,7 +40,7 @@ function demoRecords() {
 export function resetFakeOdoo(state) {
     Object.assign(state, {
         version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0, failNotes: false, failArticleCreates: false,
-        failArticleNames: new Set(),
+        failArticleNames: new Set(), failAttachmentCreates: false, failArticleWritesOnce: false,
         apiKeys: new Set([API_KEY, OTHER_API_KEY]),
         writeDeniedKeys: new Set(),
         apps: ['documents', 'knowledge', 'crm', 'sales'],
@@ -190,6 +190,10 @@ export function startFakeOdoo() {
                     }));
                 case 'knowledge.article/write':
                     if (writeDenied) return send(403, { name: 'odoo.exceptions.AccessError', message: 'no write', debug: 'Traceback…' });
+                    if (state.failArticleWritesOnce) {
+                        state.failArticleWritesOnce = false;
+                        return odooError('odoo.exceptions.UserError', 'One write is failing today');
+                    }
                     for (const id of params.ids) {
                         const a = state.articles.get(id);
                         if (!a) return odooError('odoo.exceptions.MissingError', 'gone');
@@ -204,6 +208,7 @@ export function startFakeOdoo() {
                     return send(200, true);
 
                 case 'ir.attachment/create': {
+                    if (state.failAttachmentCreates) return odooError('odoo.exceptions.UserError', 'Attachments are failing today');
                     const ids = params.vals_list.map((vals) => {
                         const id = state.nextId++;
                         state.attachments.set(id, store(vals));

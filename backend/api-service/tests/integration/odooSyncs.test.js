@@ -358,6 +358,88 @@ describe('Keeping a folder or a Document in sync with Odoo Knowledge', () => {
         }
     });
 
+    it('repairs a body edited or emptied in Odoo on the daily reconcile, and leaves an equivalent one alone', async () => {
+        await connect();
+        const { docs } = seedTree();
+        const sync = folderSync(docs);
+        await run(sync.id);
+        const alpha = byName('Alpha');
+        const beta = byName('Beta');
+        const gamma = byName('Gamma');
+        alpha.body = '<p>Edited in Odoo</p>';
+        beta.body = false;
+        // Odoo's own formatting of the same checklist is not drift.
+        gamma.body = '<ul class="o_checklist" data-oe-protected="false">\n  <li>todo</li>\n</ul>';
+        odoo.state.requests = [];
+
+        // An ordinary run trusts the hash and writes nothing.
+        expect(await run(sync.id)).toMatchObject({ updated: 0, unchanged: 4 });
+        expect(calls('/knowledge.article/write')).toHaveLength(0);
+        expect(alpha.body).toBe('<p>Edited in Odoo</p>');
+
+        expect(await run(sync.id, { reconcile: true })).toMatchObject({ updated: 2, unchanged: 2, failures: [] });
+        expect(alpha.body).toBe('<p>First</p>');
+        expect(beta.body).toBe('<p>Second</p>');
+        expect(gamma.body).toContain('data-oe-protected');
+        expect(calls('/knowledge.article/write').map((r) => r.params.ids[0]).sort()).toEqual([alpha.id, beta.id].sort());
+    });
+
+    it('keeps an article pending while its images are not up, and finishes it on the next run', async () => {
+        await connect();
+        const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFElEQVR4nGP4z8DwHwyBFJAFBAAyGwX/eOd2EQAAAABJRU5ErkJggg==', 'base64');
+        const GIF = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
+        const root = resolveDatabaseUploadRoot(dbKey);
+        fs.mkdirSync(root, { recursive: true });
+        const files = [];
+        const seedImage = (name, bytes, ext) => {
+            const id = uuidv4();
+            const file = path.join(root, `${id}.${ext}`);
+            fs.writeFileSync(file, bytes);
+            files.push(file);
+            db.prepare('INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+                .run(id, user.userId, name, `image/${ext}`, `${id}.${ext}`, bytes.length, crypto.createHash('sha256').update(bytes).digest('hex'), now());
+            return id;
+        };
+        const imageId = seedImage('plan.png', PNG, 'png');
+        const secondId = seedImage('dot.gif', GIF, 'gif');
+        try {
+            const a = note('Plan', `![Floor](/images/${imageId})`);
+            const sync = createSync(db, { scope: 'note', sourceId: a, odooTarget: target(), runAs: user.userId, createdBy: user.userId });
+
+            // The article is created but the write that brings the image fails.
+            odoo.state.failArticleWritesOnce = true;
+            expect(await run(sync.id)).toMatchObject({ created: 0, failures: [{ sourceId: a, name: 'Plan', error: 'odoo_error' }] });
+            const article = byName('Plan');
+            expect(article.body).toContain('Image not sent');
+            expect(linkOf(a)).toMatchObject({ odoo_record_id: article.id, sync_id: sync.id, content_hash: null });
+
+            // The next run finishes the same article rather than skipping it or making another.
+            expect(await run(sync.id)).toMatchObject({ updated: 1, failures: [] });
+            expect(articles()).toHaveLength(1);
+            expect(article.body).toMatch(/<img src="\/web\/image\/\d+" alt="Floor">/);
+            expect(linkOf(a).content_hash).toMatch(/^[0-9a-f]{64}$/);
+            odoo.state.requests = [];
+            expect(await run(sync.id)).toMatchObject({ unchanged: 1 });
+            expect(calls('/knowledge.article/write')).toHaveLength(0);
+
+            // A new image whose upload Odoo refuses is reported and retried; the first image
+            // is reused, and the article stays pending until the second is up.
+            db.prepare('UPDATE notes SET content = ? WHERE id = ?').run(`![Floor](/images/${imageId})\n\n![Dot](/images/${secondId})`, a);
+            odoo.state.failAttachmentCreates = true;
+            expect(await run(sync.id)).toMatchObject({ updated: 1, failures: [{ sourceId: a, name: 'Plan', error: 'images_failed', images: 1 }] });
+            expect(article.body).toMatch(/<img src="\/web\/image\/\d+" alt="Floor">/);
+            expect(article.body).toContain('Image not sent: Dot');
+            expect(linkOf(a).content_hash).toBeNull();
+            odoo.state.failAttachmentCreates = false;
+            expect(await run(sync.id)).toMatchObject({ updated: 1, failures: [] });
+            expect(article.body).toMatch(/<p><img src="\/web\/image\/\d+" alt="Floor"><\/p>\n<p><img src="\/web\/image\/\d+" alt="Dot"><\/p>/);
+            expect(linkOf(a).content_hash).toMatch(/^[0-9a-f]{64}$/);
+            expect(await run(sync.id)).toMatchObject({ unchanged: 1, failures: [] });
+        } finally {
+            for (const file of files) fs.rmSync(file, { force: true });
+        }
+    });
+
     describe('routes', () => {
         it('creates, lists, runs and removes a folder sync', async () => {
             await connect();

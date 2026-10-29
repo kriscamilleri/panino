@@ -145,4 +145,41 @@ describe('PDFs filed by a sync (Phase 12)', () => {
         const listed = await request(app).get('/addons/odoo/syncs').query({ dbKey }).set(auth());
         expect(listed.body.syncs[0].lastResult).toMatchObject({ created: 1, pdfs: 1 });
     });
+
+    it('recreates on the daily reconcile a PDF deleted or replaced in Odoo, and reports one it cannot', async () => {
+        await connect();
+        const a = note('Alpha', 'First');
+        const sync = createSync(db, { scope: 'note', sourceId: a, odooTarget: target(), documentsFolderId: 41, runAs: user.userId, createdBy: user.userId });
+        expect(await run(sync.id)).toMatchObject({ created: 1, pdfs: 1 });
+        const first = pdfLink(a).odoo_record_id;
+
+        // Deleted in Odoo: an ordinary run keeps trusting the hash, the daily pass notices.
+        odoo.state.docs.delete(first);
+        odoo.state.requests = [];
+        expect(await run(sync.id)).toMatchObject({ unchanged: 1, pdfs: 0, failures: [] });
+        expect(calls('/documents.document/read')).toHaveLength(0);
+        expect(await run(sync.id, { reconcile: true })).toMatchObject({ unchanged: 1, pdfs: 1, failures: [] });
+        expect(docs().map((d) => d.name)).toEqual(['Alpha.pdf']);
+        const second = pdfLink(a).odoo_record_id;
+        expect(second).not.toBe(first);
+
+        // Another record under the same id: not Panino's, so it is left alone and a new one filed.
+        odoo.state.docs.get(second).create_date = '2000-01-01 00:00:00';
+        expect(await run(sync.id, { reconcile: true })).toMatchObject({ pdfs: 1, failures: [] });
+        expect(docs()).toHaveLength(2);
+        expect(pdfLink(a).odoo_record_id).not.toBe(second);
+
+        // Still there and still ours: nothing to render.
+        odoo.state.requests = [];
+        expect(await run(sync.id, { reconcile: true })).toMatchObject({ unchanged: 1, pdfs: 0 });
+        expect(calls('/documents.document/create')).toHaveLength(0);
+        expect(calls('/documents.document/write')).toHaveLength(0);
+
+        // A repair that fails is a PDF failure; the article is untouched.
+        odoo.state.docs.delete(pdfLink(a).odoo_record_id);
+        odoo.state.ignoreContent = true;
+        const failed = await run(sync.id, { reconcile: true });
+        expect(failed).toMatchObject({ unchanged: 1, pdfs: 0 });
+        expect(failed.failures).toEqual([{ sourceId: a, name: 'Alpha', error: 'upload_corrupt', pdf: true }]);
+    });
 });

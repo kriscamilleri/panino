@@ -48,7 +48,9 @@ export function internalImageSources(body) {
 /**
  * Upload the body's internal images onto the article and point the body at them.
  * An image that cannot be read or stored becomes a placeholder and is counted in
- * `missing`; the others still go through.
+ * `missing`; the others still go through. `failed` is the part of `missing` that
+ * Odoo refused (a failed upload), as opposed to an image Panino could not read: a
+ * sync retries those on its next run.
  *
  * @param {object} options
  * @param {ReturnType<import('./odooClient.js').createOdooClient>} options.client
@@ -56,12 +58,12 @@ export function internalImageSources(body) {
  * @param {number} options.articleId
  * @param {string} options.body with Panino `<img src>` values
  * @param {(src: string) => ({ imageId: string, mimeType: string, buffer: Buffer } | null)} options.readImage
- * @returns {Promise<{ body: string, uploaded: number, reused: number, missing: number }>}
+ * @returns {Promise<{ body: string, uploaded: number, reused: number, missing: number, failed: number }>}
  */
 export async function uploadArticleImages({ client, odooTarget, articleId, body, readImage }) {
     const doc = new window.DOMParser().parseFromString(`<body>${body}</body>`, 'text/html');
     const images = [...doc.body.querySelectorAll('img[src]')].filter((img) => parseInternalImageSource(img.getAttribute('src')));
-    if (images.length === 0) return { body, uploaded: 0, reused: 0, missing: 0 };
+    if (images.length === 0) return { body, uploaded: 0, reused: 0, missing: 0, failed: 0 };
 
     // Detected on the first upload only: a body whose images all fail to read never calls Odoo.
     let field = null;
@@ -73,6 +75,7 @@ export async function uploadArticleImages({ client, odooTarget, articleId, body,
     let uploaded = 0;
     let reused = 0;
     let missing = 0;
+    let failed = 0;
     let count = 0;
 
     for (const img of images) {
@@ -96,6 +99,7 @@ export async function uploadArticleImages({ client, odooTarget, articleId, body,
                     // A rejected key or a vanished article fails the whole send; a single bad
                     // upload only loses this image.
                     if (['key_rejected', 'access_denied', 'record_gone', 'missing_app', 'blocked', 'unreachable', 'not_odoo'].includes(error.code)) throw error;
+                    failed += 1;
                 }
             }
             bySource.set(identity, attachmentId);
@@ -107,7 +111,7 @@ export async function uploadArticleImages({ client, odooTarget, articleId, body,
             img.replaceWith(placeholderFor(doc, img.getAttribute('alt')));
         }
     }
-    return { body: doc.body.innerHTML.trim(), uploaded, reused, missing };
+    return { body: doc.body.innerHTML.trim(), uploaded, reused, missing, failed };
 }
 
 async function findOrUpload(client, uploadField, articleId, image) {

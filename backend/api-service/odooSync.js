@@ -5,7 +5,10 @@
  * Document the way the Preview does (shared/markdownRender.js), hashes
  * name + parent + body + order, and writes only what changed. Deleted or moved-out
  * Documents are archived in Odoo, never deleted. Each record succeeds or fails on
- * its own; failures are retried by the next run.
+ * its own; failures are retried by the next run. A link stores its hash only once
+ * the article is complete, images included, so a run that fails halfway leaves the
+ * record pending rather than looking done. The daily reconcile also compares
+ * Odoo's side: an article body edited there, or a filed PDF deleted there, is put back.
  *
  * Everything written goes through `odoo_links` rows carrying `sync_id`, so the
  * ownership rule of §6 (only Panino's own records, checked by `create_date`) holds
@@ -17,7 +20,7 @@ import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { applyDocumentVariables, renderDocumentHtml } from '@panino/content-merge/markdown-render';
 import { OdooError, odooUrlPath } from './odooClient.js';
-import { articleBody } from './odooKnowledge.js';
+import { articleBody, bodySignature } from './odooKnowledge.js';
 import { internalImageSources, uploadArticleImages } from './odooArticleImages.js';
 import { sendPdfToDocuments } from './odooDocuments.js';
 import { buildSyncPdfRequest } from './odooSyncPdf.js';
@@ -293,7 +296,8 @@ export function contentHash({ name, parentArticleId, body, sequence }) {
  * @property {number} archived
  * @property {number} restored
  * @property {number} pdfs PDFs filed in Documents (Phase 12)
- * @property {{ sourceId: string, name: string, error: string, pdf?: boolean }[]} failures
+ * @property {{ sourceId: string, name: string, error: string, pdf?: boolean, images?: number }[]} failures
+ *   `pdf`: the PDF, not the article; `images_failed` with `images`: uploads Odoo refused, retried next run
  * @property {string|null} paused the reason the run stopped the sync, if it did
  */
 
@@ -355,12 +359,23 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
     };
 
     const nowIso = now.toISOString();
+    /** Save the link for an article; `hash: null` marks one whose body is not complete yet. */
     const saveFor = (record, { recordId, createDate, urlPath, hash }) => {
         saveLink(db, {
             sourceId: record.sourceId, sourceType: record.sourceType, destination: 'knowledge', odooTarget,
             recordId, createDate, urlPath, userId, now: nowIso, syncId: sync.id, contentHash: hash, archivedAt: null,
         });
         articleIds.set(record.sourceId, recordId);
+    };
+    /** An upload Odoo refused is a failure of the record, retried by the next run. */
+    const noteImages = (record, images) => {
+        if (images.failed > 0) result.failures.push({ sourceId: record.sourceId, name: record.name, error: 'images_failed', images: images.failed });
+    };
+    /** Whether the PDF a link points at is still in Odoo, and still the record Panino made. */
+    const pdfStillFiled = async (link) => {
+        const rows = await client.call('documents.document', 'read', { ids: [link.odoo_record_id], fields: ['create_date'] });
+        const doc = Array.isArray(rows) ? rows[0] : null;
+        return Boolean(doc) && (!link.odoo_create_date || doc.create_date === link.odoo_create_date);
     };
 
     /**
@@ -381,9 +396,12 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
             return '';
         }
         const key = { sourceId: record.sourceId, destination: 'documents', odooTarget };
-        const existing = readLink(db, key);
-        if (existing && existing.sync_id === sync.id && existing.content_hash === built.hash) return '';
         try {
+            const existing = readLink(db, key);
+            if (existing && existing.sync_id === sync.id && existing.content_hash === built.hash) {
+                // The hash says this PDF is filed; the daily pass also checks it still is.
+                if (!reconcile || await pdfStillFiled(existing)) return '';
+            }
             const rendered = await renderPdf(built.request);
             if (!rendered?.ok) {
                 result.failures.push({ sourceId: record.sourceId, name: record.name, error: 'pdf_failed', pdf: true });
@@ -434,12 +452,13 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
                 continue;
             }
             try {
-                const outcome = await updateArticle({ client, db, odooTarget, userId, sync, prepared, readImage, reconcile, saveFor });
+                const { outcome, images } = await updateArticle({ client, db, odooTarget, prepared, readImage, reconcile, saveFor });
                 if (outcome === 'gone') toCreate.push(prepared);
                 else if (outcome === 'unchanged') result.unchanged += 1;
                 else {
                     result.updated += 1;
                     if (link.archived_at) result.restored += 1;
+                    noteImages(record, images);
                 }
                 if (outcome !== 'gone' && stop(await filePdf(record))) return result;
             } catch (error) {
@@ -481,8 +500,9 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
                 for (const [index, prepared] of batch.entries()) {
                     try {
                         const [id] = await client.call(MODEL, 'create', { vals_list: [vals[index]] });
-                        await finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor });
+                        const images = await finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor });
                         result.created += 1;
+                        noteImages(prepared.record, images);
                     } catch (inner) {
                         if (stop(fail(prepared.record, inner))) return result;
                         continue;
@@ -498,8 +518,9 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
                     continue;
                 }
                 try {
-                    await finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor });
+                    const images = await finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor });
                     result.created += 1;
+                    noteImages(prepared.record, images);
                 } catch (error) {
                     if (stop(fail(prepared.record, error))) return result;
                 }
@@ -542,57 +563,80 @@ function placeholderBody(body) {
     });
 }
 
+/** Upload the body's images and write the body that points at them. */
 async function writeImages({ client, odooTarget, articleId, body, readImage }) {
-    if (!readImage || !internalImageSources(body).length) return;
     const images = await uploadArticleImages({ client, odooTarget, articleId, body, readImage });
     await client.call(MODEL, 'write', { ids: [articleId], vals: { body: images.body } });
-}
-
-async function finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor }) {
-    const rows = await client.call(MODEL, 'read', { ids: [id], fields: ['create_date', 'article_url'] });
-    const article = Array.isArray(rows) ? rows[0] : null;
-    if (prepared.link) dropLink(db, { sourceId: prepared.record.sourceId, destination: 'knowledge', odooTarget });
-    saveFor(prepared.record, {
-        recordId: id,
-        createDate: article?.create_date ?? null,
-        urlPath: odooUrlPath(article?.article_url) || `/knowledge/article/${id}`,
-        hash: prepared.hash,
-    });
-    await writeImages({ client, odooTarget, articleId: id, body: prepared.body, readImage });
+    return images;
 }
 
 /**
- * @returns {Promise<'updated'|'unchanged'|'gone'>}
+ * The link of an article whose name, parent and placeholder body are written, then its
+ * images. The link carries the article from the start, so a failure never leads to a
+ * second one, but its hash only once the body is complete: a write that fails, or an
+ * upload Odoo refused, leaves the record pending for the next run to finish.
+ *
+ * @returns {Promise<{ failed: number, missing: number }>} the images that did not go up
+ */
+async function completeArticle({ client, odooTarget, prepared, identity, readImage, saveFor }) {
+    const { record, body, hash } = prepared;
+    const pending = Boolean(readImage) && internalImageSources(body).length > 0;
+    saveFor(record, { ...identity, hash: pending ? null : hash });
+    if (!pending) return { failed: 0, missing: 0 };
+    const images = await writeImages({ client, odooTarget, articleId: identity.recordId, body, readImage });
+    if (images.failed === 0) saveFor(record, { ...identity, hash });
+    return { failed: images.failed, missing: images.missing };
+}
+
+async function finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor }) {
+    if (prepared.link) dropLink(db, { sourceId: prepared.record.sourceId, destination: 'knowledge', odooTarget });
+    // Remembered before anything else can fail: the article exists now.
+    saveFor(prepared.record, { recordId: id, createDate: null, urlPath: `/knowledge/article/${id}`, hash: null });
+    const rows = await client.call(MODEL, 'read', { ids: [id], fields: ['create_date', 'article_url'] });
+    const article = Array.isArray(rows) ? rows[0] : null;
+    const identity = {
+        recordId: id,
+        createDate: article?.create_date ?? null,
+        urlPath: odooUrlPath(article?.article_url) || `/knowledge/article/${id}`,
+    };
+    return completeArticle({ client, odooTarget, prepared, identity, readImage, saveFor });
+}
+
+/**
+ * @returns {Promise<{ outcome: 'updated'|'unchanged'|'gone', images: { failed: number, missing: number } }>}
  */
 async function updateArticle({ client, db, odooTarget, prepared, readImage, reconcile, saveFor }) {
     const { record, parentArticleId, body, hash, link } = prepared;
+    const none = { failed: 0, missing: 0 };
+    // Complete and unchanged on Panino's side: the daily pass compares Odoo's side, body included.
+    const compare = reconcile && Boolean(link.sync_id) && link.content_hash === hash && !link.archived_at;
     const rows = await client.call(MODEL, 'read', {
         ids: [link.odoo_record_id],
-        fields: ['create_date', 'article_url', 'active', 'name', 'parent_id', 'sequence'],
+        fields: ['create_date', 'article_url', 'active', 'name', 'parent_id', 'sequence', ...(compare ? ['body'] : [])],
         context: { active_test: false },
     });
     const article = Array.isArray(rows) ? rows[0] : null;
     const stillOurs = article && (!link.odoo_create_date || article.create_date === link.odoo_create_date);
     if (!stillOurs) {
         dropLink(db, { sourceId: record.sourceId, destination: 'knowledge', odooTarget });
-        return 'gone';
+        return { outcome: 'gone', images: none };
     }
-    if (reconcile && link.sync_id && link.content_hash === hash && !link.archived_at) {
+    if (compare) {
         const parentInOdoo = Array.isArray(article.parent_id) ? article.parent_id[0] : false;
         const same = article.active === true && article.name === record.name
-            && parentInOdoo === (parentArticleId || false) && Number(article.sequence) === record.sequence;
-        if (same) return 'unchanged';
+            && parentInOdoo === (parentArticleId || false) && Number(article.sequence) === record.sequence
+            && bodySignature(article.body) === bodySignature(body);
+        if (same) return { outcome: 'unchanged', images: none };
     }
     await client.call(MODEL, 'write', {
         ids: [link.odoo_record_id],
         vals: { name: record.name, body: placeholderBody(body), parent_id: parentArticleId, sequence: record.sequence, active: true },
     });
-    saveFor(record, {
+    const identity = {
         recordId: link.odoo_record_id,
         createDate: article.create_date,
         urlPath: odooUrlPath(article.article_url) || link.odoo_url_path,
-        hash,
-    });
-    await writeImages({ client, odooTarget, articleId: link.odoo_record_id, body, readImage });
-    return 'updated';
+    };
+    const images = await completeArticle({ client, odooTarget, prepared, identity, readImage, saveFor });
+    return { outcome: 'updated', images };
 }

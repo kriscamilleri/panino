@@ -533,8 +533,11 @@ but cannot edit a copy that the next run would overwrite. Phase 0 confirms the c
   is scheduled **3 minutes** later, restarted by further changes (so a burst of edits is one
   run), and at most every 3 minutes.
 - **Sync now** in Settings and in the space settings.
-- **Daily reconcile:** once a day a full comparison catches drift, such as articles deleted or
-  unarchived in Odoo, and rewrites what differs.
+- **Daily reconcile:** once a day a full comparison catches drift on Odoo's side, such as
+  articles deleted, renamed, moved, edited or unarchived there and filed PDFs deleted there,
+  and rewrites or refiles what differs. Bodies are compared by what Panino wrote (tags, text,
+  the attributes it sets), not byte for byte, so Odoo's own formatting, its editor's
+  attributes and the ids of uploaded images are not drift.
 - One run per sync at a time, in a job map like `backupJobs`. Runs are capped per Odoo target
   (60 calls a minute) so a first run of a large folder does not hammer the Odoo server.
 
@@ -547,6 +550,11 @@ is picked up by the run after it syncs.
 
 Each record succeeds or fails on its own; failures are retried on the next run and counted in
 the sync's status. A run never stops halfway through a write because each write is one call.
+A link stores its hash only once the article is complete, images included: the article's
+identity is saved as soon as it exists (so a failure never makes a second one), but a body
+write that fails, or an image upload Odoo refuses (`images_failed`), leaves the record pending
+for the next run. An image Panino itself cannot read stays a placeholder (§7) and does not
+hold the record back.
 
 ### Server-side rendering
 

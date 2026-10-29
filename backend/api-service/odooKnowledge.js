@@ -32,6 +32,41 @@ const ALLOWED_TAGS = [
     'input', 'dl', 'dt', 'dd', 'figure', 'figcaption',
 ];
 const ALLOWED_ATTR = ['href', 'title', 'alt', 'src', 'class', 'type', 'checked', 'colspan', 'rowspan', 'start', 'lang', 'dir'];
+/** The attributes a body signature keeps: what Panino sets and a reader would miss. */
+const SIGNATURE_ATTR = ['href', 'src', 'alt', 'class', 'type', 'checked', 'colspan', 'rowspan', 'start'];
+
+/**
+ * What of an article body counts when a sync's daily reconcile compares Odoo's copy with
+ * the body it would write: the tags, the attributes Panino sets, and the text with
+ * whitespace collapsed. Odoo's own formatting, its editor's `data-*` and other attributes,
+ * and the id an uploaded image got (`/web/image/<id>` for a Panino `/images/<id>`) do not
+ * count, nor does an image Panino could not send and left as a placeholder. An empty
+ * paragraph is nothing, like the `<p><br></p>` Knowledge's editor leaves in an empty article.
+ *
+ * @param {unknown} html an article body, Odoo's (`false` when empty) or Panino's
+ * @returns {string} equal for two bodies the reconcile treats as the same
+ */
+export function bodySignature(html) {
+    const doc = new window.DOMParser().parseFromString(`<body>${typeof html === 'string' ? html : ''}</body>`, 'text/html');
+    const walk = (node) => {
+        if (node.nodeType === window.Node.TEXT_NODE) return node.textContent.replace(/\s+/g, ' ').trim();
+        if (node.nodeType !== window.Node.ELEMENT_NODE) return '';
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'br') return '';
+        if (tag === 'img' || (tag === 'span' && node.classList.contains('o_panino_image_placeholder'))) {
+            const src = node.getAttribute('src') || '';
+            const external = tag === 'img' && !parseInternalImageSource(src) && !src.startsWith('/web/image/');
+            return `<img${external ? ` src=${JSON.stringify(src)}` : ''}>`;
+        }
+        const inner = [...node.childNodes].map(walk).join('');
+        if (!inner && ['p', 'div', 'span'].includes(tag)) return '';
+        const attrs = SIGNATURE_ATTR.filter((name) => node.hasAttribute(name))
+            .map((name) => ` ${name}=${JSON.stringify(node.getAttribute(name).replace(/\s+/g, ' ').trim())}`)
+            .join('');
+        return `<${tag}${attrs}>${inner}</${tag}>`;
+    };
+    return [...doc.body.childNodes].map(walk).join('');
+}
 
 /**
  * The article body for Odoo: sanitized HTML with Knowledge's checklist markup.

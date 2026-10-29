@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IMAGE_PLACEHOLDER, articleBody } from '../../odooKnowledge.js';
+import { IMAGE_PLACEHOLDER, articleBody, bodySignature } from '../../odooKnowledge.js';
 
 describe('articleBody', () => {
     it('drops a first heading that repeats the title, and only that one', () => {
@@ -53,5 +53,32 @@ describe('articleBody', () => {
         expect(articleBody(undefined, 'T')).toBe('');
         expect(articleBody('', '')).toBe('');
         expect(articleBody('<h1>T</h1>', 'T')).toBe('');
+    });
+});
+
+describe('bodySignature', () => {
+    it('ignores Odoo’s formatting, editor attributes and image ids, but not words or structure', () => {
+        const ours = '<h2>Plan</h2>\n<p>Hello <strong>there</strong></p>\n<ul class="o_checklist"><li class="o_checked">done</li></ul>';
+        const theirs = '<h2 data-oe-protected="false">Plan</h2><p contenteditable="true">Hello  <strong>there</strong></p>\n<ul class=" o_checklist "  data-x="1">\n  <li class="o_checked">done</li>\n</ul>';
+        expect(bodySignature(theirs)).toBe(bodySignature(ours));
+        expect(bodySignature('<p>Hello <strong>here</strong></p>')).not.toBe(bodySignature('<p>Hello <strong>there</strong></p>'));
+        expect(bodySignature('<p>one</p><p>two</p>')).not.toBe(bodySignature('<p>one two</p>'));
+        expect(bodySignature('<ul><li>a</li></ul>')).not.toBe(bodySignature('<ol><li>a</li></ol>'));
+
+        const withImages = '<p><img src="/images/4b1e4d2a-6c1f-4a8e-9d3b-2f7c1e5a9b01" alt="Floor"></p><p><img src="https://example.com/x.png" alt="x"></p>';
+        const inOdoo = '<p><img src="/web/image/512-9f8e/plan.png" alt="Floor" class="img-fluid"></p><p><img src="https://example.com/x.png" alt="x"></p>';
+        expect(bodySignature(inOdoo)).toBe(bodySignature(withImages));
+        expect(bodySignature('<p><img src="https://example.com/other.png" alt="x"></p>')).not.toBe(bodySignature('<p><img src="https://example.com/x.png" alt="x"></p>'));
+        // An image Panino could not send is a placeholder in Odoo; that is not drift either.
+        expect(bodySignature('<p><span class="o_panino_image_placeholder">Image not sent: Floor</span></p>')).toBe(bodySignature('<p><img src="/images/4b1e4d2a-6c1f-4a8e-9d3b-2f7c1e5a9b01" alt="Floor"></p>'));
+        expect(bodySignature('<p>text</p>')).not.toBe(bodySignature('<p><img src="/images/4b1e4d2a-6c1f-4a8e-9d3b-2f7c1e5a9b01" alt="Floor"></p>'));
+    });
+
+    it('treats an empty article as empty however Odoo stores it', () => {
+        expect(bodySignature(false)).toBe('');
+        expect(bodySignature('')).toBe('');
+        expect(bodySignature('<p><br></p>')).toBe('');
+        expect(bodySignature('<p>\n</p><div></div>')).toBe('');
+        expect(bodySignature('<p>x</p>')).not.toBe('');
     });
 });

@@ -95,14 +95,15 @@ describe('uploadArticleImages', () => {
         const body = '<p><img src="/images/33333333-3333-4333-8333-333333333333" alt="Lost"></p>'
             + '<p><img src="/images/11111111-1111-4111-8111-111111111111"></p>';
         const result = await uploadArticleImages({ client, odooTarget: 't', articleId: 42, body, readImage });
-        expect(result).toMatchObject({ uploaded: 1, missing: 1 });
+        expect(result).toMatchObject({ uploaded: 1, missing: 1, failed: 0 });
         expect(result.body).toBe(
             `<p><span class="o_panino_image_placeholder">${IMAGE_PLACEHOLDER}: Lost</span></p><p><img src="/web/image/500"></p>`,
         );
 
         const refusing = fakeClient({ failCreate: 'upload_corrupt' });
         const again = await uploadArticleImages({ client: refusing, odooTarget: 't', articleId: 42, body, readImage });
-        expect(again).toMatchObject({ uploaded: 0, missing: 2 });
+        // One could not be read, one Odoo refused: only the refused one counts as failed.
+        expect(again).toMatchObject({ uploaded: 0, missing: 2, failed: 1 });
         expect(again.body).not.toContain('<img');
     });
 
@@ -116,7 +117,7 @@ describe('uploadArticleImages', () => {
     it('leaves a body without Panino images untouched, without calling Odoo', async () => {
         const client = fakeClient();
         const body = '<p>Text <img src="https://example.com/x.png"></p>';
-        expect(await uploadArticleImages({ client, odooTarget: 't', articleId: 42, body, readImage })).toEqual({ body, uploaded: 0, reused: 0, missing: 0 });
+        expect(await uploadArticleImages({ client, odooTarget: 't', articleId: 42, body, readImage })).toEqual({ body, uploaded: 0, reused: 0, missing: 0, failed: 0 });
         expect(client.calls).toHaveLength(0);
     });
 });
