@@ -42,15 +42,19 @@
  * The GitHub backup card under the add-on's switch in Settings, desktop and
  * phone (manifest.js `settingsCard`). It owns a backup dialog of its own, and
  * finishes a GitHub connection: the server's OAuth return lands on
- * /settings?githubBackup=connected (or =error&message=…), so the card opens the
- * dialog, says how it went, and clears the query.
+ * /settings?addon=github&addonResult=pending&handle=… (or =error&addonMessage=…).
+ * The card hands the handle back with this session's sign-in, which is what
+ * ties the GitHub account to the person who started the connection, then
+ * opens the dialog, says how it went, and clears the query.
  */
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ChevronRight, Github } from 'lucide-vue-next'
 import BaseButton from '@/components/BaseButton.vue'
+import { withoutAddonReturn } from '@/composables/useAddonReturn'
 import { useSyncStore } from '@/store/syncStore'
 import { useUiStore } from '@/store/uiStore'
+import { useGithubBackupStore } from '../store.js'
 import GitHubBackupModal from './GitHubBackupModal.vue'
 
 defineProps({
@@ -61,22 +65,25 @@ const route = useRoute()
 const router = useRouter()
 const syncStore = useSyncStore()
 const ui = useUiStore()
+const store = useGithubBackupStore()
 const showBackup = ref(false)
 
 onMounted(async () => {
-    const result = route.query.githubBackup
-    if (!result) return
+    if (route.query.addon !== 'github') return
+    const { addonResult: result, addonMessage: message, handle } = route.query
+    await router.replace({ query: withoutAddonReturn(route.query) })
 
-    showBackup.value = true
-    if (result === 'connected') {
-        ui.addToast('GitHub backup connected.', 'success')
+    // Completed before the dialog opens, so the dialog's own status load sees the connection.
+    if (result === 'pending' && typeof handle === 'string') {
+        try {
+            await store.completeConnect(handle)
+            ui.addToast('GitHub backup connected.', 'success')
+        } catch (err) {
+            ui.addToast(err.message || 'GitHub backup connection failed.', 'error')
+        }
     } else {
-        ui.addToast(String(route.query.message || 'GitHub backup connection failed.'), 'error')
+        ui.addToast(typeof message === 'string' && message ? message : 'GitHub backup connection failed.', 'error')
     }
-
-    const nextQuery = { ...route.query }
-    delete nextQuery.githubBackup
-    delete nextQuery.message
-    await router.replace({ query: nextQuery })
+    showBackup.value = true
 })
 </script>

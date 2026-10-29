@@ -13,6 +13,8 @@ const syncStore = reactive({ isOnline: true });
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => router }));
 vi.mock('@/store/uiStore', () => ({ useUiStore: () => ui }));
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => syncStore }));
+const backupStore = { completeConnect: vi.fn() };
+vi.mock('../store.js', () => ({ useGithubBackupStore: () => backupStore }));
 vi.mock('../components/GitHubBackupModal.vue', () => ({
     default: { props: ['show'], render() { return this.show ? h('div', { 'data-testid': 'backup-modal' }) : null; } },
 }));
@@ -27,6 +29,7 @@ describe('the GitHub add-on in the app', () => {
         router.replace.mockClear();
         ui.addToast.mockClear();
         syncStore.isOnline = true;
+        backupStore.completeConnect.mockReset();
     });
 
     it('contributes a toolbar Backup action, its modal and a settings card', () => {
@@ -54,21 +57,40 @@ describe('the GitHub add-on in the app', () => {
         expect(wrapper.text()).toContain('needs a connection');
     });
 
-    it('finishes a connection from the OAuth return: opens the dialog, says so, clears the query', async () => {
-        route.query = { githubBackup: 'connected', tab: 'keep' };
+    it('finishes a parked connection with this session, then opens the dialog and clears the query', async () => {
+        backupStore.completeConnect.mockResolvedValue({ connected: true });
+        route.query = { addon: 'github', addonResult: 'pending', handle: 'h-1', tab: 'keep' };
         const wrapper = mount(GitHubSettingsCard, { props: { layout: 'desktop' } });
         await flushPromises();
-        expect(wrapper.find('[data-testid="backup-modal"]').exists()).toBe(true);
-        expect(ui.addToast).toHaveBeenCalledWith('GitHub backup connected.', 'success');
         expect(router.replace).toHaveBeenCalledWith({ query: { tab: 'keep' } });
+        expect(backupStore.completeConnect).toHaveBeenCalledWith('h-1');
+        expect(ui.addToast).toHaveBeenCalledWith('GitHub backup connected.', 'success');
+        expect(wrapper.find('[data-testid="backup-modal"]').exists()).toBe(true);
+    });
+
+    it('says why a parked connection was refused', async () => {
+        backupStore.completeConnect.mockRejectedValue(new Error('This GitHub connection was started from another Panino account, so it was not saved.'));
+        route.query = { addon: 'github', addonResult: 'pending', handle: 'h-2' };
+        mount(GitHubSettingsCard, { props: { layout: 'phone' } });
+        await flushPromises();
+        expect(ui.addToast).toHaveBeenCalledWith('This GitHub connection was started from another Panino account, so it was not saved.', 'error');
     });
 
     it('shows the error from a failed OAuth return', async () => {
-        route.query = { githubBackup: 'error', message: 'access_denied' };
+        route.query = { addon: 'github', addonResult: 'error', addonMessage: 'GitHub access was not granted.' };
         mount(GitHubSettingsCard, { props: { layout: 'phone' } });
         await flushPromises();
-        expect(ui.addToast).toHaveBeenCalledWith('access_denied', 'error');
+        expect(backupStore.completeConnect).not.toHaveBeenCalled();
+        expect(ui.addToast).toHaveBeenCalledWith('GitHub access was not granted.', 'error');
         expect(route.query).toEqual({});
+    });
+
+    it('leaves another add-on’s return alone', async () => {
+        route.query = { addon: 'odoo', addonResult: 'error', addonMessage: 'x' };
+        mount(GitHubSettingsCard, { props: { layout: 'desktop' } });
+        await flushPromises();
+        expect(ui.addToast).not.toHaveBeenCalled();
+        expect(router.replace).not.toHaveBeenCalled();
     });
 
     it('does nothing on a plain visit to Settings', async () => {

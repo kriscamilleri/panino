@@ -536,7 +536,17 @@ but cannot edit a copy that the next run would overwrite. Phase 0 confirms the c
 - **After changes:** when `/sync` applies changes in a database with a sync, a run for that sync
   is scheduled **3 minutes** later, restarted by further changes (so a burst of edits is one
   run), and at most every 3 minutes.
-- **Sync now** in Settings and in the space settings.
+- **Sync now** in Settings and in the space settings. The route answers `202` at once (a first
+  run of a big folder can outlast the proxy's timeout); the card polls `GET /syncs` until
+  `running` is false, then shows the outcome.
+- **During a run:** a change, or Sync now, that arrives while a run is going queues one more run
+  for when it ends, because the run in progress read the tree when it began. The run re-reads
+  its sync before each record and stops if the sync was removed, paused or switched off; a link
+  left pointing at a removed sync is adopted by a later sync like a manual send's.
+- **Failures never crash the server:** `runSyncNow` logs and resolves on any error, so a timer
+  or hook that does not wait for it cannot cause an unhandled rejection.
+- **Batch creates:** every article a batch `create` returned is linked (pending) before any of
+  them is finished, so a run that stops partway does not create the rest again next time.
 - **Daily reconcile:** once a day a full comparison catches drift on Odoo's side, such as
   articles deleted, renamed, moved, edited or unarchived there and filed PDFs deleted there,
   and rewrites or refiles what differs. Bodies are compared by what Panino wrote (tags, text,
@@ -616,7 +626,7 @@ caller's own, `space:` a space they belong to; owner or editor to create, run or
 |---|---|---|
 | `GET /addons/odoo/syncs?dbKey=` | can read the database | the syncs with source name, status, pause reason, last run and its counts and failures, whether a run is in progress |
 | `POST /addons/odoo/syncs` | owner or editor, connected, Knowledge app | `{dbKey, scope: 'space' \| 'folder' \| 'note', sourceId?, parentArticleId?, documentsFolderId?}` (`null` or `0` = top level; `space` only for a `space:` key, no `sourceId`; `documentsFolderId` needs the Documents app and an existing folder, and makes the sync file PDFs): refuses an overlap (`409 overlap`), a gone parent or folder (`record_gone`), a missing app; starts the first run |
-| `POST /addons/odoo/syncs/:id/run?dbKey=` | owner or editor | Sync now (`409 paused` while paused) |
+| `POST /addons/odoo/syncs/:id/run?dbKey=` | owner or editor | Sync now: `202 { started, queued, sync }` at once (`409 paused` while paused) |
 | `POST /addons/odoo/syncs/:id/take-over?dbKey=` | owner or editor, connected to the same Odoo | the caller's connection runs the sync from now on; `knowledge.article/has_access` (`write`) on the sync's articles must say yes (`403 access_denied` otherwise, nothing changes); `409 different_odoo` when the caller's Odoo is another one |
 | `DELETE /addons/odoo/syncs/:id?dbKey=` | owner or editor | stop syncing; articles stay, links lose their `sync_id` |
 | `GET /addons/odoo/links` | | also returns `sync` (the sync covering the Document) and `syncId` per link |

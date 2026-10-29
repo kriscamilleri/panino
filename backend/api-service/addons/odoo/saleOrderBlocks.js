@@ -72,14 +72,18 @@ export function catalogFromFieldsGet(fieldsGet) {
 }
 
 /**
- * The order and line catalogs of an Odoo database, cached for an hour.
+ * The order and line catalogs one Odoo user sees, cached for an hour. `fields_get`
+ * answers per user (a field behind an access group is missing for those outside it), so
+ * the cache key is the database and the Odoo user, never the database alone.
  *
  * @param {ReturnType<import('./client.js').createOdooClient>} client
  * @param {string} target from `odooTarget`
+ * @param {number|string|null} odooUid the connection's Odoo user
  * @returns {Promise<{ order: Map<string, object>, line: Map<string, object> }>}
  */
-export async function saleOrderCatalog(client, target) {
-    const cached = catalogCache.get(target);
+export async function saleOrderCatalog(client, target, odooUid) {
+    const key = `${target}|${odooUid ?? 'unknown'}`;
+    const cached = catalogCache.get(key);
     if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached.catalog;
     const attributes = ['string', 'type', 'selection', 'relation'];
     const [orderFields, lineFields] = await Promise.all([
@@ -87,7 +91,7 @@ export async function saleOrderCatalog(client, target) {
         client.call(LINE, 'fields_get', { attributes }),
     ]);
     const catalog = { order: catalogFromFieldsGet(orderFields), line: catalogFromFieldsGet(lineFields) };
-    catalogCache.set(target, { catalog, at: Date.now() });
+    catalogCache.set(key, { catalog, at: Date.now() });
     return catalog;
 }
 
@@ -406,7 +410,7 @@ export function registerSaleOrderBlockRoutes(router, { messages, logFailure }) {
     }));
 
     router.get('/sale-orders/fields', (req, res) => answer(req, res, 'sale_order_fields_failed', async (sender) => {
-        const catalog = await saleOrderCatalog(sender.client, sender.target);
+        const catalog = await saleOrderCatalog(sender.client, sender.target, sender.row.odoo_uid);
         return {
             order: publicCatalog(catalog.order),
             line: publicCatalog(catalog.line),
@@ -423,7 +427,7 @@ export function registerSaleOrderBlockRoutes(router, { messages, logFailure }) {
             return res.status(400).json({ error: 'invalid', message: 'Choose a sales order.' });
         }
         return answer(req, res, 'sale_order_failed', async (sender) => {
-            const catalog = await saleOrderCatalog(sender.client, sender.target);
+            const catalog = await saleOrderCatalog(sender.client, sender.target, sender.row.odoo_uid);
             return readSaleOrder(sender.client, catalog, orderId, {
                 fields: chooseFields(parseFieldList(req.query.fields), catalog.order, DEFAULT_ORDER_FIELDS),
                 columns: chooseFields(parseFieldList(req.query.columns), catalog.line, DEFAULT_LINE_COLUMNS),

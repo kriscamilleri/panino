@@ -81,6 +81,9 @@ export function articleBody(html, title, { keepInternalImages = false } = {}) {
     const clean = purify.sanitize(typeof html === 'string' ? html : '', {
         ALLOWED_TAGS,
         ALLOWED_ATTR,
+        // DOMPurify keeps data-* attributes unless told not to. Odoo reads its own
+        // (`data-embedded`, `data-oe-*`) as editor components, so none may come from a Document.
+        ALLOW_DATA_ATTR: false,
         // DOMPurify runs every attribute value through this, not only URLs: a plain word
         // (`checkbox`) must pass, a scheme must be one of these.
         ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.:-]|$))/i,

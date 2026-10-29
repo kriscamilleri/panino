@@ -23,8 +23,8 @@ it only through the add-on registries.
 | Offered | Always (the modal said when OAuth was not set up) | When `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set |
 | Per user | Always visible | Off by default; the user switches it on in Settings → Add-ons |
 | Routes | `/backup/github/…` | `/addons/github/…` behind `requireAddon('github')` |
-| OAuth callback | `GET /backup/github/callback` | `GET /addons/github/callback` (public add-on route) |
-| OAuth return lands on | `/#/?githubBackup=…` (HomePage) | `/#/settings?githubBackup=…` (the add-on's settings card) |
+| OAuth callback | `GET /backup/github/callback`, which stored the token | `GET /addons/github/callback` (public add-on route), which only parks the code; `POST /addons/github/complete` stores the token for the signed-in user |
+| OAuth return lands on | `/#/?githubBackup=…` (HomePage) | `/#/settings?addon=github&addonResult=…` (the add-on's settings card) |
 | Daily backup | `sync.js` called `triggerDailyAutoBackup` | `afterSyncRequest` hook; also needs the add-on on |
 | Table | `backup_config` in core `USER_LOCAL_SCHEMA` | Same table and name, in the add-on's `schema.user` |
 | Desktop entry | Core Tools button | Add-on action, Tools group, toolbar only |
@@ -79,10 +79,19 @@ Mounted at `/addons/github` behind `requireAddon('github')`, except the callback
 | `GET`, `POST` | `/repos` | List pushable repositories; create a private one |
 | `PUT` | `/repo` | Select a repository (push access required) |
 | `POST` | `/run` | Start a backup; 409 while one runs |
-| `GET` | `/callback` | **Public** (`publicRoutes`): no Panino token. Verifies `state`, then refuses unless the user still has the add-on on, then stores the token |
+| `POST` | `/complete` | `{ handle }`: finish a parked connection. 403 `other_account` unless the signed-in user is the one the `state` names; 400 `expired` for an unknown, used or 10-minute-old handle |
+| `GET` | `/callback` | **Public** (`publicRoutes`): no Panino token. Verifies `state` and the switch, then parks the code under a single-use handle and returns to Settings. Stores nothing |
 
-The bodies and errors are as before. They still pass some upstream messages through, as they did
-in core (§8).
+**Why the callback does not store the token.** `state` is a signed JWT naming the user who
+pressed Connect, but nothing ties it to the browser that comes back. Before, someone could start
+Connect on their own account and send a victim the authorize link: GitHub, already authorized,
+redirects at once, and the victim's `repo` token was saved on the attacker's account. Now the
+callback parks the code, and the app completes it with its own sign-in, so the victim's session
+gets 403 `other_account` and nothing is saved. Parked codes live in memory for 10 minutes; a
+restart drops them and the user connects again.
+
+**Errors** are fixed sentences (`githubFailureMessage`): GitHub's own text and internal errors
+go to the log only, in responses, in the redirect and in the stored `last_error`.
 
 ## 6) Switching off
 
@@ -103,10 +112,11 @@ add-on in `backend/api-service/tests/integration/addonsRegistry.test.js` or the 
   one-time data steps.
 - **`surfaces`** on a frontend action (`['toolbar']`, `['menu']`), so an action that is not
   about the open Document can stay out of the phone Document menu.
+- **`useAddonReturn()`** on both Settings pages: an add-on's return lands on
+  `/settings?addon=<id>&addonResult=…&addonMessage=…`. While the add-on is on, its card handles
+  it; while it is off (the callback refused), Settings shows the message and clears the query.
 
 ## 8) Open items
 
-- Some route errors still return upstream GitHub messages (`error.message`) rather than closed
-  codes (add-on rule 5). That was true in core and is left for a follow-up.
 - GitHub calls use `fetch` directly, not `safeFetch.js`. The URLs come from operator settings
   (`GITHUB_API_URL`, `GITHUB_OAUTH_URL`), never from users, so there is no SSRF path.

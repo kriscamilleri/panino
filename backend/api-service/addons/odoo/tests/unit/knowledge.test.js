@@ -49,6 +49,13 @@ describe('articleBody', () => {
         );
     });
 
+    it('strips data attributes, so a Document cannot carry Odoo editor components', () => {
+        const body = articleBody('<div data-embedded="view" data-embedded-props=\'{"x":1}\' data-oe-model="res.users" class="note">Hi</div>', 'Title');
+        expect(body).toContain('class="note"');
+        expect(body).toContain('Hi');
+        expect(body).not.toMatch(/data-/);
+    });
+
     it('copes with nothing', () => {
         expect(articleBody(undefined, 'T')).toBe('');
         expect(articleBody('', '')).toBe('');

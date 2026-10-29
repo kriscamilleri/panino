@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -8,7 +8,7 @@ import { createTestApp, cleanupTestUser, getTestToken, setupTestUser } from '../
 import { getUserDb } from '../../../../db.js';
 import { resetOdooRateLimits } from '../../routes.js';
 import { resetFileFieldCache } from '../../client.js';
-import { createSync, listSyncs, readSync } from '../../sync.js';
+import { createSync, deleteSync, listSyncs, readSync, setSyncStatus } from '../../sync.js';
 import { __configureSyncSchedulerForTests, runSyncNow, scheduleSyncRunsAfterChanges, triggerDailyReconcile } from '../../syncScheduler.js';
 import { API_KEY, resetFakeOdoo, startFakeOdoo } from '../fakeOdoo.js';
 import { resolveDatabaseUploadRoot } from '../../../../spaceStorage.js';
@@ -122,6 +122,72 @@ describe('Keeping a folder or a Document in sync with Odoo Knowledge', () => {
         expect(linkOf(sub).source_type).toBe('folder');
         expect(readSync(db, sync.id).last_run_at).toBeTruthy();
         expect(JSON.parse(readSync(db, sync.id).last_result).created).toBe(4);
+    });
+
+    it('links every article a batch created even when the run stops on the first, so none is created twice', async () => {
+        await connect();
+        const docs = folder('Docs');
+        const ids = ['One', 'Two', 'Three'].map((title) => note(title, title, docs));
+        const sync = folderSync(docs);
+        odoo.state.rejectKeyAfterArticleCreate = true;
+
+        const first = await run(sync.id);
+        expect(first.paused).toBe('key_rejected');
+        expect(articles().map((a) => a.name).sort()).toEqual(['One', 'Three', 'Two']);
+        for (const id of ids) expect(linkOf(id)).toMatchObject({ sync_id: sync.id });
+
+        odoo.state.rejectKeyAfterArticleCreate = false;
+        odoo.state.keyValid = true;
+        setSyncStatus(db, sync.id, { status: 'active' });
+        const second = await run(sync.id);
+        expect(second).toMatchObject({ created: 0, failures: [] });
+        expect(articles().map((a) => a.name).sort()).toEqual(['One', 'Three', 'Two']);
+        for (const id of ids) expect(linkOf(id).content_hash).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it('runs once more when an edit arrives during a run, so the edit is not left for tomorrow', async () => {
+        await connect();
+        const docs = folder('Docs');
+        const alpha = note('Alpha', 'First', docs);
+        const sync = folderSync(docs);
+        odoo.state.articleCreateDelayMs = 300;
+
+        const running = runSyncNow(dbKey, sync.id, { trigger: 'created' });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        db.prepare('UPDATE notes SET content = ? WHERE id = ?').run('Edited during the run', alpha);
+        expect(await runSyncNow(dbKey, sync.id, { trigger: 'changes' })).toEqual({ started: false, reason: 'already-running' });
+        await running;
+        odoo.state.articleCreateDelayMs = 0;
+
+        await vi.waitFor(() => expect(byName('Alpha').body).toBe('<p>Edited during the run</p>'));
+        expect(articles().filter((a) => a.name === 'Alpha')).toHaveLength(1);
+    });
+
+    it('stops a run whose sync was removed, and a new sync of the folder adopts its Documents', async () => {
+        await connect();
+        const { docs } = seedTree();
+        const sync = folderSync(docs);
+        odoo.state.articleCreateDelayMs = 300;
+
+        const running = run(sync.id, { trigger: 'created' });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        deleteSync(db, sync.id);
+        const result = await running;
+        odoo.state.articleCreateDelayMs = 0;
+
+        // The first level was already in flight; the second never started.
+        expect(result.interrupted).toBe(true);
+        expect(byName('Gamma')).toBeUndefined();
+
+        const again = folderSync(docs);
+        await run(again.id);
+        expect(articles().filter((a) => a.name === 'Alpha')).toHaveLength(1);
+        expect(articles().filter((a) => a.name === 'Beta')).toHaveLength(1);
+        expect(byName('Gamma')).toBeTruthy();
+    });
+
+    it('never rejects, so a timer that does not wait for a run cannot crash the server', async () => {
+        await expect(runSyncNow('user:not-a-database', 'no-sync', { trigger: 'changes' })).resolves.toEqual({ started: true, reason: 'failed' });
     });
 
     it('writes only what changed: an edit, a rename, a move, and nothing when nothing did', async () => {
@@ -457,9 +523,15 @@ describe('Keeping a folder or a Document in sync with Odoo Knowledge', () => {
 
             db.prepare('UPDATE notes SET content = ? WHERE id = ?').run('Now', a);
             const ran = await request(app).post(`/addons/odoo/syncs/${created.body.sync.id}/run`).query({ dbKey }).set(auth());
-            expect(ran.status).toBe(200);
-            expect(ran.body.sync.lastResult).toMatchObject({ updated: 1 });
-            expect(ran.body.sync.running).toBe(false);
+            // Answered before the run ends; the card polls GET /syncs for the outcome.
+            expect(ran.status).toBe(202);
+            expect(ran.body).toMatchObject({ started: true, queued: false });
+            await vi.waitFor(async () => {
+                const listed = await request(app).get('/addons/odoo/syncs').query({ dbKey }).set(auth());
+                const sync = listed.body.syncs.find((s) => s.id === created.body.sync.id);
+                expect(sync.running).toBe(false);
+                expect(sync.lastResult).toMatchObject({ updated: 1 });
+            });
 
             const removed = await request(app).delete(`/addons/odoo/syncs/${created.body.sync.id}`).query({ dbKey }).set(auth());
             expect(removed.status).toBe(204);

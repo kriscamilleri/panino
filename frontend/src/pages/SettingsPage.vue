@@ -73,6 +73,7 @@ import AccountLayout from '@/components/AccountLayout.vue';
 import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 import BaseButton from '@/components/BaseButton.vue';
 import AddonsSection from '@/components/AddonsSection.vue';
+import { useAddonReturn } from '@/composables/useAddonReturn';
 import { useAddonsStore } from '@/store/addonsStore';
 import { Image, FileText, Users } from 'lucide-vue-next';
 
@@ -80,6 +81,7 @@ const authStore = useAuthStore();
 const syncStore = useSyncStore();
 const addonsStore = useAddonsStore();
 const router = useRouter();
+useAddonReturn();
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
 

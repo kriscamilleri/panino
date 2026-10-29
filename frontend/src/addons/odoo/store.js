@@ -187,7 +187,7 @@ export const useOdooStore = defineStore('odooStore', () => {
         return payload?.sync || null;
     }
 
-    /** @returns {Promise<object>} the sync after the run */
+    /** Start a run; the server answers at once. @returns {Promise<object>} the sync, `running` while it runs */
     async function runSync(dbKey, syncId) {
         const payload = await authFetch(`/addons/odoo/syncs/${encodeURIComponent(syncId)}/run?${new URLSearchParams({ dbKey })}`, { method: 'POST' });
         return payload?.sync || null;

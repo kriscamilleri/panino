@@ -13,8 +13,8 @@ by hand, or once a day after a personal sync.
 | Field | Value |
 |---|---|
 | `isOffered` | `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are both set |
-| `routes` | `githubRoutes`: status, connect, disconnect, repos, repo, run |
-| `publicRoutes` | `githubPublicRoutes`: the OAuth `GET /callback`, which checks `state` and the switch itself |
+| `routes` | `githubRoutes`: status, connect, complete, disconnect, repos, repo, run |
+| `publicRoutes` | `githubPublicRoutes`: the OAuth `GET /callback`, which checks `state` and the switch, then only parks the code for `POST /complete` |
 | `schema` | `user`: `backup_config`; `upgrade`: old columns, and switching the add-on on for users connected before it was an add-on |
 | `hooks.afterSyncRequest` | `triggerAutoBackupAfterSync`: personal databases only, when the add-on is on and the last backup is 24 hours old |
 | `configWarnings` | `GITHUB_TOKEN_ENCRYPTION_KEY` not set (tokens fall back to `JWT_SECRET`) |
@@ -25,7 +25,7 @@ by hand, or once a day after a personal sync.
 |---|---|
 | `index.js` | The manifest |
 | `routes.js` | The routes, relative to `/addons/github` |
-| `backup.js` | GitHub OAuth and API calls, `backup_config` access, the snapshot, backup jobs, the daily trigger |
+| `backup.js` | GitHub OAuth and API calls, parked connections, fixed error messages, `backup_config` access, the snapshot, backup jobs, the daily trigger |
 | `schema.js` | `backup_config` and `upgradeGithubSchema` |
 | `tests/integration/backup.test.js` | Connect, repositories, a backup run, missing-image warnings (`fetch` mocked) |
-| `tests/integration/addon.test.js` | Offered or not, the gate on every route, the callback while off, the daily trigger, carrying users over |
+| `tests/integration/addon.test.js` | Offered or not, the gate on every route, the callback while off, a connection started from another account, fixed messages, the daily trigger, carrying users over |

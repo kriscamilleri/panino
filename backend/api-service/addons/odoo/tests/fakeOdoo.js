@@ -97,6 +97,7 @@ export function resetFakeOdoo(state) {
     Object.assign(state, {
         version: 20, keyValid: true, ignoreContent: false, createDelayMs: 0, failNotes: false, failArticleCreates: false,
         failArticleNames: new Set(), failAttachmentCreates: false, failArticleWritesOnce: false,
+        articleCreateDelayMs: 0, rejectKeyAfterArticleCreate: false,
         apiKeys: new Set([API_KEY, OTHER_API_KEY]),
         writeDeniedKeys: new Set(),
         apps: ['documents', 'knowledge', 'crm', 'sales'],
@@ -234,6 +235,9 @@ export function startFakeOdoo() {
                         return id;
                     });
                     if (ids.includes(null)) return odooError('odoo.exceptions.MissingError', 'parent gone');
+                    if (state.articleCreateDelayMs) await new Promise((r) => setTimeout(r, state.articleCreateDelayMs));
+                    // The articles exist; the key stops working before the client can finish them.
+                    if (state.rejectKeyAfterArticleCreate) state.keyValid = false;
                     return send(200, ids);
                 }
                 case 'knowledge.article/read':

@@ -92,16 +92,93 @@ describe('The GitHub add-on on the add-ons framework', () => {
             .query({ code: 'oauth-code', state: createOauthState(user.userId) });
 
         expect(response.status).toBe(302);
-        expect(response.headers.location).toContain('#/settings?githubBackup=error');
+        expect(response.headers.location).toContain('#/settings?addon=github&addonResult=error');
+        expect(new URLSearchParams(response.headers.location.split('?')[1]).get('addonMessage')).toBe('Turn on GitHub backup in Settings → Add-ons first.');
         expect(fetchMock).not.toHaveBeenCalled();
         expect(getUserDb(user.userId).prepare('SELECT COUNT(*) AS count FROM backup_config').get().count).toBe(0);
     });
 
-    it('rejects an OAuth return with a forged state', async () => {
+    it('rejects an OAuth return with a forged state, with a fixed message', async () => {
         await setAddonEnabled(user.userId, 'github', true);
         const response = await request(app).get('/addons/github/callback').query({ code: 'oauth-code', state: 'forged' });
         expect(response.status).toBe(302);
-        expect(response.headers.location).toContain('githubBackup=error');
+        const params = new URLSearchParams(response.headers.location.split('?')[1]);
+        expect(params.get('addonResult')).toBe('error');
+        expect(params.get('addonMessage')).toBe('This GitHub connection link is not valid or has expired. Connect GitHub again.');
+        expect(response.headers.location).not.toMatch(/jwt|malformed/i);
+    });
+
+    describe('tying the connection to the person who started it', () => {
+        let attacker;
+
+        beforeEach(async () => {
+            attacker = await setupTestUser(`github-attacker-${Date.now()}@example.test`, 'password123');
+            await setAddonEnabled(user.userId, 'github', true);
+            await setAddonEnabled(attacker.userId, 'github', true);
+        });
+        afterEach(() => cleanupTestUser(attacker.userId));
+
+        /** The callback for a state, as GitHub would send the browser back. @returns the parked handle */
+        async function returnFromGithub(stateUserId) {
+            const response = await request(app).get('/addons/github/callback').query({ code: 'victim-code', state: createOauthState(stateUserId) });
+            expect(response.status).toBe(302);
+            const params = new URLSearchParams(response.headers.location.split('?')[1]);
+            expect(params.get('addonResult')).toBe('pending');
+            return params.get('handle');
+        }
+
+        it('stores nothing at the callback: it only parks the code', async () => {
+            const fetchMock = vi.spyOn(globalThis, 'fetch');
+            await returnFromGithub(user.userId);
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(getUserDb(user.userId).prepare('SELECT COUNT(*) AS count FROM backup_config').get().count).toBe(0);
+        });
+
+        it('refuses to finish, in the victim’s session, a connection someone else started', async () => {
+            const fetchMock = vi.spyOn(globalThis, 'fetch');
+            // The attacker started "connect" and sent the victim the authorize link with the attacker's state.
+            const handle = await returnFromGithub(attacker.userId);
+            const response = await request(app).post('/addons/github/complete').set('Authorization', `Bearer ${token}`).send({ handle });
+
+            expect(response.status).toBe(403);
+            expect(response.body.error).toBe('other_account');
+            expect(fetchMock).not.toHaveBeenCalled();
+            for (const id of [user.userId, attacker.userId]) {
+                expect(getUserDb(id).prepare('SELECT COUNT(*) AS count FROM backup_config').get().count).toBe(0);
+            }
+            // Single use: the attacker cannot pick the parked code up afterwards either.
+            const later = await request(app).post('/addons/github/complete').set('Authorization', `Bearer ${getTestToken(attacker.userId)}`).send({ handle });
+            expect(later.status).toBe(400);
+            expect(later.body.error).toBe('expired');
+        });
+
+        it('refuses an unknown handle', async () => {
+            const response = await request(app).post('/addons/github/complete').set('Authorization', `Bearer ${token}`).send({ handle: 'nope' });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('expired');
+        });
+
+        it('answers a GitHub failure with a fixed message, never GitHub’s own', async () => {
+            vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'bad_verification_code', error_description: 'secret internals here' }), {
+                status: 200, headers: { 'Content-Type': 'application/json' },
+            }));
+            const handle = await returnFromGithub(user.userId);
+            const response = await request(app).post('/addons/github/complete').set('Authorization', `Bearer ${token}`).send({ handle });
+            expect(response.status).toBe(502);
+            expect(response.body.message).not.toMatch(/secret internals|bad_verification_code/);
+            expect(response.body.message).toBe('GitHub no longer accepts this connection. Disconnect, then connect GitHub again.');
+        });
+    });
+
+    it('records a failed backup with a fixed message, not GitHub’s text', async () => {
+        await setAddonEnabled(user.userId, 'github', true);
+        saveBackupConfig(getUserDb(user.userId), { access_token_enc: 'iv:tag:payload', repo_full_name: 'octocat/panino-backup' });
+        triggerAutoBackupAfterSync(`user:${user.userId}`);
+        await vi.waitFor(() => {
+            expect(getUserDb(user.userId).prepare('SELECT last_error FROM backup_config').get().last_error).toBeTruthy();
+        });
+        expect(getUserDb(user.userId).prepare('SELECT last_error FROM backup_config').get().last_error)
+            .toBe('Could not reach GitHub, or GitHub failed. Try again later.');
     });
 
     describe('the daily backup', () => {

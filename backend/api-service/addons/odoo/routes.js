@@ -788,8 +788,12 @@ odooRoutes.post('/syncs/:id/run', async (req, res) => {
         if (sync.status !== 'active') {
             return res.status(409).json({ error: 'paused', message: 'This sync is paused.' });
         }
-        const started = await runSyncNow(access.dbKey, sync.id, { trigger: 'manual' });
-        res.json({ started: started.started, sync: syncPayload(access.db, readSync(access.db, sync.id), access.dbKey) });
+        // Answered at once: a first run of a big folder can outlast the proxy's timeout.
+        // The card polls GET /syncs, whose `running` says when it is done; a run already
+        // going picks this request up as one more run when it ends.
+        const alreadyRunning = syncJobStatus(access.dbKey, sync.id).running;
+        void runSyncNow(access.dbKey, sync.id, { trigger: 'manual' });
+        res.status(202).json({ started: !alreadyRunning, queued: alreadyRunning, sync: syncPayload(access.db, readSync(access.db, sync.id), access.dbKey) });
     } catch (error) {
         console.error('[odoo] Failed to run a sync:', error);
         res.status(500).json({ error: 'Failed to run the sync' });

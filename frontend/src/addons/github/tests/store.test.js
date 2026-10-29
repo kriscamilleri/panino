@@ -104,4 +104,21 @@ describe('the GitHub add-on store', () => {
         expect(store.status.isRunning).toBe(true);
         expect(store.selectedRepoFullName).toBe('octocat/panino-backup');
     });
+
+    it('completes a parked connection, and shows the server’s message when it is refused', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(jsonResponse({ connected: true, username: 'octocat' }))
+            .mockResolvedValueOnce(jsonResponse({ error: 'other_account', message: 'Started from another Panino account.' }, 403));
+
+        const store = useGithubBackupStore();
+        await store.completeConnect('h-1');
+        expect(fetchSpy).toHaveBeenCalledWith(
+            'http://localhost:8000/addons/github/complete',
+            expect.objectContaining({ method: 'POST', body: JSON.stringify({ handle: 'h-1' }) }),
+        );
+        expect(store.isConnected).toBe(true);
+
+        await expect(store.completeConnect('h-2')).rejects.toThrow('Started from another Panino account.');
+        expect(store.error).toBe('Started from another Panino account.');
+    });
 });

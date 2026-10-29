@@ -428,13 +428,40 @@ async function load() {
     }
 }
 
+/** How often, and for how long, "Sync now" checks whether its run has finished. */
+const RUN_POLL_MS = 1500
+const RUN_POLL_LIMIT_MS = 30 * 60 * 1000
+
+function replaceSync(updated) {
+    if (updated) syncs.value = syncs.value.map((s) => (s.id === updated.id ? updated : s))
+}
+
+/** The sync once its run is over: the server answers "Sync now" before the run ends. */
+async function waitForRun(syncId, started) {
+    const deadline = Date.now() + RUN_POLL_LIMIT_MS
+    let current = started
+    while (current?.running && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, RUN_POLL_MS))
+        const latest = await odoo.fetchSyncs(dbKey.value)
+        current = latest.find((s) => s.id === syncId) || null
+        replaceSync(current)
+    }
+    return current
+}
+
 async function runNow(sync) {
     busy.value = sync.id
     error.value = ''
     try {
-        const updated = await odoo.runSync(dbKey.value, sync.id)
-        if (updated) syncs.value = syncs.value.map((s) => (s.id === updated.id ? updated : s))
-        const failures = failuresOf(updated || sync).length
+        const started = await odoo.runSync(dbKey.value, sync.id)
+        replaceSync(started)
+        const updated = await waitForRun(sync.id, started)
+        if (!updated) return
+        if (updated.running) {
+            ui.addToast?.('Still syncing. The card updates when it is done.', 'info')
+            return
+        }
+        const failures = failuresOf(updated).length
         ui.addToast?.(failures ? `Synced, ${failures} ${failures === 1 ? 'record' : 'records'} to retry.` : 'Synced to Odoo Knowledge.', failures ? 'warning' : 'success')
     } catch (err) {
         error.value = err.message

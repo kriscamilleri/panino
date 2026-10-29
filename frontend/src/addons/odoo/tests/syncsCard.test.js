@@ -34,7 +34,7 @@ function api({ status = CONNECTED, syncs = [], articles = { articles: [{ id: 10,
         }
         if (path === '/addons/odoo/syncs') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ syncs }) });
         if (path === '/addons/odoo/articles') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(articles) });
-        if (/\/addons\/odoo\/syncs\/[^/]+\/run$/.test(path)) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ started: true, sync: ran }) });
+        if (/\/addons\/odoo\/syncs\/[^/]+\/run$/.test(path)) return Promise.resolve({ ok: true, status: 202, json: () => Promise.resolve({ started: true, sync: ran }) });
         if (/\/addons\/odoo\/syncs\/[^/]+$/.test(path) && options.method === 'DELETE') return Promise.resolve({ ok: true, status: 204, json: () => Promise.resolve(null) });
         return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: 'not_found' }) });
     }));
@@ -77,6 +77,30 @@ describe('OdooSyncsCard', () => {
         expect(calls.some((c) => c.path === '/addons/odoo/syncs/s1/run' && c.method === 'POST')).toBe(true);
         expect(wrapper.find('[data-testid="odoo-sync-status-s1"]').text()).toBe('Last sync just now: 1 updated.');
         expect(addToast).toHaveBeenCalledWith('Synced to Odoo Knowledge.', 'success');
+    });
+
+    it('waits for a run the server is still doing, then says how it went', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout'] });
+        try {
+            const syncs = [SYNC];
+            const calls = api({ syncs, ran: { ...SYNC, running: true } });
+            const wrapper = mount(OdooSyncsCard);
+            await flushPromises();
+
+            await wrapper.find('[data-testid="odoo-sync-run-s1"]').trigger('click');
+            await flushPromises();
+            expect(wrapper.find('[data-testid="odoo-sync-status-s1"]').text()).toBe('Syncing now…');
+            expect(addToast).not.toHaveBeenCalled();
+
+            syncs[0] = { ...SYNC, running: false, lastRunAt: new Date().toISOString(), lastResult: { created: 0, updated: 2, archived: 0, failures: [] } };
+            await vi.advanceTimersByTimeAsync(1500);
+            await flushPromises();
+            expect(calls.filter((c) => c.path === '/addons/odoo/syncs' && c.method === 'GET').length).toBeGreaterThanOrEqual(2);
+            expect(wrapper.find('[data-testid="odoo-sync-status-s1"]').text()).toBe('Last sync just now: 2 updated.');
+            expect(addToast).toHaveBeenCalledWith('Synced to Odoo Knowledge.', 'success');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('adds a folder sync under a chosen article', async () => {

@@ -28,7 +28,16 @@ async function connectGithubBackup(app, token) {
         .query({ code: 'oauth-code', state });
 
     expect(callbackResponse.status).toBe(302);
-    expect(callbackResponse.headers.location).toContain('#/settings?githubBackup=connected');
+    const location = callbackResponse.headers.location;
+    expect(location).toContain('#/settings?addon=github&addonResult=pending&handle=');
+    const handle = new URLSearchParams(location.split('?')[1]).get('handle');
+
+    const completeResponse = await request(app)
+        .post('/addons/github/complete')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ handle });
+    expect(completeResponse.status).toBe(200);
+    expect(completeResponse.body.connected).toBe(true);
 }
 
 async function waitForStatus(app, token, predicate, attempts = 20) {

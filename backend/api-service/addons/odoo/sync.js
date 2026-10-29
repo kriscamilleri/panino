@@ -299,6 +299,7 @@ export function contentHash({ name, parentArticleId, body, sequence }) {
  * @property {{ sourceId: string, name: string, error: string, pdf?: boolean, images?: number }[]} failures
  *   `pdf`: the PDF, not the article; `images_failed` with `images`: uploads Odoo refused, retried next run
  * @property {string|null} paused the reason the run stopped the sync, if it did
+ * @property {boolean} [interrupted] the sync was removed or stopped being active mid-run
  */
 
 /**
@@ -334,12 +335,26 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
         }
         return false;
     };
+    /**
+     * Whether the sync was removed, paused or switched off since the run began. Checked
+     * before each record, so a long run stops within one record and never stamps links
+     * with the id of a sync that is gone.
+     */
+    const halted = () => {
+        if (readSync(db, sync.id)?.status === 'active') return false;
+        result.interrupted = true;
+        return true;
+    };
 
     const tree = syncTree(db, sync);
     const present = new Set(tree.map((record) => record.sourceId));
     const links = new Map();
+    // A link whose sync no longer exists counts as a manual send's: deleteSync clears
+    // sync_id, but a run that was going when the sync was removed may have set it again.
     for (const link of db.prepare(`
-        SELECT * FROM odoo_links WHERE destination = 'knowledge' AND odoo_target = ? AND (sync_id = ? OR sync_id IS NULL)
+        SELECT * FROM odoo_links
+         WHERE destination = 'knowledge' AND odoo_target = ?
+           AND (sync_id = ? OR sync_id IS NULL OR sync_id NOT IN (SELECT id FROM odoo_syncs))
     `).all(odooTarget, sync.id)) {
         // A manual send's link is adopted only for a note that is now in the tree.
         if (link.sync_id === sync.id || (link.source_type === 'note' && present.has(link.source_id))) {
@@ -428,6 +443,7 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
         const level = tree.filter((record) => record.depth === depth);
         const toCreate = [];
         for (const record of level) {
+            if (halted()) return result;
             const parentArticleId = record.parentSourceId === null
                 ? (sync.parent_article_id || false)
                 : (articleIds.get(record.parentSourceId) ?? null);
@@ -467,6 +483,7 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
         }
 
         if (toCreate.length === 0) continue;
+        if (halted()) return result;
         let permissions = {};
         if (depth === 0 && sync.scope !== 'note') {
             try {
@@ -478,54 +495,60 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
                 if (stop(fail(toCreate[0].record, error))) return result;
             }
         }
-        const batches = toCreate.length > 1 ? [toCreate] : [toCreate];
-        for (const batch of batches) {
-            const vals = batch.map(({ record, parentArticleId, body }) => ({
-                name: record.name,
-                body: placeholderBody(body),
-                parent_id: parentArticleId,
-                sequence: record.sequence,
-                ...(record.parentSourceId === null ? permissions : {}),
-            }));
-            let ids;
-            try {
-                ids = await client.call(MODEL, 'create', { vals_list: vals });
-            } catch (error) {
-                const code = error instanceof OdooError ? error.code : 'odoo_error';
-                if (batch.length === 1 || ['key_rejected', 'not_odoo', 'unreachable', 'blocked'].includes(code)) {
-                    if (stop(fail(batch[0].record, error))) return result;
-                    continue;
-                }
-                // One record can spoil the batch; the others still deserve a try, one by one.
-                for (const [index, prepared] of batch.entries()) {
-                    try {
-                        const [id] = await client.call(MODEL, 'create', { vals_list: [vals[index]] });
-                        const images = await finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor });
-                        result.created += 1;
-                        noteImages(prepared.record, images);
-                    } catch (inner) {
-                        if (stop(fail(prepared.record, inner))) return result;
-                        continue;
-                    }
-                    if (stop(await filePdf(prepared.record))) return result;
-                }
+        const batch = toCreate;
+        const vals = batch.map(({ record, parentArticleId, body }) => ({
+            name: record.name,
+            body: placeholderBody(body),
+            parent_id: parentArticleId,
+            sequence: record.sequence,
+            ...(record.parentSourceId === null ? permissions : {}),
+        }));
+        let ids;
+        try {
+            ids = await client.call(MODEL, 'create', { vals_list: vals });
+        } catch (error) {
+            const code = error instanceof OdooError ? error.code : 'odoo_error';
+            if (batch.length === 1 || ['key_rejected', 'not_odoo', 'unreachable', 'blocked'].includes(code)) {
+                if (stop(fail(batch[0].record, error))) return result;
                 continue;
             }
+            // One record can spoil the batch; the others still deserve a try, one by one.
             for (const [index, prepared] of batch.entries()) {
-                const id = Array.isArray(ids) ? ids[index] : null;
-                if (!Number.isInteger(id)) {
-                    result.failures.push({ sourceId: prepared.record.sourceId, name: prepared.record.name, error: 'odoo_error' });
-                    continue;
-                }
+                if (halted()) return result;
                 try {
+                    const [id] = await client.call(MODEL, 'create', { vals_list: [vals[index]] });
                     const images = await finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor });
                     result.created += 1;
                     noteImages(prepared.record, images);
-                } catch (error) {
-                    if (stop(fail(prepared.record, error))) return result;
+                } catch (inner) {
+                    if (stop(fail(prepared.record, inner))) return result;
+                    continue;
                 }
                 if (stop(await filePdf(prepared.record))) return result;
             }
+            continue;
+        }
+        // Every article in the batch exists now: link them all before any of them can
+        // fail, so a run that stops on record 3 does not leave 4…n to be created again.
+        const created = batch.map((prepared, index) => {
+            const id = Array.isArray(ids) ? ids[index] : null;
+            if (Number.isInteger(id)) rememberCreated({ db, odooTarget, prepared, id, saveFor });
+            return id;
+        });
+        for (const [index, prepared] of batch.entries()) {
+            const id = created[index];
+            if (!Number.isInteger(id)) {
+                result.failures.push({ sourceId: prepared.record.sourceId, name: prepared.record.name, error: 'odoo_error' });
+                continue;
+            }
+            try {
+                const images = await finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor, remembered: true });
+                result.created += 1;
+                noteImages(prepared.record, images);
+            } catch (error) {
+                if (stop(fail(prepared.record, error))) return result;
+            }
+            if (stop(await filePdf(prepared.record))) return result;
         }
     }
 
@@ -533,6 +556,7 @@ export async function runSync({ db, sync, client, odooTarget, userId, readImage 
     // daily reconcile also re-archives what someone unarchived in Odoo.
     for (const [sourceId, link] of links) {
         if (present.has(sourceId) || link.sync_id !== sync.id) continue;
+        if (halted()) return result;
         if (link.archived_at && !reconcile) continue;
         const record = { sourceId, name: link.source_type === 'folder' ? 'Folder' : 'Document' };
         try {
@@ -588,10 +612,15 @@ async function completeArticle({ client, odooTarget, prepared, identity, readIma
     return { failed: images.failed, missing: images.missing };
 }
 
-async function finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor }) {
+/** Link a just-created article, pending (`hash: null`), in place of any stale link. */
+function rememberCreated({ db, odooTarget, prepared, id, saveFor }) {
     if (prepared.link) dropLink(db, { sourceId: prepared.record.sourceId, destination: 'knowledge', odooTarget });
-    // Remembered before anything else can fail: the article exists now.
     saveFor(prepared.record, { recordId: id, createDate: null, urlPath: `/knowledge/article/${id}`, hash: null });
+}
+
+async function finishCreate({ client, db, odooTarget, prepared, id, readImage, saveFor, remembered = false }) {
+    // Remembered before anything else can fail: the article exists now.
+    if (!remembered) rememberCreated({ db, odooTarget, prepared, id, saveFor });
     const rows = await client.call(MODEL, 'read', { ids: [id], fields: ['create_date', 'article_url'] });
     const article = Array.isArray(rows) ? rows[0] : null;
     const identity = {

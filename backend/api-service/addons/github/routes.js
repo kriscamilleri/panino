@@ -21,6 +21,7 @@ import {
   deleteBackupConfig,
   encryptToken,
   exchangeGithubCodeForToken,
+  githubFailureMessage,
   fetchGithubRepo,
   fetchGithubViewer,
   getBackupConfig,
@@ -30,47 +31,71 @@ import {
   isBackupRunning,
   isGithubOauthConfigured,
   listGithubRepos,
+  parkPendingConnection,
   saveBackupConfig,
   startBackupForUser,
+  takePendingConnection,
   verifyOauthState,
 } from './backup.js';
 
 export const githubRoutes = express.Router();
 export const githubPublicRoutes = express.Router();
 
-githubPublicRoutes.get('/callback', async (req, res) => {
-  const { code, state, error, error_description: errorDescription } = req.query;
+/** Where the browser comes back to: Settings, where the add-on's card finishes the connection. */
+function returnTo(req, res, result, extra = {}) {
+  return res.redirect(buildFrontendRedirect(req, { addon: ADDON_ID, addonResult: result, ...extra }));
+}
+
+const OAUTH_ERROR_MESSAGES = Object.freeze({
+  access_denied: 'GitHub access was not granted.',
+});
+
+githubPublicRoutes.get('/callback', (req, res) => {
+  const { code, state, error } = req.query;
 
   if (error) {
-    return res.redirect(buildFrontendRedirect(req, {
-      githubBackup: 'error',
-      message: errorDescription || error,
-    }));
+    return returnTo(req, res, 'error', {
+      addonMessage: OAUTH_ERROR_MESSAGES[String(error)] || 'GitHub did not finish the connection. Try again.',
+    });
   }
 
-  if (!isGithubOauthConfigured()) {
-    return res.redirect(buildFrontendRedirect(req, {
-      githubBackup: 'error',
-      message: 'GitHub OAuth is not configured on the server',
-    }));
+  let userId;
+  try {
+    userId = verifyOauthState(String(state || ''));
+  } catch {
+    return returnTo(req, res, 'error', { addonMessage: 'This GitHub connection link is not valid or has expired. Connect GitHub again.' });
+  }
+  // The state proves who started the connection; the switch may have changed since.
+  if (!isAddonEnabled(userId, ADDON_ID)) {
+    return returnTo(req, res, 'error', { addonMessage: 'Turn on GitHub backup in Settings → Add-ons first.' });
+  }
+  if (!code) {
+    return returnTo(req, res, 'error', { addonMessage: 'GitHub did not finish the connection. Try again.' });
+  }
+
+  // Nothing is stored yet: the signed-in app completes it (POST /complete), so a link
+  // started from someone else's account cannot attach this browser's GitHub to it.
+  const handle = parkPendingConnection({ userId, code: String(code), redirectUri: buildGithubCallbackUrl(req) });
+  return returnTo(req, res, 'pending', { handle });
+});
+
+githubRoutes.post('/complete', async (req, res) => {
+  const pending = takePendingConnection(req.body?.handle);
+  if (!pending) {
+    return res.status(400).json({ error: 'expired', message: 'This GitHub connection has expired. Connect GitHub again.' });
+  }
+  if (pending.userId !== req.user.user_id) {
+    console.warn('[github] A GitHub connection started by another account was refused.');
+    return res.status(403).json({
+      error: 'other_account',
+      message: 'This GitHub connection was started from another Panino account, so it was not saved.',
+    });
   }
 
   try {
-    const userId = verifyOauthState(String(state || ''));
-    // The state proves who started the connection; the switch may have changed since.
-    if (!isAddonEnabled(userId, ADDON_ID)) {
-      return res.redirect(buildFrontendRedirect(req, {
-        githubBackup: 'error',
-        message: 'Turn on GitHub backup in Settings → Add-ons first.',
-      }));
-    }
-    const accessToken = await exchangeGithubCodeForToken({
-      code: String(code || ''),
-      redirectUri: buildGithubCallbackUrl(req),
-    });
+    const accessToken = await exchangeGithubCodeForToken({ code: pending.code, redirectUri: pending.redirectUri });
     const viewer = await fetchGithubViewer(accessToken);
-    const db = getUserDb(userId);
-
+    const db = getUserDb(req.user.user_id);
     saveBackupConfig(db, {
       access_token_enc: encryptToken(accessToken),
       username: viewer?.login || null,
@@ -79,14 +104,10 @@ githubPublicRoutes.get('/callback', async (req, res) => {
       last_warning: null,
       last_error: null,
     });
-
-    return res.redirect(buildFrontendRedirect(req, { githubBackup: 'connected' }));
-  } catch (oauthError) {
-    console.error('[github] GitHub OAuth callback failed:', oauthError);
-    return res.redirect(buildFrontendRedirect(req, {
-      githubBackup: 'error',
-      message: oauthError.message,
-    }));
+    return res.json(getBackupStatusPayload(getBackupConfig(db), req.user.user_id));
+  } catch (error) {
+    console.error('[github] Completing the GitHub connection failed:', error);
+    return res.status(502).json({ error: 'github_failed', message: githubFailureMessage(error) });
   }
 });
 
@@ -172,7 +193,7 @@ githubRoutes.get('/repos', async (req, res) => {
     res.json({ repos });
   } catch (error) {
     console.error('[github] Failed to list repositories:', error);
-    res.status(500).json({ error: error.message || 'Failed to load repositories' });
+    res.status(502).json({ error: githubFailureMessage(error) });
   }
 });
 
@@ -208,7 +229,7 @@ githubRoutes.post('/repos', async (req, res) => {
     });
   } catch (error) {
     console.error('[github] Failed to create repository:', error);
-    res.status(500).json({ error: error.message || 'Failed to create repository' });
+    res.status(502).json({ error: githubFailureMessage(error) });
   }
 });
 
@@ -248,7 +269,7 @@ githubRoutes.put('/repo', async (req, res) => {
     });
   } catch (error) {
     console.error('[github] Failed to select repository:', error);
-    res.status(500).json({ error: error.message || 'Failed to select repository' });
+    res.status(502).json({ error: githubFailureMessage(error) });
   }
 });
 
@@ -262,6 +283,6 @@ githubRoutes.post('/run', async (req, res) => {
     return res.status(202).json({ started: true });
   } catch (error) {
     console.error('[github] Failed to start backup:', error);
-    return res.status(500).json({ error: error.message || 'Failed to start backup' });
+    return res.status(500).json({ error: 'Failed to start backup' });
   }
 });

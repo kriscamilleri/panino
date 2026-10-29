@@ -127,7 +127,9 @@ bundle. Test ids are derived: `submenu-tools-addon-<id>-<action>`, `phone-menu-a
 `settings-addon-<id>`, `space-addon-<id>` (and `-hint`).
 
 Today: `src/addons/github/` (GitHub backup: toolbar **Backup** action, its modal, and a settings
-card that also finishes the OAuth return on `/settings?githubBackup=…`) and `src/addons/odoo/`.
+card that also finishes the OAuth return on `/settings?addon=github&addonResult=…`) and `src/addons/odoo/`.
+An add-on return while the add-on is off is shown by `composables/useAddonReturn.js` on both
+Settings pages.
 
 ---
 

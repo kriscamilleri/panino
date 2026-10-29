@@ -39,7 +39,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         }
 
         if (!response.ok) {
-            const requestError = new Error(payload?.error || `Request failed with status ${response.status}`);
+            const requestError = new Error(payload?.message || payload?.error || `Request failed with status ${response.status}`);
             requestError.status = response.status;
             requestError.payload = payload;
             throw requestError;
@@ -84,6 +84,22 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         error.value = '';
         const payload = await authFetch('/addons/github/connect', { method: 'POST' });
         return payload?.authorizeUrl || '';
+    }
+
+    /** Finish a connection the OAuth return parked under `handle`. */
+    async function completeConnect(handle) {
+        error.value = '';
+        try {
+            status.value = await authFetch('/addons/github/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ handle }),
+            });
+            return status.value;
+        } catch (err) {
+            error.value = err.message;
+            throw err;
+        }
     }
 
     async function disconnect() {
@@ -174,6 +190,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         fetchStatus,
         fetchRepos,
         startConnect,
+        completeConnect,
         disconnect,
         createRepo,
         selectRepo,

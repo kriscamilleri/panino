@@ -16,7 +16,7 @@ import { isAddonActive } from '../registry.js';
 import { OdooError } from './client.js';
 import { rememberConnectionError, senderConnection } from './connection.js';
 import { listSyncs, readSync, runSync, saveSyncRun, setSyncStatus } from './sync.js';
-import { readInternalImage, renderPdf } from '../../pdf.js';
+import { parseInternalImageSource, readInternalImage, renderPdf } from '../../pdf.js';
 
 export const SYNC_DEBOUNCE_MS = 3 * 60 * 1000;
 export const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -136,7 +136,10 @@ export function syncJobStatus(dbKey, syncId) {
 }
 
 /**
- * Run one sync now, unless it is already running.
+ * Run one sync now, unless it is already running. A change, or a "Sync now", that
+ * arrives while it runs queues one more run for when it ends: the run in progress read
+ * the tree when it began, so it would miss that edit. Never rejects: a failure is
+ * logged, so a timer or hook that does not wait for it cannot crash the server.
  *
  * @param {string} dbKey
  * @param {string} syncId
@@ -145,20 +148,57 @@ export function syncJobStatus(dbKey, syncId) {
  */
 export async function runSyncNow(dbKey, syncId, { trigger = 'manual', reconcile = false } = {}) {
     const key = jobKey(dbKey, syncId);
-    if (jobs.has(key)) return { started: false, reason: 'already-running' };
+    const current = jobs.get(key);
+    if (current) {
+        // A second "Sync now" right behind a finished run is refused (the settle window);
+        // anything that brings new edits is run again once this one is done.
+        if (trigger === 'changes' || (trigger === 'manual' && !current.finishedAt)) current.rerun = true;
+        return { started: false, reason: 'already-running' };
+    }
     clearTimeout(timers.get(key));
     timers.delete(key);
-    const job = { trigger, startedAt: new Date().toISOString() };
+    const job = { trigger, startedAt: new Date().toISOString(), rerun: false };
     jobs.set(key, job);
     try {
         const result = await runOne(dbKey, syncId, { reconcile });
         return { started: true, result };
+    } catch (error) {
+        console.error('[odoo-sync] Run could not start or finish:', error instanceof OdooError ? error.code : error);
+        return { started: true, reason: 'failed' };
     } finally {
         // Kept a moment longer so a second "Sync now" right behind this one is refused.
         job.finishedAt = new Date().toISOString();
-        if (settleMs > 0) setTimeout(() => jobs.delete(key), settleMs).unref?.();
-        else jobs.delete(key);
+        const release = () => {
+            jobs.delete(key);
+            if (job.rerun) void runSyncNow(dbKey, syncId, { trigger: 'changes' });
+        };
+        if (settleMs > 0) setTimeout(release, settleMs).unref?.();
+        else release();
     }
+}
+
+/**
+ * For a space sync, an image is read only when its link names a space: an image
+ * without one is a personal image, and the person the sync runs as must not lend
+ * theirs to a shared article or PDF.
+ */
+export function imageReaderFor(parsed, userId) {
+    return (src) => {
+        if (parsed.kind === 'space' && !parseInternalImageSource(src)?.spaceId) return null;
+        return readInternalImage(src, userId);
+    };
+}
+
+const IMG_TAG_RE = /<img\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+const SRC_ATTR_RE = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i;
+
+/** A space sync's PDF HTML without personal images (see imageReaderFor). */
+export function withoutPersonalImages(html) {
+    return String(html || '').replace(IMG_TAG_RE, (tag) => {
+        const match = SRC_ATTR_RE.exec(tag);
+        const target = match ? parseInternalImageSource(match[1] ?? match[2]) : null;
+        return target && !target.spaceId ? '<!-- image unavailable -->' : tag;
+    });
 }
 
 async function runOne(dbKey, syncId, { reconcile }) {
@@ -206,11 +246,14 @@ async function runOne(dbKey, syncId, { reconcile }) {
             client: rateLimitedClient(sender.client, sender.target),
             odooTarget: sender.target,
             userId: sync.run_as,
-            readImage: (src) => readInternalImage(src, sync.run_as),
+            readImage: imageReaderFor(parsed, sync.run_as),
             globals: globalsOf(db),
             reconcile,
             renderPdf: sync.documents_folder_id
-                ? (request) => renderPdf(request, { userId: sync.run_as, priority: 'low' })
+                ? (request) => renderPdf(
+                    parsed.kind === 'space' ? { ...request, htmlContent: withoutPersonalImages(request.htmlContent) } : request,
+                    { userId: sync.run_as, priority: 'low' },
+                )
                 : null,
         });
     } catch (error) {

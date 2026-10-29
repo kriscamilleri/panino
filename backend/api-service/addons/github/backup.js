@@ -5,6 +5,7 @@
  * Routes are in routes.js; the manifest in index.js.
  */
 
+import crypto from 'crypto';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import path from 'path';
@@ -218,17 +219,38 @@ export function deleteBackupConfig(db) {
   db.prepare('DELETE FROM backup_config WHERE provider = ?').run(BACKUP_PROVIDER);
 }
 
+/** An error whose message is written for the user and may be shown as it is. */
+function userFacingError(message) {
+  const error = new Error(message);
+  error.userFacing = true;
+  return error;
+}
+
+/**
+ * The message a user sees for a failure: a fixed sentence, never GitHub's own text or an
+ * internal error (AGENTS.md §4). The real error goes to the log.
+ *
+ * @param {any} error
+ * @returns {string}
+ */
+export function githubFailureMessage(error) {
+  if (error?.userFacing) return error.message;
+  switch (error?.status) {
+    case 401: return 'GitHub no longer accepts this connection. Disconnect, then connect GitHub again.';
+    case 403: return 'GitHub refused the request. Check that your account can push to this repository.';
+    case 404: return 'GitHub could not find that repository.';
+    case 409:
+    case 422: return 'GitHub refused the change. Try again in a moment.';
+    default: return 'Could not reach GitHub, or GitHub failed. Try again later.';
+  }
+}
+
 function parseRepoFullName(repoFullName) {
   const [owner, repo] = String(repoFullName || '').split('/');
   if (!owner || !repo) {
-    throw new Error('Repository must be in owner/repo format');
+    throw userFacingError('Repository must be in owner/repo format');
   }
   return { owner, repo };
-}
-
-function truncateErrorMessage(message) {
-  const value = String(message || 'Backup failed');
-  return value.length > 1000 ? `${value.slice(0, 997)}...` : value;
 }
 
 function createGithubHeaders(token, extraHeaders = {}) {
@@ -287,7 +309,9 @@ export async function exchangeGithubCodeForToken({ code, redirectUri }) {
 
   const payload = await parseGithubResponse(response);
   if (!response.ok || !payload?.access_token) {
-    throw new Error(payload?.error_description || payload?.error || 'GitHub OAuth token exchange failed');
+    const exchangeError = new Error(payload?.error_description || payload?.error || 'GitHub OAuth token exchange failed');
+    exchangeError.status = response.ok ? 401 : response.status;
+    throw exchangeError;
   }
 
   return payload.access_token;
@@ -686,6 +710,39 @@ export function buildFrontendRedirect(req, params = {}) {
   return `${getFrontendBaseUrl(req)}/#/settings${suffix ? `?${suffix}` : ''}`;
 }
 
+const PENDING_CONNECTION_TTL_MS = 10 * 60 * 1000;
+const pendingConnections = new Map();
+
+/**
+ * Park a GitHub authorization code until the signed-in app collects it. The callback
+ * cannot store the token itself: it carries no Panino session, so it cannot tell whether
+ * the browser coming back belongs to the person who started the connection. Someone could
+ * otherwise send a victim their own `state` and have the victim's GitHub token saved on
+ * their account. The app hands the handle back with its own sign-in (POST /complete),
+ * and the server only completes it for the user the state names.
+ *
+ * In memory, so a restart drops pending connections; the user connects again.
+ *
+ * @returns {string} a single-use handle
+ */
+export function parkPendingConnection({ userId, code, redirectUri }) {
+  const now = Date.now();
+  for (const [handle, entry] of pendingConnections) {
+    if (entry.expiresAt <= now) pendingConnections.delete(handle);
+  }
+  const handle = crypto.randomBytes(32).toString('base64url');
+  pendingConnections.set(handle, { userId, code, redirectUri, expiresAt: now + PENDING_CONNECTION_TTL_MS });
+  return handle;
+}
+
+/** The parked connection for a handle, once: taking it removes it. */
+export function takePendingConnection(handle) {
+  const entry = pendingConnections.get(String(handle || ''));
+  if (!entry) return null;
+  pendingConnections.delete(String(handle));
+  return entry.expiresAt > Date.now() ? entry : null;
+}
+
 export function createOauthState(userId) {
   return jwt.sign({ purpose: 'github-backup', userId }, JWT_SECRET, { expiresIn: '10m' });
 }
@@ -693,7 +750,7 @@ export function createOauthState(userId) {
 export function verifyOauthState(state) {
   const payload = jwt.verify(state, JWT_SECRET);
   if (payload?.purpose !== 'github-backup' || !payload?.userId) {
-    throw new Error('Invalid OAuth state');
+    throw userFacingError('This GitHub connection link is not valid. Connect GitHub again.');
   }
   return payload.userId;
 }
@@ -731,10 +788,10 @@ async function runBackupForUser(userId, { trigger = 'manual', onStage } = {}) {
   const config = getBackupConfig(db);
 
   if (!config?.access_token_enc) {
-    throw new Error('GitHub account is not connected');
+    throw userFacingError('GitHub account is not connected');
   }
   if (!config?.repo_full_name) {
-    throw new Error('No GitHub repository has been selected');
+    throw userFacingError('No GitHub repository has been selected');
   }
 
   const accessToken = decryptToken(config.access_token_enc);
@@ -789,7 +846,7 @@ export async function startBackupForUser(userId, { trigger = 'manual' } = {}) {
     const db = getUserDb(userId);
     saveBackupConfig(db, {
       last_warning: null,
-      last_error: truncateErrorMessage(error.message),
+      last_error: githubFailureMessage(error),
     });
     console.error('[github] Backup failed:', error);
   }).finally(() => {
@@ -827,6 +884,7 @@ export async function triggerDailyAutoBackup(userId) {
 
 export function __resetBackupStateForTests() {
   backupJobs.clear();
+  pendingConnections.clear();
 }
 
 /**

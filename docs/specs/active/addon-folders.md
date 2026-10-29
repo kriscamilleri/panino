@@ -303,6 +303,10 @@ Rules for the core components:
 - An action or card renders only when `addonsStore.isActive(id)`. It is **absent**, not
   disabled, when the add-on is off (add-ons spec §5). The one exception is `spaceCard.whenOff`:
   it shows when the add-on is offered but off, as the hint does today.
+- **Returns from an outside service** (an OAuth callback) land on
+  `/settings?addon=<id>&addonResult=…&addonMessage=…`. The add-on's settings card reads and
+  clears them while the add-on is on; `useAddonReturn()` (both Settings pages) shows the
+  message and clears them while it is off, when the card is absent.
 - An action shows on both surfaces unless its optional `surfaces` lists one (`['toolbar']` or
   `['menu']`). GitHub backup's action is toolbar-only: it is not about the open Document, so it
   stays out of the phone Document menu, and phones reach it from its settings card.

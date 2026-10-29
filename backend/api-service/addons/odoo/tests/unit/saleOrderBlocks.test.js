@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_LINE_COLUMNS, MAX_CHOSEN_FIELDS, catalogFromFieldsGet, cellFor, chooseFields, parseFieldList,
+    resetSaleOrderCatalogCache, saleOrderCatalog,
 } from '../../saleOrderBlocks.js';
 
 describe('sales order blocks', () => {
@@ -98,5 +99,29 @@ describe('sales order blocks', () => {
             expect(cellFor({ type: 'datetime' }, '2026-09-26T21:41:22')).toBeNull();
             expect(cellFor({ type: 'text' }, 'x'.repeat(5000)).value).toHaveLength(2000);
         });
+    });
+});
+
+describe('saleOrderCatalog', () => {
+    it('caches per Odoo user, since fields_get answers per user', async () => {
+        resetSaleOrderCatalogCache();
+        const calls = [];
+        const clientFor = (fields) => ({
+            call: async (model, method) => {
+                calls.push(model);
+                return method === 'fields_get' ? fields : null;
+            },
+        });
+        const admin = clientFor({ name: { string: 'Order', type: 'char' }, margin: { string: 'Margin', type: 'monetary' } });
+        const clerk = clientFor({ name: { string: 'Order', type: 'char' } });
+
+        const forAdmin = await saleOrderCatalog(admin, 'https://acme.odoo.com|acme', 2);
+        const forClerk = await saleOrderCatalog(clerk, 'https://acme.odoo.com|acme', 7);
+        expect([...forAdmin.order.keys()]).toEqual(['margin', 'name']);
+        expect([...forClerk.order.keys()]).toEqual(['name']);
+
+        await saleOrderCatalog(admin, 'https://acme.odoo.com|acme', 2);
+        expect(calls).toHaveLength(4);
+        resetSaleOrderCatalogCache();
     });
 });

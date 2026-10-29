@@ -350,6 +350,7 @@ import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
 import AddonCard from '@/components/addons/AddonCard.vue'
+import { useAddonReturn } from '@/composables/useAddonReturn'
 import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
 import { useAddonsStore } from '@/store/addonsStore'
@@ -376,6 +377,7 @@ const APPEARANCE_OPTIONS = [
 ]
 
 const router = useRouter()
+useAddonReturn()
 const authStore = useAuthStore()
 const docStore = useDocStore()
 const syncStore = useSyncStore()

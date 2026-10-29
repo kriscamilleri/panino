@@ -14,14 +14,17 @@ The app side of GitHub backup: the Backup action, the backup dialog, and its car
 | `modals` | `backup` → `GitHubBackupModal` |
 | `settingsCard` | `GitHubSettingsCard` (desktop and phone): opens its own backup dialog; the way in on a phone |
 
-The server's OAuth return lands on `/settings?githubBackup=connected` (or `=error&message=…`).
-`GitHubSettingsCard` reads that on mount, opens the dialog, shows a toast and clears the query.
+The server's OAuth return lands on `/settings?addon=github&addonResult=pending&handle=…` (or
+`=error&addonMessage=…`). `GitHubSettingsCard` clears the query, hands the handle back through
+`store.completeConnect` with this session's sign-in (that is what ties the GitHub account to the
+person who pressed Connect), then shows a toast and opens the dialog. While the add-on is off,
+core's `useAddonReturn` shows the message instead.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `store.js` | `useGithubBackupStore` (Pinia id `githubBackupStore`): status, repositories, connect, run |
+| `store.js` | `useGithubBackupStore` (Pinia id `githubBackupStore`): status, repositories, connect and complete, run |
 | `components/GitHubBackupModal.vue` | The backup dialog |
 | `components/GitHubSettingsCard.vue` | The Settings card and the OAuth return |
 | `utils/backupProgress.js` | Progress steps and labels for a running backup |
