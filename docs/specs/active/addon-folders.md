@@ -297,6 +297,7 @@ offered add-on renders nothing.
 | `modals` (phone) | `phone/DocumentMenuSheet.vue` | `<AddonModalHost />` | The sheet's own `OdooSendModal`, `OdooDataBlockModal` mounts |
 | `settingsCard` | `AddonsSection.vue`, `PhoneSettingsPage.vue` | `<AddonCard :addon-id point="settingsCard" layout="desktop" \| "phone" />` | The `#odoo` slot, the `addon.id === 'odoo'` branches, both `OdooConnectionModal` mounts |
 | `spaceCard` | `SpacesPage.vue` | `<AddonCard :addon-id point="spaceCard" :context="{ spaceId }" />`, one per manifest with a `spaceCard` | `OdooSyncsCard` and its hint |
+| `pages` | the router, `#/addons/:addonId/:pageId` | `pages/AddonPage.vue` (§6.2.5) | (new, 2026-11-02) |
 
 Rules for the core components:
 
@@ -368,6 +369,32 @@ leaves an add-on modal pending.
 
 Placing one host at `PhoneShell` level instead was rejected: the back gesture would close the
 sheet but leave the modal open over the editor, which is a behaviour change.
+
+### 6.2.5 Pages
+
+Added 2026-11-02 for the Odoo overview ([`odoo-overview.md`](../proposed/odoo-overview.md)).
+A manifest may list full pages:
+
+```js
+pages: [{ id: 'overview', title: 'Odoo', component: () => import('./components/OdooOverviewPage.vue'),
+          maxWidthClass: 'max-w-6xl' /* optional; default max-w-5xl */ }],
+```
+
+- **One fixed route** serves every add-on page: `#/addons/:addonId/:pageId` (`addon-page`). Routes
+  added at runtime were rejected: a reload or a shared link would hit the router before the
+  add-on list has loaded. The fixed route goes through the usual login and loading redirects.
+- `pages/AddonPage.vue` waits for `addonsStore.fetchAddons()`, finds the page with
+  `addonManifest(id)`, and renders it inside `AccountLayout` (the shell of Images, Spaces and
+  Templates, which also works at phone width) with the page's `title`. The page component gets
+  the route's `query` as a prop, and is loaded only while the add-on is on.
+- While the add-on is offered but off, the host says to turn it on in Settings → Add-ons; while
+  it is not offered, or the page id is unknown, "This page is not available." It follows the
+  switch while open: switching the add-on off on its page shows the message.
+- An action opens a page with `page: '<pageId>'` instead of `modal`. `AddonActions` closes the
+  menus and pushes the route. Add-on components (settings and space cards) link to their own
+  pages with `router.push({ name: 'addon-page', params: { addonId, pageId }, query })`.
+- Test id: `addon-page-<id>-<page>` on a wrapper around the page, so the page keeps its own root ids; `addon-page-unavailable`,
+  `addon-page-loading`, `addon-page-open-settings` from the host.
 
 ### 6.3 Settings card
 

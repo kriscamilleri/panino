@@ -19,6 +19,7 @@ import AcceptSpaceInvitePage from "@/pages/AcceptSpaceInvitePage.vue";
 import VerifyEmailPage from "@/pages/VerifyEmailPage.vue";
 import PhoneSearchPage from "@/pages/PhoneSearchPage.vue";
 import PhoneAllFoldersPage from "@/pages/PhoneAllFoldersPage.vue";
+import AddonPage from "@/pages/AddonPage.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -110,6 +111,12 @@ export const router = createRouter({
       path: "/verify-email/:token?",
       name: "verify-email",
       component: VerifyEmailPage,
+    },
+    // Pages contributed by add-ons (manifest `pages`); AddonPage looks them up.
+    {
+      path: "/addons/:addonId/:pageId",
+      name: "addon-page",
+      component: AddonPage,
     },
     {
       path: "/images",

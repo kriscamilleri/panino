@@ -58,9 +58,11 @@
  *   document  a Document is selected
  * An action shows on both surfaces unless its `surfaces` lists only one. On the
  * toolbar each add-on's actions form a group, with a separator between groups.
- * Choosing one opens the add-on's modal through ui.openAddonModal.
+ * Choosing one opens the add-on's `modal` through ui.openAddonModal, or goes to its
+ * `page` (manifest `pages`, shown by pages/AddonPage.vue).
  */
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import BaseButton from '@/components/BaseButton.vue'
 import { ADDON_MANIFESTS } from '@/addons/registry'
 import { useAddonsStore } from '@/store/addonsStore'
@@ -72,6 +74,7 @@ const actionProps = defineProps({
     surface: { type: String, required: true, validator: (value) => ['toolbar', 'menu'].includes(value) },
 })
 
+const router = useRouter()
 const addonsStore = useAddonsStore()
 const docStore = useDocStore()
 const syncStore = useSyncStore()
@@ -109,6 +112,11 @@ const groups = computed(() => {
 
 function open(item) {
     if (item.blocked) return
+    if (item.action.page) {
+        ui.closeAllMenus()
+        router.push({ name: 'addon-page', params: { addonId: item.addonId, pageId: item.action.page } })
+        return
+    }
     ui.openAddonModal(item.addonId, item.action.modal)
 }
 </script>
