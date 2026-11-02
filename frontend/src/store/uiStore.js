@@ -26,6 +26,8 @@ export const useUiStore = defineStore("uiStore", () => {
   const toolsMenuCollapsed = ref(false);
   const navbarCollapsed = ref(false);
   const scrollSync = ref(false);
+  // The sidebar's My Notes group (shown once there is a space), desktop and phone.
+  const myNotesCollapsed = ref(false);
   // Phone preferences (Settings → Notes).
   const homeLayout = ref("grid");
   const openNotesIn = ref(OPEN_IN_AUTO);
@@ -73,6 +75,7 @@ export const useUiStore = defineStore("uiStore", () => {
       toolsMenuCollapsed: toolsMenuCollapsed.value,
       navbarCollapsed: navbarCollapsed.value,
       scrollSync: scrollSync.value,
+      myNotesCollapsed: myNotesCollapsed.value,
       homeLayout: homeLayout.value,
       openNotesIn: openNotesIn.value,
       noteSort: noteSort.value,
@@ -107,6 +110,7 @@ export const useUiStore = defineStore("uiStore", () => {
         toolsMenuCollapsed.value = settings.toolsMenuCollapsed ?? false;
         navbarCollapsed.value = settings.navbarCollapsed ?? false;
         scrollSync.value = settings.scrollSync ?? false;
+        myNotesCollapsed.value = settings.myNotesCollapsed === true;
         homeLayout.value = pick(settings.homeLayout, HOME_LAYOUTS, "grid");
         openNotesIn.value = pick(settings.openNotesIn, OPEN_NOTES_IN, OPEN_IN_AUTO);
         noteSort.value = normalizeSort(settings.noteSort);
@@ -132,6 +136,7 @@ export const useUiStore = defineStore("uiStore", () => {
     toolsMenuCollapsed.value = false;
     navbarCollapsed.value = false;
     scrollSync.value = false;
+    myNotesCollapsed.value = false;
     homeLayout.value = "grid";
     openNotesIn.value = OPEN_IN_AUTO;
     noteSort.value = { ...DEFAULT_SORT };
@@ -223,6 +228,7 @@ export const useUiStore = defineStore("uiStore", () => {
     toolsMenuCollapsed,
     navbarCollapsed,
     scrollSync,
+    myNotesCollapsed,
     homeLayout,
     openNotesIn,
     noteSort,
@@ -252,6 +258,7 @@ export const useUiStore = defineStore("uiStore", () => {
     toggleToolsMenuCollapsed: () => toggleAndSave(toolsMenuCollapsed),
     toggleNavbarCollapsed: () => toggleAndSave(navbarCollapsed),
     toggleScrollSync: () => toggleAndSave(scrollSync),
+    toggleMyNotesCollapsed: () => toggleAndSave(myNotesCollapsed),
 
     toggleViewMenu: () => toggleMenu(showViewMenu),
     toggleActionBar: () => toggleMenu(showActionBar),
