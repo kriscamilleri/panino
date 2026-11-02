@@ -52,6 +52,7 @@ export const ODOO_CONTENT_SCHEMA = `
     odoo_url_path TEXT,
     sync_id TEXT,
     content_hash TEXT,
+    sent_hash TEXT,
     archived_at TEXT,
     first_sent_by TEXT NOT NULL,
     last_sent_at TEXT NOT NULL,
@@ -80,3 +81,15 @@ export const ODOO_CONTENT_SCHEMA = `
     created_at TEXT NOT NULL
   );
 `;
+
+/**
+ * Columns added after the tables first shipped, for databases created before
+ * them. The tables are not CRRs, so a plain ALTER TABLE is enough.
+ *
+ * @param {import('better-sqlite3').Database} db
+ */
+export function upgradeOdooSchema(db) {
+    const links = new Set(db.prepare("PRAGMA table_info('odoo_links')").all().map((column) => column.name));
+    // A manual send's hash of the Document, for "changed since sent" (odoo-overview.md §6).
+    if (links.size > 0 && !links.has('sent_hash')) db.exec('ALTER TABLE odoo_links ADD COLUMN sent_hash TEXT');
+}

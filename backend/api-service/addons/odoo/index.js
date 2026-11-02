@@ -6,7 +6,7 @@
 import { registerAddon } from '../registry.js';
 import { isOdooIntegrationEnabled } from './connection.js';
 import { odooRoutes } from './routes.js';
-import { ODOO_CONTENT_SCHEMA, ODOO_USER_SCHEMA } from './schema.js';
+import { ODOO_CONTENT_SCHEMA, ODOO_USER_SCHEMA, upgradeOdooSchema } from './schema.js';
 import {
     pauseSyncsRunBy, resumeSyncsRunBy, scheduleSyncRunsAfterChanges, triggerDailyReconcile,
 } from './syncScheduler.js';
@@ -20,7 +20,7 @@ export const odooAddon = Object.freeze({
     onDisabled: (userId) => pauseSyncsRunBy(userId, 'addon_disabled'),
     onEnabled: (userId) => resumeSyncsRunBy(userId, 'addon_disabled'),
     routes: odooRoutes,
-    schema: { user: ODOO_USER_SCHEMA, content: ODOO_CONTENT_SCHEMA },
+    schema: { user: ODOO_USER_SCHEMA, content: ODOO_CONTENT_SCHEMA, upgrade: upgradeOdooSchema },
     hooks: {
         // A synced folder or Document mirrors to Odoo Knowledge a while after the last change.
         afterChangesApplied: scheduleSyncRunsAfterChanges,

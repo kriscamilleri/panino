@@ -107,25 +107,28 @@ Register the add-on with one line in `backend/api-service/addons/index.js`:
 ```js
 export default Object.freeze({
   id,
-  actions: [{ id, icon, label, menuLabel, hint, requires: ['online', 'document'], modal }],
+  actions: [{ id, icon, label, menuLabel, hint, requires: ['online', 'document'], modal }], // or `page` instead of `modal`
   modals: { <modalId>: () => import('./components/…Modal.vue') },
   settingsCard: { component: () => import('./components/…SettingsCard.vue') },
   spaceCard: { component, props: ({ spaceId }) => ({ … }), whenOff: '…' },
+  pages: [{ id, title, component: () => import('./components/…Page.vue') }],
 });
 ```
 
 | Point | Shows up in | Notes |
 |---|---|---|
-| `actions` | Desktop toolbar Tools group, phone Document menu | Core disables per `requires` and writes the "offline" / "select a document" wording; `hint` is the tooltip when available |
+| `actions` | Desktop Add-ons menu (one group per add-on, separated), phone Document menu | Core disables per `requires` and writes the "offline" / "select a document" wording; `hint` is the tooltip when available |
 | `modals` | Desktop `HomePage`, phone Document menu sheet | Mounted while the add-on is on; `show` follows `ui.addonModal` |
 | `settingsCard` | Under the switch in Settings, desktop and phone | |
 | `spaceCard` | Spaces page, for editors | `whenOff` shows while offered but off |
+| `pages` | A full page at `#/addons/<id>/<pageId>`, desktop and phone, in the shared page shell | Gets the route `query` as a prop; reach it from an action with `page`, or `router.push({ name: 'addon-page', … })` |
 
 Register the manifest in `frontend/src/addons/registry.js`: one import, plus one entry in
 `ADDON_MANIFESTS`.
 
-Test ids are derived by core: `submenu-tools-addon-<id>-<action>`,
-`phone-menu-addon-<id>-<action>`, `settings-addon-<id>`, `space-addon-<id>` (`-hint`). Ids
+Test ids are derived by core: `submenu-addons-<id>-<action>`,
+`phone-menu-addon-<id>-<action>`, `settings-addon-<id>`, `space-addon-<id>` (`-hint`),
+`addon-page-<id>-<page>`. Ids
 inside your own components are yours; prefix them with the add-on id.
 
 ## Step 4: Outside the folders
@@ -145,7 +148,7 @@ Add an extension point to core, named after the **moment in core**, not after th
   `addon-folders.md` §5.4. Not available yet: a startup hook (for jobs that must run from
   boot) and per-Document lifecycle hooks.
 - **UI point:** a new manifest key, rendered by a component in
-  `frontend/src/components/addons/`. It must render nothing while the add-on is off, and it is
+  `frontend/src/components/addons/` (or, for pages, `frontend/src/pages/AddonPage.vue`). It must render nothing while the add-on is off, and it is
   tested with a throwaway manifest (see `tests/unit/addonContributions.test.js`). Document it
   in `addon-folders.md` §6.2 and the frontend handbook.
 

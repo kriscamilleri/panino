@@ -10,14 +10,18 @@ const ui = reactive({
     addonModal: null,
     openAddonModal: vi.fn((addonId, modalId) => { ui.addonModal = { addonId, modalId }; }),
     closeAddonModal: vi.fn(() => { ui.addonModal = null; }),
+    closeAllMenus: vi.fn(),
 });
 const docStore = reactive({ selectedFileId: 'doc-1' });
+const route = reactive({ params: { addonId: 'probe', pageId: 'board' }, query: {} });
+const router = { push: vi.fn() };
 const syncStore = reactive({ isOnline: true });
 
 vi.mock('@/store/authStore', () => ({ useAuthStore: () => ({ token: 'jwt', user: { id: 'me' } }) }));
 vi.mock('@/store/uiStore', () => ({ useUiStore: () => ui }));
 vi.mock('@/store/docStore', () => ({ useDocStore: () => docStore }));
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => syncStore }));
+vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => router }));
 
 const Icon = { render: () => h('svg') };
 /** A modal that records each time it is mounted, to prove it stays mounted. */
@@ -29,6 +33,9 @@ const Modal = {
     render() { return this.show ? h('div', { 'data-testid': 'probe-modal' }, [h('button', { onClick: () => this.$emit('close') }, 'Close')]) : null; },
 };
 const SpaceCard = { props: ['dbKey', 'spaceMode'], render() { return h('section', `card for ${this.dbKey} ${this.spaceMode}`); } };
+/** A page that records each load of its code, to prove it never loads while the add-on is off. */
+const pageLoads = vi.fn();
+const Page = { props: ['query'], render() { return h('div', `board ${JSON.stringify(this.query)}`); } };
 const SettingsCard = { props: ['layout'], render() { return h('div', `settings ${this.layout}`); } };
 
 vi.mock('@/addons/registry', () => {
@@ -38,7 +45,9 @@ vi.mock('@/addons/registry', () => {
             { id: 'go', icon: Icon, label: 'Probe', menuLabel: 'Go to probe', hint: 'Go', requires: ['online', 'document'], modal: 'main' },
             { id: 'free', icon: Icon, label: 'Free', hint: 'No needs', modal: 'main' },
             { id: 'desk', icon: Icon, label: 'Desk', hint: 'Toolbar only', surfaces: ['toolbar'], modal: 'main' },
+            { id: 'board', icon: Icon, label: 'Board', hint: 'Open the board', surfaces: ['toolbar'], page: 'board' },
         ],
+        pages: [{ id: 'board', title: 'Probe board', component: () => { pageLoads(); return Promise.resolve({ __esModule: true, default: Page }); } }],
         modals: { main: () => Promise.resolve({ __esModule: true, default: Modal }) },
         settingsCard: { component: () => Promise.resolve({ __esModule: true, default: SettingsCard }) },
         spaceCard: {
@@ -47,9 +56,15 @@ vi.mock('@/addons/registry', () => {
             whenOff: 'Turn on Probe first.',
         },
     };
+    // A second add-on, to show how the toolbar separates one add-on's actions from another's.
+    const second = {
+        id: 'second',
+        actions: [{ id: 'one', icon: Icon, label: 'One', hint: 'One', modal: 'main' }],
+        modals: { main: () => Promise.resolve({ __esModule: true, default: Modal }) },
+    };
     return {
-        ADDON_MANIFESTS: [manifest],
-        addonManifest: (id) => (id === 'probe' ? manifest : null),
+        ADDON_MANIFESTS: [manifest, second],
+        addonManifest: (id) => [manifest, second].find((entry) => entry.id === id) || null,
         addonsContributing: (point) => (manifest[point] ? [manifest] : []),
     };
 });
@@ -57,11 +72,15 @@ vi.mock('@/addons/registry', () => {
 const { default: AddonActions } = await import('@/components/addons/AddonActions.vue');
 const { default: AddonModalHost } = await import('@/components/addons/AddonModalHost.vue');
 const { default: AddonCard } = await import('@/components/addons/AddonCard.vue');
+const { default: AddonPage } = await import('@/pages/AddonPage.vue');
 const { useAddonsStore } = await import('@/store/addonsStore');
 
-/** Set what the server says: offered (listed) and enabled or not. */
-function serverSays({ offered = true, enabled = true } = {}) {
-    useAddonsStore().addons = offered ? [{ id: 'probe', name: 'Probe', description: '', enabled, enabledAt: null }] : [];
+/** Set what the server says: offered (listed) and enabled or not, and whether `second` is on too. */
+function serverSays({ offered = true, enabled = true, second = false } = {}) {
+    useAddonsStore().addons = [
+        ...(offered ? [{ id: 'probe', name: 'Probe', description: '', enabled, enabledAt: null }] : []),
+        ...(second ? [{ id: 'second', name: 'Second', description: '', enabled: true, enabledAt: null }] : []),
+    ];
 }
 
 describe('add-on contribution points', () => {
@@ -71,6 +90,11 @@ describe('add-on contribution points', () => {
         ui.openAddonModal.mockClear();
         ui.closeAddonModal.mockClear();
         modalMounts.mockClear();
+        pageLoads.mockClear();
+        router.push.mockClear();
+        ui.closeAllMenus.mockClear();
+        route.params = { addonId: 'probe', pageId: 'board' };
+        route.query = {};
         docStore.selectedFileId = 'doc-1';
         syncStore.isOnline = true;
     });
@@ -86,21 +110,46 @@ describe('add-on contribution points', () => {
         it('renders the toolbar actions with derived test ids and opens the modal', async () => {
             serverSays();
             const wrapper = mount(AddonActions, { props: { surface: 'toolbar' } });
-            const go = wrapper.get('[data-testid="submenu-tools-addon-probe-go"]');
+            const go = wrapper.get('[data-testid="submenu-addons-probe-go"]');
             expect(go.text()).toBe('Probe');
             expect(go.attributes('title')).toBe('Go');
             await go.trigger('click');
             expect(ui.openAddonModal).toHaveBeenCalledWith('probe', 'main');
         });
 
+        it('separates one add-on\'s toolbar actions from the next, and never leads with a separator', () => {
+            serverSays();
+            expect(mount(AddonActions, { props: { surface: 'toolbar' } })
+                .find('[data-testid="submenu-addons-separator"]').exists()).toBe(false);
+
+            serverSays({ second: true });
+            const wrapper = mount(AddonActions, { props: { surface: 'toolbar' } });
+            const order = wrapper.findAll('button, [role="separator"]').map((node) => node.attributes('data-testid'));
+            expect(order).toEqual([
+                'submenu-addons-probe-go',
+                'submenu-addons-probe-free',
+                'submenu-addons-probe-desk',
+                'submenu-addons-probe-board',
+                'submenu-addons-separator',
+                'submenu-addons-second-one',
+            ]);
+        });
+
+        it('has no separators on the phone menu', () => {
+            serverSays({ second: true });
+            const wrapper = mount(AddonActions, { props: { surface: 'menu' } });
+            expect(wrapper.find('[role="separator"]').exists()).toBe(false);
+            expect(wrapper.find('[data-testid="phone-menu-addon-second-one"]').exists()).toBe(true);
+        });
+
         it('disables an action per `requires`, with the reason', async () => {
             serverSays();
             syncStore.isOnline = false;
             const wrapper = mount(AddonActions, { props: { surface: 'toolbar' } });
-            const go = wrapper.get('[data-testid="submenu-tools-addon-probe-go"]');
+            const go = wrapper.get('[data-testid="submenu-addons-probe-go"]');
             expect(go.attributes('disabled')).toBeDefined();
             expect(go.attributes('title')).toBe('Needs an internet connection');
-            expect(wrapper.get('[data-testid="submenu-tools-addon-probe-free"]').attributes('disabled')).toBeUndefined();
+            expect(wrapper.get('[data-testid="submenu-addons-probe-free"]').attributes('disabled')).toBeUndefined();
 
             syncStore.isOnline = true;
             docStore.selectedFileId = null;
@@ -123,10 +172,82 @@ describe('add-on contribution points', () => {
 
         it('keeps an action to the surfaces it lists', () => {
             serverSays();
-            expect(mount(AddonActions, { props: { surface: 'toolbar' } }).find('[data-testid="submenu-tools-addon-probe-desk"]').exists()).toBe(true);
+            expect(mount(AddonActions, { props: { surface: 'toolbar' } }).find('[data-testid="submenu-addons-probe-desk"]').exists()).toBe(true);
             const menu = mount(AddonActions, { props: { surface: 'menu' } });
             expect(menu.find('[data-testid="phone-menu-addon-probe-desk"]').exists()).toBe(false);
             expect(menu.find('[data-testid="phone-menu-addon-probe-free"]').exists()).toBe(true);
+        });
+    });
+
+    describe('page actions', () => {
+        it('goes to the add-on page and closes the menu', async () => {
+            serverSays();
+            const wrapper = mount(AddonActions, { props: { surface: 'toolbar' } });
+            await wrapper.get('[data-testid="submenu-addons-probe-board"]').trigger('click');
+            expect(router.push).toHaveBeenCalledWith({ name: 'addon-page', params: { addonId: 'probe', pageId: 'board' } });
+            expect(ui.closeAllMenus).toHaveBeenCalled();
+            expect(ui.openAddonModal).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('AddonPage', () => {
+        // The shell is AccountLayout; stub it to its title and slot.
+        const Layout = { props: ['title'], template: '<div><h1 data-testid="layout-title">{{ title }}</h1><slot /></div>' };
+        const mountPage = () => mount(AddonPage, { global: { stubs: { AccountLayout: Layout } } });
+        const stubAddons = (list) => {
+            const store = useAddonsStore();
+            store.fetchAddons = vi.fn(async () => { store.addons = list; return list; });
+        };
+
+        it('renders the page in the shell with its title and the route query', async () => {
+            stubAddons([{ id: 'probe', name: 'Probe', description: '', enabled: true }]);
+            route.query = { where: 'space:s1' };
+            const wrapper = mountPage();
+            await flushPromises();
+            expect(wrapper.get('[data-testid="layout-title"]').text()).toBe('Probe board');
+            expect(wrapper.get('[data-testid="addon-page-probe-board"]').text()).toBe('board {"where":"space:s1"}');
+        });
+
+        it('says to turn the add-on on while it is off, and never loads the page', async () => {
+            stubAddons([{ id: 'probe', name: 'Probe', description: '', enabled: false }]);
+            const wrapper = mountPage();
+            await flushPromises();
+            expect(wrapper.get('[data-testid="addon-page-unavailable"]').text()).toContain('Turn on the Probe add-on in Settings → Add-ons');
+            expect(pageLoads).not.toHaveBeenCalled();
+            await wrapper.get('[data-testid="addon-page-open-settings"]').trigger('click');
+            expect(router.push).toHaveBeenCalledWith('/settings');
+        });
+
+        it('is not available while the add-on is not offered, or for an unknown page', async () => {
+            stubAddons([]);
+            let wrapper = mountPage();
+            await flushPromises();
+            expect(wrapper.get('[data-testid="addon-page-unavailable"]').text()).toContain('This page is not available.');
+
+            stubAddons([{ id: 'probe', name: 'Probe', description: '', enabled: true }]);
+            route.params = { addonId: 'probe', pageId: 'nope' };
+            wrapper = mountPage();
+            await flushPromises();
+            expect(wrapper.get('[data-testid="addon-page-unavailable"]').text()).toContain('This page is not available.');
+            expect(pageLoads).not.toHaveBeenCalled();
+        });
+
+        it('waits for the add-on list, then follows the switch while open', async () => {
+            let finish;
+            const store = useAddonsStore();
+            store.fetchAddons = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+            const wrapper = mountPage();
+            await flushPromises();
+            expect(wrapper.find('[data-testid="addon-page-loading"]').exists()).toBe(true);
+            store.addons = [{ id: 'probe', name: 'Probe', description: '', enabled: true }];
+            finish();
+            await flushPromises();
+            expect(wrapper.find('[data-testid="addon-page-probe-board"]').exists()).toBe(true);
+
+            store.addons = [{ id: 'probe', name: 'Probe', description: '', enabled: false }];
+            await flushPromises();
+            expect(wrapper.find('[data-testid="addon-page-probe-board"]').exists()).toBe(false);
+            expect(wrapper.find('[data-testid="addon-page-unavailable"]').exists()).toBe(true);
         });
     });
 

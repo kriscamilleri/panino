@@ -412,8 +412,6 @@
                     <Printer class="w-4 h-4" /><span class="button-text">Print</span>
                 </BaseButton>
 
-                <AddonActions surface="toolbar" />
-
                 <div class="separator"></div>
 
                 <BaseButton
@@ -472,6 +470,15 @@
                     />
                     <span class="button-text">Collapse</span>
                 </BaseButton>
+            </div>
+
+            <div
+                v-else-if="ui.showAddonsMenu"
+                class="flex flex-wrap items-center gap-2"
+                key="addons"
+                data-testid="submenu-addons"
+            >
+                <AddonActions surface="toolbar" />
             </div>
         </div>
     </transition>

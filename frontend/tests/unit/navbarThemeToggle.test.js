@@ -40,6 +40,10 @@ vi.mock('@/store/syncStore', () => ({
     }),
 }))
 
+vi.mock('@/store/addonsStore', () => ({
+    useAddonsStore: () => ({ fetchAddons: vi.fn(), isActive: () => false }),
+}))
+
 vi.mock('@/store/themeStore', () => ({
     useThemeStore: () => themeStoreMock,
 }))

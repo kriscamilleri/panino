@@ -12,6 +12,7 @@
  */
 
 import express from 'express';
+import { applyDocumentVariables, renderDocumentHtml } from '@panino/content-merge/markdown-render';
 import { getAuthDb, getDb, getUserDb, parseDbKey } from '../../db.js';
 import { decryptSecret, encryptSecret } from '../../secrets.js';
 import { OdooError, normalizeBaseUrl, verifyConnection } from './client.js';
@@ -22,11 +23,13 @@ import { CHATTER_MODELS, chatterTargetKey, parseChatterTarget, readRecords, sear
 import { pdfFileName, searchFolders, sendPdfToDocuments } from './documents.js';
 import { MAX_ARTICLE_HTML_BYTES, articleBody, searchArticles, sendArticleToKnowledge } from './knowledge.js';
 import { listLinks, readDefaults, saveDefaults } from './links.js';
+import { overviewDocuments, sentHashOf, sortOverview, stampSentHash } from './overview.js';
 import { registerSaleOrderBlockRoutes } from './saleOrderBlocks.js';
 import { SYNC_SCOPES, createSync, deleteSync, listSyncs, readSync, setSyncStatus, syncCovering, syncOverlapping } from './sync.js';
-import { pauseSyncsRunBy, resumeSyncsRunBy, runSyncNow, syncJobStatus } from './syncScheduler.js';
+import { globalsOf, pauseSyncsRunBy, resumeSyncsRunBy, runSyncNow, syncJobStatus } from './syncScheduler.js';
+import { buildSyncPdfRequest } from './syncPdf.js';
 import { readInternalImage, renderPdf } from '../../pdf.js';
-import { resolveSpaceAccess } from '../../spaces.js';
+import { listSpacesForUser, resolveSpaceAccess } from '../../spaces.js';
 
 export const odooRoutes = express.Router();
 
@@ -476,6 +479,63 @@ async function destinationResult(run, { userId, userDb, event, messages }) {
     }
 }
 
+/**
+ * Send to Knowledge: create or update the Document's article. Refuses a Document a
+ * sync looks after. Records what was sent (`sent_hash`).
+ */
+async function knowledgeDestination({ access, sender, userId, noteId, note, title, html, parentId = null }) {
+    if (syncCovering(access.db, { sourceType: 'note', sourceId: noteId })) {
+        return { ok: false, error: 'synced', message: KNOWLEDGE_MESSAGES.synced };
+    }
+    if (!sender.apps.includes('knowledge')) return { ok: false, error: 'missing_app', message: KNOWLEDGE_MESSAGES.missing_app };
+    return destinationResult(async () => {
+        const remembered = readDefaults(access.db, sender.target).parentArticleId;
+        const sent = await sendArticleToKnowledge({
+            client: sender.client,
+            odooTarget: sender.target,
+            db: access.db,
+            noteId,
+            userId,
+            title,
+            body: articleBody(html, title, { keepInternalImages: true }),
+            parentId: parentId ?? remembered,
+            readImage: (src) => readInternalImage(src, userId),
+        });
+        if (parentId !== null) saveDefaults(access.db, sender.target, { parentArticleId: parentId });
+        stampSentHash(access.db, { noteId, destination: 'knowledge', odooTarget: sender.target, hash: sentHashOf(note) });
+        return {
+            created: sent.created,
+            recreated: sent.recreated,
+            imagesUploaded: sent.imagesUploaded,
+            imagesMissing: sent.imagesMissing,
+            url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
+        };
+    }, { userId, userDb: sender.userDb, event: 'send_knowledge_failed', messages: KNOWLEDGE_MESSAGES });
+}
+
+/** Send the PDF to Documents: create or overwrite the Document's PDF. Records what was sent. */
+async function documentsDestination({ access, sender, userId, noteId, note, title, pdf, folderId = null }) {
+    return destinationResult(async () => {
+        const sent = await sendPdfToDocuments({
+            client: sender.client,
+            odooTarget: sender.target,
+            db: access.db,
+            noteId,
+            pdf,
+            userId,
+            title,
+            folderId: folderId ?? readDefaults(access.db, sender.target).folderId,
+        });
+        if (folderId) saveDefaults(access.db, sender.target, { folderId });
+        stampSentHash(access.db, { noteId, destination: 'documents', odooTarget: sender.target, hash: sentHashOf(note) });
+        return {
+            created: sent.created,
+            recreated: sent.recreated,
+            url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
+        };
+    }, { userId, userDb: sender.userDb, event: 'send_documents_failed', messages: DOCUMENTS_MESSAGES });
+}
+
 odooRoutes.post('/send', async (req, res) => {
     const userId = req.user.user_id;
     const { dbKey, noteId, title, pdfRequest, documents, chatter, knowledge } = req.body || {};
@@ -521,7 +581,7 @@ odooRoutes.post('/send', async (req, res) => {
             return res.status(403).json({ error: 'forbidden', message: 'Only owners and editors of this space can send its Documents.' });
         }
         if (access.status) return res.status(access.status).json({ error: 'not_found', message: 'Document not found.' });
-        note = access.db.prepare('SELECT id, title FROM notes WHERE id = ?').get(noteId);
+        note = access.db.prepare('SELECT id, title, content FROM notes WHERE id = ?').get(noteId);
         if (!note) return res.status(404).json({ error: 'not_found', message: 'Document not found.' });
         sender = senderConnection(userId);
     } catch (error) {
@@ -561,45 +621,14 @@ odooRoutes.post('/send', async (req, res) => {
         const documentTitle = typeof title === 'string' && title.trim() ? title : note.title;
         const shared = { client: sender.client, odooTarget: sender.target, db: access.db, noteId, pdf, userId };
         const results = {};
-        if (wantsKnowledge && syncCovering(access.db, { sourceType: 'note', sourceId: noteId })) {
-            results.knowledge = { ok: false, error: 'synced', message: KNOWLEDGE_MESSAGES.synced };
-        } else if (wantsKnowledge) {
-            results.knowledge = sender.apps.includes('knowledge')
-                ? await destinationResult(async () => {
-                    const remembered = readDefaults(access.db, sender.target).parentArticleId;
-                    const sent = await sendArticleToKnowledge({
-                        ...shared,
-                        title: documentTitle,
-                        body: articleBody(knowledge.html, documentTitle, { keepInternalImages: true }),
-                        parentId: parentId ?? remembered,
-                        readImage: (src) => readInternalImage(src, userId),
-                    });
-                    if (parentId !== null) saveDefaults(access.db, sender.target, { parentArticleId: parentId });
-                    return {
-                        created: sent.created,
-                        recreated: sent.recreated,
-                        imagesUploaded: sent.imagesUploaded,
-                        imagesMissing: sent.imagesMissing,
-                        url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
-                    };
-                }, { userId, userDb: sender.userDb, event: 'send_knowledge_failed', messages: KNOWLEDGE_MESSAGES })
-                : { ok: false, error: 'missing_app', message: KNOWLEDGE_MESSAGES.missing_app };
+        if (wantsKnowledge) {
+            results.knowledge = await knowledgeDestination({
+                access, sender, userId, noteId, note, title: documentTitle, html: knowledge.html, parentId,
+            });
         }
         // One destination after the other: they are independent, and each reports for itself.
         if (wantsDocuments) {
-            results.documents = await destinationResult(async () => {
-                const sent = await sendPdfToDocuments({
-                    ...shared,
-                    title: documentTitle,
-                    folderId: folderId ?? readDefaults(access.db, sender.target).folderId,
-                });
-                if (folderId) saveDefaults(access.db, sender.target, { folderId });
-                return {
-                    created: sent.created,
-                    recreated: sent.recreated,
-                    url: sent.urlPath ? `${sender.row.base_url}${sent.urlPath}` : null,
-                };
-            }, { userId, userDb: sender.userDb, event: 'send_documents_failed', messages: DOCUMENTS_MESSAGES });
+            results.documents = await documentsDestination({ access, sender, userId, noteId, note, title: documentTitle, pdf, folderId });
         }
         if (wantsChatter) {
             const app = CHATTER_MODELS[target.resModel];
@@ -626,6 +655,107 @@ odooRoutes.post('/send', async (req, res) => {
         return res.status(500).json({ error: 'Failed to send to Odoo' });
     } finally {
         sendsInFlight.delete(lockKey);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Send updates (docs/specs/proposed/odoo-overview.md §5, §7)
+// ---------------------------------------------------------------------------
+
+const MAX_RESEND = 25;
+const resendsInFlight = new Set();
+
+/**
+ * Send one Document again to the Documents and Knowledge records it already has in
+ * the caller's Odoo, rendered on the server from the copy the server holds. Never
+ * creates a record and never posts to an opportunity or sales order.
+ */
+async function resendOne({ access, sender, userId, noteId, globals }) {
+    const note = access.db.prepare('SELECT id, title, content, folder_id FROM notes WHERE id = ?').get(noteId);
+    if (!note) return { ok: false, error: 'not_found', message: 'Document not found.' };
+    const links = listLinks(access.db, noteId).filter((link) => link.odoo_target === sender.target && !link.sync_id);
+    const hasDocuments = links.some((link) => link.destination === 'documents');
+    const hasKnowledge = links.some((link) => link.destination === 'knowledge');
+    if (!hasDocuments && !hasKnowledge) {
+        return { ok: false, error: 'not_sent', message: 'This Document has nothing in Odoo Documents or Knowledge to update.' };
+    }
+    const lockKey = `${access.dbKey}|${noteId}`;
+    if (sendsInFlight.has(lockKey)) return { ok: false, error: 'busy', message: 'This Document is already being sent.' };
+    sendsInFlight.add(lockKey);
+    try {
+        const title = note.title || 'Untitled';
+        const result = {};
+        if (hasKnowledge) {
+            const html = renderDocumentHtml(applyDocumentVariables(note.content || '', { globals }));
+            result.knowledge = await knowledgeDestination({ access, sender, userId, noteId, note, title, html });
+        }
+        if (hasDocuments) {
+            const { request } = buildSyncPdfRequest({ db: access.db, note, globals });
+            const rendered = await renderPdf(request, { userId });
+            if (!rendered.ok) {
+                result.documents = { ok: false, error: 'pdf_failed', message: rendered.status === 503 ? 'PDFs are busy right now. Try again shortly.' : 'The PDF could not be made.' };
+            } else if (rendered.pdf.length > MAX_PDF_BYTES) {
+                result.documents = { ok: false, error: 'too_large', message: 'The PDF is larger than 25 MB.' };
+            } else {
+                result.documents = await documentsDestination({ access, sender, userId, noteId, note, title, pdf: rendered.pdf });
+            }
+        }
+        const failed = Object.values(result).find((entry) => !entry.ok);
+        return { ok: !failed, ...result, ...(failed ? { error: failed.error, message: failed.message } : {}) };
+    } finally {
+        sendsInFlight.delete(lockKey);
+    }
+}
+
+odooRoutes.post('/resend', async (req, res) => {
+    const userId = req.user.user_id;
+    const { dbKey, noteIds } = req.body || {};
+    if (!Array.isArray(noteIds) || noteIds.length === 0
+        || noteIds.some((id) => typeof id !== 'string' || !id || id.length > 100)) {
+        return res.status(400).json({ error: 'invalid', message: 'Choose the Documents to update.' });
+    }
+    if (noteIds.length > MAX_RESEND) {
+        return res.status(400).json({ error: 'too_many', message: `Update at most ${MAX_RESEND} Documents at a time.` });
+    }
+    let access;
+    let sender;
+    try {
+        access = documentDatabase(userId, dbKey, { forSending: true });
+        if (access.status === 403) {
+            return res.status(403).json({ error: 'forbidden', message: 'Only owners and editors of this space can send its Documents.' });
+        }
+        if (access.status) return res.status(access.status).json({ error: 'not_found', message: 'Documents not found.' });
+        sender = senderConnection(userId);
+    } catch (error) {
+        if (error instanceof OdooError) return sendOdooError(res, error);
+        console.error('[odoo] Failed to prepare send updates:', error);
+        return res.status(500).json({ error: 'Failed to send to Odoo' });
+    }
+    if (!sender) return res.status(409).json({ error: 'not_connected', message: 'Connect Odoo in Settings first.' });
+    if (resendsInFlight.has(userId)) {
+        return res.status(409).json({ error: 'busy', message: 'Updates are already being sent. Wait for them to finish.' });
+    }
+    // One press is one send against the rate limit; the cap above and one press at a
+    // time bound the server's rendering.
+    if (!allowSend(userId)) {
+        return res.status(429).json({ error: 'rate_limited', message: 'Too many sends. Wait a minute and try again.' });
+    }
+
+    resendsInFlight.add(userId);
+    try {
+        const globals = globalsOf(access.db);
+        const results = {};
+        for (const noteId of [...new Set(noteIds)]) {
+            try {
+                results[noteId] = await resendOne({ access, sender, userId, noteId, globals });
+            } catch (error) {
+                console.error('[odoo] Send update failed:', error);
+                results[noteId] = { ok: false, error: 'odoo_error', message: ERROR_MESSAGES.odoo_error };
+            }
+        }
+        return res.json({ results });
+    } finally {
+        resendsInFlight.delete(userId);
     }
 });
 
@@ -847,6 +977,88 @@ odooRoutes.post('/syncs/:id/take-over', async (req, res) => {
     } catch (error) {
         console.error('[odoo] Failed to take a sync over:', error);
         res.status(500).json({ error: 'Failed to take the sync over' });
+    }
+});
+
+// ---------------------------------------------------------------------------
+// Overview (docs/specs/proposed/odoo-overview.md)
+// ---------------------------------------------------------------------------
+
+const OVERVIEW_LIMIT = 500;
+
+/** Why a sync could not write a Document, in words (sync.js failure codes). */
+const SYNC_FAILURE_MESSAGES = Object.freeze({
+    images_failed: 'Some images could not be uploaded to the article.',
+    pdf_failed: 'The PDF could not be made.',
+    parent_failed: 'The article it belongs under could not be written.',
+});
+
+function syncFailureMessage(code) {
+    return SYNC_FAILURE_MESSAGES[code] || KNOWLEDGE_MESSAGES[code] || ERROR_MESSAGES[code] || ERROR_MESSAGES.odoo_error;
+}
+
+odooRoutes.get('/overview', (req, res) => {
+    const userId = req.user.user_id;
+    try {
+        const sender = (() => {
+            try {
+                return senderConnection(userId);
+            } catch {
+                return null;
+            }
+        })();
+        const places = [{ dbKey: `user:${String(userId).toLowerCase()}`, name: 'My Notes', role: 'owner' }];
+        try {
+            for (const space of listSpacesForUser(userId).spaces || []) {
+                places.push({ dbKey: `space:${space.spaceId}`, name: space.name, role: space.role });
+            }
+        } catch {
+            // Shared spaces off: just the personal database.
+        }
+
+        let documents = [];
+        const syncs = [];
+        const shown = [];
+        for (const place of places) {
+            const access = documentDatabase(userId, place.dbKey, { forSending: false });
+            if (access.status) continue;
+            const canEdit = ['owner', 'editor'].includes(place.role);
+            const found = overviewDocuments(access.db, {
+                dbKey: access.dbKey,
+                odooTarget: sender?.target ?? null,
+                canEdit,
+                failureMessage: syncFailureMessage,
+            });
+            const placeSyncs = listSyncs(access.db);
+            if (found.length || placeSyncs.length) shown.push(place);
+            documents = documents.concat(found.map((doc) => ({ ...doc, placeName: place.name })));
+            for (const sync of placeSyncs) {
+                syncs.push({ ...syncPayload(access.db, sync, access.dbKey), dbKey: access.dbKey, placeName: place.name, canEdit });
+            }
+        }
+
+        const sorted = sortOverview(documents);
+        const kept = sorted.slice(0, OVERVIEW_LIMIT);
+        const names = userNames(kept.map((doc) => doc.lastSentById));
+        res.json({
+            odooHost: sender ? sender.row.base_url : null,
+            truncated: sorted.length > OVERVIEW_LIMIT,
+            total: sorted.length,
+            places: shown,
+            documents: kept.map(({ lastSentById, records, ...doc }) => ({
+                ...doc,
+                lastSentBy: lastSentById === userId ? null : (names.get(lastSentById) || null),
+                lastSentByMe: lastSentById === userId,
+                records: records.map(({ urlPath, odooTarget, ...record }) => ({
+                    ...record,
+                    url: urlPath ? `${baseUrlOfTarget(odooTarget)}${urlPath}` : null,
+                })),
+            })),
+            syncs,
+        });
+    } catch (error) {
+        console.error('[odoo] Failed to load the overview:', error);
+        res.status(500).json({ error: 'Failed to load the overview' });
     }
 });
 

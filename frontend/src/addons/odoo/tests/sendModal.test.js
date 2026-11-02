@@ -134,22 +134,83 @@ describe('OdooSendModal', () => {
         expect(wrapper.find('[data-testid="odoo-send-submit"]').attributes('disabled')).toBeUndefined();
     });
 
-    it('updates what was sent before, without asking for a folder', async () => {
+    it('opens on a summary with Send update when the Document is already in Documents', async () => {
         const calls = api({
             links: { links: [{ destination: 'documents', targetKey: '', sameOdoo: true, url: 'https://acme.odoo.com/odoo/documents/tok1', lastSentAt: new Date(Date.now() - 3 * 86400000).toISOString(), lastSentBy: 'Kris' }], defaults: {} },
             send: { documents: { ok: true, created: false, url: 'https://acme.odoo.com/odoo/documents/tok1' } },
         });
         const wrapper = mountModal();
         await flushPromises();
-        expect(wrapper.find('[data-testid="odoo-send-last-sent"]').text()).toMatch(/Sent 3 days ago by Kris/);
-        expect(wrapper.find('[data-testid="odoo-folder-list"]').exists()).toBe(false);
+        const summary = wrapper.get('[data-testid="odoo-send-summary"]');
+        expect(summary.text()).toContain('In Documents');
+        expect(wrapper.get('[data-testid="odoo-send-summary-last-sent"]').text()).toMatch(/Last sent 3 days ago by Kris/);
+        const open = wrapper.get('[data-testid="odoo-send-summary-open-documents"]');
+        expect(open.attributes()).toMatchObject({ href: 'https://acme.odoo.com/odoo/documents/tok1', target: '_blank', rel: 'noopener noreferrer' });
+        expect(wrapper.find('[data-testid="odoo-send-documents"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="odoo-send-chatter"]').exists()).toBe(false);
         expect(calls.some((c) => c.path === '/addons/odoo/folders')).toBe(false);
-        expect(wrapper.find('[data-testid="odoo-send-submit"]').text()).toBe('Update in Odoo');
+        expect(wrapper.get('[data-testid="odoo-send-submit"]').text()).toBe('Send update');
 
-        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await wrapper.get('[data-testid="odoo-send-submit"]').trigger('click');
         await flushPromises();
-        expect(sentBody(calls).documents).toEqual({});
-        expect(wrapper.find('[data-testid="odoo-send-result"]').text()).toContain('Updated in Odoo Documents.');
+        const body = sentBody(calls);
+        expect(body.documents).toEqual({});
+        expect(body.knowledge).toBeUndefined();
+        expect(body.chatter).toBeUndefined();
+        expect(wrapper.get('[data-testid="odoo-send-summary-result-documents"]').text()).toBe('Updated in Odoo Documents.');
+    });
+
+    it('opens the full form from Change where it goes, with the current destinations ticked', async () => {
+        api({
+            links: { links: [{ destination: 'documents', targetKey: '', sameOdoo: true, url: null, lastSentAt: new Date().toISOString(), lastSentBy: null }], defaults: {} },
+        });
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.get('[data-testid="odoo-send-change"]').trigger('click');
+        expect(wrapper.find('[data-testid="odoo-send-summary"]').exists()).toBe(false);
+        expect(wrapper.get('[data-testid="odoo-send-last-sent"]').text()).toMatch(/Sent just now/);
+        expect(wrapper.get('[data-testid="odoo-send-documents-toggle"]').element.checked).toBe(true);
+        expect(wrapper.get('[data-testid="odoo-send-knowledge-toggle"]').element.checked).toBe(false);
+        expect(wrapper.get('[data-testid="odoo-send-chatter-toggle"]').element.checked).toBe(false);
+        expect(wrapper.get('[data-testid="odoo-send-submit"]').text()).toBe('Update in Odoo');
+
+        // The next open starts on the summary again.
+        await wrapper.setProps({ show: false });
+        await wrapper.setProps({ show: true });
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-summary"]').exists()).toBe(true);
+    });
+
+    it('stays on the form after a first send, with the result shown there', async () => {
+        const sent = { destination: 'documents', targetKey: '', sameOdoo: true, url: null, lastSentAt: new Date().toISOString(), lastSentBy: null };
+        let linksBody = { links: [], defaults: { folderId: 2 } };
+        const calls = [];
+        vi.stubGlobal('fetch', vi.fn((url, options = {}) => {
+            const path = new URL(url, 'http://x').pathname;
+            calls.push({ path, url, options });
+            const body = path === '/addons/odoo' ? CONNECTED
+                : path === '/addons/odoo/links' ? linksBody
+                    : path === '/addons/odoo/folders' ? FOLDERS
+                        : path === '/addons/odoo/send' ? { documents: { ok: true, created: true } }
+                            : null;
+            if (path === '/addons/odoo/send') linksBody = { links: [sent], defaults: { folderId: 2 } };
+            return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+        }));
+        const wrapper = mountModal();
+        await flushPromises();
+        await wrapper.get('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-summary"]').exists()).toBe(false);
+        expect(wrapper.get('[data-testid="odoo-send-result"]').text()).toBe('Sent to Odoo Documents.');
+    });
+
+    it('opens on the full form when the Document has only internal notes', async () => {
+        api({ links: { links: [{ destination: 'chatter', targetKey: 'sale.order:7', sameOdoo: true, lastSentAt: new Date().toISOString() }], defaults: { folderId: 2 } } });
+        const wrapper = mountModal();
+        await flushPromises();
+        expect(wrapper.find('[data-testid="odoo-send-summary"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="odoo-send-documents"]').exists()).toBe(true);
+        expect(wrapper.get('[data-testid="odoo-send-submit"]').text()).toBe('Send');
     });
 
     it('ignores a link to a different Odoo', async () => {
@@ -294,17 +355,40 @@ describe('OdooSendModal', () => {
         });
         const wrapper = mountModal();
         await flushPromises();
-        await wrapper.find('[data-testid="odoo-send-documents-toggle"]').setValue(false);
-        await wrapper.find('[data-testid="odoo-send-knowledge-toggle"]').setValue(true);
-        await flushPromises();
-        expect(wrapper.find('[data-testid="odoo-send-knowledge-last-sent"]').text()).toMatch(/Sent 1 minute ago by Kris/);
-        expect(wrapper.find('[data-testid="odoo-article-list"]').exists()).toBe(false);
+        expect(wrapper.get('[data-testid="odoo-send-summary"]').text()).toContain('In Knowledge');
+        expect(wrapper.get('[data-testid="odoo-send-summary-last-sent"]').text()).toMatch(/Last sent 1 minute ago by Kris/);
         expect(calls.some((c) => c.path === '/addons/odoo/articles')).toBe(false);
-        expect(wrapper.find('[data-testid="odoo-send-submit"]').text()).toBe('Update in Odoo');
-        await wrapper.find('[data-testid="odoo-send-submit"]').trigger('click');
+        await wrapper.get('[data-testid="odoo-send-submit"]').trigger('click');
         await flushPromises();
-        expect(sentBody(calls).knowledge).toEqual({ html: '<h1>Quote</h1><p>Hi</p>' });
-        expect(wrapper.find('[data-testid="odoo-send-knowledge-result"]').text()).toContain('Updated in Odoo Knowledge.');
+        const body = sentBody(calls);
+        expect(body.knowledge).toEqual({ html: '<h1>Quote</h1><p>Hi</p>' });
+        expect(body.documents).toBeUndefined();
+        expect(body.pdfRequest).toBeUndefined();
+        expect(wrapper.get('[data-testid="odoo-send-summary-result-knowledge"]').text()).toContain('Updated in Odoo Knowledge.');
+    });
+
+    it('sends only the PDF from the summary when the article is kept in sync', async () => {
+        const now = new Date().toISOString();
+        const calls = api({
+            links: {
+                links: [
+                    { destination: 'documents', targetKey: '', sameOdoo: true, url: null, lastSentAt: now, lastSentBy: null },
+                    { destination: 'knowledge', targetKey: '', sameOdoo: true, url: 'https://acme.odoo.com/knowledge/article/120', lastSentAt: now, lastSentBy: null, syncId: 's1' },
+                ],
+                defaults: {},
+                sync: { id: 's1', scope: 'note', status: 'active', lastRunAt: now },
+            },
+            send: { documents: { ok: true, created: false } },
+        });
+        const wrapper = mountModal();
+        await flushPromises();
+        expect(wrapper.get('[data-testid="odoo-send-summary"]').text()).toContain('In Knowledge and Documents');
+        expect(wrapper.get('[data-testid="odoo-send-summary-last-sent"]').text()).toContain('kept in sync on its own');
+        await wrapper.get('[data-testid="odoo-send-submit"]').trigger('click');
+        await flushPromises();
+        const body = sentBody(calls);
+        expect(body.documents).toEqual({});
+        expect(body.knowledge).toBeUndefined();
     });
 
     it('keeps a Document in sync instead of sending it once', async () => {

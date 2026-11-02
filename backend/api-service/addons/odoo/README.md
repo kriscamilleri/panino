@@ -19,6 +19,7 @@ and spaces in sync with Knowledge, and reads sales orders into Documents.
 | `routes` | `routes.js` (plus `saleOrderBlocks.js`), mounted at `/addons/odoo` behind the gate; paths are relative |
 | `schema.user` | `odoo_connection`, `odoo_block_layouts` (`schema.js`) |
 | `schema.content` | `odoo_links`, `odoo_defaults`, `odoo_syncs`, in user and space databases (`schema.js`) |
+| `schema.upgrade` | Adds columns to older databases (`odoo_links.sent_hash`) |
 | `hooks.afterChangesApplied` | Debounced sync runs after a `/sync` push (`syncScheduler.js`) |
 | `hooks.afterSyncRequest` | The daily reconcile check (`syncScheduler.js`) |
 | `configWarnings` | The flag is on but the encryption key is missing or short |
@@ -27,11 +28,12 @@ and spaces in sync with Knowledge, and reads sales orders into Documents.
 
 | File | Role |
 |---|---|
-| `routes.js` | Connection, pickers, links, send, syncs |
+| `routes.js` | Connection, pickers, links, send, overview, send updates (`/resend`), syncs |
 | `client.js` | JSON-2 API client over `safeFetch.js`, error codes, app detection |
 | `connection.js` | The stored connection, the address policy, the offer check |
 | `documents.js`, `knowledge.js`, `articleImages.js`, `chatter.js` | One per destination |
 | `links.js` | Send and sync bookkeeping (`odoo_links`, `odoo_defaults`) |
+| `overview.js` | The overview's rows and states per database, and `sent_hash` ("changed since sent") |
 | `sync.js`, `syncScheduler.js`, `syncPdf.js` | Knowledge syncs: one run, when to run, the PDFs a sync files |
 | `saleOrderBlocks.js` | Sales order search, field catalog, snapshots and saved layouts |
 | `tests/` | Unit and integration tests; `tests/fakeOdoo.js` is the fake Odoo server |

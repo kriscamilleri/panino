@@ -1,18 +1,30 @@
 <template>
     <template v-if="surface === 'toolbar'">
-        <BaseButton
-            v-for="item in items"
-            :key="item.key"
-            :disabled="Boolean(item.blocked)"
-            :title="item.blocked === 'online' ? 'Needs an internet connection' : item.blocked === 'document' ? 'Select a document first' : item.action.hint"
-            :data-testid="`submenu-tools-addon-${item.addonId}-${item.action.id}`"
-            @click="open(item)"
+        <template
+            v-for="(group, index) in groups"
+            :key="group.addonId"
         >
-            <component
-                :is="item.action.icon"
-                class="w-4 h-4"
-            /><span class="button-text">{{ item.action.label }}</span>
-        </BaseButton>
+            <div
+                v-if="index > 0"
+                class="addon-separator"
+                role="separator"
+                aria-orientation="vertical"
+                data-testid="submenu-addons-separator"
+            />
+            <BaseButton
+                v-for="item in group.items"
+                :key="item.key"
+                :disabled="Boolean(item.blocked)"
+                :title="item.blocked === 'online' ? 'Needs an internet connection' : item.blocked === 'document' ? 'Select a document first' : item.action.hint"
+                :data-testid="`submenu-addons-${item.addonId}-${item.action.id}`"
+                @click="open(item)"
+            >
+                <component
+                    :is="item.action.icon"
+                    class="w-4 h-4"
+                /><span class="button-text">{{ item.action.label }}</span>
+            </BaseButton>
+        </template>
     </template>
     <template v-else>
         <button
@@ -38,16 +50,19 @@
 
 <script setup>
 /**
- * The actions add-ons contribute to the toolbar's Tools group (`surface="toolbar"`)
+ * The actions add-ons contribute to the desktop Add-ons menu (`surface="toolbar"`)
  * or the phone Document menu (`surface="menu"`), from their manifests
  * (docs/specs/active/addon-folders.md §6.2). An action is absent while its add-on
  * is off, and disabled while what it `requires` is missing:
  *   online    the app has a connection (syncStore.isOnline)
  *   document  a Document is selected
- * An action shows on both surfaces unless its `surfaces` lists only one.
- * Choosing one opens the add-on's modal through ui.openAddonModal.
+ * An action shows on both surfaces unless its `surfaces` lists only one. On the
+ * toolbar each add-on's actions form a group, with a separator between groups.
+ * Choosing one opens the add-on's `modal` through ui.openAddonModal, or goes to its
+ * `page` (manifest `pages`, shown by pages/AddonPage.vue).
  */
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import BaseButton from '@/components/BaseButton.vue'
 import { ADDON_MANIFESTS } from '@/addons/registry'
 import { useAddonsStore } from '@/store/addonsStore'
@@ -59,6 +74,7 @@ const actionProps = defineProps({
     surface: { type: String, required: true, validator: (value) => ['toolbar', 'menu'].includes(value) },
 })
 
+const router = useRouter()
 const addonsStore = useAddonsStore()
 const docStore = useDocStore()
 const syncStore = useSyncStore()
@@ -84,8 +100,34 @@ const items = computed(() => ADDON_MANIFESTS
         blocked: blockedBy(action),
         }))))
 
+/** The toolbar's groups: one per add-on with an action here, in registry order. */
+const groups = computed(() => {
+    const byAddon = new Map()
+    for (const item of items.value) {
+        if (!byAddon.has(item.addonId)) byAddon.set(item.addonId, { addonId: item.addonId, items: [] })
+        byAddon.get(item.addonId).items.push(item)
+    }
+    return [...byAddon.values()]
+})
+
 function open(item) {
     if (item.blocked) return
+    if (item.action.page) {
+        ui.closeAllMenus()
+        router.push({ name: 'addon-page', params: { addonId: item.addonId, pageId: item.action.page } })
+        return
+    }
     ui.openAddonModal(item.addonId, item.action.modal)
 }
 </script>
+
+<style scoped>
+/* Matches the separators in SubMenuBar.vue. */
+.addon-separator {
+    width: 1px;
+    height: 1.5rem;
+    background-color: #d1d5db;
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+}
+</style>

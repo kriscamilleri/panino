@@ -244,7 +244,7 @@ import { Plug, Send, Sheet } from 'lucide-vue-next';
 
 export default {
   id: 'odoo',
-  actions: [                                   // toolbar Tools and phone Document menu
+  actions: [                                   // desktop Add-ons menu and phone Document menu
     {
       id: 'send',
       icon: Send,
@@ -291,12 +291,13 @@ offered add-on renders nothing.
 
 | Point | Rendered by | Core component | Replaces |
 |---|---|---|---|
-| `actions` (toolbar) | `SubMenuBar.vue` | `<AddonActions surface="toolbar" />` | The two Odoo `BaseButton`s |
+| `actions` (toolbar) | `SubMenuBar.vue`, the Add-ons menu | `<AddonActions surface="toolbar" />` | The two Odoo `BaseButton`s |
 | `actions` (phone menu) | `phone/DocumentMenuSheet.vue` | `<AddonActions surface="menu" />` | The two Odoo `ph-row`s |
 | `modals` (desktop) | `HomePage.vue`, desktop branch | `<AddonModalHost />` | The `OdooSendModal`, `OdooDataBlockModal` mounts in `HomePage` |
 | `modals` (phone) | `phone/DocumentMenuSheet.vue` | `<AddonModalHost />` | The sheet's own `OdooSendModal`, `OdooDataBlockModal` mounts |
 | `settingsCard` | `AddonsSection.vue`, `PhoneSettingsPage.vue` | `<AddonCard :addon-id point="settingsCard" layout="desktop" \| "phone" />` | The `#odoo` slot, the `addon.id === 'odoo'` branches, both `OdooConnectionModal` mounts |
 | `spaceCard` | `SpacesPage.vue` | `<AddonCard :addon-id point="spaceCard" :context="{ spaceId }" />`, one per manifest with a `spaceCard` | `OdooSyncsCard` and its hint |
+| `pages` | the router, `#/addons/:addonId/:pageId` | `pages/AddonPage.vue` (§6.2.5) | (new, 2026-11-02) |
 
 Rules for the core components:
 
@@ -319,6 +320,11 @@ Rules for the core components:
 - Actions open modals through a generic UI state: `ui.openAddonModal(addonId, modalId)`,
   `ui.closeAddonModal()` and `ui.addonModal` (`{ addonId, modalId } | null`). These replace the
   four Odoo entries in `uiStore`. At most one add-on modal is open at a time.
+- The desktop actions live in their own **Add-ons** submenu, opened by the Navbar's Add-ons
+  button (`navbar-addons-button`), not in Tools. The button shows while an add-on that is on has
+  a toolbar action. The submenu groups actions by add-on, in registry order, with a separator
+  (`submenu-addons-separator`) between groups. (Added 2026-10-30; the actions were first in
+  the Tools group.)
 - `AddonModalHost` mounts every modal of every add-on that is on (each through
   `defineAsyncComponent`) and binds `show` to `ui.addonModal`, with `@close` calling
   `ui.closeAddonModal()`. That is how the Odoo modals were hosted before (mounted while the
@@ -326,8 +332,8 @@ Rules for the core components:
   `watch(show)` loaders still fire. Their code loads once the add-on is on, not at startup.
 - `AddonCard` puts `settings-addon-<id>` or `space-addon-<id>` (`-hint` for `whenOff`) on the
   card's root; it overrides a test id on the card's own root element.
-- Test ids are derived as `<surface>-addon-<addonId>-<actionId>`, for example
-  `submenu-tools-addon-odoo-send` and `phone-menu-addon-odoo-data`. Odoo's existing ids
+- Test ids are derived from the surface, add-on and action: `submenu-addons-odoo-send` on
+  desktop (`submenu-tools-addon-…` before the Add-ons menu) and `phone-menu-addon-odoo-data`. Odoo's existing ids
   (`submenu-tools-odoo`, `submenu-tools-odoo-data`, `phone-menu-odoo`, `phone-menu-odoo-data`)
   are renamed in the same change, along with every test and browser script that uses them. Ids
   inside an add-on's own components (`odoo-send-*`, `odoo-data-*`, …) are the add-on's business
@@ -363,6 +369,32 @@ leaves an add-on modal pending.
 
 Placing one host at `PhoneShell` level instead was rejected: the back gesture would close the
 sheet but leave the modal open over the editor, which is a behaviour change.
+
+### 6.2.5 Pages
+
+Added 2026-11-02 for the Odoo overview ([`odoo-overview.md`](../proposed/odoo-overview.md)).
+A manifest may list full pages:
+
+```js
+pages: [{ id: 'overview', title: 'Odoo', component: () => import('./components/OdooOverviewPage.vue'),
+          maxWidthClass: 'max-w-6xl' /* optional; default max-w-5xl */ }],
+```
+
+- **One fixed route** serves every add-on page: `#/addons/:addonId/:pageId` (`addon-page`). Routes
+  added at runtime were rejected: a reload or a shared link would hit the router before the
+  add-on list has loaded. The fixed route goes through the usual login and loading redirects.
+- `pages/AddonPage.vue` waits for `addonsStore.fetchAddons()`, finds the page with
+  `addonManifest(id)`, and renders it inside `AccountLayout` (the shell of Images, Spaces and
+  Templates, which also works at phone width) with the page's `title`. The page component gets
+  the route's `query` as a prop, and is loaded only while the add-on is on.
+- While the add-on is offered but off, the host says to turn it on in Settings → Add-ons; while
+  it is not offered, or the page id is unknown, "This page is not available." It follows the
+  switch while open: switching the add-on off on its page shows the message.
+- An action opens a page with `page: '<pageId>'` instead of `modal`. `AddonActions` closes the
+  menus and pushes the route. Add-on components (settings and space cards) link to their own
+  pages with `router.push({ name: 'addon-page', params: { addonId, pageId }, query })`.
+- Test id: `addon-page-<id>-<page>` on a wrapper around the page, so the page keeps its own root ids; `addon-page-unavailable`,
+  `addon-page-loading`, `addon-page-open-settings` from the host.
 
 ### 6.3 Settings card
 

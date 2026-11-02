@@ -110,21 +110,26 @@ Add-ons live in `src/addons/<id>/` (store, components, utils, tests and a `READM
 add-ons never import each other: ESLint `panino/addon-boundaries` enforces both.
 
 A manifest declares where the add-on appears. Core renders the contribution points with three
-components in `src/components/addons/`:
+components in `src/components/addons/`, and add-on pages with `src/pages/AddonPage.vue`:
 
 | Point | Core component | Rendered by |
 |---|---|---|
-| `actions` | `AddonActions` (`surface="toolbar"` / `"menu"`) | `SubMenuBar`, `phone/DocumentMenuSheet` |
+| `actions` | `AddonActions` (`surface="toolbar"` / `"menu"`) | `SubMenuBar` (the Add-ons menu), `phone/DocumentMenuSheet` |
 | `modals` | `AddonModalHost` | `HomePage` (desktop branch), `phone/DocumentMenuSheet` (never both on screen) |
 | `settingsCard` | `AddonCard point="settingsCard"` | `AddonsSection`, `PhoneSettingsPage` |
 | `spaceCard` | `AddonCard point="spaceCard"` | `SpacesPage` |
+| `pages` | `pages/AddonPage.vue` | the router, `#/addons/:addonId/:pageId`, in `AccountLayout` |
 
 Everything renders only while `addonsStore.isActive(id)`. An action shows on both surfaces unless
-its `surfaces` lists one (GitHub backup's is `['toolbar']`). Actions open modals with
-`ui.openAddonModal(addonId, modalId)`; closing the phone Document menu closes the add-on modal.
+its `surfaces` lists one (GitHub backup's is `['toolbar']`). On desktop, the Navbar's
+**Add-ons** button shows while an add-on that is on has a toolbar action, and opens the Add-ons
+submenu (`ui.showAddonsMenu`). That submenu groups the actions by add-on, in registry order,
+with a separator between groups. Actions open modals with
+`ui.openAddonModal(addonId, modalId)`, or go to a page when they name `page` instead of `modal`
+(`addon-folders.md` §6.2.5); closing the phone Document menu closes the add-on modal.
 Manifests import components only through `() => import(…)`, so an add-on stays out of the main
-bundle. Test ids are derived: `submenu-tools-addon-<id>-<action>`, `phone-menu-addon-<id>-<action>`,
-`settings-addon-<id>`, `space-addon-<id>` (and `-hint`).
+bundle. Test ids are derived: `submenu-addons-<id>-<action>` (separators `submenu-addons-separator`), `phone-menu-addon-<id>-<action>`,
+`settings-addon-<id>`, `space-addon-<id>` (and `-hint`), `addon-page-<id>-<page>`.
 
 Today: `src/addons/github/` (GitHub backup: toolbar **Backup** action, its modal, and a settings
 card that also finishes the OAuth return on `/settings?addon=github&addonResult=…`) and `src/addons/odoo/`.

@@ -52,7 +52,53 @@
                 </ul>
 
                 <p class="ph-section-label ph-drawer-heading">Folders</p>
-                <ul class="ph-drawer-list">
+
+                <!-- Once there is a space, the personal folders sit in a collapsible
+                     My Notes group, and each space is a collapsible group after it. -->
+                <div
+                    v-if="spaces.length"
+                    class="ph-drawer-group"
+                >
+                    <button
+                        type="button"
+                        class="ph-drawer-chevron"
+                        :aria-expanded="!ui.myNotesCollapsed"
+                        aria-label="Show or hide My Notes"
+                        data-testid="phone-drawer-my-notes-toggle"
+                        @click="ui.toggleMyNotesCollapsed()"
+                    >
+                        <ChevronRight
+                            v-if="ui.myNotesCollapsed"
+                            class="h-5 w-5"
+                            aria-hidden="true"
+                        />
+                        <ChevronDown
+                            v-else
+                            class="h-5 w-5"
+                            aria-hidden="true"
+                        />
+                    </button>
+                    <button
+                        type="button"
+                        class="ph-drawer-item"
+                        :aria-expanded="!ui.myNotesCollapsed"
+                        data-testid="phone-drawer-my-notes"
+                        @click="ui.toggleMyNotesCollapsed()"
+                    >
+                        <User
+                            class="h-5 w-5"
+                            aria-hidden="true"
+                        />
+                        <span class="ph-drawer-label">My Notes</span>
+                    </button>
+                </div>
+
+                <ul
+                    v-if="!spaces.length || !ui.myNotesCollapsed"
+                    class="ph-drawer-list"
+                    :class="{ 'ph-drawer-nested': spaces.length }"
+                    data-testid="phone-drawer-my-notes-folders"
+                >
                     <li
                         v-for="folder in shownFolders"
                         :key="folder.id"
@@ -101,6 +147,90 @@
                     </li>
                 </ul>
 
+                <template
+                    v-for="space in spaces"
+                    :key="space.dbKey"
+                >
+                    <div class="ph-drawer-group">
+                        <button
+                            type="button"
+                            class="ph-drawer-chevron"
+                            :aria-expanded="isSpaceOpen(space)"
+                            :aria-label="`Show or hide the folders in ${space.name}`"
+                            :data-testid="`phone-drawer-space-toggle-${space.dbKey}`"
+                            @click="docStore.toggleFolder(space.dbKey, space.dbKey)"
+                        >
+                            <ChevronDown
+                                v-if="isSpaceOpen(space)"
+                                class="h-5 w-5"
+                                aria-hidden="true"
+                            />
+                            <ChevronRight
+                                v-else
+                                class="h-5 w-5"
+                                aria-hidden="true"
+                            />
+                        </button>
+                        <button
+                            type="button"
+                            class="ph-drawer-item"
+                            :aria-current="isCurrentFolder({ id: space.dbKey }) ? 'page' : undefined"
+                            :data-testid="`phone-drawer-space-${space.dbKey}`"
+                            @click="goFolder({ id: space.dbKey, dbKey: space.dbKey })"
+                        >
+                            <Users
+                                class="h-5 w-5"
+                                aria-hidden="true"
+                            />
+                            <span class="ph-drawer-label">{{ space.name }}</span>
+                        </button>
+                    </div>
+                    <ul
+                        v-if="isSpaceOpen(space)"
+                        class="ph-drawer-list ph-drawer-nested"
+                        :data-testid="`phone-drawer-space-folders-${space.dbKey}`"
+                    >
+                        <li
+                            v-for="folder in shownSpaceFolders(space)"
+                            :key="folder.id"
+                        >
+                            <button
+                                type="button"
+                                class="ph-drawer-item"
+                                :aria-current="isCurrentFolder(folder) ? 'page' : undefined"
+                                :data-testid="`phone-drawer-folder-${folder.id}`"
+                                @click="goFolder(folder)"
+                            >
+                                <Folder
+                                    class="h-5 w-5"
+                                    aria-hidden="true"
+                                />
+                                <span class="ph-drawer-label">{{ folder.name }}</span>
+                            </button>
+                        </li>
+                        <li v-if="hasMoreSpaceFolders(space)">
+                            <button
+                                type="button"
+                                class="ph-drawer-item"
+                                :data-testid="`phone-drawer-space-all-${space.dbKey}`"
+                                @click="goFolder({ id: space.dbKey, dbKey: space.dbKey })"
+                            >
+                                <FolderTree
+                                    class="h-5 w-5"
+                                    aria-hidden="true"
+                                />
+                                <span class="ph-drawer-label">See all</span>
+                            </button>
+                        </li>
+                        <li
+                            v-if="!shownSpaceFolders(space).length"
+                            class="ph-drawer-empty"
+                        >
+                            No folders yet
+                        </li>
+                    </ul>
+                </template>
+
                 <div class="ph-drawer-foot">
                     <button
                         type="button"
@@ -143,7 +273,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { StickyNote, Pin, Users, Folder, FolderTree, FolderPlus, Settings } from 'lucide-vue-next'
+import { StickyNote, Pin, Users, User, Folder, FolderTree, FolderPlus, Settings, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import PromptModal from '@/components/PromptModal.vue'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
@@ -181,11 +311,26 @@ const primaryItems = computed(() => [
     { key: 'shared', label: 'Shared with me', icon: Users, active: false, go: () => go({ name: 'folders', query: { tab: 'shared' } }) },
 ])
 
-/** Top-level personal folders, alphabetical. */
-const shownFolders = computed(() => folders.value
+/** Top-level folders, alphabetical. */
+const topFolders = (list) => list
     .filter((folder) => !folder.parentId)
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-    .slice(0, MAX_FOLDERS))
+
+const shownFolders = computed(() => topFolders(folders.value).slice(0, MAX_FOLDERS))
+
+/** The spaces this device has, by name. */
+const spaces = computed(() => [...syncStore.databases.values()]
+    .filter((entry) => entry.kind === 'space')
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))))
+
+/** A space's group open state is the desktop tree's, so both agree. */
+const isSpaceOpen = (space) => docStore.isFolderOpen(space.dbKey, space.dbKey)
+const openSpaceKeys = computed(() => spaces.value.filter(isSpaceOpen).map((space) => space.dbKey))
+
+/** Top-level folders of each open space, by database key. */
+const spaceFolders = ref({})
+const shownSpaceFolders = (space) => (spaceFolders.value[space.dbKey] || []).slice(0, MAX_FOLDERS)
+const hasMoreSpaceFolders = (space) => (spaceFolders.value[space.dbKey] || []).length > MAX_FOLDERS
 
 watch(() => [props.open, docStore.contentVersion], async ([open]) => {
     if (!open || !syncStore.personalDbKey) return
@@ -193,6 +338,18 @@ watch(() => [props.open, docStore.contentVersion], async ([open]) => {
         folders.value = await docStore.listFolders(syncStore.personalDbKey)
     } catch (error) {
         console.warn('[PhoneDrawer] Could not load folders:', error)
+    }
+}, { immediate: true })
+
+watch(() => [props.open, docStore.contentVersion, openSpaceKeys.value.join('|')], async ([open]) => {
+    if (!open) return
+    for (const dbKey of openSpaceKeys.value) {
+        try {
+            const list = topFolders(await docStore.listFolders(dbKey))
+            spaceFolders.value = { ...spaceFolders.value, [dbKey]: list }
+        } catch (error) {
+            console.warn('[PhoneDrawer] Could not load the folders of a space:', error)
+        }
     }
 }, { immediate: true })
 
@@ -306,6 +463,40 @@ function endSwipe() {
     color: var(--ph-ink);
     font-size: 16px;
     text-align: left;
+}
+
+.ph-drawer-group {
+    display: flex;
+    align-items: center;
+}
+
+.ph-drawer-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    min-height: 48px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--ph-ink-2);
+}
+
+.ph-drawer-group .ph-drawer-item {
+    padding-left: 4px;
+    font-weight: 600;
+}
+
+/* A group's folders, indented under its name. */
+.ph-drawer-nested {
+    margin-left: 36px;
+}
+
+.ph-drawer-empty {
+    padding: 8px 12px;
+    font-size: 14px;
+    color: var(--ph-muted);
 }
 
 .ph-drawer-item svg {
