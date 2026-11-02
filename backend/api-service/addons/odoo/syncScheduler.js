@@ -71,7 +71,7 @@ async function waitForSlot(target) {
 }
 
 /** The account's global variables, as the Preview sees them. */
-function globalsOf(db) {
+export function globalsOf(db) {
     const map = new Map();
     try {
         for (const row of db.prepare('SELECT key, value FROM globals').all()) {

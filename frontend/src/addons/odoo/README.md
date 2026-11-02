@@ -14,10 +14,11 @@ Settings and on the Spaces page, and sales order blocks.
 
 | Contribution point | What Odoo puts there |
 |---|---|
-| `actions` | **send** ("Odoo" / "Send to Odoo") and **data** ("Odoo data" / "Sales orders from Odoo"), both need a connection and a selected Document |
+| `actions` | **send** ("Odoo" / "Send to Odoo") and **data** ("Odoo data" / "Sales orders from Odoo"), both need a connection and a selected Document; **overview** ("Odoo overview", desktop Add-ons menu only) opens the overview page |
 | `modals` | `send` → `OdooSendModal`, `data` → `OdooDataBlockModal` |
-| `settingsCard` | `OdooSettingsCard` (desktop and phone): connection, key notice, syncs |
-| `spaceCard` | `OdooSyncsCard` in space mode, with a hint while the add-on is off |
+| `pages` | `overview` → `OdooOverviewPage` at `#/addons/odoo/overview` ([spec](../../../../docs/specs/proposed/odoo-overview.md)) |
+| `settingsCard` | `OdooSettingsCard` (desktop and phone): connection, Overview, key notice, syncs |
+| `spaceCard` | `OdooSyncsCard` in space mode (with Open overview for that space), with a hint while the add-on is off |
 
 Components load only through `() => import(…)` in the manifest, so nothing here is in the
 main bundle except the manifest itself.
@@ -26,7 +27,7 @@ main bundle except the manifest itself.
 
 | File | Role |
 |---|---|
-| `store.js` | `useOdooStore` (Pinia id `odooStore`): connection, pickers, links, send, syncs, sales orders |
+| `store.js` | `useOdooStore` (Pinia id `odooStore`): connection, pickers, links, send, overview, send updates, syncs, sales orders |
 | `components/` | The modals and cards above, plus `OdooConnectionModal` and `OdooKeyNotice` |
 | `utils/connection.js` | Display helpers: key expiry, app labels, host |
 | `utils/article.js`, `composables/useDocumentArticle.js` | A Document's Knowledge article HTML |

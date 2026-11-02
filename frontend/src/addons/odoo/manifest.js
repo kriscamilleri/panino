@@ -3,7 +3,7 @@
  * Components load only through `() => import(…)`; keep it that way, so the
  * main bundle carries nothing of Odoo's but this file.
  */
-import { Send, Sheet } from 'lucide-vue-next'
+import { LayoutList, Send, Sheet } from 'lucide-vue-next'
 
 export default Object.freeze({
     id: 'odoo',
@@ -27,6 +27,20 @@ export default Object.freeze({
             requires: ['online', 'document'],
             modal: 'data',
         },
+        {
+            id: 'overview',
+            icon: LayoutList,
+            label: 'Odoo overview',
+            hint: 'Everything sent to Odoo, and what needs updating',
+            requires: ['online'],
+            // On the phone it opens from the Odoo card in Settings: the Document menu is about one Document.
+            surfaces: ['toolbar'],
+            page: 'overview',
+        },
+    ],
+    // Full pages at #/addons/odoo/<id> (core pages/AddonPage.vue).
+    pages: [
+        { id: 'overview', title: 'Odoo', maxWidthClass: 'max-w-6xl', component: () => import('./components/OdooOverviewPage.vue') },
     ],
     modals: {
         send: () => import('./components/OdooSendModal.vue'),

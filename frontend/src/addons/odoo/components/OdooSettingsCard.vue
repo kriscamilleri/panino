@@ -17,6 +17,22 @@
                 aria-hidden="true"
             />
         </button>
+        <button
+            type="button"
+            class="ph-row"
+            data-testid="phone-settings-odoo-overview"
+            @click="openOverview"
+        >
+            <LayoutList
+                class="h-5 w-5"
+                aria-hidden="true"
+            />
+            <span class="ph-settings-grow">Overview</span>
+            <ChevronRight
+                class="h-5 w-5"
+                aria-hidden="true"
+            />
+        </button>
         <OdooKeyNotice class="mx-4 my-2" />
         <OdooSyncsCard
             ref="syncsCard"
@@ -40,6 +56,16 @@
             <Plug class="w-4 h-4" />
             <span>Odoo connection</span>
         </BaseButton>
+        <BaseButton
+            variant="secondary"
+            size="md"
+            class="ml-2"
+            data-testid="settings-odoo-overview"
+            @click="openOverview"
+        >
+            <LayoutList class="w-4 h-4" />
+            <span>Overview</span>
+        </BaseButton>
         <OdooKeyNotice />
         <OdooSyncsCard ref="syncsCard" />
         <OdooConnectionModal
@@ -52,11 +78,13 @@
 <script setup>
 /**
  * The Odoo card under the add-on's switch in Settings, desktop and phone
- * (manifest.js `settingsCard`): the connection, the key notice and the syncs.
+ * (manifest.js `settingsCard`): the connection, the overview page, the key notice
+ * and the syncs.
  * It owns the connection modal, so the Settings pages know nothing of Odoo.
  */
 import { ref } from 'vue'
-import { ChevronRight, Plug } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { ChevronRight, LayoutList, Plug } from 'lucide-vue-next'
 import BaseButton from '@/components/BaseButton.vue'
 import { useSyncStore } from '@/store/syncStore'
 import OdooConnectionModal from './OdooConnectionModal.vue'
@@ -67,9 +95,14 @@ defineProps({
     layout: { type: String, default: 'desktop', validator: (value) => ['desktop', 'phone'].includes(value) },
 })
 
+const router = useRouter()
 const syncStore = useSyncStore()
 const showConnection = ref(false)
 const syncsCard = ref(null)
+
+function openOverview() {
+    router.push({ name: 'addon-page', params: { addonId: 'odoo', pageId: 'overview' } })
+}
 
 // A connection change (new key, disconnect) changes what the syncs card can show.
 function closeConnection() {

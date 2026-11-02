@@ -90,7 +90,7 @@
                         v-if="failuresOf(sync).length"
                         class="pn-help text-red-700"
                         :data-testid="`odoo-sync-failures-${sync.id}`"
-                    >{{ failuresOf(sync).length }} {{ failuresOf(sync).length === 1 ? 'record' : 'records' }} could not be written and will be retried: {{ failuresOf(sync).map((f) => f.name).slice(0, 3).join(', ') }}<span v-if="failuresOf(sync).length > 3">, …</span></p>
+                    >{{ failuresOf(sync).length }} {{ failuresOf(sync).length === 1 ? 'record' : 'records' }} could not be written and will be retried: {{ failuresOf(sync).map((f) => f.name).join(', ') }}.</p>
                     <div
                         v-if="removing === sync.id"
                         class="pn-alert pn-alert-warning flex flex-wrap items-center justify-between gap-2"
@@ -134,6 +134,13 @@
                     data-testid="odoo-syncs-refresh"
                     @click="load"
                 >Refresh</BaseButton>
+                <BaseButton
+                    v-if="spaceMode && overviewLink"
+                    variant="ghost"
+                    size="sm"
+                    data-testid="odoo-syncs-overview"
+                    @click="openOverview"
+                >Open overview</BaseButton>
             </div>
 
             <form
@@ -340,6 +347,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { Check, Plus } from 'lucide-vue-next'
 import BaseButton from '@/components/BaseButton.vue'
 import { useAuthStore } from '@/store/authStore'
@@ -354,11 +362,15 @@ import { sentAgo } from '@/addons/odoo/utils/connection'
  * what is kept in sync, how the last run went, Sync now, Remove, and Add sync
  * for a folder. Single Documents are added from the Send to Odoo sheet.
  */
+const router = useRouter()
+
 const props = defineProps({
     /** The database whose syncs to show; the personal one by default. */
     dbKey: { type: String, default: '' },
     /** A shared space: offer the whole space, show who runs each sync, allow take-over. */
     spaceMode: { type: Boolean, default: false },
+    /** In a space: link to the Odoo overview filtered to this space (off on the overview itself). */
+    overviewLink: { type: Boolean, default: true },
 })
 
 const authStore = useAuthStore()
@@ -414,6 +426,10 @@ function statusLine(sync) {
     if (r.pdfs) parts.push(`${r.pdfs} ${r.pdfs === 1 ? 'PDF' : 'PDFs'} filed`)
     if (!parts.length) parts.push('nothing to change')
     return `Last sync ${sentAgo(sync.lastRunAt)}: ${parts.join(', ')}.`
+}
+
+function openOverview() {
+    router.push({ name: 'addon-page', params: { addonId: 'odoo', pageId: 'overview' }, query: { where: dbKey.value } })
 }
 
 async function load() {

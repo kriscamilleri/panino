@@ -214,6 +214,27 @@ export const useOdooStore = defineStore('odooStore', () => {
     }
 
     /**
+     * Every Document with a record in Odoo, across the caller's databases, and their
+     * syncs (docs/specs/proposed/odoo-overview.md §7).
+     *
+     * @returns {Promise<{ odooHost: string|null, truncated: boolean, total: number, places: object[], documents: object[], syncs: object[] }>}
+     */
+    async function fetchOverview() {
+        return authFetch('/addons/odoo/overview');
+    }
+
+    /**
+     * Send Documents of one database again to the records they already have, rendered
+     * on the server. Resolves with `{ results: { [noteId]: { ok, error?, message? } } }`.
+     *
+     * @param {string} dbKey
+     * @param {string[]} noteIds at most 25
+     */
+    async function resend(dbKey, noteIds) {
+        return authFetch('/addons/odoo/resend', { method: 'POST', body: JSON.stringify({ dbKey, noteIds }) });
+    }
+
+    /**
      * Sales orders for the block picker (docs/specs/active/odoo-sales-order-blocks.md).
      *
      * @param {string} query reference or customer
@@ -283,6 +304,8 @@ export const useOdooStore = defineStore('odooStore', () => {
         fetchRecords,
         fetchLinks,
         send,
+        fetchOverview,
+        resend,
         fetchSyncs,
         createSync,
         runSync,
