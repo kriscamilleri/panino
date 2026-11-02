@@ -198,6 +198,7 @@ availability check: the routes answer 404 when the operator flag is off, and the
 - `odooStore.available` becomes `addonsStore.isActive('odoo')`; the status-route 404 check goes.
 - The Settings → Tools → Odoo button on desktop and phone is replaced by the Add-ons section.
   The toolbar Tools → Odoo button and the phone Document menu entry stay, guarded by `isActive`.
+  (Since 2026-10-30 the desktop buttons are in their own Add-ons menu; see `addon-folders.md` §6.2.)
 - Users who connected Odoo on a development stack before this phase keep their connection and
   see it again as soon as they switch the add-on on.
 - Syncs (Odoo Phase 9) pause with `addon_disabled` and resume on `onEnabled`.

@@ -40,4 +40,15 @@ describe("SubMenuBar tools menu", () => {
       /<[^>]*\bdata-testid="submenu-tools-templates"[^>]*\bdisabled\b/,
     );
   });
+
+  it("keeps add-on actions out of Tools and in the Add-ons menu", () => {
+    const tools = subMenuBarSource.slice(
+      subMenuBarSource.indexOf('v-else-if="ui.showFileMenu"'),
+      subMenuBarSource.indexOf('v-else-if="ui.showAddonsMenu"'),
+    );
+    expect(tools).not.toContain("AddonActions");
+    expect(subMenuBarSource).toMatch(
+      /v-else-if="ui\.showAddonsMenu"[\s\S]*?<AddonActions surface="toolbar" \/>/,
+    );
+  });
 });

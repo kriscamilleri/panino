@@ -27,7 +27,7 @@ it only through the add-on registries.
 | OAuth return lands on | `/#/?githubBackup=…` (HomePage) | `/#/settings?addon=github&addonResult=…` (the add-on's settings card) |
 | Daily backup | `sync.js` called `triggerDailyAutoBackup` | `afterSyncRequest` hook; also needs the add-on on |
 | Table | `backup_config` in core `USER_LOCAL_SCHEMA` | Same table and name, in the add-on's `schema.user` |
-| Desktop entry | Core Tools button | Add-on action, Tools group, toolbar only |
+| Desktop entry | Core Tools button | Add-on action in the Add-ons menu, desktop only |
 | Phone entry | Core Settings → Tools row | The add-on's settings card |
 
 ## 2) What leaves Panino, and as whom

@@ -7,7 +7,7 @@ import { Send, Sheet } from 'lucide-vue-next'
 
 export default Object.freeze({
     id: 'odoo',
-    // The toolbar's Tools group and the phone Document menu.
+    // The desktop Add-ons menu and the phone Document menu.
     actions: [
         {
             id: 'send',

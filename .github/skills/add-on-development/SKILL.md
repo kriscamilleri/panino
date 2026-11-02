@@ -116,7 +116,7 @@ export default Object.freeze({
 
 | Point | Shows up in | Notes |
 |---|---|---|
-| `actions` | Desktop toolbar Tools group, phone Document menu | Core disables per `requires` and writes the "offline" / "select a document" wording; `hint` is the tooltip when available |
+| `actions` | Desktop Add-ons menu (one group per add-on, separated), phone Document menu | Core disables per `requires` and writes the "offline" / "select a document" wording; `hint` is the tooltip when available |
 | `modals` | Desktop `HomePage`, phone Document menu sheet | Mounted while the add-on is on; `show` follows `ui.addonModal` |
 | `settingsCard` | Under the switch in Settings, desktop and phone | |
 | `spaceCard` | Spaces page, for editors | `whenOff` shows while offered but off |
@@ -124,7 +124,7 @@ export default Object.freeze({
 Register the manifest in `frontend/src/addons/registry.js`: one import, plus one entry in
 `ADDON_MANIFESTS`.
 
-Test ids are derived by core: `submenu-tools-addon-<id>-<action>`,
+Test ids are derived by core: `submenu-addons-<id>-<action>`,
 `phone-menu-addon-<id>-<action>`, `settings-addon-<id>`, `space-addon-<id>` (`-hint`). Ids
 inside your own components are yours; prefix them with the add-on id.
 

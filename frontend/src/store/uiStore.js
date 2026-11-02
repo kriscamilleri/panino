@@ -36,6 +36,7 @@ export const useUiStore = defineStore("uiStore", () => {
   const showViewMenu = ref(false);
   const showActionBar = ref(false);
   const showFileMenu = ref(false);
+  const showAddonsMenu = ref(false);
 
   // Modal and Toast state (transient)
   const showImportModal = ref(false);
@@ -157,7 +158,11 @@ export const useUiStore = defineStore("uiStore", () => {
 
   // --- Computed Properties ---
   const isAnyMenuOpen = computed(
-    () => showViewMenu.value || showActionBar.value || showFileMenu.value,
+    () =>
+      showViewMenu.value ||
+      showActionBar.value ||
+      showFileMenu.value ||
+      showAddonsMenu.value,
   );
 
   // --- Actions ---
@@ -170,7 +175,12 @@ export const useUiStore = defineStore("uiStore", () => {
 
   // Transient Menu Toggles
   const toggleMenu = (menuRef) => {
-    const otherMenus = [showViewMenu, showActionBar, showFileMenu].filter(
+    const otherMenus = [
+      showViewMenu,
+      showActionBar,
+      showFileMenu,
+      showAddonsMenu,
+    ].filter(
       (m) => m !== menuRef,
     );
     const isOpening = !menuRef.value;
@@ -219,6 +229,7 @@ export const useUiStore = defineStore("uiStore", () => {
     showViewMenu,
     showActionBar,
     showFileMenu,
+    showAddonsMenu,
     showImportModal,
     showExportModal,
     addonModal,
@@ -245,11 +256,13 @@ export const useUiStore = defineStore("uiStore", () => {
     toggleViewMenu: () => toggleMenu(showViewMenu),
     toggleActionBar: () => toggleMenu(showActionBar),
     toggleFileMenu: () => toggleMenu(showFileMenu),
+    toggleAddonsMenu: () => toggleMenu(showAddonsMenu),
 
     closeAllMenus: () => {
       showViewMenu.value = false;
       showActionBar.value = false;
       showFileMenu.value = false;
+      showAddonsMenu.value = false;
     },
 
     openImportModal: () => (showImportModal.value = true),

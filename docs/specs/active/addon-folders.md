@@ -244,7 +244,7 @@ import { Plug, Send, Sheet } from 'lucide-vue-next';
 
 export default {
   id: 'odoo',
-  actions: [                                   // toolbar Tools and phone Document menu
+  actions: [                                   // desktop Add-ons menu and phone Document menu
     {
       id: 'send',
       icon: Send,
@@ -291,7 +291,7 @@ offered add-on renders nothing.
 
 | Point | Rendered by | Core component | Replaces |
 |---|---|---|---|
-| `actions` (toolbar) | `SubMenuBar.vue` | `<AddonActions surface="toolbar" />` | The two Odoo `BaseButton`s |
+| `actions` (toolbar) | `SubMenuBar.vue`, the Add-ons menu | `<AddonActions surface="toolbar" />` | The two Odoo `BaseButton`s |
 | `actions` (phone menu) | `phone/DocumentMenuSheet.vue` | `<AddonActions surface="menu" />` | The two Odoo `ph-row`s |
 | `modals` (desktop) | `HomePage.vue`, desktop branch | `<AddonModalHost />` | The `OdooSendModal`, `OdooDataBlockModal` mounts in `HomePage` |
 | `modals` (phone) | `phone/DocumentMenuSheet.vue` | `<AddonModalHost />` | The sheet's own `OdooSendModal`, `OdooDataBlockModal` mounts |
@@ -319,6 +319,11 @@ Rules for the core components:
 - Actions open modals through a generic UI state: `ui.openAddonModal(addonId, modalId)`,
   `ui.closeAddonModal()` and `ui.addonModal` (`{ addonId, modalId } | null`). These replace the
   four Odoo entries in `uiStore`. At most one add-on modal is open at a time.
+- The desktop actions live in their own **Add-ons** submenu, opened by the Navbar's Add-ons
+  button (`navbar-addons-button`), not in Tools. The button shows while an add-on that is on has
+  a toolbar action. The submenu groups actions by add-on, in registry order, with a separator
+  (`submenu-addons-separator`) between groups. (Added 2026-10-30; the actions were first in
+  the Tools group.)
 - `AddonModalHost` mounts every modal of every add-on that is on (each through
   `defineAsyncComponent`) and binds `show` to `ui.addonModal`, with `@close` calling
   `ui.closeAddonModal()`. That is how the Odoo modals were hosted before (mounted while the
@@ -326,8 +331,8 @@ Rules for the core components:
   `watch(show)` loaders still fire. Their code loads once the add-on is on, not at startup.
 - `AddonCard` puts `settings-addon-<id>` or `space-addon-<id>` (`-hint` for `whenOff`) on the
   card's root; it overrides a test id on the card's own root element.
-- Test ids are derived as `<surface>-addon-<addonId>-<actionId>`, for example
-  `submenu-tools-addon-odoo-send` and `phone-menu-addon-odoo-data`. Odoo's existing ids
+- Test ids are derived from the surface, add-on and action: `submenu-addons-odoo-send` on
+  desktop (`submenu-tools-addon-…` before the Add-ons menu) and `phone-menu-addon-odoo-data`. Odoo's existing ids
   (`submenu-tools-odoo`, `submenu-tools-odoo-data`, `phone-menu-odoo`, `phone-menu-odoo-data`)
   are renamed in the same change, along with every test and browser script that uses them. Ids
   inside an add-on's own components (`odoo-send-*`, `odoo-data-*`, …) are the add-on's business

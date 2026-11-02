@@ -10,7 +10,7 @@ The app side of GitHub backup: the Backup action, the backup dialog, and its car
 
 | Contribution point | What GitHub backup puts there |
 |---|---|
-| `actions` | **backup** ("Backup"), needs a connection, `surfaces: ['toolbar']`: desktop Tools group only |
+| `actions` | **backup** ("Backup"), needs a connection, `surfaces: ['toolbar']`: desktop Add-ons menu only |
 | `modals` | `backup` → `GitHubBackupModal` |
 | `settingsCard` | `GitHubSettingsCard` (desktop and phone): opens its own backup dialog; the way in on a phone |
 

@@ -114,16 +114,19 @@ components in `src/components/addons/`:
 
 | Point | Core component | Rendered by |
 |---|---|---|
-| `actions` | `AddonActions` (`surface="toolbar"` / `"menu"`) | `SubMenuBar`, `phone/DocumentMenuSheet` |
+| `actions` | `AddonActions` (`surface="toolbar"` / `"menu"`) | `SubMenuBar` (the Add-ons menu), `phone/DocumentMenuSheet` |
 | `modals` | `AddonModalHost` | `HomePage` (desktop branch), `phone/DocumentMenuSheet` (never both on screen) |
 | `settingsCard` | `AddonCard point="settingsCard"` | `AddonsSection`, `PhoneSettingsPage` |
 | `spaceCard` | `AddonCard point="spaceCard"` | `SpacesPage` |
 
 Everything renders only while `addonsStore.isActive(id)`. An action shows on both surfaces unless
-its `surfaces` lists one (GitHub backup's is `['toolbar']`). Actions open modals with
+its `surfaces` lists one (GitHub backup's is `['toolbar']`). On desktop, the Navbar's
+**Add-ons** button shows while an add-on that is on has a toolbar action, and opens the Add-ons
+submenu (`ui.showAddonsMenu`). That submenu groups the actions by add-on, in registry order,
+with a separator between groups. Actions open modals with
 `ui.openAddonModal(addonId, modalId)`; closing the phone Document menu closes the add-on modal.
 Manifests import components only through `() => import(…)`, so an add-on stays out of the main
-bundle. Test ids are derived: `submenu-tools-addon-<id>-<action>`, `phone-menu-addon-<id>-<action>`,
+bundle. Test ids are derived: `submenu-addons-<id>-<action>` (separators `submenu-addons-separator`), `phone-menu-addon-<id>-<action>`,
 `settings-addon-<id>`, `space-addon-<id>` (and `-hint`).
 
 Today: `src/addons/github/` (GitHub backup: toolbar **Backup** action, its modal, and a settings

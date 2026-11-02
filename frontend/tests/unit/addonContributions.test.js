@@ -47,9 +47,15 @@ vi.mock('@/addons/registry', () => {
             whenOff: 'Turn on Probe first.',
         },
     };
+    // A second add-on, to show how the toolbar separates one add-on's actions from another's.
+    const second = {
+        id: 'second',
+        actions: [{ id: 'one', icon: Icon, label: 'One', hint: 'One', modal: 'main' }],
+        modals: { main: () => Promise.resolve({ __esModule: true, default: Modal }) },
+    };
     return {
-        ADDON_MANIFESTS: [manifest],
-        addonManifest: (id) => (id === 'probe' ? manifest : null),
+        ADDON_MANIFESTS: [manifest, second],
+        addonManifest: (id) => [manifest, second].find((entry) => entry.id === id) || null,
         addonsContributing: (point) => (manifest[point] ? [manifest] : []),
     };
 });
@@ -59,9 +65,12 @@ const { default: AddonModalHost } = await import('@/components/addons/AddonModal
 const { default: AddonCard } = await import('@/components/addons/AddonCard.vue');
 const { useAddonsStore } = await import('@/store/addonsStore');
 
-/** Set what the server says: offered (listed) and enabled or not. */
-function serverSays({ offered = true, enabled = true } = {}) {
-    useAddonsStore().addons = offered ? [{ id: 'probe', name: 'Probe', description: '', enabled, enabledAt: null }] : [];
+/** Set what the server says: offered (listed) and enabled or not, and whether `second` is on too. */
+function serverSays({ offered = true, enabled = true, second = false } = {}) {
+    useAddonsStore().addons = [
+        ...(offered ? [{ id: 'probe', name: 'Probe', description: '', enabled, enabledAt: null }] : []),
+        ...(second ? [{ id: 'second', name: 'Second', description: '', enabled: true, enabledAt: null }] : []),
+    ];
 }
 
 describe('add-on contribution points', () => {
@@ -86,21 +95,45 @@ describe('add-on contribution points', () => {
         it('renders the toolbar actions with derived test ids and opens the modal', async () => {
             serverSays();
             const wrapper = mount(AddonActions, { props: { surface: 'toolbar' } });
-            const go = wrapper.get('[data-testid="submenu-tools-addon-probe-go"]');
+            const go = wrapper.get('[data-testid="submenu-addons-probe-go"]');
             expect(go.text()).toBe('Probe');
             expect(go.attributes('title')).toBe('Go');
             await go.trigger('click');
             expect(ui.openAddonModal).toHaveBeenCalledWith('probe', 'main');
         });
 
+        it('separates one add-on\'s toolbar actions from the next, and never leads with a separator', () => {
+            serverSays();
+            expect(mount(AddonActions, { props: { surface: 'toolbar' } })
+                .find('[data-testid="submenu-addons-separator"]').exists()).toBe(false);
+
+            serverSays({ second: true });
+            const wrapper = mount(AddonActions, { props: { surface: 'toolbar' } });
+            const order = wrapper.findAll('button, [role="separator"]').map((node) => node.attributes('data-testid'));
+            expect(order).toEqual([
+                'submenu-addons-probe-go',
+                'submenu-addons-probe-free',
+                'submenu-addons-probe-desk',
+                'submenu-addons-separator',
+                'submenu-addons-second-one',
+            ]);
+        });
+
+        it('has no separators on the phone menu', () => {
+            serverSays({ second: true });
+            const wrapper = mount(AddonActions, { props: { surface: 'menu' } });
+            expect(wrapper.find('[role="separator"]').exists()).toBe(false);
+            expect(wrapper.find('[data-testid="phone-menu-addon-second-one"]').exists()).toBe(true);
+        });
+
         it('disables an action per `requires`, with the reason', async () => {
             serverSays();
             syncStore.isOnline = false;
             const wrapper = mount(AddonActions, { props: { surface: 'toolbar' } });
-            const go = wrapper.get('[data-testid="submenu-tools-addon-probe-go"]');
+            const go = wrapper.get('[data-testid="submenu-addons-probe-go"]');
             expect(go.attributes('disabled')).toBeDefined();
             expect(go.attributes('title')).toBe('Needs an internet connection');
-            expect(wrapper.get('[data-testid="submenu-tools-addon-probe-free"]').attributes('disabled')).toBeUndefined();
+            expect(wrapper.get('[data-testid="submenu-addons-probe-free"]').attributes('disabled')).toBeUndefined();
 
             syncStore.isOnline = true;
             docStore.selectedFileId = null;
@@ -123,7 +156,7 @@ describe('add-on contribution points', () => {
 
         it('keeps an action to the surfaces it lists', () => {
             serverSays();
-            expect(mount(AddonActions, { props: { surface: 'toolbar' } }).find('[data-testid="submenu-tools-addon-probe-desk"]').exists()).toBe(true);
+            expect(mount(AddonActions, { props: { surface: 'toolbar' } }).find('[data-testid="submenu-addons-probe-desk"]').exists()).toBe(true);
             const menu = mount(AddonActions, { props: { surface: 'menu' } });
             expect(menu.find('[data-testid="phone-menu-addon-probe-desk"]').exists()).toBe(false);
             expect(menu.find('[data-testid="phone-menu-addon-probe-free"]').exists()).toBe(true);

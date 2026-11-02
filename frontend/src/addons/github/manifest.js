@@ -7,7 +7,7 @@ import { Github } from 'lucide-vue-next'
 
 export default Object.freeze({
     id: 'github',
-    // The toolbar's Tools group only: a backup is not about the open Document,
+    // The desktop Add-ons menu only: a backup is not about the open Document,
     // so it stays out of the phone Document menu. Phones reach it from Settings.
     actions: [
         {
