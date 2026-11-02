@@ -53,6 +53,50 @@
                 >This Odoo has none of Documents, Knowledge, CRM or Sales available to your Odoo user, so there is nowhere to send the Document yet.</div>
 
                 <section
+                    v-if="updateMode"
+                    class="pn-panel p-4 space-y-3"
+                    data-testid="odoo-send-summary"
+                >
+                    <p class="pn-title-section">In {{ summaryPlaces }}</p>
+                    <p
+                        class="pn-body"
+                        data-testid="odoo-send-summary-last-sent"
+                    >
+                        Last sent {{ sentAgo(lastLink.lastSentAt) }}<span v-if="lastLink.lastSentBy"> by {{ lastLink.lastSentBy }}</span>.
+                        <span v-if="syncInfo">The article is kept in sync on its own; Send update sends the PDF.</span>
+                        <span v-else>Sending again replaces what is there, including edits made in Odoo.</span>
+                    </p>
+                    <p
+                        v-if="summaryLinks.length"
+                        class="pn-body flex flex-wrap gap-x-3"
+                    >
+                        <a
+                            v-for="link in summaryLinks"
+                            :key="link.destination"
+                            :href="link.url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="font-medium underline underline-offset-2"
+                            :data-testid="`odoo-send-summary-open-${link.destination}`"
+                        >Open in {{ link.destination === 'documents' ? 'Documents' : 'Knowledge' }}</a>
+                    </p>
+                    <div
+                        v-for="message in summaryResults"
+                        :key="message.destination"
+                        :class="message.ok ? 'pn-alert pn-alert-success' : 'pn-alert pn-alert-error'"
+                        role="status"
+                        :data-testid="`odoo-send-summary-result-${message.destination}`"
+                    >{{ message.text }}</div>
+                    <button
+                        type="button"
+                        class="pn-help font-medium underline underline-offset-2"
+                        data-testid="odoo-send-change"
+                        @click="summary = false"
+                    >Change where it goes</button>
+                </section>
+
+                <template v-else>
+                <section
                     v-if="hasDocumentsApp"
                     class="pn-panel p-4 space-y-3"
                     data-testid="odoo-send-documents"
@@ -414,6 +458,7 @@
                         >Open in Odoo</a>
                     </div>
                 </section>
+                </template>
 
                 <div
                     v-if="sendError"
@@ -456,7 +501,7 @@
                 @click="send"
             >
                 <Send class="h-4 w-4" />
-                <span>{{ sending ? 'Sending…' : (allUpdates ? 'Update in Odoo' : 'Send') }}</span>
+                <span>{{ sending ? 'Sending…' : (updateMode ? 'Send update' : (allUpdates ? 'Update in Odoo' : 'Send')) }}</span>
             </BaseButton>
         </template>
     </BaseModal>
@@ -513,6 +558,9 @@ const loadingRecords = ref(false)
 const toChatter = ref(false)
 const sending = ref(false)
 const results = ref({})
+// Open on the summary (Update mode). Decided once, when the dialog opens, so a first
+// send does not swap the form for the summary; "Change where it goes" turns it off.
+const summary = ref(false)
 
 const host = computed(() => odooHost(odoo.status?.baseUrl))
 const apps = computed(() => odoo.status?.apps || [])
@@ -554,6 +602,29 @@ const allUpdates = computed(() => wantsAny.value
     && (!wantsDocuments.value || Boolean(documentsLink.value))
     && (!wantsKnowledge.value || Boolean(knowledgeLink.value))
     && (!wantsChatter.value || Boolean(selectedRecordLink.value)))
+
+// Update mode: the Document already has a record in Documents, or a Knowledge article no
+// sync looks after, so the dialog opens as a summary with one Send update button.
+// Internal notes on opportunities and sales orders are left out: posting again is a
+// deliberate choice, made in the full form.
+const updatableDocuments = computed(() => (hasDocumentsApp.value ? documentsLink.value : null))
+const updatableKnowledge = computed(() => (hasKnowledgeApp.value && !syncInfo.value ? knowledgeLink.value : null))
+const updateMode = computed(() => summary.value && Boolean(updatableDocuments.value || updatableKnowledge.value))
+const summaryPlaces = computed(() => {
+    const places = []
+    if (knowledgeLink.value) places.push('Knowledge')
+    if (documentsLink.value) places.push('Documents')
+    return places.join(' and ')
+})
+const lastLink = computed(() => [documentsLink.value, knowledgeLink.value]
+    .filter(Boolean)
+    .sort((a, b) => String(b.lastSentAt).localeCompare(String(a.lastSentAt)))[0] || {})
+const summaryLinks = computed(() => [knowledgeLink.value, documentsLink.value].filter((link) => link?.url))
+const summaryResults = computed(() => [
+    results.value.knowledge && { destination: 'knowledge', ok: results.value.knowledge.ok, text: knowledgeResultMessage.value },
+    results.value.documents && { destination: 'documents', ok: results.value.documents.ok, text: documentsResultMessage.value },
+].filter(Boolean))
+
 const keyRejected = computed(() => Object.values(results.value).some((result) => result?.error === 'key_rejected'))
 const allSent = computed(() => {
     const done = Object.values(results.value)
@@ -668,6 +739,7 @@ watch(() => props.show, async (open) => {
     toKnowledge.value = false
     keepInSync.value = false
     syncInfo.value = null
+    summary.value = false
     try {
         await odoo.fetchStatus()
         toDocuments.value = hasDocumentsApp.value
@@ -677,6 +749,13 @@ watch(() => props.show, async (open) => {
             folderId.value = data?.defaults?.folderId ?? null
             parentId.value = data?.defaults?.parentArticleId ?? null
             syncInfo.value = data?.sync || null
+            summary.value = Boolean(updatableDocuments.value || updatableKnowledge.value)
+            if (summary.value) {
+                // Send update goes where the Document already is, and the full form
+                // opens with those destinations ticked.
+                toDocuments.value = Boolean(updatableDocuments.value)
+                toKnowledge.value = Boolean(updatableKnowledge.value)
+            }
             if (hasDocumentsApp.value && !documentsLink.value) await loadFolders()
         }
     } catch (error) {
