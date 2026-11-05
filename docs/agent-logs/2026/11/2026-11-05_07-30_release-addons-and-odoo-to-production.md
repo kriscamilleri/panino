@@ -53,4 +53,9 @@ path for the add-on move (`/api/addons/github/callback`).
   connections fail; existing daily backups keep running.
 - `deploy.sh` should prune the build cache too (e.g. `docker builder prune -f --filter until=168h`),
   or the disk fills again within a few releases.
-- Odoo stays off in production until `ODOO_INTEGRATION_ENABLED` and its key are set.
+- Odoo turned on in production at Kris's request (2026-11-05 07:53 UTC): the server `.env` backed
+  up to `.env.bak.20261105075320`, then `ODOO_INTEGRATION_ENABLED=true` and a 64-character
+  `ODOO_CREDENTIAL_ENCRYPTION_KEY` appended from Kris's `.env.prd` (sent over SSH stdin, never
+  printed); no other line changed. `docker compose up -d api-service` recreated the container; it
+  started with no add-on config warning, and `offeredAddons()` in the container lists
+  `github, odoo`. The key must never change: it encrypts users' stored Odoo API keys.
