@@ -304,7 +304,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { CloudUpload, Github, Unplug } from 'lucide-vue-next';
-import { useGithubBackupStore } from '@/store/githubBackupStore';
+import { useGithubBackupStore } from '../store.js';
 import { useUiStore } from '@/store/uiStore';
 import BaseModal from '@/components/BaseModal.vue';
 import BaseButton from '@/components/BaseButton.vue';
@@ -312,7 +312,7 @@ import {
     buildBackupProgressSteps,
     getBackupStageLabel,
     resolveVisibleBackupStage,
-} from '@/utils/githubBackupProgress';
+} from '../utils/backupProgress.js';
 
 const props = defineProps({
     show: Boolean,

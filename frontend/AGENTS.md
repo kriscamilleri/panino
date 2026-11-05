@@ -31,7 +31,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `authStore` | JWT auth, login/logout/signup, token refresh scheduling | syncStore |
 | `structureStore` | Document/folder tree, selection, CRUD operations | syncStore, authStore |
 | `docStore` | **Facade** — re-exports from structureStore + markdownStore, orchestrates coordinated operations | structureStore, markdownStore, syncStore, importExportStore |
-| `markdownStore` | MarkdownIt rendering, preview/print style management, front-matter parsing, variable substitution | syncStore, authStore, globalVariablesStore |
+| `markdownStore` | Preview/print renderers built on the shared `@panino/content-merge/markdown-render` and `styled-renderer` (MarkdownIt setup, front matter, variable substitution and the inline element styles live in `shared/`; the store only adds image auth tokens and global CSS), preview/print style management | syncStore, authStore, globalVariablesStore |
 | `draftStore` | Ephemeral in-memory draft content (keystroke-speed, not persisted to DB) | — (independent) |
 | `editorStore` | Bridge/proxy to Editor component's exposed methods for toolbar actions | — (independent) |
 | `historyStore` | Per-document undo/redo stack (max 100 entries per document) | — (independent) |
@@ -39,6 +39,8 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
+| `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
+| `odooStore` (`addons/odoo/store.js`) | The Odoo add-on's store; see `src/addons/odoo/README.md`. Core never imports it | authStore |
 
 ### Store initialization pattern
 
@@ -94,6 +96,45 @@ Keystroke → draftStore.setDraft() (instant)
 - **Editor.vue** — Uses OverType library for the markdown textarea. Exposes methods via `defineExpose()` for `editorStore` bridge. Handles image paste upload to `POST /images`. Intercepts Ctrl+Z/Y for custom undo/redo via `historyStore`. Three-layer update: keystroke → `draftStore` (instant) → debounced DB write.
 - **Preview.vue** — Purely computed-driven. Reads from `draftStore` for instant preview. Sanitizes rendered HTML via DOMPurify. Applies front-matter variable substitution. No watchers or methods — reactive rendering only.
 - **`@` alias** — Vite resolves `@/` to `frontend/src/`.
+
+---
+
+## Add-ons
+
+To add or extend an add-on, load the `add-on-development` skill
+(`.github/skills/add-on-development/SKILL.md`).
+
+Add-ons live in `src/addons/<id>/` (store, components, utils, tests and a `README.md`);
+`src/addons/registry.js` lists their manifests, one import each
+(`docs/specs/active/addon-folders.md`). **Core never imports an add-on**, only the registry, and
+add-ons never import each other: ESLint `panino/addon-boundaries` enforces both.
+
+A manifest declares where the add-on appears. Core renders the contribution points with three
+components in `src/components/addons/`, and add-on pages with `src/pages/AddonPage.vue`:
+
+| Point | Core component | Rendered by |
+|---|---|---|
+| `actions` | `AddonActions` (`surface="toolbar"` / `"menu"`) | `SubMenuBar` (the Add-ons menu), `phone/DocumentMenuSheet` |
+| `modals` | `AddonModalHost` | `HomePage` (desktop branch), `phone/DocumentMenuSheet` (never both on screen) |
+| `settingsCard` | `AddonCard point="settingsCard"` | `AddonsSection`, `PhoneSettingsPage` |
+| `spaceCard` | `AddonCard point="spaceCard"` | `SpacesPage` |
+| `pages` | `pages/AddonPage.vue` | the router, `#/addons/:addonId/:pageId`, in `AccountLayout` |
+
+Everything renders only while `addonsStore.isActive(id)`. An action shows on both surfaces unless
+its `surfaces` lists one (GitHub backup's is `['toolbar']`). On desktop, the Navbar's
+**Add-ons** button shows while an add-on that is on has a toolbar action, and opens the Add-ons
+submenu (`ui.showAddonsMenu`). That submenu groups the actions by add-on, in registry order,
+with a separator between groups. Actions open modals with
+`ui.openAddonModal(addonId, modalId)`, or go to a page when they name `page` instead of `modal`
+(`addon-folders.md` §6.2.5); closing the phone Document menu closes the add-on modal.
+Manifests import components only through `() => import(…)`, so an add-on stays out of the main
+bundle. Test ids are derived: `submenu-addons-<id>-<action>` (separators `submenu-addons-separator`), `phone-menu-addon-<id>-<action>`,
+`settings-addon-<id>`, `space-addon-<id>` (and `-hint`), `addon-page-<id>-<page>`.
+
+Today: `src/addons/github/` (GitHub backup: toolbar **Backup** action, its modal, and a settings
+card that also finishes the OAuth return on `/settings?addon=github&addonResult=…`) and `src/addons/odoo/`.
+An add-on return while the add-on is off is shown by `composables/useAddonReturn.js` on both
+Settings pages.
 
 ---
 
@@ -171,7 +212,12 @@ Today: {{ GLOBAL_DATE }}
 - Document-level variables defined in YAML-style front-matter block (not rendered in preview/PDF).
 - Global variables stored in the `globals` table, managed via `globalVariablesStore`.
 - Built-in globals: `GLOBAL_DATE`, `GLOBAL_TIME`.
-- `markdownStore.applyMetadataVariables()` performs substitution before rendering.
+- `utils/styleDefaults.js`, `utils/stylePresets.js` and the request builder in `utils/pdfExport.js`
+  re-export the shared `style-defaults`, `style-presets` and `pdf-request` modules, so the API
+  builds a Document's PDF request (Odoo syncs) exactly as Export does.
+- `markdownStore.applyMetadataVariables()` performs substitution before rendering; it delegates to
+  `applyDocumentVariables` in `shared/markdownRender.js`, the same code the API uses, and
+  `shared/tests/fixtures/document.{md,html}` is the recorded rendering both sides' tests compare against.
 
 ---
 

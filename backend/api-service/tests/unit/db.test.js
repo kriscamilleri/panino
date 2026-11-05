@@ -84,7 +84,7 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     expect(getDb(`space:${sharedId}`)).not.toBe(userDb);
   });
 
-  it("records the versioned initializer kind and keeps backup config user-only", () => {
+  it("records the versioned initializer kind and keeps the add-on switches user-only", () => {
     const userDb = getDb(`user:${userId}`);
     const spaceDb = getDb(`space:${spaceId}`);
     expect(userDb.prepare("SELECT kind, version FROM application_schema").get()).toEqual({
@@ -95,8 +95,8 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
       kind: "space",
       version: 2,
     });
-    expect(userDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backup_config'").get()).toBeDefined();
-    expect(spaceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backup_config'").get()).toBeUndefined();
+    expect(userDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'addons'").get()).toBeDefined();
+    expect(spaceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'addons'").get()).toBeUndefined();
     expect(spaceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'collab_sessions'").get()).toBeDefined();
     expect(userDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'collab_sessions'").get()).toBeUndefined();
   });

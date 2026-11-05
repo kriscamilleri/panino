@@ -1,8 +1,8 @@
 // /frontend/src/store/markdownStore.js
 import { defineStore } from 'pinia'
 import { ref, watch, computed } from 'vue'
-import MarkdownIt from 'markdown-it'
-import markdownItTaskLists from 'markdown-it-task-lists'
+import { applyDocumentVariables, createDocumentRenderer } from '@panino/content-merge/markdown-render'
+import { applyStyleMap } from '@panino/content-merge/styled-renderer'
 import { useSyncStore } from './syncStore'
 import { useAuthStore } from './authStore'
 import { useGlobalVariablesStore } from './globalVariablesStore'
@@ -15,38 +15,13 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
   const authStore = useAuthStore();
   const globalVariablesStore = useGlobalVariablesStore();
 
-  function normalizeVariableName(name) {
-    return (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
-  }
-
   function extractDocumentMetadata(markdown) {
     return parseFrontMatter(markdown).metadata;
   }
 
+  // The shared renderer does the substitution, so the API renders the same way.
   function applyMetadataVariables(markdown) {
-    if (!markdown) return '';
-    const { metadata, body } = parseFrontMatter(markdown);
-    const variableMap = new Map();
-
-    const now = new Date();
-    variableMap.set(normalizeVariableName('GLOBAL_DATE'), now.toLocaleDateString());
-    variableMap.set(normalizeVariableName('GLOBAL_TIME'), now.toLocaleTimeString());
-
-    globalVariablesStore.globalsMap.forEach((value, key) => {
-      if (key) variableMap.set(key, value);
-    });
-
-    Object.entries(metadata).forEach(([key, value]) => {
-      const normalizedKey = normalizeVariableName(key);
-      if (normalizedKey) variableMap.set(normalizedKey, value);
-    });
-
-    return body.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, name) => {
-      const normalizedName = normalizeVariableName(name);
-      if (!normalizedName) return match;
-      const value = variableMap.get(normalizedName);
-      return value !== undefined ? value : match;
-    });
+    return applyDocumentVariables(markdown, { globals: globalVariablesStore.globalsMap });
   }
 
   const printStylesCssString = computed(() => buildPrintCss(printStyles.value));
@@ -134,14 +109,8 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
     saveStylesToDB();
   }
 
-  // Create a base instance of MarkdownIt with common plugins
-  const baseMd = () => {
-    return new MarkdownIt({
-      html: true,
-      linkify: true,
-      typographer: true,
-    }).use(markdownItTaskLists);
-  };
+  // The shared MarkdownIt setup (shared/markdownRender.js); the styles below are layered on.
+  const baseMd = () => createDocumentRenderer();
 
   // Inject CSS into document head
   function addCustomCSSToDocument(cssContent, targetDoc = document) {
@@ -181,100 +150,26 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
       addCustomCSSToDocument(combinedCSS);
     }
 
-    // Helper to safely get and wrap the original renderer rule
-    const wrapRule = (ruleName, styleKey) => {
-      const originalRule = md.renderer.rules[ruleName] || ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
-      md.renderer.rules[ruleName] = (tokens, idx, options, env, self) => {
-        const css = styleMap[styleKey];
-        if (css) tokens[idx].attrSet('style', css);
-        return originalRule(tokens, idx, options, env, self);
-      };
-    };
-
-    // Headings - special handling to get tag name (h1, h2, etc.)
-    const originalHeadingOpen = md.renderer.rules.heading_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.heading_open = (tokens, idx, opts, env, self) => {
-      const token = tokens[idx];
-      const css = styleMap[token.tag];
-      if (css) token.attrSet('style', css);
-      return originalHeadingOpen(tokens, idx, opts, env, self);
-    };
-
-    // Basic rules
-    wrapRule('paragraph_open', 'p');
-    wrapRule('bullet_list_open', 'ul');
-    wrapRule('ordered_list_open', 'ol');
-    wrapRule('list_item_open', 'li');
-    wrapRule('blockquote_open', 'blockquote');
-    wrapRule('em_open', 'em');
-    wrapRule('strong_open', 'strong');
-    wrapRule('code_inline', 'code');
-    wrapRule('hr', 'hr');
-
-    // Code blocks (fence for ```, code_block for indented)
-    const originalFence = md.renderer.rules.fence || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.fence = (tokens, idx, options, env, self) => {
-      const css = styleMap.pre;
-      if (css) tokens[idx].attrSet('style', css);
-      return originalFence(tokens, idx, options, env, self);
-    };
-    const originalCodeBlock = md.renderer.rules.code_block || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.code_block = (tokens, idx, options, env, self) => {
-      const css = styleMap.pre;
-      if (css) tokens[idx].attrSet('style', css);
-      return originalCodeBlock(tokens, idx, options, env, self);
-    };
-
-
-    // Links
-    const originalLinkOpen = md.renderer.rules.link_open || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-      const css = styleMap.a;
-      if (css) tokens[idx].attrSet('style', css);
-      const href = tokens[idx].attrGet('href');
-      if (href && (href.startsWith('http') || href.startsWith('//'))) {
-        tokens[idx].attrSet('target', '_blank');
-        tokens[idx].attrSet('rel', 'noopener noreferrer');
-      }
-      return originalLinkOpen(tokens, idx, options, env, self);
-    };
-
-    // Image
-    const originalImage = md.renderer.rules.image || ((t, i, o, e, s) => s.renderToken(t, i, o));
-    md.renderer.rules.image = (tokens, idx, options, env, self) => {
-      const token = tokens[idx];
-      const srcIndex = token.attrIndex('src');
-
-      if (srcIndex >= 0) {
-        let src = token.attrs[srcIndex][1];
-        const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
-
+    // The inline styles and external-link attributes come from the shared renderer
+    // (shared/styledRenderer.js), the same code the API uses for PDFs; the browser only
+    // adds the auth token Panino's own image URLs need.
+    const apiUrl = import.meta.env.VITE_API_SERVICE_URL || '';
+    applyStyleMap(md, styleMap, {
+      rewriteImageSrc: (src) => {
         const isInternalImage = (apiUrl && src.startsWith(apiUrl) && src.includes('/images/')) ||
           (!src.startsWith('http') && (src.startsWith('/images/') || src.startsWith('/api/images/')));
-
-        if (isInternalImage && authStore.token) {
-          try {
-            token.attrs[srcIndex][1] = withImageAuthToken(src, authStore.token, {
-              origin: apiUrl || window.location.origin,
-              absolute: Boolean(apiUrl),
-            });
-          } catch (e) {
-            console.error("Failed to parse image URL for token injection:", src, e);
-          }
+        if (!isInternalImage || !authStore.token) return src;
+        try {
+          return withImageAuthToken(src, authStore.token, {
+            origin: apiUrl || window.location.origin,
+            absolute: Boolean(apiUrl),
+          });
+        } catch (e) {
+          console.error("Failed to parse image URL for token injection:", src, e);
+          return src;
         }
-      }
-
-      const css = styleMap.img;
-      if (css) token.attrSet('style', css);
-
-      return originalImage(tokens, idx, options, env, self);
-    };
-
-    // Table styles
-    wrapRule('table_open', 'table');
-    wrapRule('tr_open', 'tr');
-    wrapRule('th_open', 'th');
-    wrapRule('td_open', 'td');
+      },
+    });
   }
 
   /**

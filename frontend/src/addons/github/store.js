@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { useAuthStore } from './authStore';
+import { useAuthStore } from '@/store/authStore';
 
 const IS_PROD = import.meta.env.PROD;
 const API_BASE = IS_PROD ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
@@ -39,7 +39,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         }
 
         if (!response.ok) {
-            const requestError = new Error(payload?.error || `Request failed with status ${response.status}`);
+            const requestError = new Error(payload?.message || payload?.error || `Request failed with status ${response.status}`);
             requestError.status = response.status;
             requestError.payload = payload;
             throw requestError;
@@ -53,7 +53,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         error.value = '';
 
         try {
-            const payload = await authFetch('/backup/github/status');
+            const payload = await authFetch('/addons/github/status');
             status.value = payload;
             return payload;
         } catch (err) {
@@ -69,7 +69,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         error.value = '';
 
         try {
-            const payload = await authFetch('/backup/github/repos');
+            const payload = await authFetch('/addons/github/repos');
             repos.value = payload?.repos || [];
             return repos.value;
         } catch (err) {
@@ -82,8 +82,24 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
 
     async function startConnect() {
         error.value = '';
-        const payload = await authFetch('/backup/github/connect', { method: 'POST' });
+        const payload = await authFetch('/addons/github/connect', { method: 'POST' });
         return payload?.authorizeUrl || '';
+    }
+
+    /** Finish a connection the OAuth return parked under `handle`. */
+    async function completeConnect(handle) {
+        error.value = '';
+        try {
+            status.value = await authFetch('/addons/github/complete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ handle }),
+            });
+            return status.value;
+        } catch (err) {
+            error.value = err.message;
+            throw err;
+        }
     }
 
     async function disconnect() {
@@ -91,7 +107,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         error.value = '';
 
         try {
-            await authFetch('/backup/github/disconnect', { method: 'DELETE' });
+            await authFetch('/addons/github/disconnect', { method: 'DELETE' });
             status.value = null;
             repos.value = [];
         } catch (err) {
@@ -107,7 +123,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         error.value = '';
 
         try {
-            const payload = await authFetch('/backup/github/repos', {
+            const payload = await authFetch('/addons/github/repos', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name }),
@@ -128,7 +144,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         error.value = '';
 
         try {
-            const payload = await authFetch('/backup/github/repo', {
+            const payload = await authFetch('/addons/github/repo', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ repoFullName }),
@@ -148,7 +164,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         error.value = '';
 
         try {
-            const payload = await authFetch('/backup/github/run', { method: 'POST' });
+            const payload = await authFetch('/addons/github/run', { method: 'POST' });
             await fetchStatus();
             return payload;
         } catch (err) {
@@ -174,6 +190,7 @@ export const useGithubBackupStore = defineStore('githubBackupStore', () => {
         fetchStatus,
         fetchRepos,
         startConnect,
+        completeConnect,
         disconnect,
         createRepo,
         selectRepo,

@@ -1,0 +1,78 @@
+# Local Odoo for developing the Odoo integration
+# (docs/specs/active/odoo-integration.md). Start it with `scripts/odoo-dev.sh`.
+#
+# - `odoo`: Odoo 19 Community, http://localhost:8019, `http://odoo:8069` from the
+#   API container. CRM and Sales (chatter destination) and the JSON-2 API.
+# - `odoo-enterprise` (profile `enterprise`): Odoo 20 Enterprise built from a
+#   local .deb, http://localhost:8020, `http://odoo-enterprise:8069` from the API
+#   container. Adds Documents and Knowledge.
+#
+# Both join the dev stack's network; start docker-compose.dev.yml first so it exists.
+
+name: panino-odoo
+
+services:
+  odoo-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  odoo:
+    image: odoo:19.0
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    environment:
+      HOST: odoo-db
+      USER: odoo
+      PASSWORD: odoo
+    command: ["odoo", "--db-filter=^panino$$", "-d", "panino"]
+    ports:
+      - "127.0.0.1:8019:8069"
+    volumes:
+      - odoo-data:/var/lib/odoo
+    networks:
+      default:
+      panino:
+        aliases: [odoo]
+
+  # Enterprise (Documents, Knowledge), from a locally built image:
+  # `scripts/odoo-dev.sh enterprise <deb>`. Not started without that.
+  odoo-enterprise:
+    profiles: [enterprise]
+    image: panino-odoo-enterprise:20.0
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    environment:
+      HOST: odoo-db
+      USER: odoo
+      PASSWORD: odoo
+    command: ["odoo", "--db-filter=^panino_ee$$", "-d", "panino_ee"]
+    ports:
+      - "127.0.0.1:8020:8069"
+    volumes:
+      - odoo-enterprise-data:/var/lib/odoo
+    networks:
+      default:
+      panino:
+        aliases: [odoo-enterprise]
+
+volumes:
+  odoo-db-data:
+  odoo-data:
+  odoo-enterprise-data:
+
+networks:
+  panino:
+    name: panino_default
+    external: true

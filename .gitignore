@@ -37,3 +37,8 @@ print_rendering_context.txt
 selected_files.txt
 prompt.md
 nginx.conf
+
+# Local Odoo dev API keys (scripts/odoo-dev.sh)
+.odoo-dev*.env
+# Odoo Enterprise packages are licensed to their subscriber
+*.deb

@@ -19,6 +19,10 @@ Use this skill when implementing any new feature in Panino that spans multiple f
 - Pure refactors with no user-facing change (use judgment)
 - Production server debugging (use `prod-server-debug` skill)
 
+For an integration with an outside service (an add-on), also load the `add-on-development`
+skill: it covers the add-on folders, manifests and extension points; this skill still covers the
+branch, reviews and PR.
+
 ---
 
 ## Phase 0: Preparation

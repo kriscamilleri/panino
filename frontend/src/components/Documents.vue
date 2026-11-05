@@ -123,9 +123,75 @@
                 v-else
                 data-testid="documents-tree-normal"
             >
-                <ul class="space-y-1">
+                <ul
+                    v-if="!spaceItems.length"
+                    class="space-y-1"
+                >
                     <li
-                        v-for="item in rootItems"
+                        v-for="item in personalItems"
+                        :key="item.treeKey || item.id"
+                    >
+                        <TreeItem
+                            :item="item"
+                            :is-filtered="false"
+                        />
+                    </li>
+                </ul>
+                <ul
+                    v-else
+                    class="space-y-1"
+                >
+                    <li data-testid="documents-my-notes">
+                        <div
+                            class="flex items-center space-x-2 rounded-md py-1 my-1 cursor-pointer hover:bg-gray-100"
+                            role="button"
+                            tabindex="0"
+                            :aria-expanded="!ui.myNotesCollapsed"
+                            data-testid="documents-my-notes-toggle"
+                            @click="ui.toggleMyNotesCollapsed()"
+                            @keydown.enter.prevent="ui.toggleMyNotesCollapsed()"
+                            @keydown.space.prevent="ui.toggleMyNotesCollapsed()"
+                            @dragover.prevent.stop
+                            @drop.prevent.stop="handleRootDrop"
+                        >
+                            <span class="ml-1 p-1 rounded hover:bg-gray-300">
+                                <ChevronRight
+                                    v-if="ui.myNotesCollapsed"
+                                    class="w-4 h-4"
+                                />
+                                <ChevronDown
+                                    v-else
+                                    class="w-4 h-4"
+                                />
+                            </span>
+                            <span class="font-semibold flex-grow truncate">
+                                <User class="inline-block w-4 h-4 mr-1" />My Notes
+                            </span>
+                        </div>
+                        <ul
+                            v-if="!ui.myNotesCollapsed"
+                            class="ml-6 mt-1 border-l pl-2"
+                            data-testid="documents-my-notes-items"
+                        >
+                            <li
+                                v-for="item in personalItems"
+                                :key="item.treeKey || item.id"
+                            >
+                                <TreeItem
+                                    :item="item"
+                                    :is-filtered="false"
+                                />
+                            </li>
+                            <li
+                                v-if="!personalItems.length"
+                                class="text-sm text-gray-500 pl-2 py-1"
+                            >
+                                No Documents yet.
+                            </li>
+                        </ul>
+                    </li>
+                    <li
+                        v-for="item in spaceItems"
                         :key="item.treeKey || item.id"
                     >
                         <TreeItem
@@ -169,7 +235,7 @@ import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
 import TreeItem from './TreeItem.vue'
 import BaseButton from './BaseButton.vue'
-import { Search, X, FilePlus, FolderPlus, FileText } from 'lucide-vue-next'
+import { Search, X, FilePlus, FolderPlus, FileText, ChevronDown, ChevronRight, User } from 'lucide-vue-next'
 import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
 import PromptModal from '@/components/PromptModal.vue'
 import { useStructureStore } from '@/store/structureStore'
@@ -183,6 +249,10 @@ const transferStore = useSpaceTransferStore()
 const router = useRouter();
 
 const rootItems = computed(() => docStore.rootItems)
+// Once there is a space, the personal Documents and folders sit under a
+// collapsible My Notes row, above the spaces.
+const spaceItems = computed(() => rootItems.value.filter((item) => item.type === 'space'))
+const personalItems = computed(() => rootItems.value.filter((item) => item.type !== 'space'))
 
 provide('refreshParent', docStore.loadRootItems);
 provide('requestDatabaseTransfer', (details) => transferStore.begin(details));

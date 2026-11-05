@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 
-vi.mock('../../src/store/authStore.js', () => ({
+vi.mock('@/store/authStore', () => ({
     useAuthStore: () => ({ token: 'test-jwt' }),
 }));
 
-import { useGithubBackupStore } from '../../src/store/githubBackupStore.js';
+import { useGithubBackupStore } from '../store.js';
 
 function jsonResponse(payload, status = 200) {
     return new Response(JSON.stringify(payload), {
@@ -14,7 +14,7 @@ function jsonResponse(payload, status = 200) {
     });
 }
 
-describe('githubBackupStore', () => {
+describe('the GitHub add-on store', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         vi.restoreAllMocks();
@@ -40,14 +40,14 @@ describe('githubBackupStore', () => {
 
         expect(fetchSpy).toHaveBeenNthCalledWith(
             1,
-            'http://localhost:8000/backup/github/status',
+            'http://localhost:8000/addons/github/status',
             expect.objectContaining({
                 headers: expect.objectContaining({ Authorization: 'Bearer test-jwt' }),
             })
         );
         expect(fetchSpy).toHaveBeenNthCalledWith(
             2,
-            'http://localhost:8000/backup/github/repos',
+            'http://localhost:8000/addons/github/repos',
             expect.objectContaining({
                 headers: expect.objectContaining({ Authorization: 'Bearer test-jwt' }),
             })
@@ -85,12 +85,12 @@ describe('githubBackupStore', () => {
 
         expect(fetchSpy).toHaveBeenNthCalledWith(
             1,
-            'http://localhost:8000/backup/github/connect',
+            'http://localhost:8000/addons/github/connect',
             expect.objectContaining({ method: 'POST' })
         );
         expect(fetchSpy).toHaveBeenNthCalledWith(
             2,
-            'http://localhost:8000/backup/github/repo',
+            'http://localhost:8000/addons/github/repo',
             expect.objectContaining({
                 method: 'PUT',
                 body: JSON.stringify({ repoFullName: 'octocat/panino-backup' }),
@@ -98,10 +98,27 @@ describe('githubBackupStore', () => {
         );
         expect(fetchSpy).toHaveBeenNthCalledWith(
             4,
-            'http://localhost:8000/backup/github/run',
+            'http://localhost:8000/addons/github/run',
             expect.objectContaining({ method: 'POST' })
         );
         expect(store.status.isRunning).toBe(true);
         expect(store.selectedRepoFullName).toBe('octocat/panino-backup');
+    });
+
+    it('completes a parked connection, and shows the server’s message when it is refused', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(jsonResponse({ connected: true, username: 'octocat' }))
+            .mockResolvedValueOnce(jsonResponse({ error: 'other_account', message: 'Started from another Panino account.' }, 403));
+
+        const store = useGithubBackupStore();
+        await store.completeConnect('h-1');
+        expect(fetchSpy).toHaveBeenCalledWith(
+            'http://localhost:8000/addons/github/complete',
+            expect.objectContaining({ method: 'POST', body: JSON.stringify({ handle: 'h-1' }) }),
+        );
+        expect(store.isConnected).toBe(true);
+
+        await expect(store.completeConnect('h-2')).rejects.toThrow('Started from another Panino account.');
+        expect(store.error).toBe('Started from another Panino account.');
     });
 });

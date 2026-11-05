@@ -1,71 +1,62 @@
+/**
+ * GitHub backup (docs/specs/active/github-integration.md): the user's GitHub
+ * connection in `backup_config`, the snapshot of their personal Documents,
+ * folders and images, the commit that pushes it, and the daily auto backup.
+ * Routes are in routes.js; the manifest in index.js.
+ */
+
 import crypto from 'crypto';
-import express from 'express';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import { getHealthyUserDb, getUserDb } from './db.js';
-
-export const backupPublicRoutes = express.Router();
-export const backupRoutes = express.Router();
+import { getHealthyUserDb, getUserDb, parseDbKey } from '../../db.js';
+import { decryptSecret, encryptSecret } from '../../secrets.js';
+import { isAddonActive } from '../registry.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
+// The core upload root (image.js), two levels up from this folder.
+const UPLOADS_DIR = path.resolve(__dirname, '..', '..', 'uploads');
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-for-dev';
-const GITHUB_API_URL = process.env.GITHUB_API_URL || 'https://api.github.com';
-const GITHUB_OAUTH_URL = process.env.GITHUB_OAUTH_URL || 'https://github.com/login/oauth';
-const GITHUB_API_VERSION = '2022-11-28';
+export const GITHUB_API_URL = process.env.GITHUB_API_URL || 'https://api.github.com';
+export const GITHUB_OAUTH_URL = process.env.GITHUB_OAUTH_URL || 'https://github.com/login/oauth';
+export const GITHUB_API_VERSION = '2022-11-28';
 const MAX_INLINE_CONTENT_BYTES = 100 * 1024;
 const AUTO_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const BACKUP_STAGE_SETTLE_MS = 1200;
+export const ADDON_ID = 'github';
 const BACKUP_PROVIDER = 'github';
 const BACKUP_SOURCE_URL = 'https://github.com/kriscamilleri/panino';
 const backupJobs = new Map();
 
-function getGithubClientId() {
+export function getGithubClientId() {
   return process.env.GITHUB_CLIENT_ID || '';
 }
 
-function getGithubClientSecret() {
+export function getGithubClientSecret() {
   return process.env.GITHUB_CLIENT_SECRET || '';
 }
 
-function isGithubOauthConfigured() {
+export function isGithubOauthConfigured() {
   return Boolean(getGithubClientId() && getGithubClientSecret());
 }
 
-function getEncryptionKey() {
-  const source = process.env.GITHUB_TOKEN_ENCRYPTION_KEY || JWT_SECRET;
-  return crypto.createHash('sha256').update(String(source)).digest();
+/** Whether a job is running for the user (disconnect waits for it). */
+export function isBackupRunning(userId) {
+  return backupJobs.has(userId);
 }
 
-function encryptToken(token) {
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', getEncryptionKey(), iv);
-  const encrypted = Buffer.concat([cipher.update(String(token), 'utf8'), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString('base64url')}:${authTag.toString('base64url')}:${encrypted.toString('base64url')}`;
+function getEncryptionKeyMaterial() {
+  return process.env.GITHUB_TOKEN_ENCRYPTION_KEY || JWT_SECRET;
 }
 
-function decryptToken(token) {
-  const [ivPart, tagPart, payloadPart] = String(token || '').split(':');
-  if (!ivPart || !tagPart || !payloadPart) {
-    throw new Error('Stored GitHub token is invalid');
-  }
+export function encryptToken(token) {
+  return encryptSecret(token, getEncryptionKeyMaterial());
+}
 
-  const decipher = crypto.createDecipheriv(
-    'aes-256-gcm',
-    getEncryptionKey(),
-    Buffer.from(ivPart, 'base64url')
-  );
-  decipher.setAuthTag(Buffer.from(tagPart, 'base64url'));
-  const decrypted = Buffer.concat([
-    decipher.update(Buffer.from(payloadPart, 'base64url')),
-    decipher.final(),
-  ]);
-
-  return decrypted.toString('utf8');
+export function decryptToken(token) {
+  return decryptSecret(token, getEncryptionKeyMaterial());
 }
 
 function sanitizeFileSegment(value, fallback = 'Untitled') {
@@ -159,7 +150,7 @@ function formatSkippedImagesWarning(skippedImages) {
   return `Skipped ${countLabel}: ${preview.join(', ')}${suffix}. Re-upload or remove the broken image references to include them next time.`;
 }
 
-function getBackupConfig(db) {
+export function getBackupConfig(db) {
   return db.prepare(`
     SELECT id, provider, access_token_enc, username, avatar_url, repo_full_name,
            auto_backup_enabled, last_backup_at, last_backup_sha, last_warning, last_error, created_at
@@ -169,7 +160,7 @@ function getBackupConfig(db) {
   `).get(BACKUP_PROVIDER) || null;
 }
 
-function saveBackupConfig(db, updates = {}) {
+export function saveBackupConfig(db, updates = {}) {
   const existing = getBackupConfig(db);
   const now = new Date().toISOString();
   const record = {
@@ -224,21 +215,42 @@ function saveBackupConfig(db, updates = {}) {
   return getBackupConfig(db);
 }
 
-function deleteBackupConfig(db) {
+export function deleteBackupConfig(db) {
   db.prepare('DELETE FROM backup_config WHERE provider = ?').run(BACKUP_PROVIDER);
+}
+
+/** An error whose message is written for the user and may be shown as it is. */
+function userFacingError(message) {
+  const error = new Error(message);
+  error.userFacing = true;
+  return error;
+}
+
+/**
+ * The message a user sees for a failure: a fixed sentence, never GitHub's own text or an
+ * internal error (AGENTS.md §4). The real error goes to the log.
+ *
+ * @param {any} error
+ * @returns {string}
+ */
+export function githubFailureMessage(error) {
+  if (error?.userFacing) return error.message;
+  switch (error?.status) {
+    case 401: return 'GitHub no longer accepts this connection. Disconnect, then connect GitHub again.';
+    case 403: return 'GitHub refused the request. Check that your account can push to this repository.';
+    case 404: return 'GitHub could not find that repository.';
+    case 409:
+    case 422: return 'GitHub refused the change. Try again in a moment.';
+    default: return 'Could not reach GitHub, or GitHub failed. Try again later.';
+  }
 }
 
 function parseRepoFullName(repoFullName) {
   const [owner, repo] = String(repoFullName || '').split('/');
   if (!owner || !repo) {
-    throw new Error('Repository must be in owner/repo format');
+    throw userFacingError('Repository must be in owner/repo format');
   }
   return { owner, repo };
-}
-
-function truncateErrorMessage(message) {
-  const value = String(message || 'Backup failed');
-  return value.length > 1000 ? `${value.slice(0, 997)}...` : value;
 }
 
 function createGithubHeaders(token, extraHeaders = {}) {
@@ -279,7 +291,7 @@ async function githubRequest(token, pathname, options = {}) {
   return payload;
 }
 
-async function exchangeGithubCodeForToken({ code, redirectUri }) {
+export async function exchangeGithubCodeForToken({ code, redirectUri }) {
   const response = await fetch(`${GITHUB_OAUTH_URL}/access_token`, {
     method: 'POST',
     headers: {
@@ -297,17 +309,19 @@ async function exchangeGithubCodeForToken({ code, redirectUri }) {
 
   const payload = await parseGithubResponse(response);
   if (!response.ok || !payload?.access_token) {
-    throw new Error(payload?.error_description || payload?.error || 'GitHub OAuth token exchange failed');
+    const exchangeError = new Error(payload?.error_description || payload?.error || 'GitHub OAuth token exchange failed');
+    exchangeError.status = response.ok ? 401 : response.status;
+    throw exchangeError;
   }
 
   return payload.access_token;
 }
 
-async function fetchGithubViewer(token) {
+export async function fetchGithubViewer(token) {
   return githubRequest(token, '/user');
 }
 
-async function listGithubRepos(token) {
+export async function listGithubRepos(token) {
   const repos = [];
   let page = 1;
 
@@ -337,12 +351,12 @@ async function listGithubRepos(token) {
     }));
 }
 
-async function fetchGithubRepo(token, repoFullName) {
+export async function fetchGithubRepo(token, repoFullName) {
   const { owner, repo } = parseRepoFullName(repoFullName);
   return githubRequest(token, `/repos/${owner}/${repo}`);
 }
 
-async function createGithubRepo(token, name) {
+export async function createGithubRepo(token, name) {
   return githubRequest(token, '/user/repos', {
     method: 'POST',
     body: JSON.stringify({
@@ -589,7 +603,7 @@ async function loadBackupSnapshot(userId) {
       const usage = getImageUsage(db, image.id);
       if (usage.count === 0) {
         db.prepare('DELETE FROM images WHERE id = ? AND user_id = ?').run(image.id, userId);
-        console.info('[backup]', JSON.stringify({
+        console.info('[github]', JSON.stringify({
           event: 'image_prune_delete',
           userId: `${String(userId).slice(0, 2)}…${String(userId).slice(-2)}`,
           imageId: `${String(image.id).slice(0, 2)}…${String(image.id).slice(-2)}`,
@@ -679,11 +693,11 @@ function getFrontendBaseUrl(req) {
   return 'http://localhost:5173';
 }
 
-function buildGithubCallbackUrl(req) {
-  return `${getApiBaseUrl(req)}/backup/github/callback`;
+export function buildGithubCallbackUrl(req) {
+  return `${getApiBaseUrl(req)}/addons/${ADDON_ID}/callback`;
 }
 
-function buildFrontendRedirect(req, params = {}) {
+export function buildFrontendRedirect(req, params = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
@@ -692,22 +706,56 @@ function buildFrontendRedirect(req, params = {}) {
   });
 
   const suffix = query.toString();
-  return `${getFrontendBaseUrl(req)}/#/${suffix ? `?${suffix}` : ''}`;
+  // Settings, where the add-on's card opens the backup dialog and reads the result.
+  return `${getFrontendBaseUrl(req)}/#/settings${suffix ? `?${suffix}` : ''}`;
 }
 
-function createOauthState(userId) {
+const PENDING_CONNECTION_TTL_MS = 10 * 60 * 1000;
+const pendingConnections = new Map();
+
+/**
+ * Park a GitHub authorization code until the signed-in app collects it. The callback
+ * cannot store the token itself: it carries no Panino session, so it cannot tell whether
+ * the browser coming back belongs to the person who started the connection. Someone could
+ * otherwise send a victim their own `state` and have the victim's GitHub token saved on
+ * their account. The app hands the handle back with its own sign-in (POST /complete),
+ * and the server only completes it for the user the state names.
+ *
+ * In memory, so a restart drops pending connections; the user connects again.
+ *
+ * @returns {string} a single-use handle
+ */
+export function parkPendingConnection({ userId, code, redirectUri }) {
+  const now = Date.now();
+  for (const [handle, entry] of pendingConnections) {
+    if (entry.expiresAt <= now) pendingConnections.delete(handle);
+  }
+  const handle = crypto.randomBytes(32).toString('base64url');
+  pendingConnections.set(handle, { userId, code, redirectUri, expiresAt: now + PENDING_CONNECTION_TTL_MS });
+  return handle;
+}
+
+/** The parked connection for a handle, once: taking it removes it. */
+export function takePendingConnection(handle) {
+  const entry = pendingConnections.get(String(handle || ''));
+  if (!entry) return null;
+  pendingConnections.delete(String(handle));
+  return entry.expiresAt > Date.now() ? entry : null;
+}
+
+export function createOauthState(userId) {
   return jwt.sign({ purpose: 'github-backup', userId }, JWT_SECRET, { expiresIn: '10m' });
 }
 
-function verifyOauthState(state) {
+export function verifyOauthState(state) {
   const payload = jwt.verify(state, JWT_SECRET);
   if (payload?.purpose !== 'github-backup' || !payload?.userId) {
-    throw new Error('Invalid OAuth state');
+    throw userFacingError('This GitHub connection link is not valid. Connect GitHub again.');
   }
   return payload.userId;
 }
 
-function getBackupStatusPayload(config, userId) {
+export function getBackupStatusPayload(config, userId) {
   const runningJob = backupJobs.get(userId) || null;
   const connected = Boolean(config?.access_token_enc);
   const autoBackupEnabled = Boolean(config?.auto_backup_enabled);
@@ -740,10 +788,10 @@ async function runBackupForUser(userId, { trigger = 'manual', onStage } = {}) {
   const config = getBackupConfig(db);
 
   if (!config?.access_token_enc) {
-    throw new Error('GitHub account is not connected');
+    throw userFacingError('GitHub account is not connected');
   }
   if (!config?.repo_full_name) {
-    throw new Error('No GitHub repository has been selected');
+    throw userFacingError('No GitHub repository has been selected');
   }
 
   const accessToken = decryptToken(config.access_token_enc);
@@ -798,9 +846,9 @@ export async function startBackupForUser(userId, { trigger = 'manual' } = {}) {
     const db = getUserDb(userId);
     saveBackupConfig(db, {
       last_warning: null,
-      last_error: truncateErrorMessage(error.message),
+      last_error: githubFailureMessage(error),
     });
-    console.error('[backup] GitHub backup failed:', error);
+    console.error('[github] Backup failed:', error);
   }).finally(() => {
     setTimeout(() => {
       backupJobs.delete(userId);
@@ -813,6 +861,9 @@ export async function startBackupForUser(userId, { trigger = 'manual' } = {}) {
 export async function triggerDailyAutoBackup(userId) {
   if (!userId || backupJobs.has(userId)) {
     return { started: false, reason: 'skipped' };
+  }
+  if (!isAddonActive(userId, ADDON_ID)) {
+    return { started: false, reason: 'addon-off' };
   }
 
   const db = getUserDb(userId);
@@ -833,225 +884,24 @@ export async function triggerDailyAutoBackup(userId) {
 
 export function __resetBackupStateForTests() {
   backupJobs.clear();
+  pendingConnections.clear();
 }
 
-backupPublicRoutes.get('/backup/github/callback', async (req, res) => {
-  const { code, state, error, error_description: errorDescription } = req.query;
-
-  if (error) {
-    return res.redirect(buildFrontendRedirect(req, {
-      githubBackup: 'error',
-      message: errorDescription || error,
-    }));
-  }
-
-  if (!isGithubOauthConfigured()) {
-    return res.redirect(buildFrontendRedirect(req, {
-      githubBackup: 'error',
-      message: 'GitHub OAuth is not configured on the server',
-    }));
-  }
-
+/**
+ * The afterSyncRequest hook: a personal sync may start the daily backup. A
+ * shared space has no personal backup target, so a space sync never does.
+ *
+ * @param {string} dbKey
+ */
+export function triggerAutoBackupAfterSync(dbKey) {
+  let parsed;
   try {
-    const userId = verifyOauthState(String(state || ''));
-    const accessToken = await exchangeGithubCodeForToken({
-      code: String(code || ''),
-      redirectUri: buildGithubCallbackUrl(req),
-    });
-    const viewer = await fetchGithubViewer(accessToken);
-    const db = getUserDb(userId);
-
-    saveBackupConfig(db, {
-      access_token_enc: encryptToken(accessToken),
-      username: viewer?.login || null,
-      avatar_url: viewer?.avatar_url || null,
-      auto_backup_enabled: 1,
-      last_warning: null,
-      last_error: null,
-    });
-
-    return res.redirect(buildFrontendRedirect(req, { githubBackup: 'connected' }));
-  } catch (oauthError) {
-    console.error('[backup] GitHub OAuth callback failed:', oauthError);
-    return res.redirect(buildFrontendRedirect(req, {
-      githubBackup: 'error',
-      message: oauthError.message,
-    }));
+    parsed = parseDbKey(dbKey);
+  } catch {
+    return;
   }
-});
-
-backupRoutes.get('/backup/github/status', (req, res) => {
-  try {
-    const db = getUserDb(req.user.user_id);
-    let config = getBackupConfig(db);
-    if (config?.access_token_enc) {
-      try {
-        decryptToken(config.access_token_enc);
-      } catch {
-        console.warn('[backup] Stored token is no longer decryptable; clearing credential for user', req.user.user_id);
-        deleteBackupConfig(db);
-        config = null;
-      }
-    }
-    res.json(getBackupStatusPayload(config, req.user.user_id));
-  } catch (error) {
-    console.error('[backup] Failed to load status:', error);
-    res.status(500).json({ error: 'Failed to load GitHub backup status' });
-  }
-});
-
-backupRoutes.post('/backup/github/connect', (req, res) => {
-  if (!isGithubOauthConfigured()) {
-    return res.status(503).json({ error: 'GitHub OAuth is not configured on the server' });
-  }
-
-  const authorizeUrl = new URL(`${GITHUB_OAUTH_URL}/authorize`);
-  authorizeUrl.searchParams.set('client_id', getGithubClientId());
-  authorizeUrl.searchParams.set('redirect_uri', buildGithubCallbackUrl(req));
-  authorizeUrl.searchParams.set('scope', 'repo');
-  authorizeUrl.searchParams.set('state', createOauthState(req.user.user_id));
-  authorizeUrl.searchParams.set('allow_signup', 'true');
-
-  res.json({ authorizeUrl: authorizeUrl.toString() });
-});
-
-backupRoutes.delete('/backup/github/disconnect', async (req, res) => {
-  if (backupJobs.has(req.user.user_id)) {
-    return res.status(409).json({ error: 'Backup is currently running' });
-  }
-
-  try {
-    const db = getUserDb(req.user.user_id);
-    const config = getBackupConfig(db);
-    if (config?.access_token_enc && isGithubOauthConfigured()) {
-      try {
-        const token = decryptToken(config.access_token_enc);
-        await fetch(`${GITHUB_API_URL}/applications/${getGithubClientId()}/grant`, {
-          method: 'DELETE',
-          headers: {
-            Accept: 'application/vnd.github+json',
-            Authorization: `Basic ${Buffer.from(`${getGithubClientId()}:${getGithubClientSecret()}`).toString('base64')}`,
-            'Content-Type': 'application/json',
-            'User-Agent': 'panino-backup',
-            'X-GitHub-Api-Version': GITHUB_API_VERSION,
-          },
-          body: JSON.stringify({ access_token: token }),
-        });
-      } catch (revokeError) {
-        console.warn('[backup] Failed to revoke GitHub token during disconnect:', revokeError.message);
-      }
-    }
-
-    deleteBackupConfig(db);
-    res.json({ disconnected: true });
-  } catch (error) {
-    console.error('[backup] Disconnect failed:', error);
-    res.status(500).json({ error: 'Failed to disconnect GitHub backup' });
-  }
-});
-
-backupRoutes.get('/backup/github/repos', async (req, res) => {
-  try {
-    const db = getUserDb(req.user.user_id);
-    const config = getBackupConfig(db);
-    if (!config?.access_token_enc) {
-      return res.status(400).json({ error: 'GitHub account is not connected' });
-    }
-
-    const repos = await listGithubRepos(decryptToken(config.access_token_enc));
-    res.json({ repos });
-  } catch (error) {
-    console.error('[backup] Failed to list repositories:', error);
-    res.status(500).json({ error: error.message || 'Failed to load repositories' });
-  }
-});
-
-backupRoutes.post('/backup/github/repos', async (req, res) => {
-  const repoName = String(req.body?.name || '').trim();
-  if (!repoName) {
-    return res.status(400).json({ error: 'Repository name is required' });
-  }
-
-  try {
-    const db = getUserDb(req.user.user_id);
-    const config = getBackupConfig(db);
-    if (!config?.access_token_enc) {
-      return res.status(400).json({ error: 'GitHub account is not connected' });
-    }
-
-    const repo = await createGithubRepo(decryptToken(config.access_token_enc), repoName);
-    saveBackupConfig(db, {
-      repo_full_name: repo.full_name,
-      last_warning: null,
-      last_error: null,
-    });
-
-    res.status(201).json({
-      repo: {
-        id: repo.id,
-        name: repo.name,
-        fullName: repo.full_name,
-        private: Boolean(repo.private),
-        htmlUrl: repo.html_url,
-        defaultBranch: repo.default_branch,
-      },
-    });
-  } catch (error) {
-    console.error('[backup] Failed to create repository:', error);
-    res.status(500).json({ error: error.message || 'Failed to create repository' });
-  }
-});
-
-backupRoutes.put('/backup/github/repo', async (req, res) => {
-  const repoFullName = String(req.body?.repoFullName || '').trim();
-  if (!repoFullName) {
-    return res.status(400).json({ error: 'Repository selection is required' });
-  }
-
-  try {
-    const db = getUserDb(req.user.user_id);
-    const config = getBackupConfig(db);
-    if (!config?.access_token_enc) {
-      return res.status(400).json({ error: 'GitHub account is not connected' });
-    }
-
-    const repo = await fetchGithubRepo(decryptToken(config.access_token_enc), repoFullName);
-    if (!repo?.permissions?.push) {
-      return res.status(403).json({ error: 'You do not have push access to that repository' });
-    }
-
-    saveBackupConfig(db, {
-      repo_full_name: repo.full_name,
-      last_warning: null,
-      last_error: null,
-    });
-
-    res.json({
-      repo: {
-        id: repo.id,
-        name: repo.name,
-        fullName: repo.full_name,
-        private: Boolean(repo.private),
-        htmlUrl: repo.html_url,
-        defaultBranch: repo.default_branch,
-      },
-    });
-  } catch (error) {
-    console.error('[backup] Failed to select repository:', error);
-    res.status(500).json({ error: error.message || 'Failed to select repository' });
-  }
-});
-
-backupRoutes.post('/backup/github/run', async (req, res) => {
-  try {
-    const result = await startBackupForUser(req.user.user_id, { trigger: 'manual' });
-    if (!result.started) {
-      return res.status(409).json({ error: 'Backup is already running' });
-    }
-
-    return res.status(202).json({ started: true });
-  } catch (error) {
-    console.error('[backup] Failed to start backup:', error);
-    return res.status(500).json({ error: error.message || 'Failed to start backup' });
-  }
-});
+  if (parsed.kind !== 'user') return;
+  void triggerDailyAutoBackup(parsed.id).catch((error) => {
+    console.error('[github] Auto backup check failed:', error);
+  });
+}

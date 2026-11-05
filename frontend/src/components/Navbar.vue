@@ -43,6 +43,19 @@
                 </BaseButton>
 
                 <BaseButton
+                    v-if="hasAddonActions"
+                    :isActive="ui.showAddonsMenu"
+                    @click="ui.toggleAddonsMenu()"
+                    title="Toggle Add-ons Menu"
+                    data-testid="navbar-addons-button"
+                >
+
+                    <Puzzle class="w-4 h-4" />
+                    <span class="navbar-button-text">Add-ons</span>
+
+                </BaseButton>
+
+                <BaseButton
                     v-if="authStore.isAuthenticated && authStore.user?.name !== 'guest'"
                     :isActive="syncStore.syncEnabled"
                     :disabled="!authStore.isAuthenticated || !syncStore.isOnline"
@@ -176,7 +189,10 @@ import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useThemeStore } from '@/store/themeStore'
+import { useAddonsStore } from '@/store/addonsStore'
+import { addonsContributing } from '@/addons/registry'
 import { useRouter } from 'vue-router'
+import { computed, onMounted, watch } from 'vue'
 
 import BaseButton from '@/components/BaseButton.vue'
 import { useSyncToggle } from '@/composables/useSyncToggle'
@@ -185,6 +201,7 @@ import {
     Layout,
     FilePenLine,
     Hammer,
+    Puzzle,
     RefreshCw,
     Info,
     LogIn,
@@ -202,6 +219,18 @@ const syncStore = useSyncStore()
 const themeStore = useThemeStore()
 const router = useRouter()
 const { toggleSync } = useSyncToggle()
+const addonsStore = useAddonsStore()
+onMounted(() => { void addonsStore.fetchAddons() })
+
+/** The Add-ons button shows while an add-on that is on has an action for the toolbar. */
+const hasAddonActions = computed(() => addonsContributing('actions').some((manifest) =>
+    addonsStore.isActive(manifest.id)
+    && manifest.actions.some((action) => (action.surfaces || ['toolbar', 'menu']).includes('toolbar'))))
+
+// Close the Add-ons menu if its last add-on goes away while it is open.
+watch(hasAddonActions, (has) => {
+    if (!has && ui.showAddonsMenu) ui.toggleAddonsMenu()
+})
 
 async function handleLogout() {
     try {

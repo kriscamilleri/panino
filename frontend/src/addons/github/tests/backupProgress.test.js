@@ -3,9 +3,9 @@ import {
     buildBackupProgressSteps,
     getBackupStageLabel,
     resolveVisibleBackupStage,
-} from '../../src/utils/githubBackupProgress.js';
+} from '../utils/backupProgress.js';
 
-describe('githubBackupProgress', () => {
+describe('GitHub backup progress', () => {
     it('marks the active and completed progress steps for the current stage', () => {
         const steps = buildBackupProgressSteps('creating_commit');
 

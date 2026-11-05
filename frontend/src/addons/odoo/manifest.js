@@ -1,0 +1,59 @@
+/**
+ * How the Odoo add-on appears in the app (docs/specs/active/addon-folders.md §6).
+ * Components load only through `() => import(…)`; keep it that way, so the
+ * main bundle carries nothing of Odoo's but this file.
+ */
+import { LayoutList, Send, Sheet } from 'lucide-vue-next'
+
+export default Object.freeze({
+    id: 'odoo',
+    // The desktop Add-ons menu and the phone Document menu.
+    actions: [
+        {
+            id: 'send',
+            icon: Send,
+            label: 'Odoo',
+            menuLabel: 'Send to Odoo',
+            hint: 'Send this document to Odoo',
+            requires: ['online', 'document'],
+            modal: 'send',
+        },
+        {
+            id: 'data',
+            icon: Sheet,
+            label: 'Odoo data',
+            menuLabel: 'Sales orders from Odoo',
+            hint: 'Insert or refresh sales orders from Odoo',
+            requires: ['online', 'document'],
+            modal: 'data',
+        },
+        {
+            id: 'overview',
+            icon: LayoutList,
+            label: 'Odoo overview',
+            hint: 'Everything sent to Odoo, and what needs updating',
+            requires: ['online'],
+            // On the phone it opens from the Odoo card in Settings: the Document menu is about one Document.
+            surfaces: ['toolbar'],
+            page: 'overview',
+        },
+    ],
+    // Full pages at #/addons/odoo/<id> (core pages/AddonPage.vue).
+    pages: [
+        { id: 'overview', title: 'Odoo', maxWidthClass: 'max-w-6xl', component: () => import('./components/OdooOverviewPage.vue') },
+    ],
+    modals: {
+        send: () => import('./components/OdooSendModal.vue'),
+        data: () => import('./components/OdooDataBlockModal.vue'),
+    },
+    // Under the add-on's switch in Settings, desktop and phone (`layout` prop).
+    settingsCard: {
+        component: () => import('./components/OdooSettingsCard.vue'),
+    },
+    // On the Spaces page, for a space the user can edit.
+    spaceCard: {
+        component: () => import('./components/OdooSyncsCard.vue'),
+        props: ({ spaceId }) => ({ dbKey: `space:${spaceId}`, spaceMode: true }),
+        whenOff: 'Turn on the Odoo add-on in Settings → Add-ons to keep this space in sync with Odoo Knowledge.',
+    },
+})

@@ -182,6 +182,17 @@
               </BaseButton>
             </form>
 
+            <template v-if="canEdit">
+              <AddonCard
+                v-for="manifest in spaceAddons"
+                :key="manifest.id"
+                class="mt-6"
+                :addon-id="manifest.id"
+                point="spaceCard"
+                :context="{ spaceId: selectedId }"
+              />
+            </template>
+
             <section v-if="isOwner" class="mt-6">
               <h3 class="pn-title-section">Invite an editor</h3>
               <form class="mt-3 flex flex-col gap-3 sm:flex-row" @submit.prevent="invite">
@@ -306,6 +317,9 @@ import AvatarStack from "@/components/AvatarStack.vue";
 import BaseButton from "@/components/BaseButton.vue";
 import BaseModal from "@/components/BaseModal.vue";
 import UserAvatar from "@/components/UserAvatar.vue";
+import AddonCard from "@/components/addons/AddonCard.vue";
+import { addonsContributing } from "@/addons/registry";
+import { useAddonsStore } from "@/store/addonsStore";
 import { useSpacesStore } from "@/store/spacesStore";
 import { useSyncStore } from "@/store/syncStore";
 import { useUiStore } from "@/store/uiStore";
@@ -326,6 +340,10 @@ const verificationSent = ref(false);
 const confirm = reactive({ kind: "", member: null });
 
 const isOwner = computed(() => isSpaceOwner(spacesStore.detail?.space));
+const canEdit = computed(() => ["owner", "editor"].includes(spacesStore.detail?.space?.role));
+const addonsStore = useAddonsStore();
+// Add-ons that put a card on a space (their manifest's spaceCard).
+const spaceAddons = addonsContributing("spaceCard");
 const confirmTitle = computed(() => ({
   transfer: "Transfer ownership?",
   remove: "Remove this member?",
@@ -345,6 +363,7 @@ const canConfirm = computed(() => (
 watch(() => spacesStore.detail?.space?.name, (name) => { renameName.value = name || ""; });
 
 onMounted(() => {
+  void addonsStore.fetchAddons();
   void spacesStore.loadPendingInvitations().catch(() => {});
   const requested = typeof route.query.space === "string" ? route.query.space : "";
   selectedId.value = spacesStore.spaces.some((space) => space.id === requested)

@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { createTestApp, cleanupTestUser, setupTestUser } from '../testHelpers.js';
+import { createTestApp, cleanupTestUser, getTestToken, setupTestUser } from '../../../../tests/testHelpers.js';
 import { __resetBackupStateForTests } from '../../backup.js';
-import { getUserDb } from '../../db.js';
+import { getUserDb } from '../../../../db.js';
+import { setAddonEnabled } from '../../../registry.js';
 
 function jsonResponse(payload, status = 200) {
     return new Response(JSON.stringify(payload), {
@@ -13,7 +14,7 @@ function jsonResponse(payload, status = 200) {
 
 async function connectGithubBackup(app, token) {
     const connectResponse = await request(app)
-        .post('/backup/github/connect')
+        .post('/addons/github/connect')
         .set('Authorization', `Bearer ${token}`)
         .send({});
 
@@ -23,17 +24,26 @@ async function connectGithubBackup(app, token) {
     expect(state).toBeTruthy();
 
     const callbackResponse = await request(app)
-        .get('/backup/github/callback')
+        .get('/addons/github/callback')
         .query({ code: 'oauth-code', state });
 
     expect(callbackResponse.status).toBe(302);
-    expect(callbackResponse.headers.location).toContain('#/?githubBackup=connected');
+    const location = callbackResponse.headers.location;
+    expect(location).toContain('#/settings?addon=github&addonResult=pending&handle=');
+    const handle = new URLSearchParams(location.split('?')[1]).get('handle');
+
+    const completeResponse = await request(app)
+        .post('/addons/github/complete')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ handle });
+    expect(completeResponse.status).toBe(200);
+    expect(completeResponse.body.connected).toBe(true);
 }
 
 async function waitForStatus(app, token, predicate, attempts = 20) {
     for (let index = 0; index < attempts; index += 1) {
         const response = await request(app)
-            .get('/backup/github/status')
+            .get('/addons/github/status')
             .set('Authorization', `Bearer ${token}`);
 
         if (predicate(response.body)) {
@@ -63,6 +73,7 @@ describe('GitHub backup routes', () => {
         __resetBackupStateForTests();
         vi.restoreAllMocks();
         testUser = await setupTestUser(`backup-${Date.now()}@example.com`, 'password123');
+        await setAddonEnabled(testUser.userId, 'github', true);
     });
 
     afterEach(() => {
@@ -79,14 +90,14 @@ describe('GitHub backup routes', () => {
 
     it('returns default disconnected status before OAuth is connected', async () => {
         const response = await request(app)
-            .get('/backup/github/status')
-            .set('Authorization', `Bearer ${testUser ? '' : ''}`);
+            .get('/addons/github/status')
+            .set('Authorization', 'Bearer ');
 
         expect(response.status).toBe(401);
 
-        const token = (await import('../testHelpers.js')).getTestToken(testUser.userId);
+        const token = getTestToken(testUser.userId);
         const authedResponse = await request(app)
-            .get('/backup/github/status')
+            .get('/addons/github/status')
             .set('Authorization', `Bearer ${token}`);
 
         expect(authedResponse.status).toBe(200);
@@ -96,7 +107,6 @@ describe('GitHub backup routes', () => {
     });
 
     it('connects GitHub, lists pushable repositories, creates a repo, and records a backup run', async () => {
-        const { getTestToken } = await import('../testHelpers.js');
         const token = getTestToken(testUser.userId);
         const db = getUserDb(testUser.userId);
         const now = new Date().toISOString();
@@ -181,7 +191,7 @@ describe('GitHub backup routes', () => {
         await connectGithubBackup(app, token);
 
         const reposResponse = await request(app)
-            .get('/backup/github/repos')
+            .get('/addons/github/repos')
             .set('Authorization', `Bearer ${token}`);
 
         expect(reposResponse.status).toBe(200);
@@ -190,7 +200,7 @@ describe('GitHub backup routes', () => {
         ]);
 
         const createRepoResponse = await request(app)
-            .post('/backup/github/repos')
+            .post('/addons/github/repos')
             .set('Authorization', `Bearer ${token}`)
             .send({ name: 'panino-backup' });
 
@@ -198,7 +208,7 @@ describe('GitHub backup routes', () => {
         expect(createRepoResponse.body.repo.fullName).toBe('octocat/panino-backup');
 
         const runResponse = await request(app)
-            .post('/backup/github/run')
+            .post('/addons/github/run')
             .set('Authorization', `Bearer ${token}`)
             .send({});
 
@@ -221,7 +231,6 @@ describe('GitHub backup routes', () => {
     });
 
     it('completes backup while warning about referenced missing images', async () => {
-        const { getTestToken } = await import('../testHelpers.js');
         const token = getTestToken(testUser.userId);
         const db = getUserDb(testUser.userId);
         const now = new Date().toISOString();
@@ -283,7 +292,7 @@ describe('GitHub backup routes', () => {
         db.prepare('UPDATE backup_config SET repo_full_name = ? WHERE provider = ?').run('octocat/panino-backup', 'github');
 
         const runResponse = await request(app)
-            .post('/backup/github/run')
+            .post('/addons/github/run')
             .set('Authorization', `Bearer ${token}`)
             .send({});
 

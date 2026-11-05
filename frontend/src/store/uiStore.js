@@ -26,6 +26,8 @@ export const useUiStore = defineStore("uiStore", () => {
   const toolsMenuCollapsed = ref(false);
   const navbarCollapsed = ref(false);
   const scrollSync = ref(false);
+  // The sidebar's My Notes group (shown once there is a space), desktop and phone.
+  const myNotesCollapsed = ref(false);
   // Phone preferences (Settings → Notes).
   const homeLayout = ref("grid");
   const openNotesIn = ref(OPEN_IN_AUTO);
@@ -36,11 +38,14 @@ export const useUiStore = defineStore("uiStore", () => {
   const showViewMenu = ref(false);
   const showActionBar = ref(false);
   const showFileMenu = ref(false);
+  const showAddonsMenu = ref(false);
 
   // Modal and Toast state (transient)
   const showImportModal = ref(false);
   const showExportModal = ref(false);
-  const showGithubBackupModal = ref(false);
+  // The add-on modal that is open, if any (components/addons/AddonModalHost.vue).
+  /** @type {import('vue').Ref<{ addonId: string, modalId: string } | null>} */
+  const addonModal = ref(null);
   const showVariablesModal = ref(false);
   const showImageLibraryModal = ref(false);
   const toasts = ref([]);
@@ -70,6 +75,7 @@ export const useUiStore = defineStore("uiStore", () => {
       toolsMenuCollapsed: toolsMenuCollapsed.value,
       navbarCollapsed: navbarCollapsed.value,
       scrollSync: scrollSync.value,
+      myNotesCollapsed: myNotesCollapsed.value,
       homeLayout: homeLayout.value,
       openNotesIn: openNotesIn.value,
       noteSort: noteSort.value,
@@ -104,6 +110,7 @@ export const useUiStore = defineStore("uiStore", () => {
         toolsMenuCollapsed.value = settings.toolsMenuCollapsed ?? false;
         navbarCollapsed.value = settings.navbarCollapsed ?? false;
         scrollSync.value = settings.scrollSync ?? false;
+        myNotesCollapsed.value = settings.myNotesCollapsed === true;
         homeLayout.value = pick(settings.homeLayout, HOME_LAYOUTS, "grid");
         openNotesIn.value = pick(settings.openNotesIn, OPEN_NOTES_IN, OPEN_IN_AUTO);
         noteSort.value = normalizeSort(settings.noteSort);
@@ -129,6 +136,7 @@ export const useUiStore = defineStore("uiStore", () => {
     toolsMenuCollapsed.value = false;
     navbarCollapsed.value = false;
     scrollSync.value = false;
+    myNotesCollapsed.value = false;
     homeLayout.value = "grid";
     openNotesIn.value = OPEN_IN_AUTO;
     noteSort.value = { ...DEFAULT_SORT };
@@ -155,7 +163,11 @@ export const useUiStore = defineStore("uiStore", () => {
 
   // --- Computed Properties ---
   const isAnyMenuOpen = computed(
-    () => showViewMenu.value || showActionBar.value || showFileMenu.value,
+    () =>
+      showViewMenu.value ||
+      showActionBar.value ||
+      showFileMenu.value ||
+      showAddonsMenu.value,
   );
 
   // --- Actions ---
@@ -168,7 +180,12 @@ export const useUiStore = defineStore("uiStore", () => {
 
   // Transient Menu Toggles
   const toggleMenu = (menuRef) => {
-    const otherMenus = [showViewMenu, showActionBar, showFileMenu].filter(
+    const otherMenus = [
+      showViewMenu,
+      showActionBar,
+      showFileMenu,
+      showAddonsMenu,
+    ].filter(
       (m) => m !== menuRef,
     );
     const isOpening = !menuRef.value;
@@ -211,15 +228,17 @@ export const useUiStore = defineStore("uiStore", () => {
     toolsMenuCollapsed,
     navbarCollapsed,
     scrollSync,
+    myNotesCollapsed,
     homeLayout,
     openNotesIn,
     noteSort,
     showViewMenu,
     showActionBar,
     showFileMenu,
+    showAddonsMenu,
     showImportModal,
     showExportModal,
-    showGithubBackupModal,
+    addonModal,
     showVariablesModal,
     toasts,
     showImageLibraryModal,
@@ -239,23 +258,26 @@ export const useUiStore = defineStore("uiStore", () => {
     toggleToolsMenuCollapsed: () => toggleAndSave(toolsMenuCollapsed),
     toggleNavbarCollapsed: () => toggleAndSave(navbarCollapsed),
     toggleScrollSync: () => toggleAndSave(scrollSync),
+    toggleMyNotesCollapsed: () => toggleAndSave(myNotesCollapsed),
 
     toggleViewMenu: () => toggleMenu(showViewMenu),
     toggleActionBar: () => toggleMenu(showActionBar),
     toggleFileMenu: () => toggleMenu(showFileMenu),
+    toggleAddonsMenu: () => toggleMenu(showAddonsMenu),
 
     closeAllMenus: () => {
       showViewMenu.value = false;
       showActionBar.value = false;
       showFileMenu.value = false;
+      showAddonsMenu.value = false;
     },
 
     openImportModal: () => (showImportModal.value = true),
     closeImportModal: () => (showImportModal.value = false),
     openExportModal: () => (showExportModal.value = true),
     closeExportModal: () => (showExportModal.value = false),
-    openGithubBackupModal: () => (showGithubBackupModal.value = true),
-    closeGithubBackupModal: () => (showGithubBackupModal.value = false),
+    openAddonModal: (addonId, modalId) => (addonModal.value = { addonId, modalId }),
+    closeAddonModal: () => (addonModal.value = null),
     openVariablesModal: () => (showVariablesModal.value = true),
     closeVariablesModal: () => (showVariablesModal.value = false),
     openImageLibraryModal: () => (showImageLibraryModal.value = true),

@@ -247,19 +247,12 @@ const BASE_SCHEMA = `
 `;
 
 const USER_LOCAL_SCHEMA = `
-  CREATE TABLE IF NOT EXISTS backup_config (
-    id TEXT PRIMARY KEY NOT NULL,
-    provider TEXT NOT NULL UNIQUE,
-    access_token_enc TEXT,
-    username TEXT,
-    avatar_url TEXT,
-    repo_full_name TEXT,
-    auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
-    last_backup_at TEXT,
-    last_backup_sha TEXT,
-    last_warning TEXT,
-    last_error TEXT,
-    created_at TEXT NOT NULL
+  -- Which add-ons this user switched on (addons/registry.js). Server-only. No row: off.
+  CREATE TABLE IF NOT EXISTS addons (
+    addon_id TEXT PRIMARY KEY NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    enabled_at TEXT,
+    disabled_at TEXT
   );
 `;
 
@@ -305,6 +298,30 @@ const SPACE_LOCAL_SCHEMA = `
     archived_at TEXT NOT NULL
   );
 `;
+
+// Add-on tables (addons/registry.js), by add-on id. Applied to every content
+// database as it opens, so every add-on registers before the first one opens
+// (index.js imports addons/index.js first). Server-only: never CRRs, never in
+// the browser schema.
+const addonSchemas = new Map();
+
+/**
+ * @param {string} addonId
+ * @param {{ user?: string, content?: string,
+ *   upgrade?: (db: import('better-sqlite3').Database, kind: 'user' | 'space') => void }} schema
+ *   `user` runs on user databases, `content` on every content database, then
+ *   `upgrade` on both, for what plain SQL cannot do idempotently (adding a
+ *   column to an older table). All three must be idempotent.
+ */
+export function registerAddonSchema(addonId, { user = "", content = "", upgrade = null } = {}) {
+  if (/crsql_as_crr/i.test(`${user}\n${content}`)) {
+    throw new Error(`Add-on ${addonId}: add-on tables are server-only and cannot be CRRs.`);
+  }
+  if (upgrade !== null && typeof upgrade !== "function") {
+    throw new Error(`Add-on ${addonId}: schema.upgrade must be a function.`);
+  }
+  addonSchemas.set(addonId, { user, content, upgrade });
+}
 
 const CONTENT_SCHEMA_METADATA = `
   CREATE TABLE IF NOT EXISTS application_schema (
@@ -596,85 +613,6 @@ function ensureGlobalsSchema(db) {
   }
 }
 
-function ensureBackupConfigSchema(db) {
-  try {
-    const columns = db.prepare("PRAGMA table_info('backup_config')").all();
-    if (!columns || columns.length === 0) {
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS backup_config (
-          id TEXT PRIMARY KEY NOT NULL,
-          provider TEXT NOT NULL UNIQUE,
-          access_token_enc TEXT,
-          username TEXT,
-          avatar_url TEXT,
-          repo_full_name TEXT,
-          auto_backup_enabled INTEGER NOT NULL DEFAULT 1,
-          last_backup_at TEXT,
-          last_backup_sha TEXT,
-          last_warning TEXT,
-          last_error TEXT,
-          created_at TEXT NOT NULL
-        )
-      `);
-      return;
-    }
-
-    const names = new Set(columns.map((column) => column.name));
-
-    if (!names.has("provider")) {
-      db.exec(
-        "ALTER TABLE backup_config ADD COLUMN provider TEXT NOT NULL DEFAULT 'github'",
-      );
-      db.exec(
-        "UPDATE backup_config SET provider = 'github' WHERE provider IS NULL OR provider = ''",
-      );
-    }
-    if (!names.has("access_token_enc")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN access_token_enc TEXT");
-    }
-    if (!names.has("username")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN username TEXT");
-    }
-    if (!names.has("avatar_url")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN avatar_url TEXT");
-    }
-    if (!names.has("repo_full_name")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN repo_full_name TEXT");
-    }
-    if (!names.has("auto_backup_enabled")) {
-      db.exec(
-        "ALTER TABLE backup_config ADD COLUMN auto_backup_enabled INTEGER NOT NULL DEFAULT 1",
-      );
-      db.exec(
-        "UPDATE backup_config SET auto_backup_enabled = 1 WHERE auto_backup_enabled IS NULL",
-      );
-    }
-    if (!names.has("last_backup_at")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_backup_at TEXT");
-    }
-    if (!names.has("last_backup_sha")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_backup_sha TEXT");
-    }
-    if (!names.has("last_warning")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_warning TEXT");
-    }
-    if (!names.has("last_error")) {
-      db.exec("ALTER TABLE backup_config ADD COLUMN last_error TEXT");
-    }
-    if (!names.has("created_at")) {
-      db.exec(
-        "ALTER TABLE backup_config ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'))",
-      );
-      db.exec(
-        "UPDATE backup_config SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''",
-      );
-    }
-  } catch (err) {
-    console.error("[db] Failed to ensure backup config schema:", err);
-    throw err;
-  }
-}
-
 function ensureTemplatesSchema(db) {
   try {
     const columns = db.prepare("PRAGMA table_info('templates')").all();
@@ -884,10 +822,14 @@ export function initializeContentDb(db, kind) {
   db.exec(BASE_SCHEMA);
   if (kind === "user") db.exec(USER_LOCAL_SCHEMA);
   if (kind === "space") db.exec(SPACE_LOCAL_SCHEMA);
+  for (const schema of addonSchemas.values()) {
+    if (schema.content) db.exec(schema.content);
+    if (kind === "user" && schema.user) db.exec(schema.user);
+    if (schema.upgrade) schema.upgrade(db, kind);
+  }
   ensureNotesSchema(db);
   ensureImagesSchema(db);
   ensureGlobalsSchema(db);
-  if (kind === "user") ensureBackupConfigSchema(db);
   ensureTemplatesSchema(db);
   ensureNoteRevisionsSchema(db);
   ensureCrr(db);

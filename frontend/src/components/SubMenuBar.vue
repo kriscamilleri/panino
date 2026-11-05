@@ -429,13 +429,6 @@
                 </BaseButton>
 
                 <BaseButton
-                    @click="ui.openGithubBackupModal()"
-                    data-testid="submenu-tools-github-backup"
-                >
-                    <Github class="w-4 h-4" /><span class="button-text">Backup</span>
-                </BaseButton>
-
-                <BaseButton
                     @click="goToImages"
                     :disabled="!isOnline"
                     :title="!isOnline ? 'Image library requires an internet connection' : ''"
@@ -478,12 +471,21 @@
                     <span class="button-text">Collapse</span>
                 </BaseButton>
             </div>
+
+            <div
+                v-else-if="ui.showAddonsMenu"
+                class="flex flex-wrap items-center gap-2"
+                key="addons"
+                data-testid="submenu-addons"
+            >
+                <AddonActions surface="toolbar" />
+            </div>
         </div>
     </transition>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
@@ -491,6 +493,8 @@ import { useDictation } from '@/composables/useDictation'
 import { storeToRefs } from 'pinia'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
+import { useAddonsStore } from '@/store/addonsStore'
+import AddonActions from '@/components/addons/AddonActions.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import {
     Folder,
@@ -515,7 +519,6 @@ import {
     ArrowRight,
     Upload,
     Download,
-    Github,
     Image,
     Printer,
     Braces,
@@ -542,6 +545,8 @@ const { selectedFileId } = storeToRefs(docStore)
 const { isOnline } = storeToRefs(syncStore)
 const { isEditorAvailable } = storeToRefs(editorStore)
 const printDisabled = computed(() => !selectedFileId.value)
+const addonsStore = useAddonsStore()
+onMounted(() => { void addonsStore.fetchAddons() })
 const imageLibraryDisabled = computed(() => !selectedFileId.value)
 const dictationDisabled = computed(() => !isEditorAvailable.value)
 const {

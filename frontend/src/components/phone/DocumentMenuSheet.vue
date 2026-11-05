@@ -123,6 +123,7 @@
                 />
                 {{ syncStore.isOnline ? 'Export as PDF' : 'Export as PDF (needs a connection)' }}
             </button>
+            <AddonActions surface="menu" />
             <button
                 type="button"
                 class="ph-row"
@@ -191,11 +192,13 @@
             :document-title="file.title || 'Untitled'"
             @close="editingStyles = false"
         />
+        <!-- On a phone, add-on modals open over this sheet and close with it. -->
+        <AddonModalHost />
     </BottomSheet>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon } from 'lucide-vue-next'
@@ -204,8 +207,11 @@ import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
+import AddonActions from '@/components/addons/AddonActions.vue'
+import AddonModalHost from '@/components/addons/AddonModalHost.vue'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
+import { useAddonsStore } from '@/store/addonsStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiStore } from '@/store/uiStore'
@@ -219,7 +225,7 @@ const APPEARANCE_OPTIONS = [
     { value: 'dark', label: 'Dark', icon: Moon },
 ]
 
-defineProps({
+const props = defineProps({
     open: { type: Boolean, default: false },
     folderLabel: { type: String, default: '' },
 })
@@ -237,6 +243,14 @@ const { selectedFile: file } = storeToRefs(docStore)
 
 const confirmingDelete = ref(false)
 const editingStyles = ref(false)
+const addonsStore = useAddonsStore()
+
+watch(() => props.open, (isOpen) => {
+    if (isOpen) void addonsStore.fetchAddons()
+    // The add-on modal lives in this sheet: closing the sheet (the back gesture
+    // too) closes it, and reopening the sheet must not bring it back.
+    else ui.closeAddonModal()
+}, { immediate: true })
 
 const isSpaceDocument = computed(() => Boolean(file.value?.dbKey?.startsWith('space:')))
 const isPinned = computed(() => normalizePinned(file.value?.pinned))

@@ -58,6 +58,8 @@
                 </BaseButton>
             </div>
         </div>
+
+        <AddonsSection />
     </AccountLayout>
 </template>
 
@@ -70,11 +72,16 @@ import { useSyncStore } from '@/store/syncStore';
 import AccountLayout from '@/components/AccountLayout.vue';
 import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 import BaseButton from '@/components/BaseButton.vue';
+import AddonsSection from '@/components/AddonsSection.vue';
+import { useAddonReturn } from '@/composables/useAddonReturn';
+import { useAddonsStore } from '@/store/addonsStore';
 import { Image, FileText, Users } from 'lucide-vue-next';
 
 const authStore = useAuthStore();
 const syncStore = useSyncStore();
+const addonsStore = useAddonsStore();
 const router = useRouter();
+useAddonReturn();
 const { user } = storeToRefs(authStore);
 const loadingProfile = ref(true);
 
@@ -112,6 +119,7 @@ function formatBytes(value) {
 }
 
 onMounted(async () => {
+    void addonsStore.fetchAddons({ force: true });
     try {
         // fetchMe might not be called before, so ensure it is.
         if (!user.value || !user.value.created_at) {
