@@ -16,7 +16,6 @@ const KEY_PATTERN = /^pnk_[A-Za-z0-9_-]{43}$/;
 // C0 controls except tab/newline/carriage return, plus DEL and C1 controls.
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
-// eslint-disable-next-line no-control-regex
 const ANY_LINE_BREAK = /[\r\n\t]/;
 
 /**

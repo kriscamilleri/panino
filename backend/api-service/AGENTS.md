@@ -22,6 +22,8 @@ All code lives under `backend/api-service/`. The entry point is `index.js`, whic
 | `pdf.js` | `POST /render-pdf` — Puppeteer HTML→PDF with queued processing | Authenticated |
 | `addons/registry.js`, `addons/index.js` | Add-on registry and gate (`docs/specs/active/addons.md`, `docs/specs/active/addon-folders.md`): `GET /addons`, `PUT /addons/:id/enabled`, `requireAddon(id)` (404 unless the operator offers it, 403 `addon_disabled` until the user switches it on), the per-user `addons` table. A manifest may declare `routes` (mounted at `/addons/<id>` behind the gate by `mountAddonRoutes`, paths relative), `publicRoutes` (same prefix, mounted before sign-in by `mountAddonPublicRoutes` behind the offered check only, for OAuth callbacks that prove the user themselves and check the switch), `schema` (`user` / `content` SQL applied by `db.js` through `registerAddonSchema`, then an optional idempotent `upgrade(db, kind)`), `hooks` (`afterChangesApplied`, `afterSyncRequest`, run from `sync.js` by `runAddonHooks`) and `configWarnings`. `addons/index.js` imports each add-on, one line each | Authenticated |
 | `addons/<id>/` | One folder per add-on, each with a `README.md` listing its manifest and files. To add or extend one, load the `add-on-development` skill (`.github/skills/add-on-development/SKILL.md`). **Core never imports an add-on module**, only the registry; add-ons never import each other (ESLint `panino/addon-boundaries`). Today: `addons/github/` (`docs/specs/active/github-integration.md`): GitHub OAuth, repository selection, snapshot commits of personal Documents, the daily backup from `afterSyncRequest`, the `backup_config` table; tests in `addons/github/tests/`. `addons/odoo/` (`docs/specs/active/odoo-integration.md`, `docs/specs/active/odoo-sales-order-blocks.md`): connection, pickers, links, send to Documents, Knowledge and chatter, Knowledge syncs, sales order blocks; tests in `addons/odoo/tests/` with `tests/fakeOdoo.js` | Authenticated |
+| `apiKeys.js` | Personal API keys (`docs/specs/active/llm-api.md`, `docs/architecture/public-api.md`): `GET/POST/DELETE /api-keys` (session only), `authenticateApiKey` (Bearer `pnk_…`, SHA-256 lookup, expiry, revocation, 120/min rate limit) and `requireScope` | Authenticated (JWT) / API key |
+| `publicApi.js`, `publicApiSpec.js`, `apiKeyUtils.js` | The v1 API at `/v1` for LLMs and scripts: `me`, `spaces`, `tree`, `search`, `documents` list/read/create/patch/append, soft `DELETE` into a Trash folder, `folders`; `GET /v1/openapi.json`. Writes are plain CRR writes with `actor_kind = 'api'` revisions, the live-session guard, pokes and add-on hooks. API keys only; no session JWT | API key |
 | `revision.js` | Note revision capture, listing, detail, restore, and pruning; snapshots may carry a nullable server-derived `actor_user_id`/`actor_kind` (`sync`\|`collab`\|`system`) — never accepted from client input | Authenticated |
 | `db.js` | Canonical `getDb(dbKey)` content connections, user compatibility wrappers, versioned content initialization, auth/space metadata DBs, connection caching, CR-SQLite extension loading | — |
 | `spaces.js` | Flag-gated discovery and lifecycle: create/rename, hashed email-bound editor invitations, member removal, ownership transfer, editor leave, pending deletion, membership-version fan-out, and retained-space purge scheduling | Authenticated / trusted server callers |
@@ -40,9 +42,10 @@ first — it defaults to a dry run and requires `--apply` to mutate anything.
 ## Route Mounting Order (in `index.js`)
 
 1. Public routes: `signupRoutes`, `passwordResetRoutes`, `mountAddonPublicRoutes(app)` (add-on OAuth callbacks at `/addons/<id>/…`)
-2. Mixed routes: `authRoutes` (login is public, /me and /refresh need auth)
-3. `authenticateToken` middleware (all routes after this require auth)
-4. Authenticated routes: `syncRoutes`, `spaceRoutes`, `emailVerificationRoutes`, `spaceTransferRoutes`, `imageRoutes`, `pdfRoutes`, `addonsRoutes` (owns `PUT /addons/:id/enabled`, so it comes first), `mountAddonRoutes(app)` (every add-on's routes at `/addons/<id>` behind `requireAddon`), `revisionRoutes`. `index.js` imports `addons/index.js` before anything else so add-on tables exist before the first database opens
+2. `app.use('/v1', publicApiRoutes)` — the v1 API, which authenticates with API keys itself, so it must precede the JWT gate
+3. Mixed routes: `authRoutes` (login is public, /me and /refresh need auth)
+4. `authenticateToken` middleware (all routes after this require a session JWT; none accepts an API key)
+5. Authenticated routes: `syncRoutes`, `spaceRoutes`, `emailVerificationRoutes`, `spaceTransferRoutes`, `imageRoutes`, `pdfRoutes`, `addonsRoutes` (owns `PUT /addons/:id/enabled`, so it comes first), `mountAddonRoutes(app)` (every add-on's routes at `/addons/<id>` behind `requireAddon`), `revisionRoutes`, `apiKeyRoutes`. `index.js` imports `addons/index.js` before anything else so add-on tables exist before the first database opens
 
 ---
 
@@ -180,6 +183,7 @@ tests/
 │   ├── users.js          # Predefined test users (alice, bob) with pre-hashed passwords
 │   └── changes.js        # Sample CRDT change objects for sync tests
 ├── unit/
+│   ├── apiKeyUtils.test.js # API key format/hash, input validation, rate limiter, snippets, folder index
 │   ├── auth.test.js      # authenticateToken middleware unit tests
 │   ├── db.test.js        # Database utility tests
 │   ├── db-repair.test.js # Orphan-clock detection and repair helpers
@@ -194,6 +198,7 @@ tests/
     ├── image.test.js              # Image upload, retrieval, and orphan prune
     ├── me.test.js                 # GET /me, POST /me/password
     ├── passwordReset.test.js
+    ├── publicApi.test.js          # API keys and every v1 endpoint: keys refused elsewhere, scopes, spaces, live sessions, Trash
     ├── pdf.test.js                # PDF generation, renderer containment, Document <style>
     ├── pdf.queue.test.js          # Queue cap, job deadline and fixed error messages (mocked Puppeteer)
     ├── revision.test.js           # Revision list, detail, restore

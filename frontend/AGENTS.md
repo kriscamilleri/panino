@@ -40,6 +40,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
 | `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
+| `apiKeysStore` | Personal API keys for the v1 API (`GET/POST/DELETE /api-keys`); holds a new key's secret in `createdSecret` only until dismissed or `ApiKeysSection` unmounts | authStore |
 | `odooStore` (`addons/odoo/store.js`) | The Odoo add-on's store; see `src/addons/odoo/README.md`. Core never imports it | authStore |
 
 ### Store initialization pattern

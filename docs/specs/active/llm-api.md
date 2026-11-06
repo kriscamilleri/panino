@@ -4,7 +4,10 @@
 > and the spaces they belong to, through a small, purpose-built REST API.
 > Status: active (implementation started 2026-11-06 on `feature/llm-api-keys`)
 > Created: 2026-11-06
-> Last updated: 2026-11-06
+> Last updated: 2026-11-06 — decisions D1/D2/D5 made; implemented on `feature/llm-api-keys`
+> Implementation: `backend/api-service/apiKeys.js`, `publicApi.js`, `publicApiSpec.js`,
+> `apiKeyUtils.js`; `frontend/src/components/ApiKeysSection.vue`, `store/apiKeysStore.js`;
+> maintainer notes in [`docs/architecture/public-api.md`](../../architecture/public-api.md)
 
 ---
 
@@ -64,7 +67,7 @@ API keys work **only** on `/v1`. Every existing route stays session-only.
 | U3 | LLM agent | `GET /v1/documents/:id` (or `Accept: text/markdown`) | Gets the Markdown body and metadata |
 | U4 | LLM agent | `POST /v1/documents` `{title, content, folderId}` | The Document appears in the sidebar of an open browser within seconds (WebSocket poke) without a reload |
 | U5 | LLM agent | `PATCH /v1/documents/:id` with a stale `expectedUpdatedAt` | `409 VERSION_CONFLICT`, nothing written |
-| U6 | Kris | After an LLM replaced a Document's body | Revision history shows the pre-write body and the API write, attributed "by API key: Claude Code" |
+| U6 | Kris | After an LLM replaced a Document's body | Revision history shows the pre-write body and the API write, attributed "by Kris via API" |
 | U7 | LLM agent | Read-only key tries `POST /v1/documents` | `403 INSUFFICIENT_SCOPE` |
 | U8 | Kris | Revokes the key | The next request with it is `401`, immediately |
 | U9 | LLM agent | Uses the key on `/sync`, `/me/password`, `/spaces/:id/invitations` … | `401`/`403`; API keys are not sessions |
@@ -167,7 +170,10 @@ Desktop **Settings → API keys** (a section below Tools) and phone **Settings �
 - **Create key** form: name, access, spaces, expiry (30 days, 90 days *(default)*, 1 year,
   never).
 - After creation: the key in a monospace field with **Copy**, the sentence "This is the only
-  time the key is shown", and a copyable `curl` example using the real base URL.
+  time the key is shown", and a copyable `curl` example using the real base URL. Leaving
+  Settings forgets the secret.
+- Phone Settings has an **API keys** row under Account that opens the same section
+  (`/settings/account#api-keys`).
 - **Revoke** asks once: "Revoke "Claude Code"? Anything using it stops working immediately."
 
 ---
@@ -191,7 +197,9 @@ Base: `https://panino.sh/api/v1` (dev: `http://localhost:8000/v1`). JSON in and 
 error is `{ "error": "<message>", "code": "<CODE>" }`.
 
 **Addressing a database.** Optional `space=<uuid>` query parameter (or `space` in a write
-body). Absent means the personal database. A space the user is not a member of, or one the key
+body). For an **existing** Document it may be omitted: the server looks for the id in every
+database the key can reach, so an agent can work from ids alone. For creating a Document or
+folder, absent means the personal database. A space the user is not a member of, or one the key
 may not reach, is `404 SPACE_NOT_FOUND`, the same as a space that does not exist. Read endpoints
 that search (`/search`, `/documents` without `space`) also accept `space=all`, which is their
 default.
@@ -254,7 +262,10 @@ For each write, in one SQLite transaction on the target content database:
 2. If the body or title changes, snapshot the **current** body as a revision (so the
    pre-write text is always recoverable, even if auto-revision throttling skipped it), then
    write with a plain `INSERT`/`UPDATE`, set `updated_at` to now, then snapshot the **new**
-   body. Both snapshots carry `actor_kind = 'api'`.
+   body. The pre-write snapshot is unattributed (the server does not know who wrote that text)
+   and is skipped when it duplicates the latest revision; the post-write snapshot carries
+   `actor_kind = 'api'` and the key owner as actor. Moves and pins change `updated_at`, as they
+   do in the app, but take no revision.
 3. The CR-SQLite triggers record the write under the server's site id, exactly like revision
    restore and space transfers already do.
 

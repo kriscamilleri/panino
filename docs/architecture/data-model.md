@@ -118,6 +118,8 @@ directly ran its scripts in the application's origin.
 users (id TEXT PRIMARY KEY, name, email, password_hash, created_at, email_verified_at)
 password_resets (token_hash TEXT PRIMARY KEY, user_id, expires_at)
 email_verifications (token_hash TEXT PRIMARY KEY, user_id, email, expires_at, created_at)
+api_keys (id TEXT PRIMARY KEY, user_id, name, prefix, token_hash UNIQUE, scope, space_access,
+          created_at, expires_at, last_used_at, revoked_at)
 ```
 
 `email_verified_at` is set when the account holder has demonstrably received mail at the address
@@ -139,6 +141,9 @@ is on, since a verified address matters to nothing else yet):
   address the account no longer has is refused; confirming spends every outstanding link.
 - The page behind the link (`/#/verify-email/<token>`) verifies only on an explicit button, so a
   mail scanner following the link verifies nothing.
+
+`api_keys` holds personal API keys for the v1 API as SHA-256 hashes; see
+[`public-api.md`](public-api.md).
 
 The `users` table in this database is separate from the per-user CRR `users` table.
 

@@ -428,7 +428,6 @@ describe('API keys and the v1 API', () => {
         it('rate limits a looping agent', async () => {
             const { API_RATE_LIMIT_PER_MINUTE } = await import('../../apiKeys.js');
             for (let i = 0; i < API_RATE_LIMIT_PER_MINUTE; i += 1) {
-                // eslint-disable-next-line no-await-in-loop
                 await request(app).get('/v1/me').set(bearer(secret));
             }
             const res = await request(app).get('/v1/me').set(bearer(secret));
@@ -483,7 +482,6 @@ describe('API keys and the v1 API', () => {
                 request(app).post('/v1/documents/s-note/append').set(bearer(secret)).send({ content: 'x' }),
                 request(app).delete('/v1/documents/s-note').set(bearer(secret)),
             ]) {
-                // eslint-disable-next-line no-await-in-loop
                 const res = await call;
                 expect(res.status).toBe(409);
                 expect(res.body.code).toBe('DOCUMENT_IN_LIVE_SESSION');
