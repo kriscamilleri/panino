@@ -98,7 +98,7 @@ describe('createRevisionSnapshot actor attribution', () => {
     });
   });
 
-  it('keeps an actor label only for API revisions, trimmed and bounded', () => {
+  it('keeps an actor label only for API and app revisions, trimmed and bounded', () => {
     const db = getTestDb(`revision-actor-label-${Date.now()}`, { inMemory: true });
     insertNote(db, { id: 'note-5' });
     const label = (opts, content) => {
@@ -110,6 +110,7 @@ describe('createRevisionSnapshot actor attribution', () => {
     expect(label({ actorKind: 'api', actorLabel: 'x'.repeat(80) }, 'b')).toBe('x'.repeat(60));
     expect(label({ actorKind: 'api', actorLabel: '   ' }, 'c')).toBeNull();
     expect(label({ actorKind: 'api' }, 'd')).toBeNull();
+    expect(label({ actorKind: 'app', actorLabel: 'ChatGPT' }, 'g')).toBe('ChatGPT');
     expect(label({ actorKind: 'sync', actorLabel: 'spoofed' }, 'e')).toBeNull();
     expect(label({ actorKind: 'nonsense', actorLabel: 'spoofed' }, 'f')).toBeNull();
   });

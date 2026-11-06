@@ -36,18 +36,20 @@ function validateRevisionType(type) {
 // Backend-only revision attribution (COLLAB-04 §3.3/§4.3). Only these three
 // kinds are ever recorded; anything else (including client-supplied values)
 // is silently dropped to null rather than trusted.
-const ACTOR_KINDS = new Set(['sync', 'collab', 'system', 'api']);
+// 'api': an API key; 'app': an OAuth connected app (both through an add-on).
+const ACTOR_KINDS = new Set(['sync', 'collab', 'system', 'api', 'app']);
 
 function validateActorKind(actorKind) {
   return ACTOR_KINDS.has(actorKind) ? actorKind : null;
 }
 
-// The label names the API key that made an 'api' revision. Key names are
-// validated when the key is created; this only bounds what reaches the row.
+// The label names the API key ('api') or connected app ('app') behind a
+// revision. Names are validated where they are created; this only bounds
+// what reaches the row.
 const ACTOR_LABEL_MAX_LENGTH = 60;
 
 function validateActorLabel(actorKind, actorLabel) {
-  if (actorKind !== 'api' || typeof actorLabel !== 'string') return null;
+  if ((actorKind !== 'api' && actorKind !== 'app') || typeof actorLabel !== 'string') return null;
   const trimmed = actorLabel.trim().slice(0, ACTOR_LABEL_MAX_LENGTH);
   return trimmed || null;
 }

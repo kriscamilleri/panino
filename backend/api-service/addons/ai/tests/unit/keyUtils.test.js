@@ -17,7 +17,7 @@ import {
     scopeAllows,
     validateCreateKeyInput,
     validateName,
-} from '../../apiKeyUtils.js';
+} from '../../keyUtils.js';
 
 describe('API key generation', () => {
     it('makes a pnk_ key with 256 random bits, its hash and display prefix', () => {

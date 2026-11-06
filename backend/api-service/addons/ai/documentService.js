@@ -1,72 +1,94 @@
-// /backend/api-service/publicApi.js
-// The v1 API: Document-shaped endpoints for LLMs and scripts, authenticated by
-// personal API keys (docs/specs/active/llm-api.md §7). Writes are ordinary
-// CRR writes on the server's replica; devices pick them up on their next sync.
-import express from 'express';
+// The v1 Document operations, without HTTP (docs/specs/active/ai-integration.md §7).
+// REST (restRoutes.js) and MCP (mcpTools.js) are two adapters over these
+// functions, so every rule — scope, space reach, live sessions, Trash instead of
+// delete, revisions, size — has one implementation. Writes are ordinary CRR
+// writes on the server's replica; devices pick them up on their next sync.
+//
+// Every function takes a context `{ userId, agent, clients }`:
+//   agent   { kind: 'key' | 'app', id, name, scope: 'read' | 'write',
+//             spaceAccess: 'all' | 'personal', expiresAt }
+//   clients the WebSocket client map, for poking devices after a write
+// and throws ApiError for anything the caller should report.
 import { v4 as uuidv4, validate as validateUuid } from 'uuid';
-import { getAuthDb, getDb, getUserDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
-import { authenticateApiKey, requireScope } from './apiKeys.js';
+import { getAuthDb, getDb, getUserDb } from '../../db.js';
+import { createRevisionSnapshot } from '../../revision.js';
+import { isSharedSpacesEnabled, listSpacesForUser, resolveSpaceAccess } from '../../spaces.js';
+import { pokePersonalClients, pokeSpaceSubscribers } from '../../websocket.js';
+import { runAddonHooks } from '../registry.js';
 import {
     buildFolderIndex,
     decodeDocumentCursor,
     encodeDocumentCursor,
     makeSnippet,
     parseLimit,
+    scopeAllows,
     TRASH_FOLDER_NAME,
     validateName,
-} from './apiKeyUtils.js';
-import { createRevisionSnapshot } from './revision.js';
-import { isSharedSpacesEnabled, listSpacesForUser, resolveSpaceAccess } from './spaces.js';
-import { pokePersonalClients, pokeSpaceSubscribers } from './websocket.js';
-import { runAddonHooks } from './addons/registry.js';
-import { buildOpenApiDocument, API_USAGE_NOTE } from './publicApiSpec.js';
-
-export const publicApiRoutes = express.Router();
+} from './keyUtils.js';
 
 /** Largest Document body the API will write, in bytes (UTF-8). */
 export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
 const TREE_DOCUMENT_CAP = 5000;
 
-class ApiError extends Error {
-    constructor(status, code, message) {
+export class ApiError extends Error {
+    /**
+     * @param {number} status HTTP status a REST caller answers with
+     * @param {string} code closed error code
+     * @param {string} message fixed, user-safe text
+     * @param {object} [details] extra fields for the caller (never secrets)
+     */
+    constructor(status, code, message, details = undefined) {
         super(message);
         this.status = status;
         this.code = code;
+        this.details = details;
     }
 }
 
 const notFound = () => new ApiError(404, 'NOT_FOUND', 'Document not found.');
 const spaceNotFound = () => new ApiError(404, 'SPACE_NOT_FOUND', 'Space not found.');
 
+/**
+ * @param {{ agent: { scope: string, kind: string } }} ctx
+ * @param {'read'|'write'} scope
+ */
+export function requireAgentScope(ctx, scope) {
+    if (scopeAllows(ctx.agent?.scope, scope)) return;
+    const who = ctx.agent?.kind === 'app' ? 'This connected app has' : 'This API key has';
+    throw new ApiError(403, 'INSUFFICIENT_SCOPE', `${who} read-only access.`);
+}
+
 /* ------------------------------------------------------------------ *
- * Databases a key can reach
+ * Databases an agent can reach
  * ------------------------------------------------------------------ */
 
 function personalTarget(userId) {
     return { kind: 'personal', dbKey: `user:${userId}`, spaceId: null, name: 'Personal', role: 'owner', db: getUserDb(userId) };
 }
 
+function isPersonal(space) {
+    return space === undefined || space === null || space === '' || space === 'personal';
+}
+
 /**
- * One database by `space` parameter: absent, '' or 'personal' is the personal
- * database. A space the key may not reach is indistinguishable from a missing one.
+ * One database by `space`: absent, '' or 'personal' is the personal database.
+ * A space the agent may not reach is indistinguishable from a missing one.
  */
-function resolveOne(req, space) {
-    const userId = req.user.user_id;
-    if (space === undefined || space === null || space === '' || space === 'personal') return personalTarget(userId);
+function resolveOne(ctx, space) {
+    if (isPersonal(space)) return personalTarget(ctx.userId);
     if (typeof space !== 'string' || !validateUuid(space)) throw spaceNotFound();
-    if (req.apiKey.spaceAccess !== 'all') throw spaceNotFound();
-    const access = resolveSpaceAccess(space, userId);
+    if (ctx.agent.spaceAccess !== 'all') throw spaceNotFound();
+    const access = resolveSpaceAccess(space, ctx.userId);
     if (!access) throw spaceNotFound();
     const dbKey = `space:${access.spaceId}`;
     return { kind: 'space', dbKey, spaceId: access.spaceId, name: null, role: access.role, db: getDb(dbKey) };
 }
 
-/** Every database the key can reach, personal first. Space dbs open lazily. */
-function reachableTargets(req) {
-    const userId = req.user.user_id;
-    const targets = [personalTarget(userId)];
-    if (req.apiKey.spaceAccess !== 'all' || !isSharedSpacesEnabled()) return targets;
-    for (const space of listSpacesForUser(userId).spaces) {
+/** Every database the agent can reach, personal first. Space databases open lazily. */
+function reachableTargets(ctx) {
+    const targets = [personalTarget(ctx.userId)];
+    if (ctx.agent.spaceAccess !== 'all' || !isSharedSpacesEnabled()) return targets;
+    for (const space of listSpacesForUser(ctx.userId).spaces) {
         const dbKey = `space:${space.spaceId}`;
         targets.push({
             kind: 'space',
@@ -80,10 +102,10 @@ function reachableTargets(req) {
     return targets;
 }
 
-/** `space=all` (or absent, where allowed) means every reachable database. */
-function resolveMany(req, space) {
-    if (space === undefined || space === '' || space === 'all') return reachableTargets(req);
-    return [resolveOne(req, space)];
+/** `space` 'all' (or absent) means every reachable database. */
+function resolveMany(ctx, space) {
+    if (space === undefined || space === null || space === '' || space === 'all') return reachableTargets(ctx);
+    return [resolveOne(ctx, space)];
 }
 
 /**
@@ -91,9 +113,9 @@ function resolveMany(req, space) {
  * database; without, the reachable databases are searched, so an agent can
  * address a Document by id alone.
  */
-function locateDocument(req, space, noteId) {
+function locateDocument(ctx, space, noteId) {
     if (typeof noteId !== 'string' || !noteId || noteId.length > 200) throw notFound();
-    const candidates = space === undefined || space === '' ? reachableTargets(req) : [resolveOne(req, space)];
+    const candidates = space === undefined || space === null || space === '' ? reachableTargets(ctx) : [resolveOne(ctx, space)];
     for (const target of candidates) {
         const note = readNote(target.db, noteId);
         if (note) return { target, note };
@@ -101,14 +123,8 @@ function locateDocument(req, space, noteId) {
     throw notFound();
 }
 
-function spaceParam(req) {
-    const fromQuery = req.query.space;
-    if (fromQuery !== undefined) return Array.isArray(fromQuery) ? fromQuery[0] : fromQuery;
-    return req.body && typeof req.body === 'object' ? req.body.space : undefined;
-}
-
 /* ------------------------------------------------------------------ *
- * Reads
+ * Rows and shapes
  * ------------------------------------------------------------------ */
 
 function readNote(db, noteId) {
@@ -149,12 +165,8 @@ function trashFolderIds(folders, folderIndex) {
     return folders.filter((folder) => folderIndex.isInTrash(folder.id)).map((folder) => folder.id);
 }
 
-function wantsTrash(req) {
-    return req.query.includeTrash === 'true' || req.query.includeTrash === '1';
-}
-
 /* ------------------------------------------------------------------ *
- * Writes
+ * Write rules
  * ------------------------------------------------------------------ */
 
 function assertNoLiveSession(target, noteId) {
@@ -169,7 +181,8 @@ function assertNoLiveSession(target, noteId) {
 function assertExpected(note, expectedUpdatedAt) {
     if (expectedUpdatedAt === undefined || expectedUpdatedAt === null) return;
     if (typeof expectedUpdatedAt !== 'string' || note.updated_at !== expectedUpdatedAt) {
-        throw new ApiError(409, 'VERSION_CONFLICT', 'The Document changed since you read it. Read it again and retry.');
+        throw new ApiError(409, 'VERSION_CONFLICT', 'The Document changed since you read it. Read it again and retry.',
+            { currentUpdatedAt: note.updated_at });
     }
 }
 
@@ -192,11 +205,16 @@ function requireName(value, label) {
     return result.value;
 }
 
+function optionalText(value, label) {
+    if (value !== undefined && typeof value !== 'string') throw new ApiError(400, 'INVALID_INPUT', `${label} must be text.`);
+    return value;
+}
+
 /**
  * Record the stored body before an API write (unattributed: we do not know who
- * wrote it) and the body after (kind 'api', attributed to the key owner and
- * labelled with the key's name), so every API change can be undone from
- * revision history and traced to the key that made it.
+ * wrote it) and the body after (attributed to the owner and labelled with the
+ * key's or app's name), so every change can be undone from revision history
+ * and traced to the credential that made it.
  */
 function snapshotBefore(db, note) {
     createRevisionSnapshot(db, {
@@ -205,18 +223,22 @@ function snapshotBefore(db, note) {
     });
 }
 
-function snapshotAfter(db, noteId, title, content, apiRequest) {
+function snapshotAfter(db, noteId, title, content, ctx) {
     createRevisionSnapshot(db, {
         noteId, title, content, type: 'auto',
         skipDuplicateCheck: false, enforceAutoThrottle: false, runPruneGate: true,
-        actorUserId: apiRequest.user.user_id, actorKind: 'api', actorLabel: apiRequest.apiKey.name,
+        actorUserId: ctx.userId,
+        actorKind: ctx.agent.kind === 'app' ? 'app' : 'api',
+        actorLabel: ctx.agent.name,
     });
 }
 
 /** Tell devices, live subscribers and add-ons that a database changed. */
-function announce(req, target) {
-    if (target.kind === 'space') pokeSpaceSubscribers(req.clients, target.dbKey, null);
-    else pokePersonalClients(req.clients, req.user.user_id, null);
+function announce(ctx, target) {
+    if (ctx.clients) {
+        if (target.kind === 'space') pokeSpaceSubscribers(ctx.clients, target.dbKey, null);
+        else pokePersonalClients(ctx.clients, ctx.userId, null);
+    }
     runAddonHooks('afterChangesApplied', target.dbKey);
 }
 
@@ -232,80 +254,43 @@ function updateNote(db, noteId, changes) {
 }
 
 /* ------------------------------------------------------------------ *
- * Routes
+ * Operations
  * ------------------------------------------------------------------ */
 
-function handler(fn) {
-    return (req, res) => {
-        try {
-            fn(req, res);
-        } catch (error) {
-            if (error instanceof ApiError) return res.status(error.status).json({ error: error.message, code: error.code });
-            if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
-            console.error('[v1]', req.method, req.route?.path, error?.code || error?.message || 'unknown error');
-            return res.status(500).json({ error: 'Internal server error', code: 'INTERNAL' });
-        }
-    };
-}
-
-// Public: lets tools load the description before they hold a key.
-publicApiRoutes.get('/openapi.json', (req, res) => {
-    res.json(buildOpenApiDocument());
-});
-
-publicApiRoutes.use(authenticateApiKey);
-
-publicApiRoutes.get('/', requireScope('read'), handler((req, res) => {
-    res.json({
-        name: 'Panino API',
-        version: 'v1',
-        usage: API_USAGE_NOTE,
-        openapi: 'openapi.json',
-        routes: [
-            'GET me', 'GET spaces', 'GET tree', 'GET search', 'GET documents', 'GET documents/{id}',
-            'POST documents', 'PATCH documents/{id}', 'POST documents/{id}/append', 'DELETE documents/{id}',
-            'POST folders',
-        ],
-    });
-}));
-
-publicApiRoutes.get('/me', requireScope('read'), handler((req, res) => {
-    const user = getAuthDb().prepare('SELECT id, name, email FROM users WHERE id = ?').get(req.user.user_id);
-    const databases = reachableTargets(req).map((target) => ({
+/** Who the credential belongs to, its access, and the databases it reaches. */
+export function getAccount(ctx) {
+    requireAgentScope(ctx, 'read');
+    const user = getAuthDb().prepare('SELECT id, name, email FROM users WHERE id = ?').get(ctx.userId);
+    const databases = reachableTargets(ctx).map((target) => ({
         id: target.spaceId ?? 'personal',
         kind: target.kind,
         name: target.name,
         role: target.role,
     }));
-    res.json({
-        user,
-        key: {
-            id: req.apiKey.id,
-            name: req.apiKey.name,
-            scope: req.apiKey.scope,
-            spaceAccess: req.apiKey.spaceAccess,
-            expiresAt: req.apiKey.expiresAt,
-        },
-        databases,
-    });
-}));
+    const { kind, id, name, scope, spaceAccess, expiresAt } = ctx.agent;
+    return { user, agent: { kind, id, name, scope, spaceAccess, expiresAt: expiresAt ?? null }, databases };
+}
 
-publicApiRoutes.get('/spaces', requireScope('read'), handler((req, res) => {
-    const spaces = reachableTargets(req)
+/** Shared spaces the agent can reach. */
+export function listSpaces(ctx) {
+    requireAgentScope(ctx, 'read');
+    const spaces = reachableTargets(ctx)
         .filter((target) => target.kind === 'space')
         .map((target) => ({ id: target.spaceId, name: target.name, role: target.role }));
-    res.json({ spaces });
-}));
+    return { spaces };
+}
 
-publicApiRoutes.get('/tree', requireScope('read'), handler((req, res) => {
-    const target = resolveOne(req, spaceParam(req));
+/** Folders and Document titles of one database, no bodies. */
+export function getTree(ctx, { space } = {}) {
+    requireAgentScope(ctx, 'read');
+    const target = resolveOne(ctx, space);
     const folders = readFolders(target.db);
     const documents = target.db.prepare(`
         SELECT id, title, folder_id, updated_at FROM notes
          ORDER BY title COLLATE NOCASE ASC, id ASC LIMIT ?
     `).all(TREE_DOCUMENT_CAP + 1);
     const truncated = documents.length > TREE_DOCUMENT_CAP;
-    res.json({
+    return {
         space: target.spaceId,
         folders: folders
             .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
@@ -314,18 +299,19 @@ publicApiRoutes.get('/tree', requireScope('read'), handler((req, res) => {
             id: row.id, title: row.title, folderId: row.folder_id ?? null, updatedAt: row.updated_at,
         })),
         truncated,
-    });
-}));
+    };
+}
 
-publicApiRoutes.get('/search', requireScope('read'), handler((req, res) => {
-    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+/** Case-insensitive search of titles and bodies across databases; title matches first. */
+export function searchDocuments(ctx, { query, space, limit, includeTrash = false } = {}) {
+    requireAgentScope(ctx, 'read');
+    const q = typeof query === 'string' ? query.trim() : '';
     if (q.length < 2 || q.length > 200) {
-        throw new ApiError(400, 'INVALID_INPUT', 'The search text (q) must be 2 to 200 characters.');
+        throw new ApiError(400, 'INVALID_INPUT', 'The search text must be 2 to 200 characters.');
     }
-    const limit = parseLimit(req.query.limit, 20, 100);
-    const includeTrash = wantsTrash(req);
+    const max = parseLimit(limit, 20, 100);
     const hits = [];
-    for (const target of resolveMany(req, spaceParam(req))) {
+    for (const target of resolveMany(ctx, space)) {
         const db = target.db;
         const folders = readFolders(db);
         const folderIndex = buildFolderIndex(folders);
@@ -339,7 +325,7 @@ publicApiRoutes.get('/search', requireScope('read'), handler((req, res) => {
                AND (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
              ORDER BY title_hit DESC, updated_at DESC, id DESC
              LIMIT ?
-        `).all(q, q, q, JSON.stringify(excluded), limit);
+        `).all(q, q, q, JSON.stringify(excluded), max);
         for (const row of rows) {
             hits.push({
                 ...documentSummary(row, target, folderIndex),
@@ -351,23 +337,24 @@ publicApiRoutes.get('/search', requireScope('read'), handler((req, res) => {
     }
     hits.sort((a, b) => Number(b.matchedTitle) - Number(a.matchedTitle)
         || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-    res.json({ query: q, results: hits.slice(0, limit) });
-}));
+    return { query: q, results: hits.slice(0, max) };
+}
 
-publicApiRoutes.get('/documents', requireScope('read'), handler((req, res) => {
-    const limit = parseLimit(req.query.limit, 50, 200);
-    const cursor = req.query.cursor === undefined ? null : decodeDocumentCursor(req.query.cursor);
-    if (req.query.cursor !== undefined && !cursor) throw new ApiError(400, 'INVALID_INPUT', 'The cursor is not valid.');
-    const folderId = typeof req.query.folderId === 'string' ? req.query.folderId : undefined;
-    const includeTrash = wantsTrash(req) || folderId !== undefined;
-    const targets = resolveMany(req, spaceParam(req));
+/** Documents, most recently updated first (metadata only), with cursor paging. */
+export function listDocuments(ctx, { space, folderId, limit, cursor, includeTrash = false } = {}) {
+    requireAgentScope(ctx, 'read');
+    const max = parseLimit(limit, 50, 200);
+    const position = cursor === undefined || cursor === null || cursor === '' ? null : decodeDocumentCursor(cursor);
+    if (cursor && !position) throw new ApiError(400, 'INVALID_INPUT', 'The cursor is not valid.');
+    const folder = typeof folderId === 'string' && folderId ? folderId : undefined;
+    const withTrash = includeTrash || folder !== undefined;
 
     const items = [];
-    for (const target of targets) {
+    for (const target of resolveMany(ctx, space)) {
         const db = target.db;
         const folders = readFolders(db);
         const folderIndex = buildFolderIndex(folders);
-        const excluded = includeTrash ? [] : trashFolderIds(folders, folderIndex);
+        const excluded = withTrash ? [] : trashFolderIds(folders, folderIndex);
         const rows = db.prepare(`
             SELECT id, title, folder_id, updated_at FROM notes
              WHERE (? IS NULL OR coalesce(updated_at, '') < ? OR (coalesce(updated_at, '') = ? AND id < ?))
@@ -376,148 +363,135 @@ publicApiRoutes.get('/documents', requireScope('read'), handler((req, res) => {
              ORDER BY coalesce(updated_at, '') DESC, id DESC
              LIMIT ?
         `).all(
-            cursor ? 1 : null, cursor?.updatedAt ?? '', cursor?.updatedAt ?? '', cursor?.id ?? '',
-            folderId ?? null, folderId ?? null, folderId ?? null,
-            JSON.stringify(excluded), limit + 1,
+            position ? 1 : null, position?.updatedAt ?? '', position?.updatedAt ?? '', position?.id ?? '',
+            folder ?? null, folder ?? null, folder ?? null,
+            JSON.stringify(excluded), max + 1,
         );
         for (const row of rows) items.push({ row, summary: documentSummary(row, target, folderIndex) });
     }
     items.sort((a, b) => String(b.row.updated_at || '').localeCompare(String(a.row.updated_at || ''))
         || (a.row.id < b.row.id ? 1 : a.row.id > b.row.id ? -1 : 0));
-    const page = items.slice(0, limit);
-    const hasMore = items.length > limit;
-    res.json({
+    const page = items.slice(0, max);
+    return {
         documents: page.map((item) => item.summary),
-        nextCursor: hasMore ? encodeDocumentCursor(page[page.length - 1].row) : null,
-    });
-}));
-
-function sendDocument(req, res, target, note) {
-    const folderIndex = buildFolderIndex(readFolders(target.db));
-    const accept = String(req.headers.accept || '');
-    const asMarkdown = req.query.format === 'markdown'
-        || (req.query.format === undefined && accept.includes('text/markdown') && !accept.includes('application/json'));
-    if (asMarkdown) {
-        res.setHeader('X-Panino-Document-Id', note.id);
-        res.setHeader('X-Panino-Title', encodeURIComponent(note.title ?? ''));
-        res.setHeader('X-Panino-Updated-At', note.updated_at ?? '');
-        res.setHeader('X-Panino-Folder-Path', encodeURIComponent(folderIndex.pathOf(note.folder_id)));
-        if (target.spaceId) res.setHeader('X-Panino-Space', target.spaceId);
-        res.type('text/markdown; charset=utf-8');
-        return res.send(note.content ?? '');
-    }
-    return res.json({ document: fullDocument(note, target, folderIndex) });
+        nextCursor: items.length > max ? encodeDocumentCursor(page[page.length - 1].row) : null,
+    };
 }
 
-publicApiRoutes.get('/documents/:id', requireScope('read'), handler((req, res) => {
-    const { target, note } = locateDocument(req, spaceParam(req), req.params.id);
-    sendDocument(req, res, target, note);
-}));
+/** One Document with its Markdown body. */
+export function getDocument(ctx, { id, space } = {}) {
+    requireAgentScope(ctx, 'read');
+    const { target, note } = locateDocument(ctx, space, id);
+    return { document: fullDocument(note, target, buildFolderIndex(readFolders(target.db))) };
+}
 
-publicApiRoutes.post('/documents', requireScope('write'), handler((req, res) => {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const target = resolveOne(req, spaceParam(req));
-    const title = requireName(body.title, 'title');
-    if (body.content !== undefined && typeof body.content !== 'string') throw new ApiError(400, 'INVALID_INPUT', 'content must be text.');
-    const content = body.content ?? `# ${title}\n\n`;
-    assertBodySize(content);
-    const folderId = body.folderId ?? null;
+/** Create a Document; the body defaults to a heading with the title. */
+export function createDocument(ctx, { space, title, content, folderId } = {}) {
+    requireAgentScope(ctx, 'write');
+    const target = resolveOne(ctx, space);
+    const name = requireName(title, 'title');
+    const body = optionalText(content, 'content') ?? `# ${name}\n\n`;
+    assertBodySize(body);
+    const folder = folderId === undefined || folderId === '' || folderId === 'root' ? null : folderId;
 
     const db = target.db;
     const id = uuidv4();
     const now = new Date().toISOString();
     const created = db.transaction(() => {
-        assertFolder(db, folderId);
+        assertFolder(db, folder);
         if (target.kind === 'personal') {
             db.prepare(`INSERT INTO notes (id, user_id, folder_id, title, content, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, req.user.user_id, folderId, title, content, now, now);
+                        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, ctx.userId, folder, name, body, now, now);
         } else {
             db.prepare(`INSERT INTO notes (id, folder_id, title, content, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?)`).run(id, folderId, title, content, now, now);
+                        VALUES (?, ?, ?, ?, ?, ?)`).run(id, folder, name, body, now, now);
         }
-        snapshotAfter(db, id, title, content, req);
+        snapshotAfter(db, id, name, body, ctx);
         return readNote(db, id);
     })();
-    announce(req, target);
-    res.status(201).json({ document: fullDocument(created, target, buildFolderIndex(readFolders(db))) });
-}));
+    announce(ctx, target);
+    return { document: fullDocument(created, target, buildFolderIndex(readFolders(db))) };
+}
 
-publicApiRoutes.patch('/documents/:id', requireScope('write'), handler((req, res) => {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
+/** Change title, body, folder or pin. */
+export function updateDocument(ctx, { id, space, title, content, folderId, pinned, expectedUpdatedAt } = {}) {
+    requireAgentScope(ctx, 'write');
     const changes = {};
-    if (body.title !== undefined) changes.title = requireName(body.title, 'title');
-    if (body.content !== undefined) {
-        if (typeof body.content !== 'string') throw new ApiError(400, 'INVALID_INPUT', 'content must be text.');
-        assertBodySize(body.content);
-        changes.content = body.content;
+    if (title !== undefined) changes.title = requireName(title, 'title');
+    if (content !== undefined) {
+        optionalText(content, 'content');
+        assertBodySize(content);
+        changes.content = content;
     }
-    if (body.folderId !== undefined) changes.folder_id = body.folderId;
-    if (body.pinned !== undefined) {
-        if (typeof body.pinned !== 'boolean') throw new ApiError(400, 'INVALID_INPUT', 'pinned must be true or false.');
-        changes.pinned = body.pinned ? 1 : 0;
+    if (folderId !== undefined) changes.folder_id = folderId === 'root' || folderId === '' ? null : folderId;
+    if (pinned !== undefined) {
+        if (typeof pinned !== 'boolean') throw new ApiError(400, 'INVALID_INPUT', 'pinned must be true or false.');
+        changes.pinned = pinned ? 1 : 0;
     }
     if (Object.keys(changes).length === 0) {
         throw new ApiError(400, 'NOTHING_TO_UPDATE', 'Send at least one of title, content, folderId or pinned.');
     }
 
-    const { target } = locateDocument(req, spaceParam(req), req.params.id);
+    const { target } = locateDocument(ctx, space, id);
     const db = target.db;
     const updated = db.transaction(() => {
-        const current = readNote(db, req.params.id);
+        const current = readNote(db, id);
         if (!current) throw notFound();
-        assertExpected(current, body.expectedUpdatedAt);
+        assertExpected(current, expectedUpdatedAt);
         assertNoLiveSession(target, current.id);
         if (changes.folder_id !== undefined) assertFolder(db, changes.folder_id);
         const textChanges = changes.title !== undefined || changes.content !== undefined;
         if (textChanges) snapshotBefore(db, current);
         const row = updateNote(db, current.id, { ...changes, updated_at: new Date().toISOString() });
-        if (textChanges) snapshotAfter(db, row.id, row.title, row.content ?? '', req);
+        if (textChanges) snapshotAfter(db, row.id, row.title, row.content ?? '', ctx);
         return row;
     })();
-    announce(req, target);
-    res.json({ document: fullDocument(updated, target, buildFolderIndex(readFolders(db))) });
-}));
+    announce(ctx, target);
+    return { document: fullDocument(updated, target, buildFolderIndex(readFolders(db))) };
+}
 
-publicApiRoutes.post('/documents/:id/append', requireScope('write'), handler((req, res) => {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    if (typeof body.content !== 'string' || !body.content) {
+/** Append Markdown to the end of a Document (a blank line apart by default). */
+export function appendToDocument(ctx, { id, space, content, separator, expectedUpdatedAt } = {}) {
+    requireAgentScope(ctx, 'write');
+    if (typeof content !== 'string' || !content) {
         throw new ApiError(400, 'INVALID_INPUT', 'content must be non-empty text.');
     }
-    if (body.separator !== undefined && (typeof body.separator !== 'string' || body.separator.length > 100)) {
+    if (separator !== undefined && (typeof separator !== 'string' || separator.length > 100)) {
         throw new ApiError(400, 'INVALID_INPUT', 'separator must be text of at most 100 characters.');
     }
 
-    const { target } = locateDocument(req, spaceParam(req), req.params.id);
+    const { target } = locateDocument(ctx, space, id);
     const db = target.db;
     const updated = db.transaction(() => {
-        const current = readNote(db, req.params.id);
+        const current = readNote(db, id);
         if (!current) throw notFound();
-        assertExpected(current, body.expectedUpdatedAt);
+        assertExpected(current, expectedUpdatedAt);
         assertNoLiveSession(target, current.id);
         const existing = current.content ?? '';
         let next;
-        if (!existing.trim()) next = body.content;
-        else if (body.separator !== undefined) next = existing + body.separator + body.content;
-        else next = `${existing.replace(/\s+$/, '')}\n\n${body.content}`;
+        if (!existing.trim()) next = content;
+        else if (separator !== undefined) next = existing + separator + content;
+        else next = `${existing.replace(/\s+$/, '')}\n\n${content}`;
         assertBodySize(next);
         snapshotBefore(db, current);
         const row = updateNote(db, current.id, { content: next, updated_at: new Date().toISOString() });
-        snapshotAfter(db, row.id, row.title, row.content ?? '', req);
+        snapshotAfter(db, row.id, row.title, row.content ?? '', ctx);
         return row;
     })();
-    announce(req, target);
-    res.json({ document: fullDocument(updated, target, buildFolderIndex(readFolders(db))) });
-}));
+    announce(ctx, target);
+    return { document: fullDocument(updated, target, buildFolderIndex(readFolders(db))) };
+}
 
-publicApiRoutes.delete('/documents/:id', requireScope('write'), handler((req, res) => {
-    const { target } = locateDocument(req, spaceParam(req), req.params.id);
+/** Move a Document into the database's Trash folder (created on first use). Nothing is deleted. */
+export function trashDocument(ctx, { id, space } = {}) {
+    requireAgentScope(ctx, 'write');
+    const { target } = locateDocument(ctx, space, id);
     const db = target.db;
     const result = db.transaction(() => {
-        const current = readNote(db, req.params.id);
+        const current = readNote(db, id);
         if (!current) throw notFound();
         assertNoLiveSession(target, current.id);
-        const folders = readFolders(db);
-        const folderIndex = buildFolderIndex(folders);
+        const folderIndex = buildFolderIndex(readFolders(db));
         if (folderIndex.isInTrash(current.folder_id)) {
             return { row: current, previousFolderId: current.folder_id ?? null, alreadyInTrash: true };
         }
@@ -527,7 +501,7 @@ publicApiRoutes.delete('/documents/:id', requireScope('write'), handler((req, re
             const now = new Date().toISOString();
             if (target.kind === 'personal') {
                 db.prepare('INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, NULL, ?)')
-                    .run(trashId, req.user.user_id, TRASH_FOLDER_NAME, now);
+                    .run(trashId, ctx.userId, TRASH_FOLDER_NAME, now);
             } else {
                 db.prepare('INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, NULL, ?)')
                     .run(trashId, TRASH_FOLDER_NAME, now);
@@ -536,37 +510,34 @@ publicApiRoutes.delete('/documents/:id', requireScope('write'), handler((req, re
         const row = updateNote(db, current.id, { folder_id: trashId, updated_at: new Date().toISOString() });
         return { row, previousFolderId: current.folder_id ?? null, alreadyInTrash: false };
     })();
-    if (!result.alreadyInTrash) announce(req, target);
-    res.json({
+    if (!result.alreadyInTrash) announce(ctx, target);
+    return {
         document: fullDocument(result.row, target, buildFolderIndex(readFolders(db))),
         previousFolderId: result.previousFolderId,
         alreadyInTrash: result.alreadyInTrash,
-    });
-}));
+    };
+}
 
-publicApiRoutes.post('/folders', requireScope('write'), handler((req, res) => {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const target = resolveOne(req, spaceParam(req));
-    const name = requireName(body.name, 'folder name');
-    const parentId = body.parentId ?? null;
+/** Create a folder, at the top level or inside `parentId`. */
+export function createFolder(ctx, { space, name, parentId } = {}) {
+    requireAgentScope(ctx, 'write');
+    const target = resolveOne(ctx, space);
+    const folderName = requireName(name, 'folder name');
+    const parent = parentId === undefined || parentId === '' || parentId === 'root' ? null : parentId;
     const db = target.db;
     const id = uuidv4();
     const now = new Date().toISOString();
     db.transaction(() => {
-        assertFolder(db, parentId, 'PARENT_NOT_FOUND');
+        assertFolder(db, parent, 'PARENT_NOT_FOUND');
         if (target.kind === 'personal') {
             db.prepare('INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)')
-                .run(id, req.user.user_id, name, parentId, now);
+                .run(id, ctx.userId, folderName, parent, now);
         } else {
             db.prepare('INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)')
-                .run(id, name, parentId, now);
+                .run(id, folderName, parent, now);
         }
     })();
-    announce(req, target);
+    announce(ctx, target);
     const folderIndex = buildFolderIndex(readFolders(db));
-    res.status(201).json({ folder: { id, name, parentId, path: folderIndex.pathOf(id), space: target.spaceId } });
-}));
-
-publicApiRoutes.use((req, res) => {
-    res.status(404).json({ error: 'No such API route. See GET /v1 or /v1/openapi.json.', code: 'NO_ROUTE' });
-});
+    return { folder: { id, name: folderName, parentId: parent, path: folderIndex.pathOf(id), space: target.spaceId } };
+}
