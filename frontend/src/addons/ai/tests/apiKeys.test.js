@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Settings → API keys (docs/specs/active/llm-api.md §5.4): helpers, store and section.
+// The AI agents add-on's API keys (docs/specs/active/llm-api.md §5.4): helpers, store and section.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { mount, flushPromises } from '@vue/test-utils';
@@ -10,15 +10,15 @@ import {
     expiryLabel,
     formatKeyDate,
     spacesLabel,
-} from '@/utils/apiKeys';
+} from '../utils/apiKeys';
 
 const toast = vi.fn();
 vi.mock('@/store/authStore', () => ({ useAuthStore: () => ({ token: 'jwt', user: { id: 'me' } }) }));
 vi.mock('@/store/uiStore', () => ({ useUiStore: () => ({ addToast: toast }) }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ hash: '' }) }));
 
-const { useApiKeysStore } = await import('@/store/apiKeysStore');
-const ApiKeysSection = (await import('@/components/ApiKeysSection.vue')).default;
+const { useAiAddonStore: useApiKeysStore } = await import('../store');
+const ApiKeysSection = (await import('../components/ApiKeysSection.vue')).default;
 
 const KEY = {
     id: 'k1', name: 'Claude Code', prefix: 'pnk_abcdefgh', scope: 'write', spaceAccess: 'all',
@@ -26,7 +26,7 @@ const KEY = {
 };
 const SECRET = `pnk_abcdefgh${'x'.repeat(35)}`;
 
-/** fetch answering the three /api-keys routes. */
+/** fetch answering the three /addons/ai/keys routes. */
 function api({ keys = [KEY], createStatus = 201 } = {}) {
     const calls = [];
     const fetch = vi.fn((url, options = {}) => {
@@ -34,13 +34,13 @@ function api({ keys = [KEY], createStatus = 201 } = {}) {
         const method = options.method || 'GET';
         calls.push({ path, method, body: options.body ? JSON.parse(options.body) : null, headers: options.headers });
         const reply = (status, body) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
-        if (path === '/api-keys' && method === 'GET') return reply(200, { keys, limit: 10 });
-        if (path === '/api-keys' && method === 'POST') {
+        if (path === '/addons/ai/keys' && method === 'GET') return reply(200, { keys, limit: 10 });
+        if (path === '/addons/ai/keys' && method === 'POST') {
             if (createStatus !== 201) return reply(createStatus, { error: 'You can have at most 10 API keys. Revoke one first.', code: 'API_KEY_LIMIT' });
             const body = JSON.parse(options.body);
             return reply(201, { key: { ...KEY, id: 'k2', name: body.name, scope: body.scope }, secret: SECRET });
         }
-        if (path.startsWith('/api-keys/') && method === 'DELETE') return reply(200, { revoked: true });
+        if (path.startsWith('/addons/ai/keys/') && method === 'DELETE') return reply(200, { revoked: true });
         return reply(404, { error: 'Not found' });
     });
     vi.stubGlobal('fetch', fetch);
@@ -49,9 +49,9 @@ function api({ keys = [KEY], createStatus = 201 } = {}) {
 
 describe('api key helpers', () => {
     it('builds the base URL for production and development', () => {
-        expect(apiV1BaseUrl({ isProd: true, origin: 'https://panino.sh' })).toBe('https://panino.sh/api/v1');
-        expect(apiV1BaseUrl({ isProd: false, origin: 'http://localhost:5173', apiServiceUrl: 'http://localhost:8000/' })).toBe('http://localhost:8000/v1');
-        expect(apiV1BaseUrl({ isProd: false, origin: 'x' })).toBe('http://localhost:8000/v1');
+        expect(apiV1BaseUrl({ isProd: true, origin: 'https://panino.sh' })).toBe('https://panino.sh/api/addons/ai/v1');
+        expect(apiV1BaseUrl({ isProd: false, origin: 'http://localhost:5173', apiServiceUrl: 'http://localhost:8000/' })).toBe('http://localhost:8000/addons/ai/v1');
+        expect(apiV1BaseUrl({ isProd: false, origin: 'x' })).toBe('http://localhost:8000/addons/ai/v1');
     });
 
     it('writes a curl example and labels', () => {
@@ -67,7 +67,7 @@ describe('api key helpers', () => {
     });
 });
 
-describe('apiKeysStore', () => {
+describe('AI add-on store: keys', () => {
     beforeEach(() => setActivePinia(createPinia()));
     afterEach(() => vi.unstubAllGlobals());
 
@@ -86,7 +86,7 @@ describe('apiKeysStore', () => {
         expect(store.createdSecret).toBeNull();
 
         await store.revokeKey('k1');
-        expect(calls[2]).toMatchObject({ path: '/api-keys/k1', method: 'DELETE' });
+        expect(calls[2]).toMatchObject({ path: '/addons/ai/keys/k1', method: 'DELETE' });
         expect(store.keys.map((key) => key.id)).toEqual(['k2']);
     });
 
@@ -156,7 +156,7 @@ describe('ApiKeysSection', () => {
         expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
         await wrapper.get('[data-testid="api-key-k1-revoke-confirm"]').trigger('click');
         await flushPromises();
-        expect(calls.some((c) => c.method === 'DELETE' && c.path === '/api-keys/k1')).toBe(true);
+        expect(calls.some((c) => c.method === 'DELETE' && c.path === '/addons/ai/keys/k1')).toBe(true);
         expect(wrapper.find('[data-testid="api-key-k1"]').exists()).toBe(false);
         expect(toast).toHaveBeenCalledWith('Revoked “Claude Code”', 'success');
         wrapper.unmount();

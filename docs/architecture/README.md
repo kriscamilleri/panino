@@ -16,7 +16,7 @@ not proposals or work logs.
 - [Data model](data-model.md) — schemas and the `/sync` wire contract
 - [Auth and JWT](auth-and-jwt.md) — current authentication boundary and handshake pointer
 - [PDF pipeline](pdf-pipeline.md) — current rendering and SSRF-protection pointer
-- [Public API](public-api.md) — v1 API for LLMs and scripts, API keys, how its writes reach devices
+- [AI agents add-on](public-api.md) — API keys, the v1 REST API, the MCP server and OAuth for outside agents; how their writes reach devices
 
 ## How this directory gets updated
 

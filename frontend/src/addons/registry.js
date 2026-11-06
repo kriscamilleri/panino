@@ -7,10 +7,11 @@
  * Manifests import their components lazily (`() => import(…)`), so an add-on
  * that is off adds nothing to the main bundle but its manifest and icons.
  */
+import ai from './ai/manifest.js'
 import github from './github/manifest.js'
 import odoo from './odoo/manifest.js'
 
-export const ADDON_MANIFESTS = Object.freeze([github, odoo])
+export const ADDON_MANIFESTS = Object.freeze([ai, github, odoo])
 
 /** @returns {object|null} the manifest with this id */
 export function addonManifest(id) {
