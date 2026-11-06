@@ -193,7 +193,7 @@ const BASE_SCHEMA = `
     created_at TEXT NOT NULL,
     -- Backend-only revision attribution (COLLAB-04 §3.3). Never a CRR
     -- column, never client-writable; actor_kind validity ('sync' | 'collab'
-    -- | 'system') is enforced in createRevisionSnapshot(), not by CHECK,
+    -- | 'system' | 'api') is enforced in createRevisionSnapshot(), not by CHECK,
     -- so it stays easy to migrate in place.
     actor_user_id TEXT,
     actor_kind TEXT,
@@ -1018,6 +1018,23 @@ const AUTH_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_email_verifications_user
     ON email_verifications(user_id, created_at);
+  -- Personal API keys for the v1 API (apiKeys.js, docs/specs/active/llm-api.md).
+  -- Only the SHA-256 of a key is stored; prefix is the display-only start.
+  CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    prefix TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    scope TEXT NOT NULL,
+    space_access TEXT NOT NULL DEFAULT 'all',
+    created_at TEXT NOT NULL,
+    expires_at TEXT,
+    last_used_at TEXT,
+    revoked_at TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at);
 `;
 
 const SPACES_MIGRATION_SCHEMA = `

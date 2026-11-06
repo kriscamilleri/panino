@@ -17,6 +17,13 @@ const harness = vi.hoisted(() => ({
       type: 'manual',
       createdAt: '2026-08-18T20:00:00.000Z',
       actor: { id: 'actor-1', name: 'Alice Example' },
+    }, {
+      id: 'api-rev',
+      title: 'Shared checkpoint',
+      type: 'auto',
+      createdAt: '2026-08-18T21:00:00.000Z',
+      actor: { id: 'actor-1', name: 'Alice Example' },
+      actorKind: 'api',
     }],
     selectedRevisionId: null,
     selectedRevisionDetail: null,
@@ -61,6 +68,8 @@ describe('RevisionPanel shared-space support', () => {
     );
     expect(wrapper.find('[data-testid="revision-panel-space-unavailable"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="revision-actor-space-rev"]').text()).toBe('by Alice Example');
+    expect(wrapper.find('[data-testid="revision-api-space-rev"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="revision-api-api-rev"]').text()).toBe('via API');
     wrapper.unmount();
   });
 });

@@ -31,6 +31,7 @@
             <div class="flex items-center gap-1 text-[11px] text-gray-400">
               <span class="uppercase tracking-wide">{{ item.type }}</span>
               <span v-if="item.actor" :data-testid="`revision-actor-${item.id}`">by {{ item.actor.name }}</span>
+              <span v-if="item.actorKind === 'api'" :data-testid="`revision-api-${item.id}`">via API</span>
             </div>
           </button>
 

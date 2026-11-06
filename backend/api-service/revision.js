@@ -36,7 +36,7 @@ function validateRevisionType(type) {
 // Backend-only revision attribution (COLLAB-04 §3.3/§4.3). Only these three
 // kinds are ever recorded; anything else (including client-supplied values)
 // is silently dropped to null rather than trusted.
-const ACTOR_KINDS = new Set(['sync', 'collab', 'system']);
+const ACTOR_KINDS = new Set(['sync', 'collab', 'system', 'api']);
 
 function validateActorKind(actorKind) {
   return ACTOR_KINDS.has(actorKind) ? actorKind : null;
