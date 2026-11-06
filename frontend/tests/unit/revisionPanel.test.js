@@ -24,6 +24,14 @@ const harness = vi.hoisted(() => ({
       createdAt: '2026-08-18T21:00:00.000Z',
       actor: { id: 'actor-1', name: 'Alice Example' },
       actorKind: 'api',
+      actorLabel: 'n8n invoices',
+    }, {
+      id: 'old-api-rev',
+      title: 'Shared checkpoint',
+      type: 'auto',
+      createdAt: '2026-08-18T19:00:00.000Z',
+      actor: { id: 'actor-1', name: 'Alice Example' },
+      actorKind: 'api',
     }],
     selectedRevisionId: null,
     selectedRevisionDetail: null,
@@ -69,7 +77,11 @@ describe('RevisionPanel shared-space support', () => {
     expect(wrapper.find('[data-testid="revision-panel-space-unavailable"]').exists()).toBe(false);
     expect(wrapper.get('[data-testid="revision-actor-space-rev"]').text()).toBe('by Alice Example');
     expect(wrapper.find('[data-testid="revision-api-space-rev"]').exists()).toBe(false);
-    expect(wrapper.get('[data-testid="revision-api-api-rev"]').text()).toBe('via API');
+    const keyed = wrapper.get('[data-testid="revision-api-api-rev"]');
+    expect(keyed.text()).toBe('via n8n invoices (API key)');
+    expect(keyed.attributes('title')).toBe('Made with the API key “n8n invoices”');
+    // Revisions written before key names were recorded keep the generic label.
+    expect(wrapper.get('[data-testid="revision-api-old-api-rev"]').text()).toBe('via API');
     wrapper.unmount();
   });
 });

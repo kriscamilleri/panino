@@ -28,10 +28,15 @@
           >
             <div class="text-xs text-gray-500">{{ formatTimestamp(item.createdAt) }}</div>
             <div class="text-sm font-medium text-gray-700 truncate">{{ item.title || '(Untitled)' }}</div>
-            <div class="flex items-center gap-1 text-[11px] text-gray-400">
-              <span class="uppercase tracking-wide">{{ item.type }}</span>
-              <span v-if="item.actor" :data-testid="`revision-actor-${item.id}`">by {{ item.actor.name }}</span>
-              <span v-if="item.actorKind === 'api'" :data-testid="`revision-api-${item.id}`">via API</span>
+            <div class="flex items-center gap-1 min-w-0 text-[11px] text-gray-400">
+              <span class="uppercase tracking-wide shrink-0">{{ item.type }}</span>
+              <span v-if="item.actor" class="shrink-0" :data-testid="`revision-actor-${item.id}`">by {{ item.actor.name }}</span>
+              <span
+                v-if="item.actorKind === 'api'"
+                class="truncate"
+                :title="item.actorLabel ? `Made with the API key “${item.actorLabel}”` : 'Made through the API'"
+                :data-testid="`revision-api-${item.id}`"
+              >{{ item.actorLabel ? `via ${item.actorLabel} (API key)` : 'via API' }}</span>
             </div>
           </button>
 

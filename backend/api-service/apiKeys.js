@@ -88,20 +88,32 @@ apiKeyRoutes.post('/api-keys', (req, res) => {
             pruneRevokedKeys(db, userId, now);
             // An expired key still counts until it is revoked, so the list the
             // user sees and the limit agree.
-            const { count } = db.prepare('SELECT COUNT(*) AS count FROM api_keys WHERE user_id = ? AND revoked_at IS NULL').get(userId);
-            if (count >= MAX_ACTIVE_API_KEYS) return false;
+            const activeNames = db.prepare('SELECT name FROM api_keys WHERE user_id = ? AND revoked_at IS NULL')
+                .all(userId).map((row) => row.name);
+            if (activeNames.length >= MAX_ACTIVE_API_KEYS) return 'limit';
+            // Revision history names the key behind each API edit, so two
+            // active keys may not share a name (compared ignoring case).
+            const wanted = parsed.value.name.toLowerCase();
+            if (activeNames.some((name) => name.toLowerCase() === wanted)) return 'name-taken';
             db.prepare(`
                 INSERT INTO api_keys (id, user_id, name, prefix, token_hash, scope, space_access, created_at, expires_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(id, userId, parsed.value.name, prefix, hash, parsed.value.scope, parsed.value.spaceAccess,
                 now.toISOString(), expiryFromDays(parsed.value.expiresInDays, now));
-            return true;
+            return 'created';
         });
 
-        if (!create()) {
+        const outcome = create();
+        if (outcome === 'limit') {
             return res.status(409).json({
                 error: `You can have at most ${MAX_ACTIVE_API_KEYS} API keys. Revoke one first.`,
                 code: 'API_KEY_LIMIT',
+            });
+        }
+        if (outcome === 'name-taken') {
+            return res.status(409).json({
+                error: 'You already have an API key with this name. Choose another name.',
+                code: 'API_KEY_NAME_TAKEN',
             });
         }
         const row = db.prepare('SELECT * FROM api_keys WHERE id = ?').get(id);

@@ -35,6 +35,8 @@ construction.
 - Unknown, revoked, expired and orphaned keys get one answer: `401 INVALID_API_KEY`.
 - Header only (`Authorization: Bearer`); the `?token=` fallback of the session path is not
   offered, because query strings land in proxy logs.
+- Names are unique among a user's unrevoked keys, ignoring case (`409 API_KEY_NAME_TAKEN`),
+  because revision history identifies a key by its name. Revoking frees the name.
 - At most 10 unrevoked keys per account. Revoked rows are kept 30 days, pruned when the user
   next creates a key.
 - 120 requests per minute per key (`API_RATE_LIMIT_PER_MINUTE`), in-process fixed window;
@@ -56,8 +58,11 @@ Rules every write follows (`publicApi.js`):
   `409 DOCUMENT_IN_LIVE_SESSION`, because the session holds text not yet in `notes.content`.
 - **Revisions.** A title or body change snapshots the stored body first (unattributed,
   skipped when it equals the latest revision), then the new body with `actor_kind = 'api'`
-  and the key owner as `actor_user_id`. `'api'` is in `ACTOR_KINDS` in `revision.js`; the
-  revision panel shows "via API".
+  and the key owner as `actor_user_id`. `'api'` is in `ACTOR_KINDS` in `revision.js`.
+  The key's name at the time of the write goes in `actor_label` (backend-only column, kept
+  only for kind `'api'`, so it outlives revocation and pruning of the key row); the revision
+  panel shows "via <key name> (API key)", and plain "via API" for rows written before the
+  column existed. In a space every member sees the name, as they see the author.
 - **Concurrency.** Optional `expectedUpdatedAt` is compared as the exact stored string.
 - **Size.** A body over 2 MiB after the write is `413`.
 - **`user_id`.** Set to the owner in the personal database, left `NULL` in a space, matching
