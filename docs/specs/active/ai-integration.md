@@ -5,7 +5,10 @@
 > (Claude, ChatGPT, Gemini, Cursor, local models, …) can connect.
 > Status: active (implementation started 2026-11-06 on `feature/ai-addon`)
 > Created: 2026-11-06
-> Last updated: 2026-11-06 — Kris: OAuth in this version; the whole feature is an add-on
+> Last updated: 2026-11-06 — Kris: OAuth in this version; the whole feature is an add-on. Implemented
+> on `feature/ai-addon`; see the agent log `docs/agent-logs/2026/11/2026-11-06_13-30_ai-agents-addon.md`
+> Implementation: `backend/api-service/addons/ai/`, `frontend/src/addons/ai/`; maintainer notes in
+> [`docs/architecture/public-api.md`](../../architecture/public-api.md)
 > Builds on: [`docs/specs/active/llm-api.md`](../active/llm-api.md) (keys and v1 rules, unchanged
 > unless stated here), [`addons.md`](../active/addons.md), [`addon-folders.md`](../active/addon-folders.md)
 

@@ -2,7 +2,6 @@
     <div
         class="space-y-6"
         :class="layout === 'phone' ? 'px-4 py-3' : ''"
-        data-testid="ai-settings-card"
     >
         <McpSetup :url="store.setup?.mcpUrl || null" />
         <ConnectedApps />
@@ -13,7 +12,8 @@
 <script setup>
 /**
  * Under the AI agents switch in Settings, desktop and phone
- * (docs/specs/active/ai-integration.md §9).
+ * (docs/specs/active/ai-integration.md §9). The core host gives the root
+ * data-testid="settings-addon-ai".
  */
 import { onMounted } from 'vue';
 import { useAiAddonStore } from '../store';
