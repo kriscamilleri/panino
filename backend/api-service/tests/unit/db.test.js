@@ -637,6 +637,24 @@ describe("ensureNoteRevisionsSchema: interrupted migrations", () => {
     expect(() => ensureNoteRevisionsSchema(db)).not.toThrow();
   });
 
+  it("adds actor_label in place to a table that already has the actor columns", () => {
+    // The layout every database had before API revisions recorded the key name.
+    const db = getTestDb("rev-add-label", { inMemory: true });
+    insertNote(db);
+    db.exec("ALTER TABLE note_revisions DROP COLUMN actor_label");
+    db.exec(`INSERT INTO note_revisions
+      (id, note_id, title, content_gzip, type, content_sha256, uncompressed_bytes, compressed_bytes, created_at, actor_user_id, actor_kind)
+      VALUES ('rev-api', '${NOTE}', 'T', x'00', 'auto', 'sha', 1, 1, 'then', 'user-a', 'api')`);
+    expect(revisionColumns(db)).not.toContain("actor_label");
+
+    ensureNoteRevisionsSchema(db);
+
+    expect(revisionColumns(db)).toContain("actor_label");
+    expect(db.prepare("SELECT id, actor_user_id, actor_kind, actor_label FROM note_revisions").all())
+      .toEqual([{ id: "rev-api", actor_user_id: "user-a", actor_kind: "api", actor_label: null }]);
+    expect(() => ensureNoteRevisionsSchema(db)).not.toThrow();
+  });
+
   it("restores the history left behind by a rebuild that stopped after the rename", () => {
     // Old layout in `note_revisions_old`, and the empty table the schema
     // bootstrap created on the next start: before, the history stayed orphaned.
@@ -681,7 +699,7 @@ describe("ensureNoteRevisionsSchema: interrupted migrations", () => {
     ensureNoteRevisionsSchema(db);
 
     expect(db.prepare("SELECT id FROM note_revisions").all()).toEqual([{ id: "rev-legacy" }]);
-    expect(revisionColumns(db)).toEqual(expect.arrayContaining(["actor_user_id", "actor_kind"]));
+    expect(revisionColumns(db)).toEqual(expect.arrayContaining(["actor_user_id", "actor_kind", "actor_label"]));
     expect(db.prepare("PRAGMA foreign_key_list('note_revisions')").all()[0].on_delete).toBe("CASCADE");
     expect(db.inTransaction).toBe(false);
     expect(db.pragma("foreign_keys", { simple: true })).toBe(1);

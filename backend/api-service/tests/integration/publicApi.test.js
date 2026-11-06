@@ -99,6 +99,18 @@ describe('API keys and the v1 API', () => {
             expect(res.body.code).toBe('INVALID_INPUT');
         });
 
+        it('refuses a second active key with the same name, ignoring case', async () => {
+            const { key } = await createKey({ name: 'Claude Code' });
+            const dup = await request(app).post('/api-keys').set('Authorization', `Bearer ${jwt}`).send({ name: '  claude code ' });
+            expect(dup.status).toBe(409);
+            expect(dup.body.code).toBe('API_KEY_NAME_TAKEN');
+
+            // Another account, and a name freed by revoking, are both fine.
+            await createKey({ name: 'Claude Code' }, getTestToken(other.userId));
+            await request(app).delete(`/api-keys/${key.id}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+            await createKey({ name: 'Claude Code' });
+        });
+
         it('caps active keys at 10', async () => {
             for (let i = 0; i < 10; i += 1) await createKey({ name: `k${i}` });
             const res = await request(app).post('/api-keys').set('Authorization', `Bearer ${jwt}`).send({ name: 'eleven' });
@@ -304,7 +316,7 @@ describe('API keys and the v1 API', () => {
         });
 
         function revisions(db, noteId) {
-            return db.prepare('SELECT actor_kind, actor_user_id FROM note_revisions WHERE note_id = ? ORDER BY created_at, rowid').all(noteId);
+            return db.prepare('SELECT actor_kind, actor_user_id, actor_label FROM note_revisions WHERE note_id = ? ORDER BY created_at, rowid').all(noteId);
         }
 
         it('creates a Document that /sync hands to devices, and pokes them', async () => {
@@ -319,7 +331,7 @@ describe('API keys and the v1 API', () => {
 
             const db = getUserDb(owner.userId);
             expect(db.prepare('SELECT user_id FROM notes WHERE id = ?').get(id).user_id).toBe(owner.userId);
-            expect(revisions(db, id)).toEqual([{ actor_kind: 'api', actor_user_id: owner.userId }]);
+            expect(revisions(db, id)).toEqual([{ actor_kind: 'api', actor_user_id: owner.userId, actor_label: 'Claude Code' }]);
 
             const pull = await request(app).post('/sync').set('Authorization', `Bearer ${jwt}`)
                 .send({ since: 0, siteId: 'c'.repeat(32), changes: [] });
@@ -352,9 +364,27 @@ describe('API keys and the v1 API', () => {
             expect(res.body.document).toMatchObject({ content: 'replaced', title: 'Doc 2' });
             expect(res.body.document.updatedAt).not.toBe('2026-11-01T10:00:00.000Z');
             expect(revisions(db, 'n-1')).toEqual([
-                { actor_kind: null, actor_user_id: null },
-                { actor_kind: 'api', actor_user_id: owner.userId },
+                { actor_kind: null, actor_user_id: null, actor_label: null },
+                { actor_kind: 'api', actor_user_id: owner.userId, actor_label: 'Claude Code' },
             ]);
+        });
+
+        it('names the key behind each API revision in history, after the key is revoked too', async () => {
+            const second = await createKey({ name: 'n8n invoices' });
+            const db = getUserDb(owner.userId);
+            insertNote(db, { id: 'n-keys', title: 'Log', content: 'start' });
+
+            await request(app).post('/v1/documents/n-keys/append').set(bearer(secret)).send({ content: 'from Claude' }).expect(200);
+            await request(app).post('/v1/documents/n-keys/append').set(bearer(second.secret)).send({ content: 'from n8n' }).expect(200);
+            await request(app).delete(`/api-keys/${second.key.id}`).set('Authorization', `Bearer ${jwt}`).expect(200);
+
+            const history = await request(app).get('/notes/n-keys/revisions').set('Authorization', `Bearer ${jwt}`);
+            expect(history.status).toBe(200);
+            const apiRows = history.body.revisions.filter((rev) => rev.actorKind === 'api');
+            expect(apiRows.map((rev) => rev.actorLabel).sort()).toEqual(['Claude Code', 'n8n invoices']);
+            expect(apiRows.every((rev) => rev.actor?.id === owner.userId)).toBe(true);
+            const before = history.body.revisions.find((rev) => rev.actorKind === null);
+            expect(before.actorLabel).toBeNull();
         });
 
         it('moves, pins, and refuses an empty update', async () => {

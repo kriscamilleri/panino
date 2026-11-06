@@ -67,7 +67,7 @@ API keys work **only** on `/v1`. Every existing route stays session-only.
 | U3 | LLM agent | `GET /v1/documents/:id` (or `Accept: text/markdown`) | Gets the Markdown body and metadata |
 | U4 | LLM agent | `POST /v1/documents` `{title, content, folderId}` | The Document appears in the sidebar of an open browser within seconds (WebSocket poke) without a reload |
 | U5 | LLM agent | `PATCH /v1/documents/:id` with a stale `expectedUpdatedAt` | `409 VERSION_CONFLICT`, nothing written |
-| U6 | Kris | After an LLM replaced a Document's body | Revision history shows the pre-write body and the API write, attributed "by Kris via API" |
+| U6 | Kris | After an LLM replaced a Document's body | Revision history shows the pre-write body and the API write, attributed "by Kris via <key name> (API key)" |
 | U7 | LLM agent | Read-only key tries `POST /v1/documents` | `403 INSUFFICIENT_SCOPE` |
 | U8 | Kris | Revokes the key | The next request with it is `401`, immediately |
 | U9 | LLM agent | Uses the key on `/sync`, `/me/password`, `/spaces/:id/invitations` … | `401`/`403`; API keys are not sessions |
@@ -185,7 +185,7 @@ Desktop **Settings → API keys** (a section below Tools) and phone **Settings �
 | D1 | Deleting via the API | **Soft delete only** (Kris, 2026-11-06). `DELETE /v1/documents/:id` moves the Document into a root folder named **Trash** in the same database, creating it if needed. A real delete cascades revision history away (`note_revisions … ON DELETE CASCADE`), so it stays a UI action. Emptying the Trash is done by the user in the app |
 | D2 | Which databases a key reaches | Per key: **all** (personal + every space the user is a member of, now and later) or **personal only** (Kris, 2026-11-06). Membership is checked on every request, so leaving a space removes the key's access to it |
 | D3 | Scopes | `read` and `write`. Nothing finer in v1 |
-| D4 | Where revisions are attributed | New backend-only `actor_kind = 'api'` with the key owner as `actor_user_id`; the revision panel shows "via API" next to the author |
+| D4 | Where revisions are attributed | New backend-only `actor_kind = 'api'` with the key owner as `actor_user_id` and the key's name in `actor_label`; the revision panel shows "via <key name> (API key)" next to the author. Refined 2026-11-06 at Kris's request so separate keys per service can be told apart; key names are unique among a user's active keys |
 | D5 | MCP | Follow-up branch (Kris, 2026-11-06); v1 ships REST + OpenAPI |
 | D6 | Expiry default | 90 days, with "never" available |
 

@@ -194,8 +194,9 @@ function requireName(value, label) {
 
 /**
  * Record the stored body before an API write (unattributed: we do not know who
- * wrote it) and the body after (attributed to the key owner, kind 'api'), so
- * every API change can be undone from revision history.
+ * wrote it) and the body after (kind 'api', attributed to the key owner and
+ * labelled with the key's name), so every API change can be undone from
+ * revision history and traced to the key that made it.
  */
 function snapshotBefore(db, note) {
     createRevisionSnapshot(db, {
@@ -204,11 +205,11 @@ function snapshotBefore(db, note) {
     });
 }
 
-function snapshotAfter(db, noteId, title, content, userId) {
+function snapshotAfter(db, noteId, title, content, apiRequest) {
     createRevisionSnapshot(db, {
         noteId, title, content, type: 'auto',
         skipDuplicateCheck: false, enforceAutoThrottle: false, runPruneGate: true,
-        actorUserId: userId, actorKind: 'api',
+        actorUserId: apiRequest.user.user_id, actorKind: 'api', actorLabel: apiRequest.apiKey.name,
     });
 }
 
@@ -434,7 +435,7 @@ publicApiRoutes.post('/documents', requireScope('write'), handler((req, res) => 
             db.prepare(`INSERT INTO notes (id, folder_id, title, content, created_at, updated_at)
                         VALUES (?, ?, ?, ?, ?, ?)`).run(id, folderId, title, content, now, now);
         }
-        snapshotAfter(db, id, title, content, req.user.user_id);
+        snapshotAfter(db, id, title, content, req);
         return readNote(db, id);
     })();
     announce(req, target);
@@ -470,7 +471,7 @@ publicApiRoutes.patch('/documents/:id', requireScope('write'), handler((req, res
         const textChanges = changes.title !== undefined || changes.content !== undefined;
         if (textChanges) snapshotBefore(db, current);
         const row = updateNote(db, current.id, { ...changes, updated_at: new Date().toISOString() });
-        if (textChanges) snapshotAfter(db, row.id, row.title, row.content ?? '', req.user.user_id);
+        if (textChanges) snapshotAfter(db, row.id, row.title, row.content ?? '', req);
         return row;
     })();
     announce(req, target);
@@ -501,7 +502,7 @@ publicApiRoutes.post('/documents/:id/append', requireScope('write'), handler((re
         assertBodySize(next);
         snapshotBefore(db, current);
         const row = updateNote(db, current.id, { content: next, updated_at: new Date().toISOString() });
-        snapshotAfter(db, row.id, row.title, row.content ?? '', req.user.user_id);
+        snapshotAfter(db, row.id, row.title, row.content ?? '', req);
         return row;
     })();
     announce(req, target);

@@ -194,9 +194,11 @@ const BASE_SCHEMA = `
     -- Backend-only revision attribution (COLLAB-04 §3.3). Never a CRR
     -- column, never client-writable; actor_kind validity ('sync' | 'collab'
     -- | 'system' | 'api') is enforced in createRevisionSnapshot(), not by CHECK,
-    -- so it stays easy to migrate in place.
+    -- so it stays easy to migrate in place. actor_label is the API key's name
+    -- at the time of the write (kind 'api' only), kept after the key is gone.
     actor_user_id TEXT,
     actor_kind TEXT,
+    actor_label TEXT,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
   );
 
@@ -657,7 +659,7 @@ function ensureTemplatesSchema(db) {
 }
 
 const NOTE_REVISION_COLUMNS = `id, note_id, title, content_gzip, type, content_sha256,
-  uncompressed_bytes, compressed_bytes, created_at, actor_user_id, actor_kind`;
+  uncompressed_bytes, compressed_bytes, created_at, actor_user_id, actor_kind, actor_label`;
 
 const NOTE_REVISIONS_TABLE_SQL = `
   CREATE TABLE note_revisions (
@@ -672,6 +674,7 @@ const NOTE_REVISIONS_TABLE_SQL = `
     created_at TEXT NOT NULL,
     actor_user_id TEXT,
     actor_kind TEXT,
+    actor_label TEXT,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
   );`;
 
@@ -729,7 +732,12 @@ export function ensureNoteRevisionsSchema(db) {
         f.table === "notes" && (f.on_delete || "NO ACTION") === "NO ACTION",
     );
 
-    if (!needsFkMigration && hasActorColumns) return;
+    if (!needsFkMigration && hasActorColumns) {
+      if (!columnNames.has("actor_label")) {
+        db.exec("ALTER TABLE note_revisions ADD COLUMN actor_label TEXT");
+      }
+      return;
+    }
 
     if (!needsFkMigration && !hasActorColumns) {
       // Already has the cascade FK from an earlier repair/initializer run;
@@ -742,6 +750,9 @@ export function ensureNoteRevisionsSchema(db) {
       }
       if (!columnNames.has("actor_kind")) {
         db.exec("ALTER TABLE note_revisions ADD COLUMN actor_kind TEXT");
+      }
+      if (!columnNames.has("actor_label")) {
+        db.exec("ALTER TABLE note_revisions ADD COLUMN actor_label TEXT");
       }
       return;
     }
@@ -767,6 +778,7 @@ export function ensureNoteRevisionsSchema(db) {
       "created_at",
       hasActorColumns ? "actor_user_id" : "NULL AS actor_user_id",
       hasActorColumns ? "actor_kind" : "NULL AS actor_kind",
+      columnNames.has("actor_label") ? "actor_label" : "NULL AS actor_label",
     ].join(", ");
 
     // SQLite ignores PRAGMA foreign_keys inside a transaction, so it is
