@@ -17,6 +17,10 @@ const AREA_TOOLS = {
         read: ['list_revisions', 'get_revision', 'compare_revisions'],
         write: ['save_revision', 'restore_revision'],
     },
+    images: {
+        read: ['list_images', 'get_image', 'get_image_usage'],
+        write: ['upload_image', 'delete_image'],
+    },
     library: {
         read: ['list_templates', 'get_template', 'list_variables', 'export_pdf'],
         write: ['create_document_from_template'],
@@ -24,7 +28,7 @@ const AREA_TOOLS = {
 };
 const READ_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.read);
 const WRITE_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.write);
-const DESTRUCTIVE_TOOLS = ['update_document', 'restore_revision'];
+const DESTRUCTIVE_TOOLS = ['update_document', 'restore_revision', 'delete_image'];
 
 describe('MCP tool definitions', () => {
     const tools = listTools('write');
@@ -61,12 +65,19 @@ describe('MCP tool definitions', () => {
         }
     });
 
-    it('marks reads read-only and only replacing writes as destructive', () => {
+    it('marks reads read-only and only replacing or removing writes as destructive', () => {
         for (const tool of tools) {
             expect(tool.annotations.openWorldHint).toBe(false);
             expect(tool.annotations.readOnlyHint).toBe(!WRITE_TOOLS.includes(tool.name));
             expect(tool.annotations.destructiveHint).toBe(DESTRUCTIVE_TOOLS.includes(tool.name));
         }
+    });
+
+    it('says image deletion is permanent and only on request', () => {
+        const remove = tools.find((tool) => tool.name === 'delete_image');
+        expect(remove.description).toMatch(/Permanently/);
+        expect(remove.description).toMatch(/only when the user asks/);
+        expect(SERVER_INSTRUCTIONS).toMatch(/delete_image is permanent/);
     });
 
     it('tells the model that Document text is data', () => {

@@ -15,10 +15,12 @@ import {
 
 export const imageRoutes = express.Router();
 
-const MAX_IMAGE_SIZE_BYTES = 1 * 1024 * 1024;
+/** Largest image an upload may store, in bytes. */
+export const MAX_IMAGE_SIZE_BYTES = 1 * 1024 * 1024;
 const IMAGE_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const IMAGE_PRUNE_BATCH_SIZE = 100;
-const IMAGE_PRUNE_MIN_AGE_DAYS = 7;
+/** The daily prune removes images no Document references once they are this many days old. */
+export const IMAGE_PRUNE_MIN_AGE_DAYS = 7;
 const QUOTA_BYTES_ENV = Number(process.env.IMAGE_QUOTA_BYTES);
 const QUOTA_BYTES = Number.isFinite(QUOTA_BYTES_ENV) && QUOTA_BYTES_ENV > 0 ? QUOTA_BYTES_ENV : null;
 const SPACE_QUOTA_BYTES_ENV = Number(process.env.SPACE_IMAGE_QUOTA_BYTES);
@@ -64,13 +66,24 @@ function normalizeExt(filename) {
     return ext.startsWith('.') ? ext : `.${ext}`;
 }
 
-function isAllowedMime(mimeType) {
+/** @returns {boolean} the type is on the upload allow-list */
+export function isAllowedMime(mimeType) {
     return ALLOWED_MIME_TO_EXTENSIONS.has((mimeType || '').toLowerCase());
 }
 
-function matchesAllowedExtension(mimeType, originalName) {
+/** @returns {boolean} the filename's extension is one the allow-list gives this type */
+export function matchesAllowedExtension(mimeType, originalName) {
     const allowedExtensions = ALLOWED_MIME_TO_EXTENSIONS.get((mimeType || '').toLowerCase()) || [];
     return allowedExtensions.includes(normalizeExt(originalName));
+}
+
+/** @returns {string|null} the allow-listed type a filename's extension stands for */
+export function allowedMimeForFilename(filename) {
+    const ext = normalizeExt(filename);
+    for (const [mimeType, extensions] of ALLOWED_MIME_TO_EXTENSIONS) {
+        if (extensions.includes(ext)) return mimeType;
+    }
+    return null;
 }
 
 function getStorageExtension(mimeType) {
@@ -78,7 +91,8 @@ function getStorageExtension(mimeType) {
     return allowedExtensions[0] || '.bin';
 }
 
-function normalizeOriginalFilename(filename) {
+/** Repair a multipart filename that arrived as UTF-8 bytes read as Latin-1. */
+export function normalizeOriginalFilename(filename) {
     const raw = String(filename || '');
     if (!raw) return raw;
 
@@ -135,7 +149,28 @@ function imageScopeClause(target) {
     return target.isSpace ? { sql: '', params: [] } : { sql: ' AND user_id = ?', params: [target.userId] };
 }
 
-function findImage(target, imageId, columns = 'id') {
+/**
+ * The image target of one database, as resolveImageTarget builds it from a
+ * request: `userId` is the personal database's owner, or in a space the person
+ * an upload is recorded for.
+ *
+ * @param {string} dbKey `user:<uuid>` or `space:<uuid>`
+ * @param {import('better-sqlite3').Database} db that database's connection (a healthy one for writes)
+ * @param {string} userId the acting user
+ */
+export function databaseImageTarget(dbKey, db, userId) {
+    const isSpace = dbKey.startsWith('space:');
+    return {
+        dbKey,
+        db,
+        isSpace,
+        quotaBytes: isSpace ? SPACE_QUOTA_BYTES : QUOTA_BYTES,
+        userId: isSpace ? userId : dbKey.slice('user:'.length),
+    };
+}
+
+/** An image row of the target's database (personal rows also by owner), or undefined. */
+export function findImage(target, imageId, columns = 'id') {
     const scope = imageScopeClause(target);
     return target.db.prepare(`SELECT ${columns} FROM images WHERE id = ?${scope.sql}`).get(imageId, ...scope.params);
 }
@@ -147,6 +182,16 @@ function imageStats(target) {
         FROM images
         WHERE 1 = 1${scope.sql}
     `).get(...scope.params);
+}
+
+/** What GET /images/stats answers: how many images, their bytes, and the quota (null: unlimited). */
+export function getImageStats(target) {
+    const stats = imageStats(target);
+    return {
+        imageCount: Number(stats?.image_count || 0),
+        totalImageBytes: Number(stats?.total_image_bytes || 0),
+        quotaBytes: target.quotaBytes,
+    };
 }
 
 /**
@@ -175,7 +220,11 @@ function respondImageTargetError(res, error, event) {
     return res.status(500).json({ error: 'Internal server error' });
 }
 
-function getImageUsage(db, imageId) {
+/**
+ * The Documents whose body references an image: how many, and the most
+ * recently updated of them (5 unless `limit` says otherwise).
+ */
+export function getImageUsage(db, imageId, { limit = 5 } = {}) {
     const [relPattern, apiPattern] = getImageReferencePatterns(imageId);
 
     const countRow = db.prepare(`
@@ -189,8 +238,8 @@ function getImageUsage(db, imageId) {
         FROM notes
         WHERE content LIKE ? ESCAPE '!' OR content LIKE ? ESCAPE '!'
         ORDER BY updated_at DESC, id ASC
-        LIMIT 5
-    `).all(relPattern, apiPattern);
+        LIMIT ?
+    `).all(relPattern, apiPattern, limit);
 
     return {
         count: Number(countRow?.count || 0),
@@ -202,7 +251,7 @@ function getImageUsage(db, imageId) {
     };
 }
 
-function getImageUsageCount(db, imageId) {
+export function getImageUsageCount(db, imageId) {
     const [relPattern, apiPattern] = getImageReferencePatterns(imageId);
     const row = db.prepare(`
         SELECT COUNT(*) as count
@@ -217,7 +266,8 @@ function encodeCursor(payload) {
     return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
-function decodeCursor(value) {
+/** @returns {object|null} a list cursor's contents, or null when it is not one */
+export function decodeImageListCursor(value) {
     if (!value) return null;
     try {
         return JSON.parse(Buffer.from(String(value), 'base64url').toString('utf8'));
@@ -234,9 +284,11 @@ function parseLimit(rawLimit) {
     return Math.min(Math.floor(parsed), 200);
 }
 
+export const IMAGE_LIST_SORTS = Object.freeze(['created_desc', 'created_asc', 'size_desc', 'size_asc']);
+
 function parseSort(rawSort) {
     const sort = String(rawSort || 'created_desc');
-    if (['created_desc', 'created_asc', 'size_desc', 'size_asc'].includes(sort)) {
+    if (IMAGE_LIST_SORTS.includes(sort)) {
         return sort;
     }
     return 'created_desc';
@@ -288,7 +340,12 @@ function buildListQuery({ target, search, sort, cursor, limit }) {
     };
 }
 
-function deleteImageRecordAndFile({ target, imageId }) {
+/**
+ * Remove an image's row and its file. Callers check usage first. A missing
+ * file is tolerated; a stored path outside the upload root is refused.
+ * @returns {{ deleted: true } | { deleted: false, reason: 'not-found' | 'forbidden' }}
+ */
+export function deleteImageRecordAndFile({ target, imageId }) {
     const image = findImage(target, imageId, 'id, path');
 
     if (!image) {
@@ -314,25 +371,130 @@ function deleteImageRecordAndFile({ target, imageId }) {
     return { deleted: true };
 }
 
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        try {
-            const targetRoot = resolveDatabaseUploadRoot(req.imageTarget.dbKey);
-            fs.mkdirSync(targetRoot, { recursive: true });
-            cb(null, targetRoot);
-        } catch (error) {
-            cb(error);
-        }
-    },
-    filename: function (req, file, cb) {
-        const fileExt = getStorageExtension(file.mimetype);
-        const uniqueFilename = `${uuidv4()}${fileExt}`;
-        cb(null, uniqueFilename);
-    },
-});
+/**
+ * One page of a database's images, as GET /images answers it.
+ *
+ * @param {object} target from resolveImageTarget or databaseImageTarget
+ * @param {{ limit?: unknown, search?: string, sort?: unknown, cursor?: object|null }} options
+ *   `cursor` already decoded (decodeImageListCursor); one made for another sort is ignored
+ */
+export function listImages(target, { limit: rawLimit, search = '', sort: rawSort, cursor = null } = {}) {
+    const limit = parseLimit(rawLimit);
+    const sort = parseSort(rawSort);
+    const { sql, params } = buildListQuery({ target, search, sort, cursor, limit });
+    const rows = target.db.prepare(sql).all(...params);
 
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+    const images = pageRows.map((row) => ({
+        id: row.id,
+        filename: row.filename,
+        mimeType: row.mime_type,
+        sizeBytes: Number(row.size_bytes || 0),
+        createdAt: row.created_at,
+        url: toCanonicalImageUrl(row.id, target.dbKey),
+        usageCount: getImageUsageCount(target.db, row.id),
+    }));
+
+    let nextCursor = null;
+    if (hasMore && pageRows.length > 0) {
+        const last = pageRows[pageRows.length - 1];
+        const cursorValue = sort.startsWith('created') ? last.created_at : Number(last.size_bytes || 0);
+        nextCursor = encodeCursor({
+            sort,
+            value: cursorValue,
+            id: last.id,
+        });
+    }
+
+    return { images, nextCursor };
+}
+
+/** Why storeImage refused an image. `code` is closed; `message` is the app's fixed text. */
+export class ImageStoreError extends Error {
+    /**
+     * @param {'IMAGE_TYPE_NOT_ALLOWED'|'IMAGE_EXTENSION_MISMATCH'|'IMAGE_TOO_LARGE'|'IMAGE_QUOTA_EXCEEDED'} code
+     * @param {string} message
+     */
+    constructor(code, message) {
+        super(message);
+        this.code = code;
+    }
+}
+
+/**
+ * Store an uploaded image in a database: the type allow-list, the extension
+ * check, the size limit and the quota, then the bytes under a fresh UUID name
+ * in that database's upload root and the images row. The upload route below
+ * and the AI agents add-on both store through here.
+ *
+ * `target.db` must be a healthy connection (getHealthyDb): `images` is a CRR,
+ * and a write on a handle whose sync bit a failed merge left set would never
+ * reach devices (docs/architecture/crsqlite-sync.md, "The sync bit").
+ *
+ * The bytes are not inspected. A caller that needs them to match the declared
+ * type checks that first.
+ *
+ * @param {object} target from resolveImageTarget or databaseImageTarget
+ * @param {{ buffer: Buffer, originalName: string, mimeType: string }} image
+ * @returns {{ id: string, filename: string, mimeType: string, sizeBytes: number,
+ *   sha256: string, createdAt: string, url: string }}
+ * @throws {ImageStoreError} for a refusal; anything else is a server fault
+ *   (a file already written is removed again)
+ */
+export function storeImage(target, { buffer, originalName, mimeType }) {
+    if (!isAllowedMime(mimeType)) {
+        throw new ImageStoreError('IMAGE_TYPE_NOT_ALLOWED', 'Unsupported image type');
+    }
+    if (!matchesAllowedExtension(mimeType, originalName)) {
+        throw new ImageStoreError('IMAGE_EXTENSION_MISMATCH', 'File extension does not match MIME type');
+    }
+    const size = buffer.length;
+    if (size > MAX_IMAGE_SIZE_BYTES) {
+        throw new ImageStoreError('IMAGE_TOO_LARGE', 'File size exceeds 1MB limit');
+    }
+    const currentBytes = Number(imageStats(target)?.total_image_bytes || 0);
+    if (target.quotaBytes && currentBytes + size > target.quotaBytes) {
+        throw new ImageStoreError('IMAGE_QUOTA_EXCEEDED', 'Image storage quota exceeded');
+    }
+
+    const targetRoot = resolveDatabaseUploadRoot(target.dbKey);
+    fs.mkdirSync(targetRoot, { recursive: true });
+    const relativePath = `${uuidv4()}${getStorageExtension(mimeType)}`;
+    const absolutePath = path.join(targetRoot, relativePath);
+    fs.writeFileSync(absolutePath, buffer, { flag: 'wx' });
+
+    const imageId = uuidv4();
+    const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+    const createdAt = new Date().toISOString();
+    try {
+        target.db.prepare(`
+            INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(imageId, target.userId, originalName, mimeType, relativePath, size, sha256, createdAt);
+    } catch (error) {
+        fs.unlink(absolutePath, (unlinkErr) => {
+            if (unlinkErr) console.error('Error cleaning up orphaned file:', unlinkErr);
+        });
+        throw error;
+    }
+
+    return {
+        id: imageId,
+        filename: originalName,
+        mimeType,
+        sizeBytes: size,
+        sha256,
+        createdAt,
+        url: toCanonicalImageUrl(imageId, target.dbKey),
+    };
+}
+
+// Type, extension and size are checked while the request streams in; the bytes
+// are then stored through storeImage.
 const upload = multer({
-    storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: MAX_IMAGE_SIZE_BYTES },
     fileFilter(req, file, cb) {
         if (!isAllowedMime(file.mimetype)) {
@@ -355,55 +517,20 @@ imageRoutes.get('/images/stats', (req, res) => {
     try {
         const target = resolveImageTarget(req, res, 'image-stats');
         if (!target) return res.status(404).json({ error: 'Not found', code: 'SPACE_NOT_FOUND' });
-        const stats = imageStats(target);
-
-        res.json({
-            imageCount: Number(stats?.image_count || 0),
-            totalImageBytes: Number(stats?.total_image_bytes || 0),
-            quotaBytes: target.quotaBytes,
-        });
+        res.json(getImageStats(target));
     } catch (error) {
         return respondImageTargetError(res, error, 'image_stats_failed');
     }
 });
 
 imageRoutes.get('/images', (req, res) => {
-    const limit = parseLimit(req.query.limit);
     const search = String(req.query.search || '').trim();
-    const sort = parseSort(req.query.sort);
-    const cursor = decodeCursor(req.query.cursor);
+    const cursor = decodeImageListCursor(req.query.cursor);
 
     try {
         const target = resolveImageTarget(req, res, 'image-list');
         if (!target) return res.status(404).json({ error: 'Not found', code: 'SPACE_NOT_FOUND' });
-        const { sql, params } = buildListQuery({ target, search, sort, cursor, limit });
-        const rows = target.db.prepare(sql).all(...params);
-
-        const hasMore = rows.length > limit;
-        const pageRows = hasMore ? rows.slice(0, limit) : rows;
-
-        const images = pageRows.map((row) => ({
-            id: row.id,
-            filename: row.filename,
-            mimeType: row.mime_type,
-            sizeBytes: Number(row.size_bytes || 0),
-            createdAt: row.created_at,
-            url: toCanonicalImageUrl(row.id, target.dbKey),
-            usageCount: getImageUsageCount(target.db, row.id),
-        }));
-
-        let nextCursor = null;
-        if (hasMore && pageRows.length > 0) {
-            const last = pageRows[pageRows.length - 1];
-            const cursorValue = sort.startsWith('created') ? last.created_at : Number(last.size_bytes || 0);
-            nextCursor = encodeCursor({
-                sort,
-                value: cursorValue,
-                id: last.id,
-            });
-        }
-
-        res.json({ images, nextCursor });
+        res.json(listImages(target, { limit: req.query.limit, search, sort: req.query.sort, cursor }));
     } catch (error) {
         return respondImageTargetError(res, error, 'image_list_failed');
     }
@@ -435,7 +562,6 @@ imageRoutes.post('/images', (req, res) => {
         return respondImageTargetError(res, error, 'image_upload_authorization_failed');
     }
     if (!target) return res.status(404).json({ error: 'Not found', code: 'SPACE_NOT_FOUND' });
-    req.imageTarget = target;
 
     upload.single('image')(req, res, (err) => {
         if (err instanceof multer.MulterError) {
@@ -455,36 +581,26 @@ imageRoutes.post('/images', (req, res) => {
             return res.status(400).json({ error: 'No image file provided' });
         }
 
-        const { originalname, mimetype, filename, path: filePath, size } = req.file;
-        const normalizedOriginalName = normalizeOriginalFilename(originalname);
-        const imageId = uuidv4();
-        const relativePath = filename;
-        const sha256 = crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+        const { originalname, mimetype, buffer } = req.file;
 
         try {
-            const currentBytes = Number(imageStats(target)?.total_image_bytes || 0);
-            if (target.quotaBytes && currentBytes + size > target.quotaBytes) {
-                fs.unlinkSync(req.file.path);
+            const stored = storeImage(target, {
+                buffer,
+                originalName: normalizeOriginalFilename(originalname),
+                mimeType: mimetype,
+            });
+            return res.status(201).json({ id: stored.id, url: stored.url });
+        } catch (error) {
+            if (error instanceof ImageStoreError && error.code === 'IMAGE_QUOTA_EXCEEDED') {
                 return res.status(413).json({
                     error: 'Image storage quota exceeded',
                     code: 'IMAGE_QUOTA_EXCEEDED',
                 });
             }
-
-            target.db.prepare(`
-                INSERT INTO images (id, user_id, filename, mime_type, path, size_bytes, sha256, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(imageId, target.userId, normalizedOriginalName, mimetype, relativePath, size, sha256, new Date().toISOString());
-
-            return res.status(201).json({ id: imageId, url: toCanonicalImageUrl(imageId, target.dbKey) });
-        } catch (error) {
             console.error('[images]', JSON.stringify({
                 event: 'image_upload_failed',
                 category: error?.code || 'upload_error',
             }));
-            fs.unlink(req.file.path, (unlinkErr) => {
-                if (unlinkErr) console.error('Error cleaning up orphaned file:', unlinkErr);
-            });
             return res.status(500).json({ error: 'Upload failed' });
         }
     });
