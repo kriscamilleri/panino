@@ -2,7 +2,7 @@
 
 - Agent: Claude Code (Opus 5.5)
 - Start: 2026-11-07 16:00 UTC, deploy 16:09–16:14 UTC
-- Status: Deployed and verified; the add-on is not yet turned on in production
+- Status: Deployed and verified; flag added to `.env`, API restart pending
 
 ## Objective
 
@@ -25,14 +25,19 @@ available so a Claude account can connect to a Panino account.
 - PR #19 (`develop` → `main`): every CI check passed. Merged as `c83d304`. Deploy run
   42389860535 passed tests and deploy. `deploy.sh` installed the nginx config, `nginx -t` passed,
   and nginx reloaded.
-- Turning the add-on on (backing up `.env`, appending `AI_ADDON_ENABLED=true`, then
-  `docker compose up -d api-service`) was blocked by the agent's permission classifier. It was not
-  run, and no server file was changed.
+- Turning the add-on on. The first attempt, a single command that appended and restarted, was
+  blocked by the agent's permission classifier and did not run. Then Kris approved adding to
+  `.env` without modifying or deleting anything (16:16 UTC):
+  - `.env` was copied to `.env.bak.20261107161622`.
+  - Three lines were appended: a blank line, a comment, and `AI_ADDON_ENABLED=true`. `diff`
+    shows no other change.
+  - The restart (`docker compose up -d api-service`) was blocked by the classifier, so the
+    running container does not have the flag yet.
 
 ## Changes Made
 
 - PR #19 merged to `main`.
-- Production: no files edited by hand.
+- Production `.env`: `AI_ADDON_ENABLED=true` appended (backup `.env.bak.20261107161622`).
 
 ## Tests
 
@@ -45,12 +50,10 @@ available so a Claude account can connect to a Panino account.
 
 ## Open Items / Notes
 
-- **To turn the add-on on**, on the server in `/home/kris/www/panino`:
-  1. Back up `.env`.
-  2. Append `AI_ADDON_ENABLED=true`.
-  3. Run `docker compose up -d api-service`. This restarts the API, which interrupts live sessions.
-  4. Check: `/.well-known/oauth-authorization-server` returns 200 JSON.
-  5. Check: the add-on appears in Settings → Add-ons.
+- **To finish turning the add-on on**, run `docker compose up -d api-service` in
+  `/home/kris/www/panino`. This interrupts live sessions. Then check:
+  - `/.well-known/oauth-authorization-server` returns 200 JSON.
+  - The add-on appears in Settings → Add-ons.
 - After that, connect claude.ai (Settings → Connectors → custom connector,
   `https://panino.sh/api/addons/ai/v1/mcp`). This is the first end-to-end check against a real
   client.
