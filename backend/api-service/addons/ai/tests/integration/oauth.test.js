@@ -6,6 +6,7 @@ import { getAuthDb, getUserDb } from '../../../../db.js';
 import { setAddonEnabled } from '../../../registry.js';
 import { setMetadataFetcher } from '../../oauthClients.js';
 import { aiUser, createTestApp, offerAiAddon, resetAiState } from '../aiTestSetup.js';
+import { listTools } from '../../mcpTools.js';
 
 const ISSUER = 'https://panino.test';
 const RESOURCE = 'https://panino.test/api/addons/ai/v1/mcp';
@@ -130,7 +131,7 @@ describe('AI agents add-on: OAuth', () => {
 
             const tools = await mcp(issued.body.access_token);
             expect(tools.status).toBe(200);
-            expect(tools.body.result.tools).toHaveLength(11);
+            expect(tools.body.result.tools).toHaveLength(listTools('write').length);
 
             getUserDb(user.userId).prepare(`INSERT INTO notes (id, user_id, title, content, created_at, updated_at)
                 VALUES ('o-1', ?, 'Log', 'x', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`).run(user.userId);
