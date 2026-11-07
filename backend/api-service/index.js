@@ -16,7 +16,7 @@ import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { emailVerificationRoutes } from './emailVerification.js';
-import { addonConfigWarnings, addonsRoutes, mountAddonPublicRoutes, mountAddonRoutes } from './addons/registry.js';
+import { addonConfigWarnings, addonsRoutes, mountAddonPublicRoutes, mountAddonRoutes, mountAddonWellKnown } from './addons/registry.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 import { attachWebSocketHandlers, MAX_MESSAGE_BYTES } from './websocket.js';
@@ -80,7 +80,8 @@ export function createApp() {
     // Public routes
     app.use(signupRoutes);
     app.use(passwordResetRoutes);
-    mountAddonPublicRoutes(app); // OAuth returns; each checks its own proof and the switch
+    mountAddonWellKnown(app); // discovery documents fixed at the site root (OAuth metadata)
+    mountAddonPublicRoutes(app); // OAuth returns and agent APIs; each checks its own proof and the switch
 
     // Routes that are mixed public/private
     app.use(authRoutes);

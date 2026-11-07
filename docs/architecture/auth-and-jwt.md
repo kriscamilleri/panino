@@ -14,5 +14,10 @@ An account's email address is unverified until its holder proves they receive ma
 invitations depends on it; the rules and the reason confirming needs the account's own session are
 in [`data-model.md`](data-model.md) under the authentication database.
 
+The AI agents add-on adds separate credentials: personal API keys (`pnk_…`) and OAuth access
+tokens for connected apps (`pna_…`). Only the add-on's REST and MCP endpoints accept them
+(access tokens: MCP only), no session route does, and those endpoints accept no JWT. Panino is
+also the OAuth authorization server for MCP clients. See [`public-api.md`](public-api.md).
+
 This is a pointer rather than a full protocol reference. For route conventions and security
 rules, see `backend/api-service/AGENTS.md` and the authentication modules.

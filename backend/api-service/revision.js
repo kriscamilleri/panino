@@ -36,13 +36,25 @@ function validateRevisionType(type) {
 // Backend-only revision attribution (COLLAB-04 §3.3/§4.3). Only these three
 // kinds are ever recorded; anything else (including client-supplied values)
 // is silently dropped to null rather than trusted.
-const ACTOR_KINDS = new Set(['sync', 'collab', 'system']);
+// 'api': an API key; 'app': an OAuth connected app (both through an add-on).
+const ACTOR_KINDS = new Set(['sync', 'collab', 'system', 'api', 'app']);
 
 function validateActorKind(actorKind) {
   return ACTOR_KINDS.has(actorKind) ? actorKind : null;
 }
 
-function createRevisionRowPayload({ noteId, title, content, type, createdAt, actorUserId = null, actorKind = null }) {
+// The label names the API key ('api') or connected app ('app') behind a
+// revision. Names are validated where they are created; this only bounds
+// what reaches the row.
+const ACTOR_LABEL_MAX_LENGTH = 60;
+
+function validateActorLabel(actorKind, actorLabel) {
+  if ((actorKind !== 'api' && actorKind !== 'app') || typeof actorLabel !== 'string') return null;
+  const trimmed = actorLabel.trim().slice(0, ACTOR_LABEL_MAX_LENGTH);
+  return trimmed || null;
+}
+
+function createRevisionRowPayload({ noteId, title, content, type, createdAt, actorUserId = null, actorKind = null, actorLabel = null }) {
   const safeType = validateRevisionType(type) ? type : 'auto';
   const safeTitle = title == null ? null : String(title);
   const safeContent = normalizeText(content);
@@ -61,6 +73,7 @@ function createRevisionRowPayload({ noteId, title, content, type, createdAt, act
     content: safeContent,
     actorUserId: actorUserId == null ? null : String(actorUserId),
     actorKind: validateActorKind(actorKind),
+    actorLabel: validateActorLabel(validateActorKind(actorKind), actorLabel),
   };
 }
 
@@ -192,8 +205,9 @@ export function createRevisionSnapshot(db, {
   runPruneGate = true,
   actorUserId = null,
   actorKind = null,
+  actorLabel = null,
 }) {
-  const payload = createRevisionRowPayload({ noteId, title, content, type, actorUserId, actorKind });
+  const payload = createRevisionRowPayload({ noteId, title, content, type, actorUserId, actorKind, actorLabel });
 
   if (!skipDuplicateCheck) {
     const latest = getLatestRevision(db, noteId);
@@ -210,8 +224,8 @@ export function createRevisionSnapshot(db, {
     INSERT INTO note_revisions (
       id, note_id, title, content_gzip, type, content_sha256,
       uncompressed_bytes, compressed_bytes, created_at,
-      actor_user_id, actor_kind
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      actor_user_id, actor_kind, actor_label
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     payload.id,
     payload.noteId,
@@ -223,7 +237,8 @@ export function createRevisionSnapshot(db, {
     payload.compressedBytes,
     payload.createdAt,
     payload.actorUserId,
-    payload.actorKind
+    payload.actorKind,
+    payload.actorLabel
   );
 
   if (runPruneGate && shouldRunPrune(db, noteId)) {
@@ -299,6 +314,7 @@ function serializeRevision(row, { includeContent = false } = {}) {
     ...(includeContent ? { content: row.content } : {}),
     actor: actorDisplay(row.actor_user_id),
     actorKind: row.actor_kind || null,
+    actorLabel: row.actor_label || null,
   };
 }
 
@@ -312,7 +328,7 @@ function buildListQuery({ hasBefore, hasBeforeId }) {
   if (!hasBefore) {
     return `
       SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes,
-             actor_user_id, actor_kind
+             actor_user_id, actor_kind, actor_label
       FROM note_revisions
       WHERE note_id = ?
       ORDER BY datetime(created_at) DESC, id DESC
@@ -323,7 +339,7 @@ function buildListQuery({ hasBefore, hasBeforeId }) {
   if (hasBefore && hasBeforeId) {
     return `
       SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes,
-             actor_user_id, actor_kind
+             actor_user_id, actor_kind, actor_label
       FROM note_revisions
       WHERE note_id = ?
         AND (
@@ -336,7 +352,7 @@ function buildListQuery({ hasBefore, hasBeforeId }) {
 
   return `
     SELECT id, note_id, title, type, created_at, uncompressed_bytes, compressed_bytes,
-           actor_user_id, actor_kind
+           actor_user_id, actor_kind, actor_label
     FROM note_revisions
     WHERE note_id = ?
       AND created_at < ?
@@ -414,7 +430,7 @@ revisionRoutes.get('/notes/:id/revisions/:revisionId', (req, res) => {
 
   const row = db.prepare(`
     SELECT id, note_id, title, type, created_at, content_gzip,
-           actor_user_id, actor_kind
+           actor_user_id, actor_kind, actor_label
     FROM note_revisions
     WHERE note_id = ? AND id = ?
     LIMIT 1

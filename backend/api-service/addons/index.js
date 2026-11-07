@@ -6,5 +6,6 @@
  * app imports the add-on's index.js itself.
  */
 
+import './ai/index.js';
 import './github/index.js';
 import './odoo/index.js';

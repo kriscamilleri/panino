@@ -118,6 +118,10 @@ directly ran its scripts in the application's origin.
 users (id TEXT PRIMARY KEY, name, email, password_hash, created_at, email_verified_at)
 password_resets (token_hash TEXT PRIMARY KEY, user_id, expires_at)
 email_verifications (token_hash TEXT PRIMARY KEY, user_id, email, expires_at, created_at)
+-- Declared by add-ons through schema.auth (AI agents add-on, addons/ai/schema.js):
+api_keys (id TEXT PRIMARY KEY, user_id, name, prefix, token_hash UNIQUE, scope, space_access,
+          created_at, expires_at, last_used_at, revoked_at)
+ai_oauth_clients, ai_oauth_requests, ai_oauth_codes, ai_oauth_grants
 ```
 
 `email_verified_at` is set when the account holder has demonstrably received mail at the address
@@ -139,6 +143,10 @@ is on, since a verified address matters to nothing else yet):
   address the account no longer has is refused; confirming spends every outstanding link.
 - The page behind the link (`/#/verify-email/<token>`) verifies only on an explicit button, so a
   mail scanner following the link verifies nothing.
+
+`api_keys` and the `ai_oauth_*` tables belong to the AI agents add-on: personal API keys and
+OAuth clients, pending sign-ins, codes and connected apps, every secret as a SHA-256 hash; see
+[`public-api.md`](public-api.md).
 
 The `users` table in this database is separate from the per-user CRR `users` table.
 

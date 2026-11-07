@@ -263,6 +263,11 @@ html[data-theme='dark'] .border-gray-300,
 html[data-theme='dark'] .border-gray-400 { border-color: var(--pn-border); }
 html[data-theme='dark'] .border-gray-800 { border-color: var(--pn-primary); }
 html[data-theme='dark'] .border-emerald-200 { border-color: var(--pn-success); }
+/* .pn-alert-* take their text colour through @apply, which the class remaps
+   above never match, so dark alerts kept light-theme text on dark fills. */
+html[data-theme='dark'] .pn-alert-success { color: var(--pn-success); }
+html[data-theme='dark'] .pn-alert-warning { color: var(--pn-warning); }
+html[data-theme='dark'] .pn-alert-error { color: var(--pn-danger); }
 html[data-theme='dark'] .workspace-chrome { border-color: #272727; }
 html[data-theme='dark'] [data-testid='submenu-bar'] { background-color: #1d1d1d; }
 html[data-theme='dark'] .pinned-filter-toggle[aria-pressed='true'] {

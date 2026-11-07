@@ -193,10 +193,13 @@ const BASE_SCHEMA = `
     created_at TEXT NOT NULL,
     -- Backend-only revision attribution (COLLAB-04 §3.3). Never a CRR
     -- column, never client-writable; actor_kind validity ('sync' | 'collab'
-    -- | 'system') is enforced in createRevisionSnapshot(), not by CHECK,
-    -- so it stays easy to migrate in place.
+    -- | 'system' | 'api' | 'app') is enforced in createRevisionSnapshot(), not
+    -- by CHECK, so it stays easy to migrate in place. actor_label is the API
+    -- key's or connected app's name at the time of the write (kinds 'api' and
+    -- 'app' only), kept after the credential is gone.
     actor_user_id TEXT,
     actor_kind TEXT,
+    actor_label TEXT,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
   );
 
@@ -307,20 +310,26 @@ const addonSchemas = new Map();
 
 /**
  * @param {string} addonId
- * @param {{ user?: string, content?: string,
+ * @param {{ user?: string, content?: string, auth?: string,
  *   upgrade?: (db: import('better-sqlite3').Database, kind: 'user' | 'space') => void }} schema
  *   `user` runs on user databases, `content` on every content database, then
  *   `upgrade` on both, for what plain SQL cannot do idempotently (adding a
- *   column to an older table). All three must be idempotent.
+ *   column to an older table). `auth` runs on the auth database (`_users.db`),
+ *   for server-wide tables looked up without knowing the user (a credential
+ *   hash). All must be idempotent.
  */
-export function registerAddonSchema(addonId, { user = "", content = "", upgrade = null } = {}) {
-  if (/crsql_as_crr/i.test(`${user}\n${content}`)) {
+export function registerAddonSchema(addonId, { user = "", content = "", auth = "", upgrade = null } = {}) {
+  if (/crsql_as_crr/i.test(`${user}\n${content}\n${auth}`)) {
     throw new Error(`Add-on ${addonId}: add-on tables are server-only and cannot be CRRs.`);
   }
   if (upgrade !== null && typeof upgrade !== "function") {
     throw new Error(`Add-on ${addonId}: schema.upgrade must be a function.`);
   }
-  addonSchemas.set(addonId, { user, content, upgrade });
+  addonSchemas.set(addonId, { user, content, auth, upgrade });
+  // The auth database is opened once per process. An add-on registered after
+  // that (a test importing it late) still gets its tables.
+  const authDb = dbConnections.get("_auth");
+  if (auth && authDb) authDb.exec(auth);
 }
 
 const CONTENT_SCHEMA_METADATA = `
@@ -657,7 +666,7 @@ function ensureTemplatesSchema(db) {
 }
 
 const NOTE_REVISION_COLUMNS = `id, note_id, title, content_gzip, type, content_sha256,
-  uncompressed_bytes, compressed_bytes, created_at, actor_user_id, actor_kind`;
+  uncompressed_bytes, compressed_bytes, created_at, actor_user_id, actor_kind, actor_label`;
 
 const NOTE_REVISIONS_TABLE_SQL = `
   CREATE TABLE note_revisions (
@@ -672,6 +681,7 @@ const NOTE_REVISIONS_TABLE_SQL = `
     created_at TEXT NOT NULL,
     actor_user_id TEXT,
     actor_kind TEXT,
+    actor_label TEXT,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
   );`;
 
@@ -729,7 +739,12 @@ export function ensureNoteRevisionsSchema(db) {
         f.table === "notes" && (f.on_delete || "NO ACTION") === "NO ACTION",
     );
 
-    if (!needsFkMigration && hasActorColumns) return;
+    if (!needsFkMigration && hasActorColumns) {
+      if (!columnNames.has("actor_label")) {
+        db.exec("ALTER TABLE note_revisions ADD COLUMN actor_label TEXT");
+      }
+      return;
+    }
 
     if (!needsFkMigration && !hasActorColumns) {
       // Already has the cascade FK from an earlier repair/initializer run;
@@ -742,6 +757,9 @@ export function ensureNoteRevisionsSchema(db) {
       }
       if (!columnNames.has("actor_kind")) {
         db.exec("ALTER TABLE note_revisions ADD COLUMN actor_kind TEXT");
+      }
+      if (!columnNames.has("actor_label")) {
+        db.exec("ALTER TABLE note_revisions ADD COLUMN actor_label TEXT");
       }
       return;
     }
@@ -767,6 +785,7 @@ export function ensureNoteRevisionsSchema(db) {
       "created_at",
       hasActorColumns ? "actor_user_id" : "NULL AS actor_user_id",
       hasActorColumns ? "actor_kind" : "NULL AS actor_kind",
+      columnNames.has("actor_label") ? "actor_label" : "NULL AS actor_label",
     ].join(", ");
 
     // SQLite ignores PRAGMA foreign_keys inside a transaction, so it is
@@ -1145,6 +1164,9 @@ export function getAuthDb() {
   const dbPath = path.join(DB_DIR, "_users.db");
   const db = new Database(dbPath);
   db.exec(AUTH_SCHEMA);
+  for (const schema of addonSchemas.values()) {
+    if (schema.auth) db.exec(schema.auth);
+  }
   db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
   enableWriteAheadLog(db, "_users.db");
   // When the address was proven to reach the account holder (accountEmail.js).

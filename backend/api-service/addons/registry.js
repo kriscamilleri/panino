@@ -18,6 +18,7 @@ import { getUserDb, registerAddonSchema } from '../db.js';
 export const addonsRoutes = express.Router();
 
 const ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+const WELL_KNOWN_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const registry = new Map();
 
 /**
@@ -37,7 +38,8 @@ export const ADDON_HOOKS = Object.freeze(['afterChangesApplied', 'afterSyncReque
  *   onDisabled?: (userId: string) => (void | Promise<void>),
  *   routes?: import('express').Router,
  *   publicRoutes?: import('express').Router,
- *   schema?: { user?: string, content?: string, upgrade?: (db: any, kind: string) => void },
+ *   wellKnown?: Record<string, import('express').RequestHandler>,
+ *   schema?: { user?: string, content?: string, auth?: string, upgrade?: (db: any, kind: string) => void },
  *   hooks?: Record<string, (...args: any[]) => void>,
  *   configWarnings?: () => string[] }} manifest
  *   `routes` are mounted at /addons/<id> behind requireAddon(id), with paths
@@ -45,9 +47,13 @@ export const ADDON_HOOKS = Object.freeze(['afterChangesApplied', 'afterSyncReque
  *   sign-in is checked, behind the offered check only: they are for a browser
  *   coming back from the service (an OAuth callback), which carries no Panino
  *   token, so each must authenticate the request itself and check
- *   isAddonEnabled. `schema.user` runs on user databases, `schema.content`
- *   on every content database (user and space); both must be idempotent and
- *   server-only. `configWarnings` lists operator misconfigurations to log at startup.
+ *   isAddonEnabled. `wellKnown` maps a name to a handler answering
+ *   GET /.well-known/<name> and its sub-paths (discovery documents a standard
+ *   fixes at the site root, such as OAuth metadata), behind the offered check;
+ *   a name belongs to one add-on. `schema.user` runs on user databases,
+ *   `schema.content` on every content database (user and space), `schema.auth`
+ *   on the auth database; all must be idempotent and server-only.
+ *   `configWarnings` lists operator misconfigurations to log at startup.
  */
 export function registerAddon(manifest) {
     if (!manifest || !ID_PATTERN.test(String(manifest.id || ''))) {
@@ -61,9 +67,15 @@ export function registerAddon(manifest) {
     for (const name of Object.keys(manifest.hooks || {})) {
         if (!ADDON_HOOKS.includes(name)) throw new Error(`Add-on ${manifest.id}: unknown hook ${name}`);
     }
+    for (const [name, handler] of Object.entries(manifest.wellKnown || {})) {
+        if (!WELL_KNOWN_NAME.test(name)) throw new Error(`Add-on ${manifest.id}: bad well-known name ${name}`);
+        if (typeof handler !== 'function') throw new Error(`Add-on ${manifest.id}: well-known ${name} needs a handler`);
+        const owner = listAddons().find((other) => other.id !== manifest.id && other.wellKnown && name in other.wellKnown);
+        if (owner) throw new Error(`Add-on ${manifest.id}: /.well-known/${name} already belongs to ${owner.id}`);
+    }
     if (manifest.schema) registerAddonSchema(manifest.id, manifest.schema);
     registry.set(manifest.id, Object.freeze({
-        description: '', onEnabled: null, onDisabled: null, routes: null, publicRoutes: null, hooks: {}, configWarnings: null, ...manifest,
+        description: '', onEnabled: null, onDisabled: null, routes: null, publicRoutes: null, wellKnown: null, hooks: {}, configWarnings: null, ...manifest,
     }));
 }
 
@@ -90,6 +102,21 @@ export function mountAddonRoutes(app) {
 export function mountAddonPublicRoutes(app) {
     for (const addon of listAddons()) {
         if (addon.publicRoutes) app.use(`/addons/${addon.id}`, requireOffered(addon.id), addon.publicRoutes);
+    }
+}
+
+/**
+ * Mount every registered add-on's well-known documents at /.well-known/<name>
+ * (and sub-paths: RFC 8414 and RFC 9728 append the issuer or resource path).
+ * Public and before sign-in; 404 while the add-on is not offered.
+ *
+ * @param {import('express').Express} app
+ */
+export function mountAddonWellKnown(app) {
+    for (const addon of listAddons()) {
+        for (const [name, handler] of Object.entries(addon.wellKnown || {})) {
+            app.get([`/.well-known/${name}`, `/.well-known/${name}/*`], requireOffered(addon.id), handler);
+        }
     }
 }
 

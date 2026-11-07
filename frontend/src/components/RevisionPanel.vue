@@ -28,9 +28,15 @@
           >
             <div class="text-xs text-gray-500">{{ formatTimestamp(item.createdAt) }}</div>
             <div class="text-sm font-medium text-gray-700 truncate">{{ item.title || '(Untitled)' }}</div>
-            <div class="flex items-center gap-1 text-[11px] text-gray-400">
-              <span class="uppercase tracking-wide">{{ item.type }}</span>
-              <span v-if="item.actor" :data-testid="`revision-actor-${item.id}`">by {{ item.actor.name }}</span>
+            <div class="flex items-center gap-1 min-w-0 text-[11px] text-gray-400">
+              <span class="uppercase tracking-wide shrink-0">{{ item.type }}</span>
+              <span v-if="item.actor" class="shrink-0" :data-testid="`revision-actor-${item.id}`">by {{ item.actor.name }}</span>
+              <span
+                v-if="item.actorKind === 'api' || item.actorKind === 'app'"
+                class="truncate"
+                :title="agentTooltip(item)"
+                :data-testid="`revision-api-${item.id}`"
+              >{{ agentLabel(item) }}</span>
             </div>
           </button>
 
@@ -117,6 +123,20 @@ watch(
   },
   { immediate: true }
 );
+
+// Revisions written by an outside agent: an API key ('api') or a connected
+// app ('app'), named when the server recorded the name.
+function agentLabel(item) {
+  if (!item.actorLabel) return 'via API';
+  return item.actorKind === 'app' ? `via ${item.actorLabel} (connected app)` : `via ${item.actorLabel} (API key)`;
+}
+
+function agentTooltip(item) {
+  if (!item.actorLabel) return 'Made through the API';
+  return item.actorKind === 'app'
+    ? `Made by the connected app “${item.actorLabel}”`
+    : `Made with the API key “${item.actorLabel}”`;
+}
 
 function formatTimestamp(value) {
   if (!value) return '';

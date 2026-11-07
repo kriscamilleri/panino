@@ -145,6 +145,8 @@ registerAddon({
 ```
 
 Every new field is optional, so a minimal add-on is still just the original six fields.
+Added later: `publicRoutes` (§5.2), `wellKnown` (§5.2) and `schema.auth` (§5.3), for the AI
+agents add-on (`docs/specs/active/ai-integration.md`, 2026-11-06).
 
 ### 5.2 Routes
 
@@ -170,6 +172,16 @@ A manifest's `publicRoutes` router is mounted by `mountAddonPublicRoutes(app)` a
 not offered). Each public route must prove who the caller is itself (GitHub's: the signed,
 expiring OAuth `state`) and then check `isAddonEnabled(userId, id)`. Requests for the private
 routes pass through the public router unmatched and still meet sign-in and the gate.
+An add-on's own APIs that authenticate with their own credential (the AI agents add-on's API
+keys and OAuth tokens) are public routes too: they resolve the owner, then check the switch.
+
+**Well-known documents** (added for the AI agents add-on, 2026-11-06). Some standards fix a
+document at the site root (OAuth metadata, RFC 8414 and RFC 9728, under `/.well-known/`).
+A manifest's `wellKnown: { '<name>': handler }` is mounted by `mountAddonWellKnown(app)` at
+`/.well-known/<name>` and its sub-paths, before sign-in, behind the offered check (404 while
+not offered). A name belongs to one add-on; a second claim is a startup error. Production
+nginx proxies only the names it lists to the API (`nginx.conf.template`), so a new name needs
+a line there too.
 
 ### 5.3 Schema
 
@@ -192,6 +204,9 @@ for (const schema of addonSchemas.values()) {
   every content database, for what plain SQL cannot do idempotently: adding a column to a table
   an older release created, or a one-time data step. It must be idempotent and check `kind`
   itself.
+- `schema.auth` (optional, added for the AI agents add-on) runs on the auth database
+  (`_users.db`) when it opens, for server-wide tables looked up before the user is known (a
+  credential hash). An add-on registered after the auth database opened gets it at once.
 - Add-on tables are created whenever the add-on is **registered**, offered or not, as they are
   today. Turning the operator flag on then needs no migration.
 - Statements must be idempotent (`CREATE TABLE IF NOT EXISTS`, guarded `ALTER`s), like core
