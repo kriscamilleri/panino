@@ -50,8 +50,11 @@ function linesText(range, totalLines) {
 /** The metadata lines get_document adds under the shared header. */
 function documentDetails(doc) {
     return [
-        `created_at: ${doc.createdAt || 'unknown'}`,
+        `created_at: ${doc.createdAt || 'unknown'}${doc.createdBy ? ` ${doc.createdBy.text}` : ''}`,
+        `last change: ${doc.modifiedBy ? doc.modifiedBy.text : 'author not recorded'}`,
         `pinned: ${doc.pinned ? 'yes' : 'no'}`,
+        ...(Object.keys(doc.properties || {}).length
+            ? [`properties: ${Object.entries(doc.properties).map(([key, value]) => `${key}: ${value}`).join('; ')}`] : []),
         `size: ${doc.wordCount} words, ${doc.characterCount} characters, ${doc.lineCount} lines`,
         `revisions: ${doc.revisionCount}`,
         `images: ${doc.imageIds.length ? doc.imageIds.join(', ') : 'none'}`,
@@ -598,6 +601,17 @@ const lineRange = {
     properties: { startLine: { type: 'integer' }, endLine: { type: 'integer' } },
 };
 
+const actorSchema = {
+    type: ['object', 'null'],
+    properties: {
+        kind: { type: 'string', enum: ['user', 'api', 'app', 'sync', 'collab', 'system', 'unknown'] },
+        label: { type: ['string', 'null'], description: 'API key or connected app name' },
+        userId: { type: ['string', 'null'] },
+        userName: { type: ['string', 'null'] },
+        text: { type: 'string', description: 'In the app\'s wording, e.g. "by Kris via Claude Code (API key)"' },
+    },
+};
+
 const documentDetail = {
     allOf: [fullDocument, {
         type: 'object',
@@ -607,6 +621,9 @@ const documentDetail = {
             characterCount: { type: 'integer' },
             lineCount: { type: 'integer' },
             revisionCount: { type: 'integer', description: 'Rows in the Document\'s revision history' },
+            createdBy: { ...actorSchema, description: 'Author of the oldest revision (the owner, in the personal database, when history does not say)' },
+            modifiedBy: { ...actorSchema, description: 'Author of the newest attributed revision' },
+            properties: { type: 'object', additionalProperties: { type: 'string' }, description: 'Front matter key → value' },
             imageIds: { type: 'array', items: { type: 'string' }, description: 'Ids of images the body links (/images/<id>), first appearance first, at most 500' },
             webUrl: { type: ['string', 'null'], description: '<FRONTEND_URL>/#/doc/<id> (plus ?dbKey= for a space), or null when the app URL is not configured' },
             totalLines: { type: 'integer' },

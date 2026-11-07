@@ -4,6 +4,9 @@
 // and append. REST and MCP (api/documents.js) are two adapters over these functions, so
 // every rule has one implementation; the shared rules are in serviceCore.js and the pure
 // text helpers in documentText.js.
+import { documentAuthorship } from './authorship.js';
+import { noteFolderChanged } from './folderService.js';
+import { readProperties } from './propertyText.js';
 import { v4 as uuidv4 } from 'uuid';
 import { getAuthDb } from '../../db.js';
 import {
@@ -411,6 +414,7 @@ export function getDocument(ctx, {
     const content = note.content ?? '';
     const stats = documentStats(content);
     const totalLines = stats.lineCount;
+    const authors = documentAuthorship(ctx, target, [note.id]).get(note.id);
     let range = totalLines > 0 ? { startLine: 1, endLine: totalLines } : null;
     let sectionInfo;
     if (sectionName !== undefined && sectionName !== '') {
@@ -432,6 +436,9 @@ export function getDocument(ctx, {
         ...fullDocument(note, target, buildFolderIndex(readFolders(target.db))),
         ...stats,
         revisionCount: revisionCount(target.db, note.id),
+        createdBy: authors?.createdBy ?? null,
+        modifiedBy: authors?.modifiedBy ?? null,
+        properties: Object.fromEntries(readProperties(content).map(({ key, value }) => [key, value])),
         imageIds: referencedImageIds(content),
         webUrl: documentWebUrl(note.id, target),
         totalLines,
@@ -520,6 +527,7 @@ export function updateDocument(ctx, { id, space, title, content, folderId, pinne
         const textChanges = changes.title !== undefined || changes.content !== undefined;
         if (textChanges) snapshotBefore(db, current);
         const row = updateNote(db, current.id, { ...changes, updated_at: new Date().toISOString() });
+        if (changes.folder_id !== undefined) noteFolderChanged(db, row.id, current.folder_id, row.folder_id);
         if (textChanges) snapshotAfter(db, row.id, row.title, row.content ?? '', ctx);
         return row;
     })();

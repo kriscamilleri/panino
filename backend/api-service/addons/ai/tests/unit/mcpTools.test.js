@@ -9,6 +9,10 @@ const AREA_TOOLS = {
         read: ['get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document', 'get_document_outline'],
         write: ['create_document', 'update_document', 'edit_document', 'insert_into_document', 'append_to_document'],
     },
+    properties: {
+        read: ['get_document_properties', 'list_document_properties', 'query_documents_by_property'],
+        write: ['set_document_property', 'remove_document_property'],
+    },
     folders: {
         read: ['get_folder', 'list_trash'],
         write: ['move_document_to_trash', 'create_folder', 'rename_folder', 'move_folder', 'move_folder_to_trash', 'restore_from_trash'],

@@ -185,6 +185,21 @@ function forgetOrigin(db, itemId) {
     db.prepare('DELETE FROM ai_trash_origins WHERE item_id = ?').run(itemId);
 }
 
+/**
+ * Keep the trash record right when a Document's folder changes outside this file
+ * (update_document): a move into Trash records where it came from, a move out
+ * forgets the record, so a later restore never uses a stale one.
+ * Call inside the write transaction.
+ */
+export function noteFolderChanged(db, noteId, previousFolderId, nextFolderId) {
+    if ((previousFolderId ?? null) === (nextFolderId ?? null)) return;
+    const folderIndex = buildFolderIndex(readFolders(db));
+    const wasInTrash = folderIndex.isInTrash(previousFolderId ?? null);
+    const nowInTrash = folderIndex.isInTrash(nextFolderId ?? null);
+    if (nowInTrash && !wasInTrash) recordOrigin(db, noteId, 'document', previousFolderId ?? null, new Date().toISOString());
+    else if (!nowInTrash) forgetOrigin(db, noteId);
+}
+
 /** @returns {Map<string, { item_id: string, item_kind: string, previous_parent_id: string|null, trashed_at: string }>} */
 function readOrigins(db, itemIds) {
     if (itemIds.length === 0) return new Map();

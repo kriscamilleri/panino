@@ -42,7 +42,7 @@ const revisionCorrupt = () => new ApiError(422, 'REVISION_CORRUPT', 'This revisi
  * Names of the actors on a page of revisions, resolved only for the account
  * owner and, in a space, its current members. One auth-DB query per page.
  */
-function actorNames(ctx, target, rows) {
+export function actorNames(ctx, target, rows) {
     const ids = [...new Set(rows.map((row) => row.actor_user_id).filter(Boolean))];
     const allowed = ids.filter((id) => id === ctx.userId
         || (target.kind === 'space' && resolveSpaceAccess(target.spaceId, id)));

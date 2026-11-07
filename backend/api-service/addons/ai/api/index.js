@@ -10,6 +10,7 @@ import * as documents from './documents.js';
 import * as folders from './folders.js';
 import * as images from './images.js';
 import * as library from './library.js';
+import * as properties from './properties.js';
 import * as revisions from './revisions.js';
 
-export const AREAS = Object.freeze([documents, folders, revisions, images, library]);
+export const AREAS = Object.freeze([documents, properties, folders, revisions, images, library]);
