@@ -9,7 +9,7 @@ import { registerAddon } from '../registry.js';
 import { ADDON_ID, aiConfigWarnings, isAiAddonOffered } from './config.js';
 import { authorizationServerMetadata, protectedResourceMetadata } from './oauth.js';
 import { aiPublicRoutes, aiRoutes } from './routes.js';
-import { AI_AUTH_SCHEMA } from './schema.js';
+import { AI_AUTH_SCHEMA, AI_CONTENT_SCHEMA } from './schema.js';
 
 /**
  * Offered when the operator sets AI_ADDON_ENABLED=true. Switching off needs no
@@ -27,7 +27,7 @@ export const aiAddon = Object.freeze({
         'oauth-protected-resource': protectedResourceMetadata,
         'oauth-authorization-server': authorizationServerMetadata,
     },
-    schema: { auth: AI_AUTH_SCHEMA },
+    schema: { auth: AI_AUTH_SCHEMA, content: AI_CONTENT_SCHEMA },
     configWarnings: aiConfigWarnings,
 });
 registerAddon(aiAddon);

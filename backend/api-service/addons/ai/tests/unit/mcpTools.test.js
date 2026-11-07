@@ -3,7 +3,14 @@
 import { describe, expect, it } from 'vitest';
 import { listTools, PORTABLE_SCHEMA_KEYS, SERVER_INSTRUCTIONS } from '../../mcpTools.js';
 
-const WRITE_TOOLS = ['create_document', 'update_document', 'append_to_document', 'move_document_to_trash', 'create_folder'];
+const WRITE_TOOLS = [
+    'create_document', 'update_document', 'append_to_document', 'move_document_to_trash', 'create_folder',
+    'rename_folder', 'move_folder', 'move_folder_to_trash', 'restore_from_trash',
+];
+const READ_TOOLS = [
+    'get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document',
+    'get_folder', 'list_trash',
+];
 
 describe('MCP tool definitions', () => {
     const tools = listTools('write');
@@ -11,13 +18,15 @@ describe('MCP tool definitions', () => {
     it('offers the v1 operations under stable names', () => {
         expect(tools.map((tool) => tool.name)).toEqual([
             'get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document',
-            ...WRITE_TOOLS,
+            'create_document', 'update_document', 'append_to_document',
+            'move_document_to_trash', 'create_folder', 'get_folder', 'rename_folder', 'move_folder',
+            'move_folder_to_trash', 'list_trash', 'restore_from_trash',
         ]);
     });
 
     it('lists only read tools for read-only access', () => {
         const names = listTools('read').map((tool) => tool.name);
-        expect(names).toHaveLength(6);
+        expect(names).toEqual(READ_TOOLS);
         for (const name of WRITE_TOOLS) expect(names).not.toContain(name);
     });
 
