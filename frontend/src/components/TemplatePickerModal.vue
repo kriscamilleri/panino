@@ -160,7 +160,7 @@ import { useStructureStore } from '@/store/structureStore';
 import { useSyncStore } from '@/store/syncStore';
 import { useStylePresetStore } from '@/store/stylePresetStore';
 import { setFrontMatterValues } from '@/utils/frontMatter';
-import { resolveTemplateVariables, extractInputLabels } from '@/utils/templateVariables';
+import { resolveTemplateVariables, resolveTemplateTitle, extractInputLabels } from '@/utils/templateVariables';
 import BaseModal from '@/components/BaseModal.vue';
 import BaseButton from '@/components/BaseButton.vue';
 import BottomSheet from '@/components/phone/BottomSheet.vue';
@@ -324,14 +324,7 @@ async function create(work) {
 }
 
 async function createNoteFromTemplate(tpl, inputValues, folderId) {
-  const titlePattern = tpl.titlePattern?.trim();
-  let noteTitle = tpl.name;
-
-  if (titlePattern) {
-    const resolved = resolveTemplateVariables(titlePattern, inputValues).trim();
-    if (resolved) noteTitle = resolved;
-  }
-
+  const noteTitle = resolveTemplateTitle(tpl, inputValues);
   const resolvedContent = setFrontMatterValues(
     resolveTemplateVariables(tpl.content, inputValues),
     await templateStyleFrontMatter(tpl.id),

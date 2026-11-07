@@ -17,6 +17,10 @@ const AREA_TOOLS = {
         read: ['list_revisions', 'get_revision', 'compare_revisions'],
         write: ['save_revision', 'restore_revision'],
     },
+    library: {
+        read: ['list_templates', 'get_template', 'list_variables', 'export_pdf'],
+        write: ['create_document_from_template'],
+    },
 };
 const READ_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.read);
 const WRITE_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.write);
