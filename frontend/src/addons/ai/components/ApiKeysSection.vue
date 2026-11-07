@@ -2,11 +2,10 @@
     <section
         id="api-keys"
         ref="sectionEl"
-        class="mt-8 border-t border-gray-200 pt-6"
         data-testid="settings-api-keys"
     >
         <div class="mb-1 flex flex-wrap items-center justify-between gap-3">
-            <h2 class="pn-title-modal">API keys</h2>
+            <h3 class="pn-label">API keys</h3>
             <BaseButton
                 v-if="!showForm"
                 variant="secondary"
@@ -19,9 +18,9 @@
                 <span>Create key</span>
             </BaseButton>
         </div>
-        <p class="pn-body mb-4">
-            Let an LLM or a script read and write your Documents through the Panino API.
-            A key works only for the API, never to sign in.
+        <p class="pn-help mb-3">
+            For scripts and agents that take a key: the REST API and the MCP server.
+            A key works only there, never to sign in.
         </p>
 
         <div
@@ -69,6 +68,23 @@
                     <span>Copy</span>
                 </BaseButton>
             </div>
+            <template v-if="claudeCommand">
+                <p class="pn-help mt-3">Or add Panino to Claude Code with this key:</p>
+                <div class="mt-1 flex flex-wrap items-center gap-2">
+                    <code
+                        class="min-w-0 flex-1 break-all rounded-md bg-white px-2 py-1.5 font-mono text-xs text-gray-700 ring-1 ring-gray-200"
+                        data-testid="api-keys-claude-code"
+                    >{{ claudeCommand }}</code>
+                    <BaseButton
+                        variant="secondary"
+                        size="sm"
+                        @click="copy(claudeCommand, 'Command copied')"
+                    >
+                        <Copy class="h-4 w-4" />
+                        <span>Copy</span>
+                    </BaseButton>
+                </div>
+            </template>
             <p class="pn-help mt-2">
                 The API describes itself at <code class="font-mono">{{ baseUrl }}/openapi.json</code>.
             </p>
@@ -280,15 +296,17 @@
 
 <script setup>
 /**
- * Settings → API keys (docs/specs/active/llm-api.md §5.4): create, list and
- * revoke personal API keys for the v1 API. A new key's secret is shown once.
+ * API keys, in the AI agents add-on's settings card (docs/specs/active/llm-api.md
+ * §5.4, ai-integration.md §9): create, list and revoke personal API keys for the
+ * REST API and the MCP server. A new key's secret is shown once.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { Copy, KeyRound, Trash2 } from 'lucide-vue-next';
 import BaseButton from '@/components/BaseButton.vue';
-import { useApiKeysStore } from '@/store/apiKeysStore';
 import { useUiStore } from '@/store/uiStore';
+import { useAiAddonStore } from '../store';
+import { mcpSnippet } from '../utils/mcpSetup';
 import {
     ACCESS_OPTIONS,
     EXPIRY_OPTIONS,
@@ -299,9 +317,9 @@ import {
     expiryLabel,
     formatKeyDate,
     spacesLabel,
-} from '@/utils/apiKeys';
+} from '../utils/apiKeys';
 
-const store = useApiKeysStore();
+const store = useAiAddonStore();
 const ui = useUiStore();
 const route = useRoute();
 
@@ -311,12 +329,16 @@ const showForm = ref(false);
 const confirming = ref(null);
 const form = reactive({ name: '', scope: 'read', spaceAccess: 'all', expiresInDays: 90 });
 
-const baseUrl = apiV1BaseUrl({
+const fallbackBaseUrl = apiV1BaseUrl({
     isProd: import.meta.env.PROD,
     origin: window.location.origin,
     apiServiceUrl: import.meta.env.VITE_API_SERVICE_URL,
 });
-const curl = computed(() => (store.createdSecret ? curlExample(baseUrl, store.createdSecret.secret) : ''));
+const baseUrl = computed(() => store.setup?.apiBaseUrl || fallbackBaseUrl);
+const curl = computed(() => (store.createdSecret ? curlExample(baseUrl.value, store.createdSecret.secret) : ''));
+const claudeCommand = computed(() => (store.createdSecret && store.setup?.mcpUrl
+    ? mcpSnippet('claude-code', store.setup.mcpUrl, { key: store.createdSecret.secret })
+    : ''));
 const atLimit = computed(() => store.keys.length >= store.limit);
 
 async function openForm() {

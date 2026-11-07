@@ -1,11 +1,10 @@
-// /backend/api-service/publicApiSpec.js
-// The OpenAPI 3.1 description of the v1 API, served at GET /v1/openapi.json.
-// Keep it in step with publicApi.js; tests/integration/publicApi.test.js
-// checks every route here is answered by the router.
+// The OpenAPI 3.1 description of the v1 REST API, served at
+// GET /addons/ai/v1/openapi.json. Keep it in step with restRoutes.js;
+// tests/integration/rest.test.js checks every route here is answered by the router.
 
 export const API_USAGE_NOTE = [
     'Panino stores Markdown Documents in folders, in a personal database and in shared spaces.',
-    'Authenticate every request with "Authorization: Bearer pnk_…".',
+    'Authenticate every request with "Authorization: Bearer pnk_…" (an API key from Settings → Add-ons → AI agents).',
     'Find Documents with GET /search?q=… (all databases) or GET /tree; read one with GET /documents/{id}',
     '(add ?format=markdown for the raw body). Address an existing Document by id alone; the server finds its database.',
     'To create in a space, pass space=<spaceId> (see GET /spaces). Writes need a read-write key.',
@@ -72,16 +71,19 @@ function json(schema, description = 'OK') {
     return { description, content: { 'application/json': { schema } } };
 }
 
-/** @returns {object} OpenAPI 3.1 document for /v1 */
-export function buildOpenApiDocument() {
+/**
+ * @param {string|null} [v1Base] the public base URL of the v1 API, when known
+ * @returns {object} OpenAPI 3.1 document for the v1 REST API
+ */
+export function buildOpenApiDocument(v1Base = null) {
     return {
         openapi: '3.1.0',
         info: { title: 'Panino API', version: '1.0.0', description: API_USAGE_NOTE },
-        servers: [{ url: '/api/v1', description: 'Production (behind /api)' }, { url: '/v1', description: 'Direct to the API service' }],
+        servers: v1Base ? [{ url: v1Base }] : [{ url: '/addons/ai/v1', description: 'Relative to the API service' }],
         security: [{ apiKey: [] }],
         components: {
             securitySchemes: {
-                apiKey: { type: 'http', scheme: 'bearer', bearerFormat: 'pnk_…', description: 'Create in Settings → API keys' },
+                apiKey: { type: 'http', scheme: 'bearer', bearerFormat: 'pnk_…', description: 'Create in Settings → Add-ons → AI agents' },
             },
             schemas: { Error: errorSchema, DocumentSummary: documentSummary, Document: fullDocument },
         },

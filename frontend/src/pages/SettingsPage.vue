@@ -60,8 +60,6 @@
         </div>
 
         <AddonsSection />
-
-        <ApiKeysSection />
     </AccountLayout>
 </template>
 
@@ -75,7 +73,6 @@ import AccountLayout from '@/components/AccountLayout.vue';
 import ChangePasswordForm from '@/components/ChangePasswordForm.vue';
 import BaseButton from '@/components/BaseButton.vue';
 import AddonsSection from '@/components/AddonsSection.vue';
-import ApiKeysSection from '@/components/ApiKeysSection.vue';
 import { useAddonReturn } from '@/composables/useAddonReturn';
 import { useAddonsStore } from '@/store/addonsStore';
 import { Image, FileText, Users } from 'lucide-vue-next';

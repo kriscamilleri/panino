@@ -1,5 +1,5 @@
-// /backend/api-service/apiKeyUtils.js
-// Pure helpers for API keys and the v1 API (docs/specs/active/llm-api.md).
+// Pure helpers for API keys and the v1 API (docs/specs/active/llm-api.md,
+// ai-integration.md).
 // No database or Express access here, so every rule can be unit tested.
 import crypto from 'crypto';
 
@@ -145,6 +145,17 @@ export function createRateLimiter({ limit, windowMs, now = () => Date.now() }) {
             if (window.count <= limit) return { allowed: true, retryAfterSeconds: 0 };
             return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((window.start + windowMs - at) / 1000)) };
         },
+        /**
+         * Whether one more request for `id` would be allowed, without counting it.
+         * @param {string} id
+         * @returns {{ allowed: boolean, retryAfterSeconds: number }}
+         */
+        check(id) {
+            const at = now();
+            const window = windows.get(id);
+            if (!window || at - window.start >= windowMs || window.count < limit) return { allowed: true, retryAfterSeconds: 0 };
+            return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((window.start + windowMs - at) / 1000)) };
+        },
         reset() {
             windows.clear();
         },
@@ -279,4 +290,17 @@ export function parseLimit(value, fallback, max) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
     return Math.min(Math.floor(parsed), max);
+}
+
+/**
+ * The caller's address. Behind nginx every request comes from 127.0.0.1, so the
+ * address nginx saw (X-Real-IP, set by our proxy config) is used first. The API
+ * listens on 127.0.0.1 only, so nothing but nginx can set the header.
+ * @param {import('express').Request} req
+ * @returns {string}
+ */
+export function clientAddress(req) {
+    const real = req.headers?.['x-real-ip'];
+    if (typeof real === 'string' && real && real.length < 64) return real;
+    return req.ip || 'unknown';
 }

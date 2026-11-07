@@ -1,96 +1,140 @@
-# Public API (v1) and API keys
+# AI agents add-on: API keys, REST, MCP and OAuth
 
-The v1 API lets an LLM or a script read and write a user's Documents with a personal API key.
-It is served at `/v1/*` by the API service, which production exposes as
-`https://panino.sh/api/v1/*` through the existing `/api/` proxy (no Nginx change). Intent and
-decisions: [`docs/specs/active/llm-api.md`](../specs/active/llm-api.md).
+Outside agents (LLM assistants, scripts) read and write a user's Documents through the **AI
+agents** add-on (`id: ai`, `backend/api-service/addons/ai/`, `frontend/src/addons/ai/`). The
+operator offers it with `AI_ADDON_ENABLED=true`; each user switches it on in Settings →
+Add-ons. Intent and decisions: [`docs/specs/active/ai-integration.md`](../specs/active/ai-integration.md)
+and, for the v1 rules, [`docs/specs/active/llm-api.md`](../specs/active/llm-api.md).
 
-## Two authentication paths that never overlap
-
-| Path | Credential | Accepted by |
+| Surface | URL (production) | Credential |
 |---|---|---|
-| Session | 7-day JWT (`authenticateToken`, `auth.js`) | Every route except `/v1` |
-| API key | `pnk_…` (`authenticateApiKey`, `apiKeys.js`) | `/v1` only |
+| REST v1 | `https://panino.sh/api/addons/ai/v1/*` | API key |
+| MCP | `https://panino.sh/api/addons/ai/v1/mcp` | API key or OAuth access token |
+| OAuth | `https://panino.sh/api/addons/ai/oauth/*` | the protocol's own proofs |
+| Discovery | `https://panino.sh/.well-known/oauth-*` | none (nginx proxies these two names) |
 
-`index.js` mounts `app.use('/v1', publicApiRoutes)` **before** the global JWT gate, and the
-router installs `authenticateApiKey` itself (only `GET /v1/openapi.json` is public). A key is
-not a JWT, so every other route already refuses it; `tests/integration/publicApi.test.js`
-asserts this for `/sync`, `/refresh`, `/me`, `/me/password`, `/api-keys`, `/spaces`,
-`/addons`, `/images` and `/space-transfers`. Conversely `/v1` refuses session JWTs. Key
-management (`GET/POST/DELETE /api-keys`) sits behind the JWT gate, so a key cannot mint,
-list or revoke keys.
+## Credentials that never overlap
 
-When adding a v1 endpoint, do not reach for an existing route's handler; reimplement the
-narrow operation here. When adding any other route, nothing is needed: it is session-only by
-construction.
+| Credential | Shape | Accepted by |
+|---|---|---|
+| Session | 7-day JWT (`authenticateToken`) | every route except the add-on's REST/MCP |
+| API key | `pnk_…` (`keys.js`) | REST and MCP |
+| OAuth access token | `pna_…`, 1 hour (`oauth.js`) | MCP only (its audience) |
+| OAuth refresh token | `pnr_…`, 30 days, rotated | the token endpoint only |
 
-## Keys
+`agentAuth.js` resolves keys and access tokens, then requires `isAddonActive(owner, 'ai')`
+(403 `ADDON_DISABLED` otherwise; nothing is deleted), then applies the per-credential rate
+limit (120/min, `API_RATE_LIMIT_PER_MINUTE`, in memory). Before any lookup, an address that
+sent 30 rejected credentials in the last minute is refused (429); requests without a credential
+are not counted, so OAuth discovery keeps working. The REST and MCP routes are add-on
+`publicRoutes`: mounted before the JWT gate, so they authenticate themselves. Key and
+connected-app management are session routes behind `requireAddon('ai')`, so a key cannot mint,
+list or revoke credentials. Every other route already refuses these credentials because they are
+not JWTs; `addons/ai/tests/integration/rest.test.js` asserts it for the sensitive ones.
 
-- Table `api_keys` in the auth database (`_users.db`, not synced), declared in
-  `AUTH_SCHEMA` in `db.js`, `ON DELETE CASCADE` from `users`.
-- The key is `pnk_` + 32 random bytes (base64url). Only its SHA-256 (`token_hash`) and the
-  first 12 characters (`prefix`, display only) are stored. Lookup is by hash.
-- `scope` is `read` or `write` (write implies read). `space_access` is `all` (personal plus
-  every space the user is a member of at request time) or `personal`.
-- Unknown, revoked, expired and orphaned keys get one answer: `401 INVALID_API_KEY`.
-- Header only (`Authorization: Bearer`); the `?token=` fallback of the session path is not
-  offered, because query strings land in proxy logs.
-- Names are unique among a user's unrevoked keys, ignoring case (`409 API_KEY_NAME_TAKEN`),
-  because revision history identifies a key by its name. Revoking frees the name.
-- At most 10 unrevoked keys per account. Revoked rows are kept 30 days, pruned when the user
-  next creates a key.
-- 120 requests per minute per key (`API_RATE_LIMIT_PER_MINUTE`), in-process fixed window;
-  `last_used_at` is written at most once a minute per key. Both reset on restart.
+All secrets are stored as SHA-256 only, in the auth database (`_users.db`), in tables the add-on
+declares through `schema.auth`: `api_keys`, `ai_oauth_clients`, `ai_oauth_requests`,
+`ai_oauth_codes`, `ai_oauth_grants`. Unknown, revoked, expired and orphaned credentials get one
+answer.
 
-## How a v1 write reaches devices
+## One implementation of each rule
 
-Writes go straight to the server replica with ordinary SQL in one better-sqlite3
-transaction, the same pattern revision restore and space transfers use. CR-SQLite's triggers
-record them under the server's site id, so the next `/sync` pull hands them to every device
-as another replica's change. After commit the handler pokes the user's sockets (personal) or
-the space's subscribers (`excludeSiteId = null`) and runs the add-ons' `afterChangesApplied`
-hook, as `/sync` does. A device with an unsent edit to the same Document treats the API write
-as a concurrent remote change; the existing merge-base and conflict rules apply unchanged.
+`documentService.js` holds every v1 operation as a plain function over
+`{ userId, agent, clients }`; `restRoutes.js` and `mcpTools.js` are thin adapters. When adding
+an operation, add it there and expose it in both (and in `openapi.js`).
 
-Rules every write follows (`publicApi.js`):
+### How a write reaches devices
 
-- **Live sessions.** A space Document with a `collab_sessions` row is refused with
-  `409 DOCUMENT_IN_LIVE_SESSION`, because the session holds text not yet in `notes.content`.
-- **Revisions.** A title or body change snapshots the stored body first (unattributed,
-  skipped when it equals the latest revision), then the new body with `actor_kind = 'api'`
-  and the key owner as `actor_user_id`. `'api'` is in `ACTOR_KINDS` in `revision.js`.
-  The key's name at the time of the write goes in `actor_label` (backend-only column, kept
-  only for kind `'api'`, so it outlives revocation and pruning of the key row); the revision
-  panel shows "via <key name> (API key)", and plain "via API" for rows written before the
-  column existed. In a space every member sees the name, as they see the author.
+Writes go straight to the server replica with ordinary SQL in one better-sqlite3 transaction,
+on a connection from `getHealthyDb()` (a cached handle whose sync bit a failed merge left set
+would suppress the CRR triggers, and devices would never receive the change),
+the same pattern revision restore and space transfers use. CR-SQLite's triggers record them
+under the server's site id, so the next `/sync` pull hands them to every device as another
+replica's change. After commit the service pokes the user's sockets (personal) or the space's
+subscribers (`excludeSiteId = null`) and runs the add-ons' `afterChangesApplied` hook, as
+`/sync` does. A device with an unsent edit to the same Document treats the write as a
+concurrent remote change; the existing merge-base and conflict rules apply unchanged.
+
+- **Live sessions.** A space Document with a `collab_sessions` row is refused (`409
+  DOCUMENT_IN_LIVE_SESSION`), because the session holds text not yet in `notes.content`.
+- **Revisions.** A title or body change snapshots the stored body first (unattributed, skipped
+  when it equals the latest revision), then the new body attributed to the owner:
+  `actor_kind = 'api'` for a key, `'app'` for a connected app, and the key's or app's name in
+  `actor_label` (backend-only column, kept after the credential is gone). The revision panel
+  shows "via <name> (API key)" / "via <name> (connected app)", and plain "via API" for rows
+  written before the label existed. In a space every member sees the name.
 - **Concurrency.** Optional `expectedUpdatedAt` is compared as the exact stored string.
-- **Size.** A body over 2 MiB after the write is `413`.
-- **`user_id`.** Set to the owner in the personal database, left `NULL` in a space, matching
-  the app.
+- **Size.** A body over 2 MiB after the write is refused (413).
+- **Delete is a move** into the oldest root folder named `Trash` (any case), created on first
+  use, because a real delete cascades revision history away. Search and list leave Trash out
+  unless asked. Folders cannot be deleted through the API.
+- **Finding a Document.** An existing Document may be addressed without `space`; the service
+  tries the personal database and then each reachable space. Space membership is resolved on
+  every request, so removal from a space cuts access at once. Search is `instr(lower(…))` over
+  title and body; revisit with FTS5 if databases grow far beyond thousands of Documents.
 
-## Delete is a move
+Key names are unique among a user's live keys (case-insensitive) so history can tell them
+apart; at most 10 live keys and 20 connected apps per user.
 
-`DELETE /v1/documents/:id` moves the Document into the database's Trash folder: the oldest
-root folder named `Trash` (any case), created on first use. Nothing is removed, because a
-real delete cascades the Document's revision history away. Search and list leave out
-Documents under Trash unless `includeTrash=true`. Folders cannot be deleted through the API.
+## MCP
 
-## Finding a Document
+`mcp.js` is a hand-written, stateless Streamable HTTP server: one JSON-RPC message per POST,
+JSON responses only, no SSE, no sessions issued, `GET`/`DELETE` 405, batches refused,
+notifications 202. It serves two protocol eras from one handler:
 
-Reads and writes of an existing Document may omit `space`; `locateDocument` tries the
-personal database and then each reachable space. `space=all` (the default for `/search` and
-`/documents`) fans out the same way. Space membership is resolved through
-`resolveSpaceAccess` / `listSpacesForUser` on every request, so removal from a space cuts a
-key off at once; a space the key cannot reach and one that does not exist both answer
-`404 SPACE_NOT_FOUND`.
+- **2025** (`2025-06-18`, `2025-11-25`): recognised by `initialize` or the absence of
+  `_meta["io.modelcontextprotocol/protocolVersion"]`. `initialize` negotiates the version and
+  returns capabilities, server info and instructions.
+- **2026** (`2026-07-28`): recognised by that `_meta` key. Every request is checked for its
+  client capabilities and for `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers that
+  match the body (`-32020`); `server/discover` is answered; results carry `resultType`.
 
-Search is `instr(lower(…), lower(?))` over title and body: case-insensitive for ASCII, and
-`%`/`_` are literal. It scans bodies; that is fine at today's sizes (thousands of Documents
-per database) and is the first thing to revisit (FTS5) if a database grows far beyond that.
+Supported revisions are constants at the top of `mcp.js`; a new revision is a constant plus
+tests. Authentication runs before anything else so an unauthenticated `initialize` gets the
+`401` with `WWW-Authenticate: Bearer resource_metadata="…"` that starts an OAuth client's
+sign-in. A browser `Origin` other than the app's is refused (403).
+
+Tools (`mcpTools.js`) map one-to-one to v1 operations. Their input schemas use only a portable
+subset of JSON Schema (object of string/integer/boolean properties with descriptions; no unions,
+`null`, `$ref`, `format`, `additionalProperties`), which `tests/unit/mcpTools.test.js` enforces,
+because function-calling support differs between model families. Results are a text block
+written for a model plus `structuredContent`; rule failures are `isError` results that say what
+to do next. A read-only credential's `tools/list` omits the write tools.
+
+## OAuth
+
+Panino is both authorization server (issuer: the origin of `PUBLIC_API_BASE_URL`) and resource
+server (the MCP URL). `config.js` derives every URL from `PUBLIC_API_BASE_URL` and
+`FRONTEND_URL`, never from a request's `Host`; in production both are required (503 and a
+startup warning otherwise).
+
+- **Discovery**: protected-resource metadata (RFC 9728) at the root and at the resource path;
+  authorization-server metadata (RFC 8414) advertising S256 PKCE, public clients
+  (`token_endpoint_auth_methods_supported: ["none"]`), Client ID Metadata Documents and the
+  `iss` response parameter.
+- **Clients**: a `client_id` that is an `https` URL is a metadata document, fetched through
+  `safeFetch.js` (public addresses only, 5 s, 16 KiB, no redirects) and cached per
+  `Cache-Control` within 5 minutes .. 24 hours; otherwise a client that registered itself
+  (RFC 7591, no secret). One that was never approved and has not started a sign-in for 30
+  days is pruned; one that was ever approved is kept, because the app holds its `client_id`.
+- **Redirect URIs**: exact match, except loopback `http` on any port (RFC 8252). https, loopback
+  http and private-use schemes only.
+- **Flow**: `/oauth/authorize` validates and stores a 10-minute request, then sends the browser
+  to the consent page `FRONTEND_URL/#/addons/ai/authorize?request=<id>` (an add-on page). The
+  first signed-in user to open a request claims it. Approval creates the grant ("connected
+  app": access and databases chosen by the user) and a 60-second single-use code bound to client,
+  redirect URI, PKCE challenge and resource. A reused code ends the grant.
+- **Code exchange**: every check (expiry, client, `redirect_uri` when sent, `resource`, PKCE)
+  runs before the code is spent, so a client can retry a mistake; a spent code presented again
+  ends the grant. `redirect_uri` may be omitted, as OAuth 2.1 allows, because PKCE binds the
+  code. Approving at the 20-app limit (409 `APP_LIMIT`) leaves the request pending.
+- **Tokens**: one live access token per grant; the refresh token rotates on every use, and a
+  replayed old one ends the grant. `/oauth/revoke` (RFC 7009) and Disconnect in Settings end it
+  too. Approving the same client again replaces its earlier grant.
+- **Rate limit**: 60/min per address on the OAuth endpoints, keyed by nginx's `X-Real-IP`.
 
 ## Self-description
 
-`GET /v1/openapi.json` (OpenAPI 3.1, `publicApiSpec.js`) and `GET /v1` (a usage note for
-LLMs) describe the API. A test calls every path in the OpenAPI document and fails if the
-router does not answer it, so the two cannot drift silently in that direction; new fields
-still have to be added to the description by hand.
+`GET /addons/ai/v1/openapi.json` (OpenAPI 3.1, `openapi.js`) and `GET /addons/ai/v1` describe the
+REST API; a test calls every path in the OpenAPI document and fails if the router does not
+answer it. MCP clients get the tool list and the server instructions instead.

@@ -40,7 +40,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
 | `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
-| `apiKeysStore` | Personal API keys for the v1 API (`GET/POST/DELETE /api-keys`); holds a new key's secret in `createdSecret` only until dismissed or `ApiKeysSection` unmounts | authStore |
+| `aiAddonStore` (`addons/ai/store.js`) | The AI agents add-on: API keys (`/addons/ai/keys`; a new key's secret only in `createdSecret` until dismissed or `ApiKeysSection` unmounts), connected apps, MCP setup, OAuth consent; see `src/addons/ai/README.md`. Core never imports it | authStore |
 | `odooStore` (`addons/odoo/store.js`) | The Odoo add-on's store; see `src/addons/odoo/README.md`. Core never imports it | authStore |
 
 ### Store initialization pattern
@@ -132,7 +132,7 @@ Manifests import components only through `() => import(…)`, so an add-on stays
 bundle. Test ids are derived: `submenu-addons-<id>-<action>` (separators `submenu-addons-separator`), `phone-menu-addon-<id>-<action>`,
 `settings-addon-<id>`, `space-addon-<id>` (and `-hint`), `addon-page-<id>-<page>`.
 
-Today: `src/addons/github/` (GitHub backup: toolbar **Backup** action, its modal, and a settings
+Today: `src/addons/ai/` (AI agents: a settings card with MCP setup, connected apps and API keys, and the OAuth consent page `#/addons/ai/authorize`), `src/addons/github/` (GitHub backup: toolbar **Backup** action, its modal, and a settings
 card that also finishes the OAuth return on `/settings?addon=github&addonResult=…`) and `src/addons/odoo/`.
 An add-on return while the add-on is off is shown by `composables/useAddonReturn.js` on both
 Settings pages.

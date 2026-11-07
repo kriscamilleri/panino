@@ -1,29 +1,23 @@
-// /backend/api-service/apiKeys.js
-// Personal API keys: management routes (session only) and the middleware that
-// authenticates the v1 API (docs/specs/active/llm-api.md §5).
+// Personal API keys (docs/specs/active/llm-api.md §5, ai-integration.md §4): the
+// management routes (session, behind the add-on gate) and the key lookup that
+// agentAuth.js uses for REST and MCP requests.
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { getAuthDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
+import { getAuthDb, isDatabaseBusyError, respondDatabaseBusy } from '../../db.js';
 import {
     MAX_ACTIVE_API_KEYS,
-    bearerFromHeader,
-    createRateLimiter,
     expiryFromDays,
     generateApiKey,
     hashApiKey,
     isExpired,
     looksLikeApiKey,
-    scopeAllows,
     validateCreateKeyInput,
-} from './apiKeyUtils.js';
+} from './keyUtils.js';
 
-export const apiKeyRoutes = express.Router();
+export const keyRoutes = express.Router();
 
 const REVOKED_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const LAST_USED_WRITE_INTERVAL_MS = 60 * 1000;
-export const API_RATE_LIMIT_PER_MINUTE = Number(process.env.API_RATE_LIMIT_PER_MINUTE) || 120;
-
-export const apiRateLimiter = createRateLimiter({ limit: API_RATE_LIMIT_PER_MINUTE, windowMs: 60 * 1000 });
 const lastUsedWrites = new Map();
 
 /**
@@ -59,21 +53,21 @@ function listActiveKeys(db, userId) {
     `).all(userId);
 }
 
-// GET /api-keys — the caller's keys that are not revoked.
-apiKeyRoutes.get('/api-keys', (req, res) => {
+// GET /addons/ai/keys — the caller's keys that are not revoked.
+keyRoutes.get('/keys', (req, res) => {
     try {
         const db = getAuthDb();
         const now = new Date();
         res.json({ keys: listActiveKeys(db, req.user.user_id).map((row) => publicApiKey(row, now)), limit: MAX_ACTIVE_API_KEYS });
     } catch (error) {
         if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
-        console.error('[api-keys] list failed:', error?.code || 'unknown');
+        console.error('[ai:keys] list failed:', error?.code || 'unknown');
         res.status(500).json({ error: 'Could not load API keys.' });
     }
 });
 
-// POST /api-keys — create a key; the full key is in this response only.
-apiKeyRoutes.post('/api-keys', (req, res) => {
+// POST /addons/ai/keys — create a key; the full key is in this response only.
+keyRoutes.post('/keys', (req, res) => {
     const parsed = validateCreateKeyInput(req.body);
     if (!parsed.ok) return res.status(400).json({ error: parsed.error, code: 'INVALID_INPUT' });
 
@@ -120,13 +114,13 @@ apiKeyRoutes.post('/api-keys', (req, res) => {
         res.status(201).json({ key: publicApiKey(row, now), secret: key });
     } catch (error) {
         if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
-        console.error('[api-keys] create failed:', error?.code || 'unknown');
+        console.error('[ai:keys] create failed:', error?.code || 'unknown');
         res.status(500).json({ error: 'Could not create the API key.' });
     }
 });
 
-// DELETE /api-keys/:id — revoke one of the caller's keys.
-apiKeyRoutes.delete('/api-keys/:id', (req, res) => {
+// DELETE /addons/ai/keys/:id — revoke one of the caller's keys.
+keyRoutes.delete('/keys/:id', (req, res) => {
     try {
         const db = getAuthDb();
         const result = db.prepare(`
@@ -138,61 +132,33 @@ apiKeyRoutes.delete('/api-keys/:id', (req, res) => {
         res.json({ revoked: true });
     } catch (error) {
         if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
-        console.error('[api-keys] revoke failed:', error?.code || 'unknown');
+        console.error('[ai:keys] revoke failed:', error?.code || 'unknown');
         res.status(500).json({ error: 'Could not revoke the API key.' });
     }
 });
 
-function refuse(res, status, code, error) {
-    if (status === 401) res.setHeader('WWW-Authenticate', 'Bearer realm="panino-api"');
-    return res.status(status).json({ error, code });
-}
-
 /**
- * Authenticate a v1 request with `Authorization: Bearer pnk_…`. Sets
- * `req.user = { user_id }` and `req.apiKey`. Session JWTs are refused here,
- * as API keys are everywhere else. Unknown, revoked and expired keys get the
- * same answer.
+ * Resolve a `pnk_…` key to its owner and access, or null when it is unknown,
+ * revoked, expired or orphaned (one answer for all four).
+ * @param {string} credential
+ * @param {Date} [now]
+ * @returns {null | { userId: string, agent: object }}
  */
-export function authenticateApiKey(req, res, next) {
-    const credential = bearerFromHeader(req.headers.authorization);
-    if (!credential) {
-        return refuse(res, 401, 'API_KEY_REQUIRED', 'Send an API key as "Authorization: Bearer pnk_…". Create one in Panino under Settings → API keys.');
-    }
-    if (!looksLikeApiKey(credential)) {
-        return refuse(res, 401, 'INVALID_API_KEY', 'This API accepts Panino API keys (pnk_…) only.');
-    }
-
-    let row;
-    try {
-        row = getAuthDb().prepare(`
-            SELECT k.id, k.user_id, k.name, k.scope, k.space_access, k.expires_at, k.revoked_at, k.last_used_at,
-                   u.id AS owner_id
-              FROM api_keys k
-              LEFT JOIN users u ON u.id = k.user_id
-             WHERE k.token_hash = ?
-        `).get(hashApiKey(credential));
-    } catch (error) {
-        if (isDatabaseBusyError(error)) return respondDatabaseBusy(res);
-        console.error('[api-keys] lookup failed:', error?.code || 'unknown');
-        return res.status(500).json({ error: 'Internal server error', code: 'INTERNAL' });
-    }
-
-    const now = new Date();
-    if (!row || row.revoked_at || !row.owner_id || isExpired(row.expires_at, now)) {
-        return refuse(res, 401, 'INVALID_API_KEY', 'This API key is not valid. It may have been revoked or have expired.');
-    }
-
-    const limit = apiRateLimiter.hit(row.id);
-    if (!limit.allowed) {
-        res.setHeader('Retry-After', String(limit.retryAfterSeconds));
-        return res.status(429).json({ error: 'Too many requests. Slow down and retry.', code: 'RATE_LIMITED' });
-    }
-
+export function lookupApiKey(credential, now = new Date()) {
+    if (!looksLikeApiKey(credential)) return null;
+    const row = getAuthDb().prepare(`
+        SELECT k.id, k.user_id, k.name, k.scope, k.space_access, k.expires_at, k.revoked_at,
+               u.id AS owner_id
+          FROM api_keys k
+          LEFT JOIN users u ON u.id = k.user_id
+         WHERE k.token_hash = ?
+    `).get(hashApiKey(credential));
+    if (!row || row.revoked_at || !row.owner_id || isExpired(row.expires_at, now)) return null;
     touchLastUsed(row.id, now);
-    req.user = { user_id: row.user_id };
-    req.apiKey = { id: row.id, name: row.name, scope: row.scope, spaceAccess: row.space_access, expiresAt: row.expires_at };
-    next();
+    return {
+        userId: row.user_id,
+        agent: { kind: 'key', id: row.id, name: row.name, scope: row.scope, spaceAccess: row.space_access, expiresAt: row.expires_at },
+    };
 }
 
 function touchLastUsed(keyId, now) {
@@ -203,23 +169,11 @@ function touchLastUsed(keyId, now) {
         getAuthDb().prepare('UPDATE api_keys SET last_used_at = ? WHERE id = ?').run(now.toISOString(), keyId);
     } catch (error) {
         // Bookkeeping only; never fail the request over it.
-        console.warn('[api-keys] could not record last use:', error?.code || 'unknown');
+        console.warn('[ai:keys] could not record last use:', error?.code || 'unknown');
     }
 }
 
-/**
- * Route guard: the key must carry `scope` ('read' or 'write').
- * @param {'read'|'write'} scope
- */
-export function requireScope(scope) {
-    return (req, res, next) => {
-        if (scopeAllows(req.apiKey?.scope, scope)) return next();
-        return res.status(403).json({ error: 'This API key is read-only.', code: 'INSUFFICIENT_SCOPE' });
-    };
-}
-
-/** Test hook: forget rate-limit windows and last-use throttling. */
+/** Test hook: forget last-use throttling. */
 export function resetApiKeyState() {
-    apiRateLimiter.reset();
     lastUsedWrites.clear();
 }

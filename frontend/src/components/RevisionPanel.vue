@@ -32,11 +32,11 @@
               <span class="uppercase tracking-wide shrink-0">{{ item.type }}</span>
               <span v-if="item.actor" class="shrink-0" :data-testid="`revision-actor-${item.id}`">by {{ item.actor.name }}</span>
               <span
-                v-if="item.actorKind === 'api'"
+                v-if="item.actorKind === 'api' || item.actorKind === 'app'"
                 class="truncate"
-                :title="item.actorLabel ? `Made with the API key “${item.actorLabel}”` : 'Made through the API'"
+                :title="agentTooltip(item)"
                 :data-testid="`revision-api-${item.id}`"
-              >{{ item.actorLabel ? `via ${item.actorLabel} (API key)` : 'via API' }}</span>
+              >{{ agentLabel(item) }}</span>
             </div>
           </button>
 
@@ -123,6 +123,20 @@ watch(
   },
   { immediate: true }
 );
+
+// Revisions written by an outside agent: an API key ('api') or a connected
+// app ('app'), named when the server recorded the name.
+function agentLabel(item) {
+  if (!item.actorLabel) return 'via API';
+  return item.actorKind === 'app' ? `via ${item.actorLabel} (connected app)` : `via ${item.actorLabel} (API key)`;
+}
+
+function agentTooltip(item) {
+  if (!item.actorLabel) return 'Made through the API';
+  return item.actorKind === 'app'
+    ? `Made by the connected app “${item.actorLabel}”`
+    : `Made with the API key “${item.actorLabel}”`;
+}
 
 function formatTimestamp(value) {
   if (!value) return '';

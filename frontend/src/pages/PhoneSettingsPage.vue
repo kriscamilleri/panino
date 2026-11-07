@@ -58,22 +58,6 @@
                         </button>
                         <button
                             type="button"
-                            class="ph-row"
-                            data-testid="phone-settings-api-keys"
-                            @click="router.push({ name: 'settings-account', hash: '#api-keys' })"
-                        >
-                            <KeyRound
-                                class="h-5 w-5"
-                                aria-hidden="true"
-                            />
-                            <span class="ph-settings-grow">API keys</span>
-                            <ChevronRight
-                                class="h-5 w-5"
-                                aria-hidden="true"
-                            />
-                        </button>
-                        <button
-                            type="button"
                             class="ph-row ph-row-danger"
                             data-testid="phone-settings-sign-out"
                             @click="signOut"
@@ -356,7 +340,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
     ArrowLeft, ChevronRight, LogOut, UserCog, Image, FileText, Users, Upload, Download,
-    Braces, MonitorSmartphone, Info, Monitor, Sun, Moon, KeyRound,
+    Braces, MonitorSmartphone, Info, Monitor, Sun, Moon,
 } from 'lucide-vue-next'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'

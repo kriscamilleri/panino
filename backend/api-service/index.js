@@ -16,15 +16,13 @@ import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { emailVerificationRoutes } from './emailVerification.js';
-import { addonConfigWarnings, addonsRoutes, mountAddonPublicRoutes, mountAddonRoutes } from './addons/registry.js';
+import { addonConfigWarnings, addonsRoutes, mountAddonPublicRoutes, mountAddonRoutes, mountAddonWellKnown } from './addons/registry.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
 import { attachWebSocketHandlers, MAX_MESSAGE_BYTES } from './websocket.js';
 import { spaceRoutes, startSpaceDeletionJob } from './spaces.js';
 import { spaceTransferRoutes } from './spaceTransfer.js';
 import { startCollabRecoveryJob } from './collab.js';
-import { apiKeyRoutes } from './apiKeys.js';
-import { publicApiRoutes } from './publicApi.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(__dirname, 'data');
@@ -82,11 +80,8 @@ export function createApp() {
     // Public routes
     app.use(signupRoutes);
     app.use(passwordResetRoutes);
-    mountAddonPublicRoutes(app); // OAuth returns; each checks its own proof and the switch
-
-    // The v1 API authenticates with API keys, not sessions, so it sits before
-    // the JWT gate. No route after the gate accepts an API key.
-    app.use('/v1', publicApiRoutes);
+    mountAddonWellKnown(app); // discovery documents fixed at the site root (OAuth metadata)
+    mountAddonPublicRoutes(app); // OAuth returns and agent APIs; each checks its own proof and the switch
 
     // Routes that are mixed public/private
     app.use(authRoutes);
@@ -102,7 +97,6 @@ export function createApp() {
     app.use(addonsRoutes);
     mountAddonRoutes(app);
     app.use(revisionRoutes);
-    app.use(apiKeyRoutes); // key management: session only, never an API key
 
     // A handler that did not catch a "database is locked" error: answer with a
     // retryable 503 rather than Express's generic 500. Everything else keeps

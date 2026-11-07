@@ -5,7 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestApp, cleanupTestUser, generateSiteId, getTestToken, setupTestUser } from '../testHelpers.js';
-import { deleteTestDb, getDb, getSpacesDb, getUserDb, registerAddonSchema } from '../../db.js';
+import { deleteTestDb, getAuthDb, getDb, getSpacesDb, getUserDb, registerAddonSchema } from '../../db.js';
 import { createSpace } from '../../spaces.js';
 import {
     addonConfigWarnings, getAddon, listAddons, registerAddon, runAddonHooks,
@@ -28,9 +28,11 @@ registerAddon({
     isOffered: () => offered,
     routes,
     publicRoutes,
+    wellKnown: { 'probe-document': (req, res) => res.json({ probe: true, path: req.path }) },
     schema: {
         user: 'CREATE TABLE IF NOT EXISTS probe_user_only (id TEXT PRIMARY KEY NOT NULL);',
         content: 'CREATE TABLE IF NOT EXISTS probe_everywhere (id TEXT PRIMARY KEY NOT NULL);',
+        auth: 'CREATE TABLE IF NOT EXISTS probe_server_wide (id TEXT PRIMARY KEY NOT NULL);',
         upgrade,
     },
     hooks: { afterChangesApplied, afterSyncRequest },
@@ -144,6 +146,36 @@ describe('Add-on registry extension points', () => {
 
         it('refuses add-on tables that would become CRRs', () => {
             expect(() => registerAddonSchema('bad', { content: "SELECT crsql_as_crr('x');" })).toThrow(/server-only/);
+            expect(() => registerAddonSchema('bad-auth', { auth: "SELECT crsql_as_crr('x');" })).toThrow(/server-only/);
+        });
+
+        it('creates auth tables on the auth database, also when it is already open', () => {
+            expect(tables(getAuthDb())).toContain('probe_server_wide');
+            registerAddonSchema('late', { auth: 'CREATE TABLE IF NOT EXISTS probe_late_auth (id TEXT PRIMARY KEY NOT NULL);' });
+            expect(tables(getAuthDb())).toContain('probe_late_auth');
+            expect(tables(getUserDb(user.userId))).not.toContain('probe_server_wide');
+        });
+    });
+
+    describe('well-known documents', () => {
+        it('serves them at the site root and below, before sign-in, 404 while not offered', async () => {
+            const root = await request(app).get('/.well-known/probe-document');
+            expect(root.status).toBe(200);
+            expect(root.body).toEqual({ probe: true, path: '/.well-known/probe-document' });
+            const below = await request(app).get('/.well-known/probe-document/api/some/path');
+            expect(below.status).toBe(200);
+            offered = false;
+            expect((await request(app).get('/.well-known/probe-document')).status).toBe(404);
+        });
+
+        it('gives each name to one add-on and refuses bad ones', () => {
+            const handler = (req, res) => res.end();
+            expect(() => registerAddon({ id: 'probe-two', name: 'Two', isOffered: () => true, wellKnown: { 'probe-document': handler } }))
+                .toThrow(/already belongs to probe/);
+            expect(() => registerAddon({ id: 'probe-three', name: 'Three', isOffered: () => true, wellKnown: { '../x': handler } }))
+                .toThrow(/bad well-known name/);
+            expect(() => registerAddon({ id: 'probe-four', name: 'Four', isOffered: () => true, wellKnown: { 'thing': 'nope' } }))
+                .toThrow(/needs a handler/);
         });
     });
 

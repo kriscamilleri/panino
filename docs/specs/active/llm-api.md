@@ -2,12 +2,16 @@
 
 > Let a user create API keys that an LLM (or any script) uses to read and write their Documents
 > and the spaces they belong to, through a small, purpose-built REST API.
-> Status: active (implementation started 2026-11-06 on `feature/llm-api-keys`)
+> Status: active (implemented 2026-11-06 on `feature/llm-api-keys`; moved into the AI agents
+> add-on on `feature/ai-addon`)
 > Created: 2026-11-06
-> Last updated: 2026-11-06 — decisions D1/D2/D5 made; implemented on `feature/llm-api-keys`
-> Implementation: `backend/api-service/apiKeys.js`, `publicApi.js`, `publicApiSpec.js`,
-> `apiKeyUtils.js`; `frontend/src/components/ApiKeysSection.vue`, `store/apiKeysStore.js`;
-> maintainer notes in [`docs/architecture/public-api.md`](../../architecture/public-api.md)
+> Last updated: 2026-11-06 — the whole feature is now the optional AI agents add-on
+> ([`ai-integration.md`](ai-integration.md)). The rules below are unchanged; the URLs moved:
+> `/v1/*` is `/addons/ai/v1/*` (production `https://panino.sh/api/addons/ai/v1/*`) and
+> `/api-keys` is `/addons/ai/keys`. Read paths in this spec with that prefix.
+> Implementation: `backend/api-service/addons/ai/` (`documentService.js`, `restRoutes.js`,
+> `keys.js`, `keyUtils.js`, `openapi.js`); `frontend/src/addons/ai/`; maintainer notes in
+> [`docs/architecture/public-api.md`](../../architecture/public-api.md)
 
 ---
 

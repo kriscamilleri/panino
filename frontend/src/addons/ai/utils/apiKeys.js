@@ -1,4 +1,5 @@
-// Pure helpers for Settings → API keys (docs/specs/active/llm-api.md §5.4).
+// Pure helpers for the AI agents add-on's API keys (docs/specs/active/llm-api.md §5.4,
+// ai-integration.md §9).
 
 export const ACCESS_OPTIONS = Object.freeze([
     { value: 'read', label: 'Read only' },
@@ -18,13 +19,14 @@ export const EXPIRY_OPTIONS = Object.freeze([
 ]);
 
 /**
- * The v1 API base URL for this deployment, as an agent should call it.
+ * The v1 API base URL for this deployment, as an agent should call it. The
+ * server's own answer (GET /addons/ai/setup) wins; this is the fallback.
  * @param {{ isProd: boolean, origin: string, apiServiceUrl?: string }} env
  * @returns {string}
  */
 export function apiV1BaseUrl({ isProd, origin, apiServiceUrl }) {
     const base = isProd ? `${origin.replace(/\/$/, '')}/api` : (apiServiceUrl || 'http://localhost:8000').replace(/\/$/, '');
-    return `${base}/v1`;
+    return `${base}/addons/ai/v1`;
 }
 
 /**

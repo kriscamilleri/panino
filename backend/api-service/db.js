@@ -193,9 +193,10 @@ const BASE_SCHEMA = `
     created_at TEXT NOT NULL,
     -- Backend-only revision attribution (COLLAB-04 §3.3). Never a CRR
     -- column, never client-writable; actor_kind validity ('sync' | 'collab'
-    -- | 'system' | 'api') is enforced in createRevisionSnapshot(), not by CHECK,
-    -- so it stays easy to migrate in place. actor_label is the API key's name
-    -- at the time of the write (kind 'api' only), kept after the key is gone.
+    -- | 'system' | 'api' | 'app') is enforced in createRevisionSnapshot(), not
+    -- by CHECK, so it stays easy to migrate in place. actor_label is the API
+    -- key's or connected app's name at the time of the write (kinds 'api' and
+    -- 'app' only), kept after the credential is gone.
     actor_user_id TEXT,
     actor_kind TEXT,
     actor_label TEXT,
@@ -309,20 +310,26 @@ const addonSchemas = new Map();
 
 /**
  * @param {string} addonId
- * @param {{ user?: string, content?: string,
+ * @param {{ user?: string, content?: string, auth?: string,
  *   upgrade?: (db: import('better-sqlite3').Database, kind: 'user' | 'space') => void }} schema
  *   `user` runs on user databases, `content` on every content database, then
  *   `upgrade` on both, for what plain SQL cannot do idempotently (adding a
- *   column to an older table). All three must be idempotent.
+ *   column to an older table). `auth` runs on the auth database (`_users.db`),
+ *   for server-wide tables looked up without knowing the user (a credential
+ *   hash). All must be idempotent.
  */
-export function registerAddonSchema(addonId, { user = "", content = "", upgrade = null } = {}) {
-  if (/crsql_as_crr/i.test(`${user}\n${content}`)) {
+export function registerAddonSchema(addonId, { user = "", content = "", auth = "", upgrade = null } = {}) {
+  if (/crsql_as_crr/i.test(`${user}\n${content}\n${auth}`)) {
     throw new Error(`Add-on ${addonId}: add-on tables are server-only and cannot be CRRs.`);
   }
   if (upgrade !== null && typeof upgrade !== "function") {
     throw new Error(`Add-on ${addonId}: schema.upgrade must be a function.`);
   }
-  addonSchemas.set(addonId, { user, content, upgrade });
+  addonSchemas.set(addonId, { user, content, auth, upgrade });
+  // The auth database is opened once per process. An add-on registered after
+  // that (a test importing it late) still gets its tables.
+  const authDb = dbConnections.get("_auth");
+  if (auth && authDb) authDb.exec(auth);
 }
 
 const CONTENT_SCHEMA_METADATA = `
@@ -1030,23 +1037,6 @@ const AUTH_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_email_verifications_user
     ON email_verifications(user_id, created_at);
-  -- Personal API keys for the v1 API (apiKeys.js, docs/specs/active/llm-api.md).
-  -- Only the SHA-256 of a key is stored; prefix is the display-only start.
-  CREATE TABLE IF NOT EXISTS api_keys (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    prefix TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    scope TEXT NOT NULL,
-    space_access TEXT NOT NULL DEFAULT 'all',
-    created_at TEXT NOT NULL,
-    expires_at TEXT,
-    last_used_at TEXT,
-    revoked_at TEXT,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-  CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id, created_at);
 `;
 
 const SPACES_MIGRATION_SCHEMA = `
@@ -1174,6 +1164,9 @@ export function getAuthDb() {
   const dbPath = path.join(DB_DIR, "_users.db");
   const db = new Database(dbPath);
   db.exec(AUTH_SCHEMA);
+  for (const schema of addonSchemas.values()) {
+    if (schema.auth) db.exec(schema.auth);
+  }
   db.pragma(`busy_timeout = ${METADATA_DB_BUSY_TIMEOUT_MS}`);
   enableWriteAheadLog(db, "_users.db");
   // When the address was proven to reach the account holder (accountEmail.js).
