@@ -5,7 +5,7 @@
 > and the text outside the current paragraph or sentence is dimmed.
 > Status: proposed
 > Created: 2026-11-07
-> Last updated: 2026-11-07 (Kris answered Q1–Q5)
+> Last updated: 2026-11-07 (Kris answered Q1–Q6)
 
 ---
 
@@ -924,19 +924,14 @@ log.
 | D14 | Storage (Kris, 2026-11-07: former Q3) | A new synced `settings` row `typewriter`, with desktop and phone profiles | Inside `uiSettings` (older clients erase unknown keys); `localStorage` (no sync between a writer's desktops) |
 | D15 | Shortcut (Kris, 2026-11-07: former Q5) | Ctrl/Cmd+Shift+Enter, scoped to the editor (P10 still checks browsers) | Mod+Shift+T (reopen tab), Mod+D (bookmark), Ctrl+Alt+T (Linux terminal) |
 | D16 | Defaults (dim strength: Kris, 2026-11-07: former Q4) | Off; when on: Typewriter at Middle, N = 3 (phone 2), highlight on, Paragraph at **Medium** | Subtle by default (Kris chose Medium) |
+| D17 | Click-settle delay (Kris, 2026-11-07: former Q6) | Start at 350 ms; prototype check P11 sets the final value within 300–500 ms. A constant, not a user setting. | No delay (breaks double-click); a user setting (a knob nobody should need) |
 
 ---
 
 ## 17) Open questions for Kris
 
-Kris answered Q1–Q5 on 2026-11-07. The answers are recorded in the Decisions table: D6, D9, D14,
-D15 and D16.
-
-1. **Q6: the click-settle delay.** Re-centring after a click waits 350 ms, so double-clicks keep
-   working. Every click is therefore followed by a short pause before the line moves; iA Writer
-   seems to move sooner. A shorter delay feels snappier, but a relaxed double-click may then
-   select the wrong word. *Recommendation: start at 350 ms and let prototype check P11 set the
-   final value (300–500 ms). It is a constant, not a user setting.*
+Kris answered Q1–Q6 on 2026-11-07. The answers are recorded in the Decisions table: D6, D9,
+D14, D15, D16 and D17. None remain open.
 
 ---
 

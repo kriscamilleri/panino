@@ -6,7 +6,7 @@
 > spaces, backups and other Markdown tools all read it without a new storage format.
 > Status: proposed
 > Created: 2026-11-07
-> Last updated: 2026-11-07 — Kris answered Q1–Q6
+> Last updated: 2026-11-07 — Kris answered Q1–Q6, then N1–N2
 > Requested by: Kris ("Insertable table of contents, which can be refreshed, similar to the Odoo
 > add-on; internal links to the same and other Documents")
 
@@ -15,7 +15,7 @@
 ## 1) Summary
 
 **Table of contents.** **Table of contents** (desktop editor toolbar, phone Document menu)
-inserts a numbered, nested list of links to the Document's headings, between two marker comments, the
+inserts a nested, outline-numbered list (1, 1.1, 1.2) of links to the Document's headings, between two marker comments, the
 same way the Odoo add-on stores a sales order block. The list is a stored snapshot. When the
 headings change, Panino shows that the table is out of date and offers **Refresh**, which
 rewrites only the text between the markers. It is never rewritten automatically.
@@ -45,10 +45,12 @@ an id (`shared/markdownRender.js:72-74`).
 |---|---|---|---|
 | Q1 | Stored snapshot (the Odoo sales order block pattern) or Odoo Knowledge's live table of contents | **The sales order block pattern**: a stored snapshot between markers, manual Refresh, stale notice | §4.1 |
 | Q2 | Default heading levels | **Adaptive**: H2–H3, or H1–H2 when the Document has several H1s; written into the marker on Insert | §4.3 |
-| Q3 | Default list style and title | **Numbered** (nested ordered lists) by default, with Bullets as an option; title "Contents" | §4.2, §4.3, §4.6 |
+| Q3 | Default list style and title | **Numbered** by default, with Bullets as an option; title "Contents". The number style is settled by N2 | §4.2, §4.3, §4.6 |
 | Q4 | Links to other Documents in a PDF | **Links to the Panino web app**, built on the API from `FRONTEND_URL` and never from a request's Host. The reader signs in and needs access | §6.3, §6.8, §9 |
 | Q5 | Hand-written `#/…` app links in Documents | **Inert** | §6.3, §9 |
 | Q6 | ZIP export/import link rewriting | **In v1** (Phase 5) | §6.7 |
+| N1 | Web-app links in PDFs that go to Odoo (Documents, chatter, Knowledge sync PDFs) | **Yes**, the same links as a personal export. The Odoo add-on opts in through core options. Knowledge article HTML is unchanged | §6.3, §6.8, §9 |
+| N2 | Nested numbering style | **Outline numbers** (1, 1.1, 1.2, 1.2.1), **written into the stored Markdown** as text, not drawn with CSS, so every tool shows the same numbers | §4.1–§4.6 |
 
 ---
 
@@ -90,8 +92,8 @@ an id (`shared/markdownRender.js:72-74`).
 
 - A live table of contents that updates as you type (§4.1, decided by Kris).
 - Page numbers in a table of contents. Chromium does not support `target-counter()`.
-- Numbering the headings in the body (1.2.3), or outline numbering such as 1.1 in the table.
-  Each nested level counts from 1 (§4.3, open question N2).
+- Numbering the headings in the body (1.2.3). The table shows outline numbers; the headings
+  themselves do not (open question N3).
 - `[[Wiki links]]` as a stored syntax, or links by title.
 - Links to folders, spaces or images. Transclusion or embedding of another Document.
 - A backlinks panel ("Linked from"), a link graph, or a warning on delete. These are follow-ups
@@ -114,7 +116,8 @@ an id (`shared/markdownRender.js:72-74`).
 | Refresh | automatic on every edit; on save; manual with a stale notice | **Manual, with a stale notice** in the Preview, on the toolbar button, in the phone menu and in PDF export (Kris, 2026-11-07) | Automatic rewrites add undo entries and revisions the person did not make. When two offline devices both rewrite the same region, the sync merge conflicts. When two people in a live session both refresh, the Yjs merge can duplicate inserted lines (§8). A stale notice gives the same correctness and keeps the person in control. |
 | Delimiting | `<!-- toc -->`…`<!-- tocstop -->` (markdown-toc convention); `[[_TOC_]]` (GitLab); namespaced comments | **`<!-- panino:toc {json} -->` … `<!-- /panino:toc -->`** | This matches the add-on convention `<!-- odoo:sale.order {json} -->`. The namespace avoids capturing another tool's markers in imported Markdown. Comments render as nothing in every Markdown renderer, and DOMPurify drops them, so the settings never reach HTML. |
 | Ownership | Panino owns the text between the markers | Same rule as Odoo blocks: edits inside are lost on the next Refresh | A simple rule that people can learn. |
-| List style | bullets; numbered | **Numbered by default**, Bullets as an option (Kris, 2026-11-07) | Numbers make a contents list easy to refer to ("see 3"). Nested ordered lists are plain CommonMark, so they render the same everywhere (§4.3, §4.6). |
+| List style | bullets; numbered | **Numbered by default**, Bullets as an option (Kris, 2026-11-07) | Numbers make a contents list easy to refer to ("see 1.2"). |
+| How outline numbers are made (N2) | (a) nested ordered lists with CSS counters drawing 1.1, 1.2 in the Preview and PDF; (b) the numbers written as text at the start of each bullet item | **(b) Numbers in the stored text** (Kris, 2026-11-07) | With (a), the Markdown holds plain ordered lists, so GitHub, VS Code, Obsidian, Knowledge, the AI agents API and every export show 1., 2. per level, while Panino shows 1.1, 1.2. The same table would carry different numbers in different places, and a person quoting "section 2.3" from a PDF would not find it on GitHub. With (b), the numbers are part of the snapshot and are identical everywhere. **The trade-off**: Markdown has no list without markers, so other tools show a bullet before each number ("• 1.2 Background"). Panino's Preview and PDF hide those bullets with CSS (§4.6). Bullets plus correct numbers elsewhere are better than clean but wrong numbers. |
 
 ### 4.2 Block format
 
@@ -122,18 +125,19 @@ an id (`shared/markdownRender.js:72-74`).
 <!-- panino:toc {"v":1,"min":2,"max":3} -->
 **Contents**
 
-1. [Introduction](#introduction)
-   1. [Background](#background)
-   2. [Scope](#scope)
-2. [Budget](#budget)
-   1. [Q&A](#qa)
+- 1 [Introduction](#introduction)
+  - 1.1 [Background](#background)
+  - 1.2 [Scope](#scope)
+- 2 [Budget](#budget)
+  - 2.1 [Q&A](#qa)
 <!-- /panino:toc -->
 ```
 
 - **Opening marker**: `<!-- panino:toc <json> -->` alone on a line at column 0. JSON fields:
   - `v`: format version, `1`.
   - `min`, `max`: heading levels, `1 ≤ min ≤ max ≤ 6`.
-  - `numbered`: absent or `true` writes ordered lists (the default); `false` writes bullet lists.
+  - `numbered`: absent or `true` writes outline numbers (the default, §4.3); `false` writes a
+    plain bullet list.
   - `title`: the label above the list. Absent means `"Contents"`; `""` means no label. At most
     80 characters.
 
@@ -188,18 +192,32 @@ an id (`shared/markdownRender.js:72-74`).
   line.
 - **Links**: `(#slug)` with the slug rules in §5.1. Duplicate headings get `-1`, `-2` in
   Document order, so both entries point to the right section.
-- **Numbering** (the default, `numbered` absent or `true`): ordered lists at every level.
-  - Numbers are written out in sequence (`1.`, `2.`, `3.` …) and restart at 1 under each
-    parent. Writing `1.` for every item would also render correctly, but the raw Markdown would
-    be harder to read.
-  - A child list is indented by exactly the width of its parent's marker: 3 spaces under `1. `,
-    4 under `10. `. CommonMark needs that indent for the child to belong to the parent item. A
-    fixed 3-space indent would push the children of item 10 out of the list, so the builder
-    computes the indent per parent, and a test covers more than nine items at a level.
-  - Lists start at 1, so no `start` attribute is needed. GitHub, VS Code, Obsidian, pandoc and
-    markdown-it all render the same nested decimal lists.
-- **Bullets** (`numbered: false`): `-` items, indented two spaces per level.
-- Outline numbering such as 1.2.1 is a non-goal (open question N2).
+- **Numbering** (the default, `numbered` absent or `true`): outline numbers written as text.
+  - **Structure**: always a `-` bullet list, indented two spaces per level. Each item is
+    `<number> [<label>](#slug)`.
+  - **Numbers**: one component per depth, joined with `.`: `1`, `1.1`, `1.2`, `1.2.1`, and up
+    to six components. Depth comes from the list's structure (see Nesting above), not the heading
+    level, so a skipped level (H2 → H4) still reads `1.1`. Counting is continuous across the
+    whole table; each child count restarts at 1. Past nine there is no padding: `10`, `1.10`,
+    `10.1`.
+  - **No trailing dot.** A top-level `- 1. [Intro](…)` would start a nested ordered list in
+    CommonMark and get a second number. So top-level numbers are bare (`1`), the ISO 2145
+    outline style. Every inner `.` is followed by a digit, so no number can be read as a list
+    marker. A test renders every built table with markdown-it and checks there is no `<ol>`.
+  - **Number outside the link.** The link text stays the heading text, the same as in Bullets
+    mode and in the picker. The number is plain text, so a plain-text reader still sees it.
+  - **Excluded headings** (opt-out, inside quotes or lists) take no number, and the next listed
+    heading takes the next number.
+  - **Refresh** rewrites the numbers with everything else. Inserting a heading earlier
+    renumbers the ones after it, and the stale check counts that as a change. An edited number
+    is lost on the next Refresh, like any edit inside the block.
+- **Bullets** (`numbered: false`): the same `-` list without numbers. Bullets show in Panino
+  too.
+- **Elsewhere**:
+  - the phone, PDF and Preview use the same renderer and CSS (§4.6);
+  - ZIP export and backups keep the text, and only link targets are rewritten (§6.7);
+  - in GitHub, VS Code, Obsidian and Knowledge the list shows a bullet and then the same number;
+  - the AI agents API returns the Markdown as stored.
 
 ### 4.4 Insert, refresh and options
 
@@ -214,7 +232,7 @@ reading and writing.
 |---|---|
 | **Insert** | **Desktop**: after the line the caret is on, as its own paragraph (Odoo's `insertBlock`, `saleOrderBlock.js:308`). **Phone**, or a desktop editor that has never had focus: after the leading H1 if the body starts with one, otherwise at the top of the body. A caret inside front matter, a code fence or another marker block moves to just after it. With one table already present, Insert is replaced by Refresh. |
 | **Refresh** | Rewrites every closed, valid table in the Document; text outside them is byte-identical. When nothing changed, the toast says "Table of contents is up to date" and no edit is recorded. |
-| **Options…** | A small form: levels from/to (H1–H6), list style (Numbered, the default, or Bullets), Title (with "No title"). Apply rewrites the marker and refreshes. The same form `TocOptionsForm.vue` is used in a desktop `BaseModal` and in a phone sheet `?sheet=toc`. |
+| **Options…** | A small form: levels from/to (H1–H6), list style (Numbered, the default, with outline numbers, or Bullets), Title (with "No title"). Apply rewrites the marker and refreshes. The same form `TocOptionsForm.vue` is used in a desktop `BaseModal` and in a phone sheet `?sheet=toc`. |
 | **Remove** | Deletes the block with its markers (one undo step). |
 | **Stale** | `isTocStale(text)`, debounced at 300 ms. It compares each block's body with what Refresh would write, ignoring trailing whitespace. |
 
@@ -260,17 +278,24 @@ They are off with no Document selected.
 - The list renders with the Document's own list styles (named styles style `ul`/`ol`/`li`
   inline). Custom CSS may target `.pn-toc`. The PDF print CSS adds
   `.pn-toc { break-inside: avoid-page }` for tables shorter than a page.
-- **Nested numbering in the Preview and PDF.**
-  - The default style puts `list-style-type: decimal; margin: 0 0 1rem 1.5rem` inline on every
-    `ol` (`shared/styleDefaults.js:15`), and similar values on `ul`. Each nested list would
-    therefore get a 1rem gap under it.
-  - The Preview's scoped stylesheet and the fixed base stylesheet `pdf.js` puts in every PDF
-    page both add
-    `.pn-toc :is(ol, ul) :is(ol, ul) { margin-top: 0 !important; margin-bottom: 0 !important; }`.
-    A stylesheet `!important` beats a non-important inline style, and the rule touches nothing
+- **The outline list in the Preview and PDF.**
+  - For a numbered table, the wrapper rule adds the class `pn-toc-numbered`. The rule reads
+    the validated marker config and emits one of two fixed strings, so nothing from the JSON
+    reaches HTML.
+  - The default style puts `list-style-type: disc; margin: 0 0 1rem 1.5rem` inline on every
+    `ul` (`shared/styleDefaults.js:14`). The Preview's scoped stylesheet and the fixed base
+    stylesheet `pdf.js` puts in every PDF page both add:
+    - `.pn-toc-numbered ul { list-style-type: none !important; }`, which hides the bullets
+      because the text carries the numbers;
+    - `.pn-toc ul ul { margin-top: 0 !important; margin-bottom: 0 !important; }`, so nested
+      levels have no 1rem gaps.
+
+    A stylesheet `!important` beats a non-important inline style, and both rules touch nothing
     outside a table of contents.
-  - Every level shows decimal numbers (1., 2.), as browsers and other tools draw nested `ol`.
-    If a named style changes `list-style-type` for `ol`, the table follows it.
+  - The inline left margin stays, so each level indents 1.5rem.
+  - Numbers use `font-variant-numeric: tabular-nums`, so `1.10` and `1.9` line up.
+  - In Bullets mode, the bullets come from the named style as usual.
+  - Phone and desktop share these rules.
 - In the PDF, `#slug` links become internal links (§6.3). In other tools the comments vanish and
   the list remains.
 
@@ -416,15 +441,22 @@ documentLinks })`.
 | Output | `documentLinks` | Same-Document `#slug` | `panino:doc/<id>[#slug]` |
 |---|---|---|---|
 | Preview | `'app'` | `<a href="#pn-slug" data-pn-heading="slug">` | `<a href="#/doc/<id>?heading=slug" class="pn-doc-link" data-pn-doc="<id>" data-pn-heading="slug">` |
-| The person's own PDF export (`PrintStylesPage`, phone `ExportSheet`) | `'pdf'` | Same as Preview. Chromium turns same-document anchors into internal PDF links (verified by test, §12) | `<a class="pn-doc-link" data-pn-doc="<id>" data-pn-heading="slug">label</a>` **with no href**, only for ids that resolved for the author at export time, otherwise the `<span>` below. The API adds the web-app href (§6.8) |
-| Default: the Odoo send (`useDocumentPdfRequest`, `useDocumentArticle`), Knowledge sync and sync PDFs, anything else | `'text'` | Same | `<span class="pn-doc-link">label</span>` |
+| PDFs made in the browser: the person's own export (`PrintStylesPage`, phone `ExportSheet`) and the PDF in an Odoo send (`OdooSendModal` calls `useDocumentPdfRequest().buildForSelected({ documentLinks: 'pdf' })`) | `'pdf'` | Same as Preview. Chromium turns same-document anchors into internal PDF links (verified by test, §12) | `<a class="pn-doc-link" data-pn-doc="<id>" data-pn-heading="slug">label</a>` **with no href**, only for ids that resolved for the author at export time, otherwise the `<span>` below. The API adds the web-app href (§6.8) |
+| PDFs made on the API by the Odoo add-on: send updates (`addons/odoo/routes.js:694`) and Knowledge sync PDFs, both built by `addons/odoo/syncPdf.js:95` with `createDocumentRenderer({ documentLinks: 'pdf' })` | `'pdf'` | Same | Same as above, but for every valid Document link: the API has no author-side resolution step (§6.8) |
+| Default: Knowledge article HTML (`useDocumentArticle`, `addons/odoo/routes.js:689`, `sync.js:455`), anything else | `'text'` | Same | `<span class="pn-doc-link">label</span>` |
 | Invalid `panino:` link | any | n/a | `<span class="pn-link-broken">label</span>` |
 
 The default is `'text'`. A caller gets web-app links in a PDF only if it asks twice:
 
-1. it renders with `'pdf'`, which only the two export screens do, through
-   `getPrintMarkdownIt(styles, { documentLinks: 'pdf' })`; and
-2. the request goes through `POST /render-pdf`, the only API path that adds hrefs (§6.8).
+1. it renders with `'pdf'`:
+   - the two export screens through `getPrintMarkdownIt(styles, { documentLinks: 'pdf' })`;
+   - the Odoo send through `useDocumentPdfRequest().buildForSelected({ documentLinks: 'pdf' })`,
+     whose default stays `'text'`;
+   - the Odoo add-on's server-built PDFs through `createDocumentRenderer({ documentLinks: 'pdf' })`;
+2. and its `renderPdf` call passes `appLinks` (§6.8).
+
+Both are core options with core defaults set to off. The Odoo add-on opts in by passing them.
+Core never names the add-on.
 
 The plugin builds hrefs only from a validated UUID and slug, and never copies the author's
 string.
@@ -558,7 +590,8 @@ ways:
 | **JSON export / import** | Export keeps ids. Import remaps `panino:doc/<oldId>` → `<newId>` for Documents in the same file. Others are left alone (they may still resolve). |
 | **StackEdit export** | Unchanged (`panino:` links stay; StackEdit drops them). |
 | **Per-Document PDF** | §6.3, §6.8. |
-| **Odoo send/sync, GitHub backup, AI agents API** | Unchanged in v1. Knowledge's sanitizer drops the unknown-scheme href and keeps the text. Follow-ups in §15. |
+| **Odoo PDFs** (send, send updates, Knowledge sync PDFs) | Web-app links (§6.8, N1). |
+| **Odoo Knowledge article HTML, GitHub backup, AI agents API** | Unchanged in v1. The Knowledge HTML renders `'text'`, and its sanitizer would drop an unknown-scheme href anyway. Follow-ups in §15. |
 
 ### 6.8 Links to other Documents in a PDF (Kris, 2026-11-07)
 
@@ -590,23 +623,38 @@ ways:
     `encodeURIComponent`, and replaces any href the element had;
   - otherwise it removes `href`, so the label prints as text;
   - in every case it removes `data-pn-*` from the output.
-- **Every other caller of `renderPdf`** does not pass `appLinks`:
-  - the Odoo send to Documents and chatter (`addons/odoo/routes.js:606`, `:694`);
-  - Knowledge sync PDFs (`addons/odoo/sync.js:420`, through `syncScheduler.js:253`).
+- **Who passes `appLinks`.** `renderPdf(payload, { userId, priority, appLinks })` takes
+  `appLinks` as an ordinary core option, `null` by default. Three kinds of caller pass
+  `appLinks: appBaseUrl()`:
+  - core's `POST /render-pdf`;
+  - the Odoo send (`addons/odoo/routes.js:606`) and send updates (`:694`), importing
+    `appBaseUrl` from core `publicUrls.js`;
+  - Knowledge sync PDFs, through the injected `renderPdf` in `addons/odoo/syncScheduler.js:253`,
+    which `sync.js:420` calls.
 
-  So a `data-pn-doc` element in those requests prints as text, even one from a `'pdf'` render
-  or hand-written raw HTML. The guarantee that the Odoo paths never emit app links holds at two
-  layers: their client renders `'text'` (`useDocumentPdfRequest` keeps the default; it is used
-  only by the Odoo send modal), and the API adds hrefs only on `/render-pdf`. Tests cover both
-  layers (§12). Opting an Odoo path in would be an explicit change to its `renderPdf` call (open
-  question N1).
+  Add-ons may import core, and core never imports an add-on (`addon-folders.md` §2). Any other
+  caller that does not pass the option gets text, even for a `data-pn-doc` element, so a new
+  path never emits app links by accident.
+- **Odoo sync hashes.** The sync's "already filed" hash covers the Markdown, the CSS and the
+  print styles, not the HTML (`addons/odoo/syncPdf.js:106-109`). So the change of renderer mode
+  refiles nothing. A later change of `FRONTEND_URL` does not refile old PDFs either; they keep
+  the old address until the Document next changes.
+- **Knowledge article HTML is unchanged** (`'text'`). Readers in Knowledge are better served by
+  a link to the synced article for that Document (follow-up F6) than by a Panino sign-in page.
+  Changing the HTML would also change article bodies, and with them the reconcile signature
+  (`knowledge.js` `bodySignature`), so every synced article containing a link would be
+  rewritten once for a result F6 would replace.
 
 **Which links.**
 
-- Only links that resolved for the author at export time. The export screens
-  `await docStore.resolveDocuments(ids)` before rendering and pass the resolvable ids in the
-  render env; the others render as text. A link that is broken for the author would be broken
-  for every reader.
+- **PDFs made in the browser** (export screens, Odoo send): only links that resolved for the
+  author at export time. The caller runs `await docStore.resolveDocuments(ids)` before
+  rendering and passes the resolvable ids in the render env; the others render as text. A link
+  that is broken for the author would be broken for every reader.
+- **PDFs made on the API** (Odoo send updates, Knowledge sync PDFs): every syntactically valid
+  Document link. These run without the author's browser, and resolving across the run-as
+  user's databases would add a membership-aware lookup to the add-on for little gain. A target
+  nobody can open leads to the same "isn't available" screen as a deleted one.
 - A heading link within the same Document, including `panino:doc/<own id>#slug`, stays an
   internal PDF link.
 
@@ -625,6 +673,17 @@ ways:
 - **Signed in**: the deep-link route below.
 
 The link grants nothing. The reader sees only what their own account can open.
+
+- **An Odoo reader without a Panino account** reaches the sign-in page and can go no further.
+  If they create an account where sign-up is open, the new account can open nothing it has not
+  been given, so they see the "isn't available" screen.
+- **An Odoo reader with a Panino account but no access** sees "isn't available".
+- **An Odoo reader with access**, for example a member of the space the Document is in, lands
+  on the Document.
+- **What the PDF shows them** is the same for everyone who has it: the Panino host, the
+  Document's UUID and the label the author wrote. For a space sync, a link to someone's
+  personal Document reveals no more than the label, which the PDF already showed as text
+  before this change.
 
 **The deep-link route** `#/doc/<id>[?heading=<slug>]` without `dbKey`:
 
@@ -714,7 +773,7 @@ completes.
 | SQL | Resolution and backlinks use parameterized `IN (?, …)` and `LIKE ? ESCAPE '\'` with the id passed as a parameter |
 | External links | Unchanged: `target="_blank" rel="noopener noreferrer"` (`styledRenderer.js:140-143`), and Knowledge forces the same |
 | PDF | No new request types; `#` anchors and link annotations make no network request; the renderer's allow-list (`pdfSanitize.js`) is untouched |
-| Web-app URLs in PDFs (§6.8) | The origin comes only from `FRONTEND_URL` through `appBaseUrl()`, never from `Host`/`Origin`/`X-Forwarded-*`; it must be `http(s)`. The URL is built server-side from a validated UUID and slug with `new URL()`/`encodeURIComponent`; any client-supplied href on a `data-pn-doc` element is replaced. No `dbKey`, user id, space id or token is included. `data-pn-*` is stripped from the output. Only `POST /render-pdf` adds hrefs; Odoo sends and syncs never do. Opening the link requires sign-in, and access is the reader's own; a missing and a not-shared Document look the same |
+| Web-app URLs in PDFs (§6.8) | The origin comes only from `FRONTEND_URL` through `appBaseUrl()`, never from `Host`/`Origin`/`X-Forwarded-*`; it must be `http(s)`. The URL is built server-side from a validated UUID and slug with `new URL()`/`encodeURIComponent`; any client-supplied href on a `data-pn-doc` element is replaced. No `dbKey`, user id, space id or token is included. `data-pn-*` is stripped from the output. Hrefs are added only when the `renderPdf` caller passes `appLinks`: core `/render-pdf`, and the Odoo send, send updates and sync PDFs (Kris, 2026-11-07). The Knowledge HTML stays text. Opening the link requires sign-in, and access is the reader's own; a missing and a not-shared Document look the same |
 | Imports | Link rewriting on import only touches links to Documents in the same import; paths are matched against the import's own file map, never resolved on disk |
 | Resource limits | 500 ids decorated per render; picker capped at 20 results; stale check debounced; slugs capped at 200 characters |
 
@@ -752,18 +811,25 @@ frontend/src/
 
 backend/api-service/
   publicUrls.js (new)           appBaseUrl() from FRONTEND_URL
-  pdf.js                        /render-pdf passes appLinks; sanitizer hook sets or strips hrefs
+  addons/odoo/                  opt in: syncPdf.js renders 'pdf'; routes.js and syncScheduler.js pass appLinks
+  pdf.js                        renderPdf({ appLinks }); /render-pdf passes it; sanitizer hook sets or strips hrefs
   index.js                      startup warning when FRONTEND_URL is unset in production
 ```
 
 `shared/package.json` gains exports `./document-outline`, `./document-links`, `./marker-blocks`
 and `./table-of-contents`.
 
-**Backend changes are small**: the URL helper, one option on the `/render-pdf` call, one
-sanitizer hook and one startup warning. Heading ids and `'text'` link rendering come through
-the shared renderer. The Odoo add-on routes and sync, which call `renderDocumentHtml`
-(`addons/odoo/routes.js:689`, `sync.js:455`) and `renderPdf` without `appLinks`, get text-only
-Document links without any change to the add-on.
+**Backend changes are small**: the URL helper, the `appLinks` option on `renderPdf` and its
+use in `/render-pdf`, one sanitizer hook and one startup warning. Heading ids and `'text'` link
+rendering come through the shared renderer.
+
+**Odoo add-on changes** (opt-ins only; core names no add-on):
+
+- `OdooSendModal` passes `documentLinks: 'pdf'`;
+- `syncPdf.js:95` renders with `documentLinks: 'pdf'`;
+- the three `renderPdf` calls pass `appLinks: appBaseUrl()`.
+
+The Knowledge HTML (`addons/odoo/routes.js:689`, `sync.js:455`) keeps the `'text'` default.
 
 ---
 
@@ -809,10 +875,18 @@ Phases 1–2 can ship alone as "headings have anchors and `#links` work". Phase 
 - Links: valid, invalid UUID, uppercase UUID, percent-encoded slug, unknown `panino:` kind,
   `'app'`, `'pdf'` and `'text'` output (`'pdf'` emits no href, and only for ids in the render
   env), hand-written `#/settings` inert, external links still `_blank`.
-- Numbering: the default writes ordered lists; children are indented by the parent marker's
-  width, including under item 10 and later; rendering the built block with markdown-it gives
-  properly nested `<ol>` (no item escaping its parent); `numbered: false` writes bullets; a
-  bare marker is numbered.
+- Numbering:
+  - the default writes `- 1 [..]`, `  - 1.1 [..]`;
+  - more than nine items at the top and at a nested level give `10`, `1.10`, `10.1`;
+  - six levels give `1.1.1.1.1.1`;
+  - a skipped level (H2 → H4) gives `1.1`;
+  - excluded headings take no number;
+  - inserting an earlier heading renumbers the rest and makes the table stale;
+  - every built table renders through markdown-it as nested `<ul>` with no `<ol>` and no
+    item escaping its parent, and a heading whose text starts with digits (`2024 plans`) does
+    not change that;
+  - `numbered: false` writes plain bullets, and a bare marker is numbered;
+  - the wrapper gets `pn-toc-numbered` only for numbered tables.
 - Blocks: find several, damaged JSON, unclosed, a marker inside a fence, CRLF; insert at the
   caret, after an H1, after front matter, not inside a fence; refresh leaves outside text
   byte-identical; refresh of an up-to-date table is a no-op; options rewrite the marker.
@@ -837,7 +911,9 @@ Phases 1–2 can ship alone as "headings have anchors and `#links` work". Phase 
   - a signed-out deep link keeps `heading` through sign-in and loading.
 - `pdfExportLinks.test.js`:
   - `PrintStylesPage` and `ExportSheet` render `'pdf'` with only the resolved ids;
-  - `useDocumentPdfRequest` (the Odoo send) renders `'text'`.
+  - `useDocumentPdfRequest` renders `'text'` by default and `'pdf'` with resolved ids when
+    asked;
+  - the Odoo add-on's `sendModal.test.js` checks that the send modal asks for `'pdf'`.
 - `markdownSnippet.test.js`: TOC skipped.
 - `importExportStore.test.js`: ZIP rewrite and remap; JSON remap.
 - Existing `phoneComponents.test.js` and `subMenuBarToolsMenu.test.js`: extended for the new
@@ -858,19 +934,27 @@ Phases 1–2 can ship alone as "headings have anchors and `#links` work". Phase 
   - with `NODE_ENV=production` and `FRONTEND_URL` unset, links print as text and the startup
     warning is logged;
   - a non-http `FRONTEND_URL` counts as unset.
-- The Odoo send and sync paths (`routes.js`, `sync.js`), given HTML containing `data-pn-doc`,
-  produce PDFs with no URI annotation for it.
+- `renderPdf` without `appLinks`, given HTML containing `data-pn-doc`, produces no URI
+  annotation for it. This is the default for any future caller.
+- The Odoo add-on tests:
+  - the send (`routes.js:606`), send updates (`:694`) and sync PDFs (`syncScheduler.js:253`)
+    produce a URI annotation to `FRONTEND_URL/#/doc/<id>`;
+  - with `FRONTEND_URL` unset in production they produce text;
+  - `syncPdf.js` renders `'pdf'`;
+  - the sync hash is unchanged for a Document without links and does not depend on
+    `FRONTEND_URL`.
 - A PDF integration test renders a Document with a table of contents and a Document link. With
   pdf-lib it checks:
   - the table entries are link annotations with internal destinations (GoTo/Dest);
   - the Document link is a URI annotation equal to the expected `FRONTEND_URL` address;
   - no annotation contains `dbKey` or a user id.
-- The Odoo `knowledge.test.js` gains a case: a `panino:` link arrives as text and heading ids
-  are dropped.
+- The Odoo `knowledge.test.js` gains a case: a `panino:` link in article HTML (send and sync)
+  arrives as text, and heading ids are dropped.
+- The PDF base stylesheet contains the `.pn-toc-numbered` and nested-margin rules.
 
 **Browser** (dev stack, 1280 px and 375 px, Chromium; steps and results in the agent log):
 
-- U1–U18 below.
+- U1–U19 below.
 - Check the console for errors after each.
 - At 375 px, confirm the Link sheet stays above the keyboard and heading scroll moves only the
   Preview.
@@ -881,10 +965,10 @@ Phases 1–2 can ship alone as "headings have anchors and `#links` work". Phase 
 
 | # | Persona | Journey | Acceptance criteria |
 |---|---|---|---|
-| U1 | Writer, desktop | Document `# Plan`, `## Intro`, `### Background`, `## Budget`; caret after the title; toolbar Table of contents → Insert | Block inserted below the title with `{"v":1,"min":2,"max":3}`; Preview shows "Contents" and a numbered nested list (1. Intro, with 1. Background under it; 2. Budget) with no extra gaps between levels; Markdown matches §4.2 |
+| U1 | Writer, desktop | Document `# Plan`, `## Intro`, `### Background`, `## Budget`; caret after the title; toolbar Table of contents → Insert | Block inserted below the title with `{"v":1,"min":2,"max":3}`; Preview shows "Contents" and an outline-numbered list without bullets (1 Intro, 1.1 Background under it, 2 Budget) with no extra gaps between levels; Markdown matches §4.2 |
 | U2 | Writer | Click "Background" in the Preview's table | Preview scrolls to Background; the address bar and route are unchanged; the app does not go blank |
 | U3 | Writer | Add `## Risks`, then Refresh from the Preview bar | The stale bar shows within a second of typing; after Refresh, Risks is listed, the bar is gone, text outside the block is unchanged, and one Undo restores the old table |
-| U4 | Writer | Options → H1–H4, Bullets, no title | The marker gets `"min":1,"max":4,"numbered":false,"title":""`; the list is bulleted; switching back to Numbered restores ordered lists |
+| U4 | Writer | Options → H1–H4, Bullets, no title | The marker gets `"min":1,"max":4,"numbered":false,"title":""`; the list is bulleted with no numbers; switching back to Numbered restores the outline numbers |
 | U5 | Writer | Document with a fenced block containing `## Not a heading`, and two `## Overview` | The fenced line is not listed; the entries link `#overview` and `#overview-1` and each goes to its own section |
 | U6 | Phone writer, 375 px | Document menu → Insert table of contents, then add a heading in Write mode, then Document menu → Refresh | Inserted after the leading H1; the menu reads "Out of date" before Refresh and not after |
 | U7 | Writer | Type `[[#bud`, Enter | `[Budget](#budget)` written; clicking it in the Preview scrolls |
@@ -898,20 +982,20 @@ Phases 1–2 can ship alone as "headings have anchors and `#links` work". Phase 
 | U15 | Writer | Export ZIP, open in VS Code; re-import the ZIP into a fresh account | Links are relative `.md` paths that VS Code follows; after re-import the links are `panino:doc/<newId>` and work |
 | U16 | Security | A shared Document contains `[Click](#/addons/ai/authorize?client_id=x)` and a heading `# <img src=x onerror=alert(1)>` | The link is inert with the "not supported" title; the table label shows the text literally; no script runs |
 | U17 | PDF reader | Signed out, open a Document link from a PDF; sign in | Sign-in, then loading, then the Document at the heading, with `dbKey` added to the address. A second account without access sees "This Document isn't available…" with Go to Home, the same as for a deleted Document |
-| U18 | Writer | Table with 12 H2s, some with H3s under them; export the ZIP and open it on GitHub and in VS Code | Items 10–12 keep their children nested in the Preview, the PDF, GitHub and VS Code; numbers run 1–12 at the top level and restart at 1 under each parent |
+| U18 | Writer | Table with 12 H2s, the first with 11 H3s, one H3 with H4s; export the ZIP and open it on GitHub and in VS Code; also open the Document on a phone (375 px) | Numbers read 1 … 12, 1.1 … 1.11 and 1.3.1 in the Preview, the phone Preview, the PDF, GitHub and VS Code; nothing escapes its parent; Panino shows no bullets, while GitHub and VS Code show a bullet before each number |
+| U19 | Odoo reader | Send a Document with a Document link to Odoo Documents, and let a Knowledge sync file its PDF; open the link from Odoo as (a) someone without a Panino account, (b) a Panino user without access, (c) a member of the Document's space | Both PDFs carry `<FRONTEND_URL>/#/doc/<id>` with no `dbKey`; (a) stops at sign-in; (b) sees "isn't available"; (c) lands on the Document. The Knowledge article shows the link label as plain text |
 
 ---
 
 ## 14) Open questions for Kris
 
-Kris answered Q1–Q6 on 2026-11-07; the answers are in the Decisions table in §1. These two
-questions come from those answers. The recommendation in each row is what the spec builds if
-there is no answer.
+Kris answered Q1–Q6 and N1–N2 on 2026-11-07; the answers are in the Decisions table in §1.
+One question comes from the outline-numbering answer. The recommendation is what the spec
+builds if there is no answer.
 
 | # | Question | Recommendation |
 |---|---|---|
-| N1 | PDFs sent to Odoo (Documents, chatter) and the PDFs a Knowledge sync files: should Document links in them be web-app links, like a personal export? | No; keep them as plain text. Odoo readers usually have no Panino account, and these PDFs are filed in another system. Changing this later is one explicit `appLinks` option on those `renderPdf` calls (§6.8). |
-| N2 | Nested numbering style: each level counts from 1 with decimal numbers, or outline numbers (1, 1.1, 1.2) drawn with CSS counters in the Preview and PDF? | Each level from 1. CSS outline numbers would show only in Panino and its PDFs, so GitHub, VS Code and other exports would number the same list differently. |
+| N3 | The table now says "1.2 Background", but the heading in the body still reads "Background". Should the body headings show the same numbers? | Not in v1. Writing the numbers into the heading text would change every heading, and with it every slug and every link to a heading. Drawing them at render time (CSS counters) would bring back the different-numbers-in-different-tools problem that N2 avoided. If wanted, specify it later as its own feature. |
 
 ---
 
