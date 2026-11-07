@@ -6,7 +6,7 @@
 > spaces, backups and other Markdown tools all read it without a new storage format.
 > Status: proposed
 > Created: 2026-11-07
-> Last updated: 2026-11-07 — Kris answered Q1–Q6, then N1–N2
+> Last updated: 2026-11-07 — Kris answered Q1–Q6, then N1–N3
 > Requested by: Kris ("Insertable table of contents, which can be refreshed, similar to the Odoo
 > add-on; internal links to the same and other Documents")
 
@@ -51,6 +51,7 @@ an id (`shared/markdownRender.js:72-74`).
 | Q6 | ZIP export/import link rewriting | **In v1** (Phase 5) | §6.7 |
 | N1 | Web-app links in PDFs that go to Odoo (Documents, chatter, Knowledge sync PDFs) | **Yes**, the same links as a personal export. The Odoo add-on opts in through core options. Knowledge article HTML is unchanged | §6.3, §6.8, §9 |
 | N2 | Nested numbering style | **Outline numbers** (1, 1.1, 1.2, 1.2.1), **written into the stored Markdown** as text, not drawn with CSS, so every tool shows the same numbers | §4.1–§4.6 |
+| N3 | Numbers on body headings (Kris, 2026-11-07: not for now) | **No.** Headings in the body keep their text; only the table shows outline numbers. A later feature if wanted | Non-goals |
 
 ---
 
@@ -93,7 +94,7 @@ an id (`shared/markdownRender.js:72-74`).
 - A live table of contents that updates as you type (§4.1, decided by Kris).
 - Page numbers in a table of contents. Chromium does not support `target-counter()`.
 - Numbering the headings in the body (1.2.3). The table shows outline numbers; the headings
-  themselves do not (open question N3).
+  themselves do not (decision N3: not for now).
 - `[[Wiki links]]` as a stored syntax, or links by title.
 - Links to folders, spaces or images. Transclusion or embedding of another Document.
 - A backlinks panel ("Linked from"), a link graph, or a warning on delete. These are follow-ups
@@ -989,13 +990,8 @@ Phases 1–2 can ship alone as "headings have anchors and `#links` work". Phase 
 
 ## 14) Open questions for Kris
 
-Kris answered Q1–Q6 and N1–N2 on 2026-11-07; the answers are in the Decisions table in §1.
-One question comes from the outline-numbering answer. The recommendation is what the spec
-builds if there is no answer.
-
-| # | Question | Recommendation |
-|---|---|---|
-| N3 | The table now says "1.2 Background", but the heading in the body still reads "Background". Should the body headings show the same numbers? | Not in v1. Writing the numbers into the heading text would change every heading, and with it every slug and every link to a heading. Drawing them at render time (CSS counters) would bring back the different-numbers-in-different-tools problem that N2 avoided. If wanted, specify it later as its own feature. |
+Kris answered Q1–Q6 and N1–N3 on 2026-11-07; the answers are in the Decisions table in §1.
+None remain open.
 
 ---
 
