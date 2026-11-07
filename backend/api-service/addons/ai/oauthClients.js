@@ -12,14 +12,23 @@ const METADATA_CACHE_LIMIT = 500;
 const UNUSED_CLIENT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const metadataCache = new Map();
-let fetchMetadata = defaultFetchMetadata;
+let fetchMetadata = fetchClientMetadata;
 
-async function defaultFetchMetadata(url) {
+/**
+ * Fetch a Client ID Metadata Document. The URL comes from whoever starts a
+ * sign-in, so it goes through safeFetch.js: https only, public addresses only
+ * (checked after DNS and pinned), no redirects, 5 s, 16 KiB.
+ * @param {string} url
+ * @param {{ lookup?: Function }} [options] `dns.lookup`-compatible resolver (test seam)
+ * @returns {Promise<{ ok: true, body: string, cacheControl?: string } | { ok: false, reason: string }>}
+ */
+export async function fetchClientMetadata(url, { lookup } = {}) {
     // No redirects: the document must be served at the client_id URL itself.
     const response = await safeRequest(url, {
         headers: { Accept: 'application/json', 'User-Agent': 'Panino-OAuth' },
         timeoutMs: METADATA_TIMEOUT_MS,
         maxBytes: METADATA_MAX_BYTES,
+        ...(lookup ? { lookup } : {}),
     });
     if (!response.ok) return { ok: false, reason: response.reason };
     if (response.status !== 200) return { ok: false, reason: `status ${response.status}` };
@@ -28,7 +37,7 @@ async function defaultFetchMetadata(url) {
 
 /** Test seam: replace the metadata fetcher (and clear the cache). */
 export function setMetadataFetcher(fetcher) {
-    fetchMetadata = fetcher || defaultFetchMetadata;
+    fetchMetadata = fetcher || fetchClientMetadata;
     metadataCache.clear();
 }
 
@@ -78,8 +87,11 @@ async function resolveMetadataClient(clientId, now) {
 }
 
 /**
- * Register a client (RFC 7591). Clients that never got a grant are pruned
- * after 30 days, here, so open registration cannot grow the table forever.
+ * Register a client (RFC 7591). Clients that were never approved and have not
+ * started a sign-in for 30 days are pruned, here, so open registration cannot
+ * grow the table forever. A client that was ever approved is kept: the app
+ * holds its client_id and cannot learn it is gone, so pruning it would break
+ * reconnecting after a Disconnect.
  * @returns {{ ok: true, response: object } | { ok: false, error: string, description: string }}
  */
 export function registerClient(body, now = new Date()) {
@@ -93,7 +105,7 @@ export function registerClient(body, now = new Date()) {
         db.prepare(`
             DELETE FROM ai_oauth_clients
              WHERE coalesce(last_used_at, created_at) < ?
-               AND client_id NOT IN (SELECT client_id FROM ai_oauth_grants WHERE revoked_at IS NULL)
+               AND client_id NOT IN (SELECT client_id FROM ai_oauth_grants)
         `).run(cutoff);
         db.prepare('INSERT INTO ai_oauth_clients (client_id, client_name, redirect_uris, created_at) VALUES (?, ?, ?, ?)')
             .run(clientId, parsed.value.name, JSON.stringify(parsed.value.redirectUris), createdAt);

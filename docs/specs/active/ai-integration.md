@@ -5,8 +5,10 @@
 > (Claude, ChatGPT, Gemini, Cursor, local models, …) can connect.
 > Status: active (implementation started 2026-11-06 on `feature/ai-addon`)
 > Created: 2026-11-06
-> Last updated: 2026-11-06 — Kris: OAuth in this version; the whole feature is an add-on. Implemented
-> on `feature/ai-addon`; see the agent log `docs/agent-logs/2026/11/2026-11-06_13-30_ai-agents-addon.md`
+> Last updated: 2026-11-07 — fixes from the pre-merge review (writes through a health-checked
+> connection, invalid-key limit per address, code exchange, app limit, client pruning). Implemented
+> on `feature/ai-addon`; see the agent logs `docs/agent-logs/2026/11/2026-11-06_13-30_ai-agents-addon.md`
+> and `docs/agent-logs/2026/11/2026-11-07_14-25_ai-addon-review-fixes.md`
 > Implementation: `backend/api-service/addons/ai/`, `frontend/src/addons/ai/`; maintainer notes in
 > [`docs/architecture/public-api.md`](../../architecture/public-api.md)
 > Builds on: [`docs/specs/active/llm-api.md`](../active/llm-api.md) (keys and v1 rules, unchanged
@@ -243,8 +245,10 @@ Public clients only (`token_endpoint_auth_method: none`, PKCE required). Two way
    `client_name`, and caches per `Cache-Control` between 5 minutes and 24 hours.
 2. **Dynamic Client Registration** (`POST …/oauth/register`, RFC 7591; deprecated in 2026 but
    still the fallback for many clients). Issues a random `client_id`, no secret; stores
-   `client_name` and `redirect_uris`. Rate-limited per IP; clients with no grant are pruned
-   after 30 days.
+   `client_name` and `redirect_uris`. Rate-limited per IP; clients that were never approved
+   and have not started a sign-in for 30 days are pruned. A client that was ever approved is
+   kept: the app holds its `client_id` and cannot learn it is gone, so pruning it would break
+   reconnecting after a Disconnect.
 
 `client_name` is untrusted: validated like a key name (60 characters, no control characters).
 
@@ -281,8 +285,10 @@ it.
 ### 6.5 Tokens
 
 - `POST …/oauth/token` accepts form-encoded and JSON.
-  - `authorization_code`: checks code (once only; a reused code revokes the grant), client,
-    redirect URI, `code_verifier` (S256), `resource`. Returns `access_token`
+  - `authorization_code`: checks the code's expiry, client, redirect URI (optional, as in
+    OAuth 2.1, because PKCE binds the code; must match exactly when sent), `code_verifier`
+    (S256) and `resource`, and only then spends the code, so a client that gets one parameter
+    wrong can retry. Presenting a spent code revokes the grant. Returns `access_token`
     (`pna_…`, 1 hour), `refresh_token` (`pnr_…`, 30 days), `token_type: "Bearer"`,
     `expires_in`, `scope`.
   - `refresh_token`: rotates on every use; the old refresh token dies; replaying one that was
@@ -290,6 +296,8 @@ it.
 - `POST …/oauth/revoke` (RFC 7009) revokes the grant the token belongs to; always 200.
 - Tokens are random, stored only as SHA-256, one live access token per grant.
 - Rate-limited per IP on token and register; per grant on MCP calls, like keys.
+- Approving at the limit of 20 connected apps answers 409 `APP_LIMIT` and leaves the request
+  pending (10 minutes), so the user can disconnect an app and press Connect again.
 
 ### 6.6 Connected apps
 
@@ -323,6 +331,12 @@ spaceAccess }`.
 - Inherited from v1: hashing, scope, space reach on every request, rate limit, size limit,
   live-session refusal, Trash instead of delete, no session JWT accepted, no API credential
   accepted outside the add-on's own routes.
+- **Invalid credentials**: an address that sends 30 unknown, revoked or expired keys or tokens
+  in a minute is refused (429) on REST and MCP before any lookup, for the rest of that minute.
+  A request without a credential is not counted, because that is how an OAuth client learns
+  to sign in.
+- **Writes** change CRR tables, so they go through `getHealthyDb()`, never a cached connection
+  a failed merge may have left with the sync bit set (`crsqlite-sync.md`).
 - **Origin** on the MCP endpoint: an `Origin` header that is not the app's origin gets 403;
   requests without one (every non-browser client) pass.
 - **OAuth**: PKCE S256 required; exact redirect matching (loopback port aside); codes 60 s,

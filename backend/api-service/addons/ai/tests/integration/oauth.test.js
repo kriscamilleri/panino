@@ -200,6 +200,22 @@ describe('AI agents add-on: OAuth', () => {
             }
         });
 
+        it('lets a client retry after a wrong parameter, without spending the code', async () => {
+            const { verifier, code } = await codeFor();
+            const form = { grant_type: 'authorization_code', code, client_id: METADATA_URL, redirect_uri: CALLBACK, code_verifier: verifier };
+            expect((await token({ ...form, redirect_uri: 'https://chat.example/other' })).body.error).toBe('invalid_grant');
+            expect((await token({ ...form, code_verifier: crypto.randomBytes(48).toString('base64url') })).body.error).toBe('invalid_grant');
+            const retried = await token(form);
+            expect(retried.status).toBe(200);
+            expect((await mcp(retried.body.access_token)).status).toBe(200);
+        });
+
+        it('accepts an omitted redirect_uri, since PKCE binds the code', async () => {
+            const { verifier, code } = await codeFor();
+            const res = await token({ grant_type: 'authorization_code', code, client_id: METADATA_URL, code_verifier: verifier });
+            expect(res.status).toBe(200);
+        });
+
         it('uses a code once; a second use ends the connection', async () => {
             const { verifier, code } = await codeFor();
             const form = { grant_type: 'authorization_code', code, client_id: METADATA_URL, redirect_uri: CALLBACK, code_verifier: verifier };
@@ -232,6 +248,17 @@ describe('AI agents add-on: OAuth', () => {
             expect(unknown.headers.location).toBe(`${CONSENT}?error=invalid_client`);
             const wrongRedirect = await request(app).get(authorizeUrl({ redirect_uri: 'https://evil.example/cb', code_challenge: pkce().challenge }));
             expect(wrongRedirect.headers.location).toBe(`${CONSENT}?error=invalid_redirect_uri`);
+        });
+
+        it('never fetches a metadata document from a private address', async () => {
+            setMetadataFetcher(null); // the real fetcher, through safeFetch.js
+            const pending = () => getAuthDb().prepare('SELECT count(*) AS n FROM ai_oauth_requests').get().n;
+            const before = pending();
+            for (const clientId of ['https://127.0.0.1/client.json', 'https://169.254.169.254/latest/meta-data', 'https://[::1]/client.json']) {
+                const res = await request(app).get(authorizeUrl({ client_id: clientId, code_challenge: pkce().challenge }));
+                expect(res.headers.location, clientId).toBe(`${CONSENT}?error=invalid_client`);
+            }
+            expect(pending()).toBe(before);
         });
 
         it('sends other errors back to the client with state and iss', async () => {
@@ -274,6 +301,27 @@ describe('AI agents add-on: OAuth', () => {
             expect((await session(request(app).post(`/addons/ai/oauth/requests/${requestId}/approve`)).send({ access: 'read', spaceAccess: 'all' })).status).toBe(404);
         });
 
+        it('keeps the request open when the app limit refuses, so Connect can be pressed again', async () => {
+            const db = getAuthDb();
+            const insert = db.prepare(`
+                INSERT INTO ai_oauth_grants (id, user_id, client_id, client_name, client_kind, redirect_uri, scope, space_access, resource, created_at)
+                VALUES (?, ?, ?, 'Other app', 'registered', 'https://other.example/cb', 'write', 'all', ?, ?)
+            `);
+            for (let i = 0; i < 20; i += 1) insert.run(`limit-${i}`, user.userId, `client-${i}`, RESOURCE, '2026-11-01T00:00:00.000Z');
+
+            const start = await request(app).get(authorizeUrl({ code_challenge: pkce().challenge }));
+            const requestId = new URL(start.headers.location.replace('#/', '')).searchParams.get('request');
+            const refused = await session(request(app).post(`/addons/ai/oauth/requests/${requestId}/approve`)).send({ access: 'write', spaceAccess: 'all' });
+            expect(refused.status).toBe(409);
+            expect(refused.body.code).toBe('APP_LIMIT');
+            expect(db.prepare('SELECT completed_at FROM ai_oauth_requests WHERE id = ?').get(requestId).completed_at).toBeNull();
+
+            await session(request(app).delete('/addons/ai/connections/limit-0')).expect(200);
+            const approved = await session(request(app).post(`/addons/ai/oauth/requests/${requestId}/approve`)).send({ access: 'write', spaceAccess: 'all' });
+            expect(approved.status).toBe(200);
+            expect(new URL(approved.body.redirectTo).searchParams.get('code')).toBeTruthy();
+        });
+
         it('needs the add-on on to consent', async () => {
             const start = await request(app).get(authorizeUrl({ code_challenge: pkce().challenge }));
             const requestId = new URL(start.headers.location.replace('#/', '')).searchParams.get('request');
@@ -303,6 +351,38 @@ describe('AI agents add-on: OAuth', () => {
             const code = new URL(approved.body.redirectTo).searchParams.get('code');
             const issued = await token({ grant_type: 'authorization_code', code, client_id: reg.body.client_id, redirect_uri: 'http://localhost:51234/oauth/callback', code_verifier: verifier });
             expect(issued.status).toBe(200);
+        });
+
+        it('keeps a client that was ever approved, or is still signing in; prunes idle unapproved ones', async () => {
+            const db = getAuthDb();
+            const register = async (name) => (await request(app).post('/addons/ai/oauth/register')
+                .send({ client_name: name, redirect_uris: ['http://127.0.0.1/cb'] }).expect(201)).body.client_id;
+            const age = (clientId) => db.prepare('UPDATE ai_oauth_clients SET created_at = ?, last_used_at = NULL WHERE client_id = ?')
+                .run('2020-01-01T00:00:00.000Z', clientId);
+            const exists = (clientId) => Boolean(db.prepare('SELECT 1 FROM ai_oauth_clients WHERE client_id = ?').get(clientId));
+
+            // Approved once, then disconnected: the app still holds this client_id.
+            const disconnected = await register('Hosted app');
+            const { requestId } = await signIn({ clientId: disconnected, redirectUri: 'http://127.0.0.1/cb', challenge: pkce().challenge });
+            const grant = db.prepare('SELECT g.id FROM ai_oauth_grants g JOIN ai_oauth_requests r ON r.client_id = g.client_id WHERE r.id = ?').get(requestId);
+            await session(request(app).delete(`/addons/ai/connections/${grant.id}`)).expect(200);
+            age(disconnected);
+            // Never approved, but started a sign-in just now.
+            const signingIn = await register('Busy app');
+            age(signingIn);
+            await request(app).get(authorizeUrl({ client_id: signingIn, redirect_uri: 'http://127.0.0.1/cb', code_challenge: pkce().challenge })).expect(302);
+            // Never approved and idle for over 30 days.
+            const abandoned = await register('Abandoned app');
+            age(abandoned);
+
+            await register('Newcomer');
+            expect(exists(disconnected)).toBe(true);
+            expect(exists(signingIn)).toBe(true);
+            expect(exists(abandoned)).toBe(false);
+
+            // The disconnected app can reconnect with the client_id it kept.
+            const again = await request(app).get(authorizeUrl({ client_id: disconnected, redirect_uri: 'http://127.0.0.1/cb', code_challenge: pkce().challenge }));
+            expect(again.headers.location.startsWith(`${CONSENT}?request=`)).toBe(true);
         });
 
         it('refuses unsafe redirect URIs', async () => {

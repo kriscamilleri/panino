@@ -10,7 +10,7 @@
 //   clients the WebSocket client map, for poking devices after a write
 // and throws ApiError for anything the caller should report.
 import { v4 as uuidv4, validate as validateUuid } from 'uuid';
-import { getAuthDb, getDb, getUserDb } from '../../db.js';
+import { getAuthDb, getDb, getHealthyDb, getUserDb } from '../../db.js';
 import { createRevisionSnapshot } from '../../revision.js';
 import { isSharedSpacesEnabled, listSpacesForUser, resolveSpaceAccess } from '../../spaces.js';
 import { pokePersonalClients, pokeSpaceSubscribers } from '../../websocket.js';
@@ -169,9 +169,19 @@ function trashFolderIds(folders, folderIndex) {
  * Write rules
  * ------------------------------------------------------------------ */
 
-function assertNoLiveSession(target, noteId) {
+/**
+ * The connection a write goes through. Writes change CRR tables, so they never
+ * run on a cached handle whose CR-SQLite sync bit a failed merge left set: its
+ * triggers would be suppressed and devices would never receive the change
+ * (docs/architecture/crsqlite-sync.md, "The sync bit").
+ */
+function writableDb(target, operation) {
+    return getHealthyDb(target.dbKey, `ai-${operation}`);
+}
+
+function assertNoLiveSession(db, target, noteId) {
     if (target.kind !== 'space') return;
-    const open = target.db.prepare('SELECT 1 FROM collab_sessions WHERE note_id = ?').get(noteId);
+    const open = db.prepare('SELECT 1 FROM collab_sessions WHERE note_id = ?').get(noteId);
     if (open) {
         throw new ApiError(409, 'DOCUMENT_IN_LIVE_SESSION',
             'This Document is open in a live session. Try again after the session ends.');
@@ -394,7 +404,7 @@ export function createDocument(ctx, { space, title, content, folderId } = {}) {
     assertBodySize(body);
     const folder = folderId === undefined || folderId === '' || folderId === 'root' ? null : folderId;
 
-    const db = target.db;
+    const db = writableDb(target, 'create-document');
     const id = uuidv4();
     const now = new Date().toISOString();
     const created = db.transaction(() => {
@@ -433,12 +443,12 @@ export function updateDocument(ctx, { id, space, title, content, folderId, pinne
     }
 
     const { target } = locateDocument(ctx, space, id);
-    const db = target.db;
+    const db = writableDb(target, 'update-document');
     const updated = db.transaction(() => {
         const current = readNote(db, id);
         if (!current) throw notFound();
         assertExpected(current, expectedUpdatedAt);
-        assertNoLiveSession(target, current.id);
+        assertNoLiveSession(db, target, current.id);
         if (changes.folder_id !== undefined) assertFolder(db, changes.folder_id);
         const textChanges = changes.title !== undefined || changes.content !== undefined;
         if (textChanges) snapshotBefore(db, current);
@@ -461,12 +471,12 @@ export function appendToDocument(ctx, { id, space, content, separator, expectedU
     }
 
     const { target } = locateDocument(ctx, space, id);
-    const db = target.db;
+    const db = writableDb(target, 'append-document');
     const updated = db.transaction(() => {
         const current = readNote(db, id);
         if (!current) throw notFound();
         assertExpected(current, expectedUpdatedAt);
-        assertNoLiveSession(target, current.id);
+        assertNoLiveSession(db, target, current.id);
         const existing = current.content ?? '';
         let next;
         if (!existing.trim()) next = content;
@@ -486,11 +496,11 @@ export function appendToDocument(ctx, { id, space, content, separator, expectedU
 export function trashDocument(ctx, { id, space } = {}) {
     requireAgentScope(ctx, 'write');
     const { target } = locateDocument(ctx, space, id);
-    const db = target.db;
+    const db = writableDb(target, 'trash-document');
     const result = db.transaction(() => {
         const current = readNote(db, id);
         if (!current) throw notFound();
-        assertNoLiveSession(target, current.id);
+        assertNoLiveSession(db, target, current.id);
         const folderIndex = buildFolderIndex(readFolders(db));
         if (folderIndex.isInTrash(current.folder_id)) {
             return { row: current, previousFolderId: current.folder_id ?? null, alreadyInTrash: true };
@@ -524,7 +534,7 @@ export function createFolder(ctx, { space, name, parentId } = {}) {
     const target = resolveOne(ctx, space);
     const folderName = requireName(name, 'folder name');
     const parent = parentId === undefined || parentId === '' || parentId === 'root' ? null : parentId;
-    const db = target.db;
+    const db = writableDb(target, 'create-folder');
     const id = uuidv4();
     const now = new Date().toISOString();
     db.transaction(() => {

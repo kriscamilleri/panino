@@ -9,7 +9,7 @@
 import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { getAuthDb, isDatabaseBusyError, respondDatabaseBusy } from '../../db.js';
-import { createRateLimiter } from './keyUtils.js';
+import { clientAddress, createRateLimiter } from './keyUtils.js';
 import { publicUrls } from './config.js';
 import { resolveClient, registerClient, touchRegisteredClient } from './oauthClients.js';
 import {
@@ -54,16 +54,6 @@ function urlsOr503(res) {
         return null;
     }
     return urls;
-}
-
-/**
- * The caller's address. Behind nginx every request comes from 127.0.0.1, so
- * the address nginx saw (X-Real-IP, set by our proxy config) is used first.
- */
-function clientAddress(req) {
-    const real = req.headers['x-real-ip'];
-    if (typeof real === 'string' && real && real.length < 64) return real;
-    return req.ip || 'unknown';
 }
 
 function limitByIp(req, res) {
@@ -182,6 +172,8 @@ publicOAuthRoutes.get('/oauth/authorize', async (req, res) => {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(id, client.clientId, client.name, client.kind, redirectUri, state ?? null, query.code_challenge,
                 scope.access, urls.mcp, now.toISOString(), new Date(now.getTime() + REQUEST_TTL_MS).toISOString());
+            // A client still starting sign-ins is in use, approved or not: keep it.
+            if (client.kind === 'registered') touchRegisteredClient(client.clientId, now);
         })();
         return res.redirect(302, `${urls.consent}?request=${encodeURIComponent(id)}`);
     } catch (error) {
@@ -190,6 +182,8 @@ publicOAuthRoutes.get('/oauth/authorize', async (req, res) => {
         return back('server_error', 'Sign-in failed. Try again.');
     }
 });
+
+class AppLimitReached extends Error {}
 
 function readPendingRequest(id) {
     if (typeof id !== 'string' || id.length > 64) return null;
@@ -261,7 +255,7 @@ sessionOAuthRoutes.post('/oauth/requests/:id/approve', (req, res) => {
         const now = new Date();
         const code = randomToken();
         const grantId = uuidv4();
-        const outcome = db.transaction(() => {
+        const approve = db.transaction(() => {
             const done = db.prepare('UPDATE ai_oauth_requests SET completed_at = ? WHERE id = ? AND completed_at IS NULL')
                 .run(now.toISOString(), row.id);
             if (done.changes === 0) return 'used';
@@ -269,7 +263,9 @@ sessionOAuthRoutes.post('/oauth/requests/:id/approve', (req, res) => {
             db.prepare('UPDATE ai_oauth_grants SET revoked_at = ? WHERE user_id = ? AND client_id = ? AND revoked_at IS NULL')
                 .run(now.toISOString(), userId, row.client_id);
             const { count } = db.prepare('SELECT COUNT(*) AS count FROM ai_oauth_grants WHERE user_id = ? AND revoked_at IS NULL').get(userId);
-            if (count >= MAX_LIVE_GRANTS) return 'limit';
+            // Throwing rolls the request back to pending, so the user can
+            // disconnect an app and press Connect again on the same page.
+            if (count >= MAX_LIVE_GRANTS) throw new AppLimitReached();
             db.prepare(`
                 INSERT INTO ai_oauth_grants
                     (id, user_id, client_id, client_name, client_kind, redirect_uri, scope, space_access, resource, created_at)
@@ -283,10 +279,17 @@ sessionOAuthRoutes.post('/oauth/requests/:id/approve', (req, res) => {
                 new Date(now.getTime() + CODE_TTL_MS).toISOString());
             db.prepare('DELETE FROM ai_oauth_codes WHERE expires_at < ?').run(new Date(now.getTime() - CODE_TTL_MS).toISOString());
             return 'approved';
-        })();
+        });
+        let outcome;
+        try {
+            outcome = approve();
+        } catch (error) {
+            if (!(error instanceof AppLimitReached)) throw error;
+            outcome = 'limit';
+        }
         if (outcome === 'used') return res.status(404).json({ error: 'This sign-in request was already used.', code: 'REQUEST_NOT_FOUND' });
         if (outcome === 'limit') {
-            return res.status(409).json({ error: `You can connect at most ${MAX_LIVE_GRANTS} apps. Disconnect one first.`, code: 'APP_LIMIT' });
+            return res.status(409).json({ error: `You can connect at most ${MAX_LIVE_GRANTS} apps. Disconnect one in Settings → Add-ons → AI agents, then press Connect again.`, code: 'APP_LIMIT' });
         }
         if (row.client_kind === 'registered') touchRegisteredClient(row.client_id, now);
         return res.json({ redirectTo: withQuery(row.redirect_uri, { code, state: row.state ?? undefined, iss: urls.issuer }) });
@@ -365,12 +368,23 @@ function exchangeCode(body, urls, now) {
         revokeGrant(db, row.grant_id, now);
         return { error: 'invalid_grant', description: 'The authorization code was already used.' };
     }
-    db.prepare('UPDATE ai_oauth_codes SET used_at = ? WHERE code_hash = ?').run(now.toISOString(), row.code_hash);
+    // Every check runs before the code is spent, so a client that gets one
+    // parameter wrong can retry; only presenting a spent code ends the grant.
     if (row.expires_at < now.toISOString()) return { error: 'invalid_grant', description: 'The authorization code has expired.' };
     if (body.client_id !== row.client_id) return { error: 'invalid_grant', description: 'The code was issued to another client.' };
-    if (body.redirect_uri !== row.redirect_uri) return { error: 'invalid_grant', description: 'redirect_uri does not match the authorization request.' };
+    // redirect_uri may be omitted (OAuth 2.1): PKCE already binds the code to the
+    // client that started the sign-in. When sent, it must match exactly.
+    if (body.redirect_uri !== undefined && body.redirect_uri !== row.redirect_uri) {
+        return { error: 'invalid_grant', description: 'redirect_uri does not match the authorization request.' };
+    }
     if (body.resource !== undefined && body.resource !== urls.mcp) return { error: 'invalid_target', description: 'This server issues tokens for its MCP endpoint only.' };
     if (!verifyPkce(body.code_verifier, row.code_challenge)) return { error: 'invalid_grant', description: 'The code_verifier does not match.' };
+    const spent = db.prepare('UPDATE ai_oauth_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL').run(now.toISOString(), row.code_hash);
+    if (spent.changes === 0) {
+        // Another exchange of the same code won the race: treat it as a replay.
+        revokeGrant(db, row.grant_id, now);
+        return { error: 'invalid_grant', description: 'The authorization code was already used.' };
+    }
     const grant = db.prepare('SELECT * FROM ai_oauth_grants WHERE id = ? AND revoked_at IS NULL').get(row.grant_id);
     if (!grant) return { error: 'invalid_grant', description: 'The connection was cancelled.' };
     return { grant, tokens: issueTokens(db, grant.id, now, null) };

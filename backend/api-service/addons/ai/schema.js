@@ -71,6 +71,7 @@ export const AI_AUTH_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_ai_oauth_grants_user ON ai_oauth_grants(user_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_ai_oauth_grants_previous ON ai_oauth_grants(previous_refresh_hash);
+  CREATE INDEX IF NOT EXISTS idx_ai_oauth_grants_client ON ai_oauth_grants(client_id);
 
   -- One-time authorization codes (60 seconds), bound to a grant.
   CREATE TABLE IF NOT EXISTS ai_oauth_codes (

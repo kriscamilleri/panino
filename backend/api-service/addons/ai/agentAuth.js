@@ -8,12 +8,20 @@ import { isDatabaseBusyError, respondDatabaseBusy } from '../../db.js';
 import { isAddonActive } from '../registry.js';
 import { ADDON_ID, publicUrls } from './config.js';
 import { lookupApiKey } from './keys.js';
-import { bearerFromHeader, createRateLimiter } from './keyUtils.js';
+import { bearerFromHeader, clientAddress, createRateLimiter } from './keyUtils.js';
 import { lookupAccessToken } from './oauth.js';
 import { ACCESS_TOKEN_PREFIX } from './oauthUtils.js';
 
 export const AGENT_RATE_LIMIT_PER_MINUTE = Number(process.env.API_RATE_LIMIT_PER_MINUTE) || 120;
 export const agentRateLimiter = createRateLimiter({ limit: AGENT_RATE_LIMIT_PER_MINUTE, windowMs: 60 * 1000 });
+/**
+ * Rejected credentials per caller address per minute. Past it, the address is
+ * refused before any lookup, so a flood of made-up keys costs almost nothing.
+ * Missing credentials are not counted: an OAuth client's first, unauthenticated
+ * request is how it learns to sign in.
+ */
+export const FAILED_CREDENTIALS_PER_MINUTE = 30;
+const failedCredentialLimiter = createRateLimiter({ limit: FAILED_CREDENTIALS_PER_MINUTE, windowMs: 60 * 1000 });
 
 /** The WWW-Authenticate value for a 401: points OAuth clients at the resource metadata. */
 export function bearerChallenge(error) {
@@ -39,15 +47,26 @@ export function authenticateRequest(req, { allowApps = false } = {}) {
             'Send an API key as "Authorization: Bearer pnk_…". Create one in Panino under Settings → Add-ons → AI agents.');
     }
 
+    const address = `ip:${clientAddress(req)}`;
+    const blocked = failedCredentialLimiter.check(address);
+    if (!blocked.allowed) {
+        return refusal(429, 'RATE_LIMITED', `Too many requests with invalid credentials. Wait ${blocked.retryAfterSeconds} seconds and retry.`,
+            { retryAfterSeconds: blocked.retryAfterSeconds });
+    }
+    const rejected = (code, message) => {
+        failedCredentialLimiter.hit(address);
+        return refusal(401, code, message);
+    };
+
     let found;
     try {
         if (credential.startsWith(ACCESS_TOKEN_PREFIX)) {
             if (!allowApps) return refusal(401, 'INVALID_API_KEY', 'Connected-app tokens work only on the MCP endpoint. Use an API key here.');
             found = lookupAccessToken(credential);
-            if (!found) return refusal(401, 'INVALID_TOKEN', 'This access token is not valid. It may have expired or the app was disconnected.');
+            if (!found) return rejected('INVALID_TOKEN', 'This access token is not valid. It may have expired or the app was disconnected.');
         } else {
             found = lookupApiKey(credential);
-            if (!found) return refusal(401, 'INVALID_API_KEY', 'This API key is not valid. It may have been revoked or have expired.');
+            if (!found) return rejected('INVALID_API_KEY', 'This API key is not valid. It may have been revoked or have expired.');
         }
         if (!isAddonActive(found.userId, ADDON_ID)) {
             return refusal(403, 'ADDON_DISABLED', 'AI agents is turned off in Panino Settings → Add-ons.');
@@ -95,4 +114,5 @@ export function authenticateAgent(options = {}) {
 /** Test hook: forget rate-limit windows. */
 export function resetAgentRateLimit() {
     agentRateLimiter.reset();
+    failedCredentialLimiter.reset();
 }

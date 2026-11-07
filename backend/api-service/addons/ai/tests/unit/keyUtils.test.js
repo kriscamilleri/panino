@@ -3,6 +3,7 @@ import {
     API_KEY_DISPLAY_LENGTH,
     bearerFromHeader,
     buildFolderIndex,
+    clientAddress,
     createRateLimiter,
     decodeDocumentCursor,
     encodeDocumentCursor,
@@ -111,6 +112,29 @@ describe('createRateLimiter', () => {
         expect(limiter.hit('other').allowed).toBe(true);
         clock = 60_000;
         expect(limiter.hit('k').allowed).toBe(true);
+    });
+
+    it('checks without counting', () => {
+        let clock = 0;
+        const limiter = createRateLimiter({ limit: 2, windowMs: 60_000, now: () => clock });
+        expect(limiter.check('k').allowed).toBe(true);
+        limiter.hit('k');
+        expect(limiter.check('k').allowed).toBe(true);
+        expect(limiter.check('k').allowed).toBe(true);
+        limiter.hit('k');
+        clock = 20_000;
+        expect(limiter.check('k')).toEqual({ allowed: false, retryAfterSeconds: 40 });
+        clock = 60_000;
+        expect(limiter.check('k').allowed).toBe(true);
+    });
+});
+
+describe('clientAddress', () => {
+    it('prefers the address nginx saw, then the socket address', () => {
+        expect(clientAddress({ headers: { 'x-real-ip': '203.0.113.9' }, ip: '127.0.0.1' })).toBe('203.0.113.9');
+        expect(clientAddress({ headers: {}, ip: '127.0.0.1' })).toBe('127.0.0.1');
+        expect(clientAddress({ headers: { 'x-real-ip': 'x'.repeat(64) }, ip: '127.0.0.1' })).toBe('127.0.0.1');
+        expect(clientAddress({ headers: {} })).toBe('unknown');
     });
 });
 

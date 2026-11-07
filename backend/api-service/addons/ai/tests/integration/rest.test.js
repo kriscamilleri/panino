@@ -6,7 +6,7 @@ import { deleteTestDb, getAuthDb, getDb, getSpacesDb, getUserDb } from '../../..
 import { addEditorMember, createSpace, removeEditorMember } from '../../../../spaces.js';
 import { setAddonEnabled } from '../../../registry.js';
 import { resetApiKeyState } from '../../keys.js';
-import { AGENT_RATE_LIMIT_PER_MINUTE, resetAgentRateLimit } from '../../agentAuth.js';
+import { AGENT_RATE_LIMIT_PER_MINUTE, FAILED_CREDENTIALS_PER_MINUTE, resetAgentRateLimit } from '../../agentAuth.js';
 import { buildOpenApiDocument } from '../../openapi.js';
 
 const FLAG = 'SHARED_SPACES_ENABLED';
@@ -419,6 +419,24 @@ describe('AI agents add-on: API keys and the v1 REST API', () => {
             expect(empty.body.document.content).toBe('first');
         });
 
+        it('writes through a fresh connection when a failed merge left the sync bit set', async () => {
+            const poisoned = getUserDb(owner.userId);
+            insertNote(poisoned, { id: 'n-bit', title: 'Bit', content: 'before' });
+            poisoned.prepare('SELECT crsql_internal_sync_bit(1)').get();
+
+            const res = await request(app).post('/addons/ai/v1/documents/n-bit/append').set(bearer(secret)).send({ content: 'after' });
+            expect(res.status).toBe(200);
+
+            // The poisoned handle is gone, and the write was recorded for devices to pull.
+            const db = getUserDb(owner.userId);
+            expect(db).not.toBe(poisoned);
+            expect(db.prepare('SELECT crsql_internal_sync_bit() AS bit').get().bit).toBe(0);
+            const changes = db.prepare(`SELECT count(*) AS n FROM crsql_changes WHERE "table" = 'notes' AND cid = 'content' AND site_id = crsql_site_id()`).get();
+            expect(changes.n).toBeGreaterThan(0);
+            const content = db.prepare(`SELECT val FROM crsql_changes WHERE "table" = 'notes' AND cid = 'content' ORDER BY db_version DESC LIMIT 1`).get();
+            expect(content.val).toBe('before\n\nafter');
+        });
+
         it('refuses a body over 2 MiB', async () => {
             const res = await request(app).post('/addons/ai/v1/documents').set(bearer(secret))
                 .send({ title: 'Big', content: 'x'.repeat(2 * 1024 * 1024 + 1) });
@@ -471,6 +489,28 @@ describe('AI agents add-on: API keys and the v1 REST API', () => {
             const res = await request(app).get('/addons/ai/v1/me').set(bearer(secret));
             expect(res.status).toBe(429);
             expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+        });
+
+        it('refuses an address that keeps sending invalid keys, before looking anything up', async () => {
+            const from = (address) => ({ 'X-Real-IP': address });
+            // Asking without a key is how clients discover sign-in: never counted.
+            for (let i = 0; i < FAILED_CREDENTIALS_PER_MINUTE + 5; i += 1) {
+                await request(app).get('/addons/ai/v1/me').set(from('203.0.113.7')).expect(401);
+            }
+            for (let i = 0; i < FAILED_CREDENTIALS_PER_MINUTE; i += 1) {
+                const bad = await request(app).get('/addons/ai/v1/me').set(from('203.0.113.7')).set(bearer(`pnk_guess${i}`));
+                expect(bad.status).toBe(401);
+            }
+            const blocked = await request(app).get('/addons/ai/v1/me').set(from('203.0.113.7')).set(bearer(secret));
+            expect(blocked.status).toBe(429);
+            expect(blocked.body.code).toBe('RATE_LIMITED');
+            expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+            const mcp = await request(app).post('/addons/ai/v1/mcp').set(from('203.0.113.7')).set(bearer(secret))
+                .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+            expect(mcp.status).toBe(429);
+            expect(mcp.body.error.data.code).toBe('RATE_LIMITED');
+            // Other addresses, and the same key from them, are unaffected.
+            await request(app).get('/addons/ai/v1/me').set(from('198.51.100.4')).set(bearer(secret)).expect(200);
         });
     });
 

@@ -24,7 +24,9 @@ and, for the v1 rules, [`docs/specs/active/llm-api.md`](../specs/active/llm-api.
 
 `agentAuth.js` resolves keys and access tokens, then requires `isAddonActive(owner, 'ai')`
 (403 `ADDON_DISABLED` otherwise; nothing is deleted), then applies the per-credential rate
-limit (120/min, `API_RATE_LIMIT_PER_MINUTE`, in memory). The REST and MCP routes are add-on
+limit (120/min, `API_RATE_LIMIT_PER_MINUTE`, in memory). Before any lookup, an address that
+sent 30 rejected credentials in the last minute is refused (429); requests without a credential
+are not counted, so OAuth discovery keeps working. The REST and MCP routes are add-on
 `publicRoutes`: mounted before the JWT gate, so they authenticate themselves. Key and
 connected-app management are session routes behind `requireAddon('ai')`, so a key cannot mint,
 list or revoke credentials. Every other route already refuses these credentials because they are
@@ -44,6 +46,8 @@ an operation, add it there and expose it in both (and in `openapi.js`).
 ### How a write reaches devices
 
 Writes go straight to the server replica with ordinary SQL in one better-sqlite3 transaction,
+on a connection from `getHealthyDb()` (a cached handle whose sync bit a failed merge left set
+would suppress the CRR triggers, and devices would never receive the change),
 the same pattern revision restore and space transfers use. CR-SQLite's triggers record them
 under the server's site id, so the next `/sync` pull hands them to every device as another
 replica's change. After commit the service pokes the user's sockets (personal) or the space's
@@ -111,7 +115,8 @@ startup warning otherwise).
 - **Clients**: a `client_id` that is an `https` URL is a metadata document, fetched through
   `safeFetch.js` (public addresses only, 5 s, 16 KiB, no redirects) and cached per
   `Cache-Control` within 5 minutes .. 24 hours; otherwise a client that registered itself
-  (RFC 7591, no secret, pruned after 30 days without a grant).
+  (RFC 7591, no secret). One that was never approved and has not started a sign-in for 30
+  days is pruned; one that was ever approved is kept, because the app holds its `client_id`.
 - **Redirect URIs**: exact match, except loopback `http` on any port (RFC 8252). https, loopback
   http and private-use schemes only.
 - **Flow**: `/oauth/authorize` validates and stores a 10-minute request, then sends the browser
@@ -119,6 +124,10 @@ startup warning otherwise).
   first signed-in user to open a request claims it. Approval creates the grant ("connected
   app": access and databases chosen by the user) and a 60-second single-use code bound to client,
   redirect URI, PKCE challenge and resource. A reused code ends the grant.
+- **Code exchange**: every check (expiry, client, `redirect_uri` when sent, `resource`, PKCE)
+  runs before the code is spent, so a client can retry a mistake; a spent code presented again
+  ends the grant. `redirect_uri` may be omitted, as OAuth 2.1 allows, because PKCE binds the
+  code. Approving at the 20-app limit (409 `APP_LIMIT`) leaves the request pending.
 - **Tokens**: one live access token per grant; the refresh token rotates on every use, and a
   replayed old one ends the grant. `/oauth/revoke` (RFC 7009) and Disconnect in Settings end it
   too. Approving the same client again replaces its earlier grant.
