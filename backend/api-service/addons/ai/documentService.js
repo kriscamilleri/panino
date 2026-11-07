@@ -1,267 +1,38 @@
-// The v1 Document operations, without HTTP (docs/specs/active/ai-integration.md §7).
-// REST (restRoutes.js) and MCP (mcpTools.js) are two adapters over these
-// functions, so every rule — scope, space reach, live sessions, Trash instead of
-// delete, revisions, size — has one implementation. Writes are ordinary CRR
-// writes on the server's replica; devices pick them up on their next sync.
-//
-// Every function takes a context `{ userId, agent, clients }`:
-//   agent   { kind: 'key' | 'app', id, name, scope: 'read' | 'write',
-//             spaceAccess: 'all' | 'personal', expiresAt }
-//   clients the WebSocket client map, for poking devices after a write
-// and throws ApiError for anything the caller should report.
-import { v4 as uuidv4, validate as validateUuid } from 'uuid';
-import { getAuthDb, getDb, getHealthyDb, getUserDb } from '../../db.js';
-import { createRevisionSnapshot } from '../../revision.js';
-import { isSharedSpacesEnabled, listSpacesForUser, resolveSpaceAccess } from '../../spaces.js';
-import { pokePersonalClients, pokeSpaceSubscribers } from '../../websocket.js';
-import { runAddonHooks } from '../registry.js';
+// The v1 Document operations, without HTTP (docs/specs/active/ai-integration.md §7):
+// account, spaces, tree, search, list, read, create and edit. REST and MCP
+// (api/documents.js) are two adapters over these functions, so every rule has
+// one implementation; the shared rules are in serviceCore.js.
+import { v4 as uuidv4 } from 'uuid';
+import { getAuthDb } from '../../db.js';
 import {
-    buildFolderIndex,
-    decodeDocumentCursor,
-    encodeDocumentCursor,
-    makeSnippet,
-    parseLimit,
-    scopeAllows,
-    TRASH_FOLDER_NAME,
-    validateName,
-} from './keyUtils.js';
+    ApiError,
+    announce,
+    assertBodySize,
+    assertExpected,
+    assertFolder,
+    assertNoLiveSession,
+    fullDocument,
+    documentSummary,
+    locateDocument,
+    notFound,
+    optionalText,
+    reachableTargets,
+    readFolders,
+    readNote,
+    requireAgentScope,
+    requireName,
+    resolveMany,
+    resolveOne,
+    snapshotAfter,
+    snapshotBefore,
+    trashFolderIds,
+    TREE_DOCUMENT_CAP,
+    updateNote,
+    writableDb,
+} from './serviceCore.js';
+import { buildFolderIndex, decodeDocumentCursor, encodeDocumentCursor, makeSnippet, parseLimit } from './keyUtils.js';
 
-/** Largest Document body the API will write, in bytes (UTF-8). */
-export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
-const TREE_DOCUMENT_CAP = 5000;
-
-export class ApiError extends Error {
-    /**
-     * @param {number} status HTTP status a REST caller answers with
-     * @param {string} code closed error code
-     * @param {string} message fixed, user-safe text
-     * @param {object} [details] extra fields for the caller (never secrets)
-     */
-    constructor(status, code, message, details = undefined) {
-        super(message);
-        this.status = status;
-        this.code = code;
-        this.details = details;
-    }
-}
-
-const notFound = () => new ApiError(404, 'NOT_FOUND', 'Document not found.');
-const spaceNotFound = () => new ApiError(404, 'SPACE_NOT_FOUND', 'Space not found.');
-
-/**
- * @param {{ agent: { scope: string, kind: string } }} ctx
- * @param {'read'|'write'} scope
- */
-export function requireAgentScope(ctx, scope) {
-    if (scopeAllows(ctx.agent?.scope, scope)) return;
-    const who = ctx.agent?.kind === 'app' ? 'This connected app has' : 'This API key has';
-    throw new ApiError(403, 'INSUFFICIENT_SCOPE', `${who} read-only access.`);
-}
-
-/* ------------------------------------------------------------------ *
- * Databases an agent can reach
- * ------------------------------------------------------------------ */
-
-function personalTarget(userId) {
-    return { kind: 'personal', dbKey: `user:${userId}`, spaceId: null, name: 'Personal', role: 'owner', db: getUserDb(userId) };
-}
-
-function isPersonal(space) {
-    return space === undefined || space === null || space === '' || space === 'personal';
-}
-
-/**
- * One database by `space`: absent, '' or 'personal' is the personal database.
- * A space the agent may not reach is indistinguishable from a missing one.
- */
-function resolveOne(ctx, space) {
-    if (isPersonal(space)) return personalTarget(ctx.userId);
-    if (typeof space !== 'string' || !validateUuid(space)) throw spaceNotFound();
-    if (ctx.agent.spaceAccess !== 'all') throw spaceNotFound();
-    const access = resolveSpaceAccess(space, ctx.userId);
-    if (!access) throw spaceNotFound();
-    const dbKey = `space:${access.spaceId}`;
-    return { kind: 'space', dbKey, spaceId: access.spaceId, name: null, role: access.role, db: getDb(dbKey) };
-}
-
-/** Every database the agent can reach, personal first. Space databases open lazily. */
-function reachableTargets(ctx) {
-    const targets = [personalTarget(ctx.userId)];
-    if (ctx.agent.spaceAccess !== 'all' || !isSharedSpacesEnabled()) return targets;
-    for (const space of listSpacesForUser(ctx.userId).spaces) {
-        const dbKey = `space:${space.spaceId}`;
-        targets.push({
-            kind: 'space',
-            dbKey,
-            spaceId: space.spaceId,
-            name: space.name,
-            role: space.role,
-            get db() { return getDb(dbKey); },
-        });
-    }
-    return targets;
-}
-
-/** `space` 'all' (or absent) means every reachable database. */
-function resolveMany(ctx, space) {
-    if (space === undefined || space === null || space === '' || space === 'all') return reachableTargets(ctx);
-    return [resolveOne(ctx, space)];
-}
-
-/**
- * The database holding an existing Document. With `space` given it is that
- * database; without, the reachable databases are searched, so an agent can
- * address a Document by id alone.
- */
-function locateDocument(ctx, space, noteId) {
-    if (typeof noteId !== 'string' || !noteId || noteId.length > 200) throw notFound();
-    const candidates = space === undefined || space === null || space === '' ? reachableTargets(ctx) : [resolveOne(ctx, space)];
-    for (const target of candidates) {
-        const note = readNote(target.db, noteId);
-        if (note) return { target, note };
-    }
-    throw notFound();
-}
-
-/* ------------------------------------------------------------------ *
- * Rows and shapes
- * ------------------------------------------------------------------ */
-
-function readNote(db, noteId) {
-    return db.prepare(`
-        SELECT id, title, content, folder_id, pinned, created_at, updated_at
-          FROM notes WHERE id = ?
-    `).get(noteId) || null;
-}
-
-function readFolders(db) {
-    return db.prepare('SELECT id, name, parent_id, created_at FROM folders').all();
-}
-
-function documentSummary(row, target, folderIndex) {
-    return {
-        id: row.id,
-        title: row.title,
-        folderId: row.folder_id ?? null,
-        folderPath: folderIndex.pathOf(row.folder_id),
-        space: target.spaceId,
-        updatedAt: row.updated_at,
-        ...(folderIndex.isInTrash(row.folder_id) ? { inTrash: true } : {}),
-    };
-}
-
-function fullDocument(row, target, folderIndex) {
-    return {
-        ...documentSummary(row, target, folderIndex),
-        content: row.content ?? '',
-        pinned: Boolean(row.pinned),
-        createdAt: row.created_at,
-    };
-}
-
-/** Folder ids inside the database's Trash, for exclusion in SQL. */
-function trashFolderIds(folders, folderIndex) {
-    if (!folderIndex.trashFolderId) return [];
-    return folders.filter((folder) => folderIndex.isInTrash(folder.id)).map((folder) => folder.id);
-}
-
-/* ------------------------------------------------------------------ *
- * Write rules
- * ------------------------------------------------------------------ */
-
-/**
- * The connection a write goes through. Writes change CRR tables, so they never
- * run on a cached handle whose CR-SQLite sync bit a failed merge left set: its
- * triggers would be suppressed and devices would never receive the change
- * (docs/architecture/crsqlite-sync.md, "The sync bit").
- */
-function writableDb(target, operation) {
-    return getHealthyDb(target.dbKey, `ai-${operation}`);
-}
-
-function assertNoLiveSession(db, target, noteId) {
-    if (target.kind !== 'space') return;
-    const open = db.prepare('SELECT 1 FROM collab_sessions WHERE note_id = ?').get(noteId);
-    if (open) {
-        throw new ApiError(409, 'DOCUMENT_IN_LIVE_SESSION',
-            'This Document is open in a live session. Try again after the session ends.');
-    }
-}
-
-function assertExpected(note, expectedUpdatedAt) {
-    if (expectedUpdatedAt === undefined || expectedUpdatedAt === null) return;
-    if (typeof expectedUpdatedAt !== 'string' || note.updated_at !== expectedUpdatedAt) {
-        throw new ApiError(409, 'VERSION_CONFLICT', 'The Document changed since you read it. Read it again and retry.',
-            { currentUpdatedAt: note.updated_at });
-    }
-}
-
-function assertBodySize(content) {
-    if (Buffer.byteLength(content, 'utf8') > MAX_DOCUMENT_BYTES) {
-        throw new ApiError(413, 'DOCUMENT_TOO_LARGE', 'Documents written through the API can be at most 2 MiB.');
-    }
-}
-
-function assertFolder(db, folderId, code = 'FOLDER_NOT_FOUND') {
-    if (folderId === null) return;
-    if (typeof folderId !== 'string' || !db.prepare('SELECT 1 FROM folders WHERE id = ?').get(folderId)) {
-        throw new ApiError(400, code, 'Folder not found in this database.');
-    }
-}
-
-function requireName(value, label) {
-    const result = validateName(value, label);
-    if (!result.ok) throw new ApiError(400, 'INVALID_INPUT', result.error);
-    return result.value;
-}
-
-function optionalText(value, label) {
-    if (value !== undefined && typeof value !== 'string') throw new ApiError(400, 'INVALID_INPUT', `${label} must be text.`);
-    return value;
-}
-
-/**
- * Record the stored body before an API write (unattributed: we do not know who
- * wrote it) and the body after (attributed to the owner and labelled with the
- * key's or app's name), so every change can be undone from revision history
- * and traced to the credential that made it.
- */
-function snapshotBefore(db, note) {
-    createRevisionSnapshot(db, {
-        noteId: note.id, title: note.title, content: note.content ?? '', type: 'auto',
-        skipDuplicateCheck: false, enforceAutoThrottle: false, runPruneGate: false,
-    });
-}
-
-function snapshotAfter(db, noteId, title, content, ctx) {
-    createRevisionSnapshot(db, {
-        noteId, title, content, type: 'auto',
-        skipDuplicateCheck: false, enforceAutoThrottle: false, runPruneGate: true,
-        actorUserId: ctx.userId,
-        actorKind: ctx.agent.kind === 'app' ? 'app' : 'api',
-        actorLabel: ctx.agent.name,
-    });
-}
-
-/** Tell devices, live subscribers and add-ons that a database changed. */
-function announce(ctx, target) {
-    if (ctx.clients) {
-        if (target.kind === 'space') pokeSpaceSubscribers(ctx.clients, target.dbKey, null);
-        else pokePersonalClients(ctx.clients, ctx.userId, null);
-    }
-    runAddonHooks('afterChangesApplied', target.dbKey);
-}
-
-/** Apply a change to an existing note's columns and return the stored row. */
-function updateNote(db, noteId, changes) {
-    const columns = Object.keys(changes);
-    // Column names come from this module's fixed set, never from input.
-    const allowed = new Set(['title', 'content', 'folder_id', 'pinned', 'updated_at']);
-    for (const column of columns) if (!allowed.has(column)) throw new Error(`unexpected column ${column}`);
-    const assignments = columns.map((column) => `${column} = ?`).join(', ');
-    db.prepare(`UPDATE notes SET ${assignments} WHERE id = ?`).run(...columns.map((column) => changes[column]), noteId);
-    return readNote(db, noteId);
-}
+export { ApiError, MAX_DOCUMENT_BYTES, requireAgentScope } from './serviceCore.js';
 
 /* ------------------------------------------------------------------ *
  * Operations
@@ -490,64 +261,4 @@ export function appendToDocument(ctx, { id, space, content, separator, expectedU
     })();
     announce(ctx, target);
     return { document: fullDocument(updated, target, buildFolderIndex(readFolders(db))) };
-}
-
-/** Move a Document into the database's Trash folder (created on first use). Nothing is deleted. */
-export function trashDocument(ctx, { id, space } = {}) {
-    requireAgentScope(ctx, 'write');
-    const { target } = locateDocument(ctx, space, id);
-    const db = writableDb(target, 'trash-document');
-    const result = db.transaction(() => {
-        const current = readNote(db, id);
-        if (!current) throw notFound();
-        assertNoLiveSession(db, target, current.id);
-        const folderIndex = buildFolderIndex(readFolders(db));
-        if (folderIndex.isInTrash(current.folder_id)) {
-            return { row: current, previousFolderId: current.folder_id ?? null, alreadyInTrash: true };
-        }
-        let trashId = folderIndex.trashFolderId;
-        if (!trashId) {
-            trashId = uuidv4();
-            const now = new Date().toISOString();
-            if (target.kind === 'personal') {
-                db.prepare('INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, NULL, ?)')
-                    .run(trashId, ctx.userId, TRASH_FOLDER_NAME, now);
-            } else {
-                db.prepare('INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, NULL, ?)')
-                    .run(trashId, TRASH_FOLDER_NAME, now);
-            }
-        }
-        const row = updateNote(db, current.id, { folder_id: trashId, updated_at: new Date().toISOString() });
-        return { row, previousFolderId: current.folder_id ?? null, alreadyInTrash: false };
-    })();
-    if (!result.alreadyInTrash) announce(ctx, target);
-    return {
-        document: fullDocument(result.row, target, buildFolderIndex(readFolders(db))),
-        previousFolderId: result.previousFolderId,
-        alreadyInTrash: result.alreadyInTrash,
-    };
-}
-
-/** Create a folder, at the top level or inside `parentId`. */
-export function createFolder(ctx, { space, name, parentId } = {}) {
-    requireAgentScope(ctx, 'write');
-    const target = resolveOne(ctx, space);
-    const folderName = requireName(name, 'folder name');
-    const parent = parentId === undefined || parentId === '' || parentId === 'root' ? null : parentId;
-    const db = writableDb(target, 'create-folder');
-    const id = uuidv4();
-    const now = new Date().toISOString();
-    db.transaction(() => {
-        assertFolder(db, parent, 'PARENT_NOT_FOUND');
-        if (target.kind === 'personal') {
-            db.prepare('INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)')
-                .run(id, ctx.userId, folderName, parent, now);
-        } else {
-            db.prepare('INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)')
-                .run(id, folderName, parent, now);
-        }
-    })();
-    announce(ctx, target);
-    const folderIndex = buildFolderIndex(readFolders(db));
-    return { folder: { id, name: folderName, parentId: parent, path: folderIndex.pathOf(id), space: target.spaceId } };
 }
