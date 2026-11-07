@@ -4,6 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { listTools, PORTABLE_SCHEMA_KEYS, SERVER_INSTRUCTIONS } from '../../mcpTools.js';
 
 const WRITE_TOOLS = ['create_document', 'update_document', 'append_to_document', 'move_document_to_trash', 'create_folder'];
+// Templates, variables and PDF (api/library.js, listed last).
+const LIBRARY_READ_TOOLS = ['list_templates', 'get_template', 'list_variables', 'export_pdf'];
+const LIBRARY_TOOLS = ['list_templates', 'get_template', 'create_document_from_template', 'list_variables', 'export_pdf'];
+const ALL_WRITE_TOOLS = [...WRITE_TOOLS, 'create_document_from_template'];
 
 describe('MCP tool definitions', () => {
     const tools = listTools('write');
@@ -12,13 +16,14 @@ describe('MCP tool definitions', () => {
         expect(tools.map((tool) => tool.name)).toEqual([
             'get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document',
             ...WRITE_TOOLS,
+            ...LIBRARY_TOOLS,
         ]);
     });
 
     it('lists only read tools for read-only access', () => {
         const names = listTools('read').map((tool) => tool.name);
-        expect(names).toHaveLength(6);
-        for (const name of WRITE_TOOLS) expect(names).not.toContain(name);
+        expect(names).toHaveLength(6 + LIBRARY_READ_TOOLS.length);
+        for (const name of ALL_WRITE_TOOLS) expect(names).not.toContain(name);
     });
 
     it.each(tools.map((tool) => [tool.name, tool]))('%s uses a name and schema every client accepts', (name, tool) => {
@@ -44,7 +49,7 @@ describe('MCP tool definitions', () => {
     it('marks reads read-only and only update as destructive', () => {
         for (const tool of tools) {
             expect(tool.annotations.openWorldHint).toBe(false);
-            expect(tool.annotations.readOnlyHint).toBe(!WRITE_TOOLS.includes(tool.name));
+            expect(tool.annotations.readOnlyHint).toBe(!ALL_WRITE_TOOLS.includes(tool.name));
             expect(tool.annotations.destructiveHint).toBe(tool.name === 'update_document');
         }
     });

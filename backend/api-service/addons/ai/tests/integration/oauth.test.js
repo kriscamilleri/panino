@@ -130,7 +130,7 @@ describe('AI agents add-on: OAuth', () => {
 
             const tools = await mcp(issued.body.access_token);
             expect(tools.status).toBe(200);
-            expect(tools.body.result.tools).toHaveLength(11);
+            expect(tools.body.result.tools).toHaveLength(16);
 
             getUserDb(user.userId).prepare(`INSERT INTO notes (id, user_id, title, content, created_at, updated_at)
                 VALUES ('o-1', ?, 'Log', 'x', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`).run(user.userId);
