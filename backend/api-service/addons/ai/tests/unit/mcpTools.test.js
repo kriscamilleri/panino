@@ -6,8 +6,8 @@ import { listTools, PORTABLE_SCHEMA_KEYS, SERVER_INSTRUCTIONS } from '../../mcpT
 // Per area, in the order api/index.js lists them.
 const AREA_TOOLS = {
     documents: {
-        read: ['get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document'],
-        write: ['create_document', 'update_document', 'append_to_document'],
+        read: ['get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document', 'get_document_outline'],
+        write: ['create_document', 'update_document', 'edit_document', 'insert_into_document', 'append_to_document'],
     },
     folders: {
         read: ['get_folder', 'list_trash'],
@@ -28,7 +28,7 @@ const AREA_TOOLS = {
 };
 const READ_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.read);
 const WRITE_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.write);
-const DESTRUCTIVE_TOOLS = ['update_document', 'restore_revision', 'delete_image'];
+const DESTRUCTIVE_TOOLS = ['update_document', 'edit_document', 'restore_revision', 'delete_image'];
 
 describe('MCP tool definitions', () => {
     const tools = listTools('write');

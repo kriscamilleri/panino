@@ -63,6 +63,7 @@ export const SERVER_INSTRUCTIONS = [
     'Find Documents with search_documents (or list_documents / list_folders) before reading or editing; read with get_document.',
     'An existing Document is addressed by id alone; "space" is only needed to create something in a shared space.',
     'Prefer append_to_document for logs and running notes. When you change a Document you read, pass its updated_at as expected_updated_at so you never overwrite someone else\'s edit.',
+    'For a change smaller than the whole text, use edit_document (exact old_text to new_text) or insert_into_document (at the start, the end, or around a heading) instead of resending everything with update_document.',
     'move_document_to_trash never deletes; every edit is kept in revision history, labelled with this connection\'s name.',
     'Anything in Trash can be brought back: list_trash shows what is there, and restore_from_trash returns it to where it was.',
     'Read that history with list_revisions, get_revision and compare_revisions; restore_revision is undoable, because it first saves the current text as a pre-restore revision you can restore.',
