@@ -36,22 +36,12 @@ describe("TemplatePickerModal – title pattern resolution", () => {
     expect(source).toContain("Save a document as a template");
   });
 
-  it("falls back to the template name when title_pattern is empty", () => {
+  it("resolves the title through the shared resolveTemplateTitle (pattern, else the template name)", () => {
+    // The fallback rules themselves are tested in shared/tests/templateVariables.test.js,
+    // where the API's create-from-template uses the same function.
     const body = functionBody("createNoteFromTemplate");
-    expect(body).toMatch(/let\s+noteTitle\s*=\s*tpl\.name/);
-    expect(body).toMatch(/if\s*\(titlePattern\)/);
-  });
-
-  it("resolves the title pattern through resolveTemplateVariables", () => {
-    const body = functionBody("createNoteFromTemplate");
-    expect(body).toMatch(
-      /resolveTemplateVariables\(\s*titlePattern\s*,\s*inputValues\s*\)/,
-    );
-  });
-
-  it("falls back to the template name when the pattern resolves to empty", () => {
-    const body = functionBody("createNoteFromTemplate");
-    expect(body).toMatch(/if\s*\(resolved\)\s*noteTitle\s*=\s*resolved/);
+    expect(body).toMatch(/const\s+noteTitle\s*=\s*resolveTemplateTitle\(\s*tpl\s*,\s*inputValues\s*\)/);
+    expect(source).toMatch(/import\s*\{[^}]*resolveTemplateTitle[^}]*\}\s*from\s*'@\/utils\/templateVariables'/);
   });
 
   it("passes the database scope and resolved title to createFile, then writes content transactionally", () => {

@@ -12,7 +12,8 @@
         "./style-defaults": "./styleDefaults.js",
         "./style-presets": "./stylePresets.js",
         "./pdf-request": "./pdfRequest.js",
-        "./styled-renderer": "./styledRenderer.js"
+        "./styled-renderer": "./styledRenderer.js",
+        "./template-variables": "./templateVariables.js"
     },
     "scripts": {
         "test": "vitest run"
