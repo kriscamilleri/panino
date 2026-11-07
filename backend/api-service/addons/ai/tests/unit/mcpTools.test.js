@@ -3,30 +3,37 @@
 import { describe, expect, it } from 'vitest';
 import { listTools, PORTABLE_SCHEMA_KEYS, SERVER_INSTRUCTIONS } from '../../mcpTools.js';
 
-const WRITE_TOOLS = [
-    'create_document', 'update_document', 'append_to_document', 'move_document_to_trash', 'create_folder',
-    'rename_folder', 'move_folder', 'move_folder_to_trash', 'restore_from_trash',
-];
-const READ_TOOLS = [
-    'get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document',
-    'get_folder', 'list_trash',
-];
+// Per area, in the order api/index.js lists them.
+const AREA_TOOLS = {
+    documents: {
+        read: ['get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document'],
+        write: ['create_document', 'update_document', 'append_to_document'],
+    },
+    folders: {
+        read: ['get_folder', 'list_trash'],
+        write: ['move_document_to_trash', 'create_folder', 'rename_folder', 'move_folder', 'move_folder_to_trash', 'restore_from_trash'],
+    },
+    revisions: {
+        read: ['list_revisions', 'get_revision', 'compare_revisions'],
+        write: ['save_revision', 'restore_revision'],
+    },
+};
+const READ_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.read);
+const WRITE_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.write);
+const DESTRUCTIVE_TOOLS = ['update_document', 'restore_revision'];
 
 describe('MCP tool definitions', () => {
     const tools = listTools('write');
 
     it('offers the v1 operations under stable names', () => {
-        expect(tools.map((tool) => tool.name)).toEqual([
-            'get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document',
-            'create_document', 'update_document', 'append_to_document',
-            'move_document_to_trash', 'create_folder', 'get_folder', 'rename_folder', 'move_folder',
-            'move_folder_to_trash', 'list_trash', 'restore_from_trash',
-        ]);
+        expect(new Set(tools.map((tool) => tool.name))).toEqual(new Set([...READ_TOOLS, ...WRITE_TOOLS]));
+        expect(tools).toHaveLength(READ_TOOLS.length + WRITE_TOOLS.length);
     });
 
     it('lists only read tools for read-only access', () => {
         const names = listTools('read').map((tool) => tool.name);
-        expect(names).toEqual(READ_TOOLS);
+        expect(names).toEqual(tools.filter((tool) => READ_TOOLS.includes(tool.name)).map((tool) => tool.name));
+        expect(names).toHaveLength(READ_TOOLS.length);
         for (const name of WRITE_TOOLS) expect(names).not.toContain(name);
     });
 
@@ -50,11 +57,11 @@ describe('MCP tool definitions', () => {
         }
     });
 
-    it('marks reads read-only and only update as destructive', () => {
+    it('marks reads read-only and only replacing writes as destructive', () => {
         for (const tool of tools) {
             expect(tool.annotations.openWorldHint).toBe(false);
             expect(tool.annotations.readOnlyHint).toBe(!WRITE_TOOLS.includes(tool.name));
-            expect(tool.annotations.destructiveHint).toBe(tool.name === 'update_document');
+            expect(tool.annotations.destructiveHint).toBe(DESTRUCTIVE_TOOLS.includes(tool.name));
         }
     });
 

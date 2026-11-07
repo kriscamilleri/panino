@@ -3,8 +3,8 @@
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getUserDb } from '../../../../db.js';
-import { aiUser, createKey, createTestApp, offerAiAddon, resetAiState } from '../aiTestSetup.js';
 import { listTools } from '../../mcpTools.js';
+import { aiUser, createKey, createTestApp, offerAiAddon, resetAiState } from '../aiTestSetup.js';
 
 const MCP = '/addons/ai/v1/mcp';
 const MODERN = '2026-07-28';
