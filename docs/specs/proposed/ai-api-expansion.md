@@ -1,6 +1,6 @@
 # AI agents add-on — expanding the v1 API and MCP tools — Spec
 
-- Status: proposed (decisions made, implementation in progress)
+- Status: implemented on `feature/ai-api-expansion`, not yet released
 - Last updated: 2026-11-07
 - Extends: [`ai-integration.md`](../active/ai-integration.md) (MCP, OAuth) and
   [`llm-api.md`](../active/llm-api.md) (keys, v1 REST)
@@ -26,6 +26,7 @@ This spec adds these, behind the same switch, keys, OAuth grants, scopes and rul
 | E2 | Images | **Read, upload, delete unused.** Upload uses the app's limits (1 MB, type allow-list, quota). Delete is refused while any Document in the database references the image |
 | E3 | Folders | **Rename, move, trash, restore.** Trash moves into the database's Trash folder. Nothing is ever deleted permanently |
 | E4 | Templates, variables, PDF | **Read and use** templates (create a Document from one), **read** global variables, **export** a Document as PDF. No writing templates or variables |
+| E5 | Document properties | **Query them.** Built-in properties are word count, created on and by, and modified on and by. Front matter `key: value` lines are properties too. Agents can read, list, filter on, set and remove front matter properties |
 
 Unchanged from the first release: no permanent deletes of Documents or folders, no space
 lifecycle, no sync, no settings or styles writes.
@@ -163,6 +164,66 @@ lifecycle, no sync, no settings or styles writes.
   - Removes the row and the file, as the app's delete does.
 - REST: `GET images`, `GET images/{id}`, `GET images/{id}/usage`, `POST images`,
   `DELETE images/{id}`.
+
+### 4.6 Properties (`api/properties.js`, `propertyService.js`, `propertyText.js`, `authorship.js`)
+
+- **Built-in properties:**
+  - title, folder, word count (the app's rule: runs of non-space characters), created on, created
+    by, modified on, modified by, pinned.
+  - There are no author columns, so authors come from revision history. Created by is the oldest
+    revision's author; modified by is the newest attributed revision's.
+  - They are worded as the app's history words them.
+  - In the personal database the owner stands in when history is silent (`inferred: true`).
+- **Front matter properties:** the `key: value` lines read by `shared/frontMatter.js`, values
+  unquoted.
+- `get_document_properties` (read), `GET documents/{id}/properties`:
+  - Returns `builtIn`, `properties` and `order`.
+  - `get_document` also gains `createdBy`, `modifiedBy` and `properties`.
+- `list_document_properties` (read), `GET properties`: keys in use, with Document counts and
+  common values, plus the built-in keys.
+- `query_documents_by_property` (read), `GET properties/query?filter=`:
+  - **Filter syntax:**
+    - conditions joined by `AND`, at most five, quotes respected;
+    - `<key> <op> <value>`, with `=`, `!=`, `~` (contains), `^=` (starts with), `>`, `<`, `>=`,
+      `<=`;
+    - `<key> exists` and `<key> missing`.
+  - **Comparison:**
+    - case is ignored;
+    - numbers compare as numbers and ISO dates as text;
+    - author `=` accepts the person's name or the key's or app's name.
+  - **Built-in names:** `word_count`, `created_on`, `modified_on`, `created_by` and `modified_by`
+    take precedence over a front matter key with the same name.
+  - **Paging and limits:**
+    - `offset` paging.
+    - It reads up to 5000 of the most recently updated Documents per database, and `truncated`
+      says when it hit that.
+    - It reads only the first 16 KB of a body unless the filter needs the word count.
+  - **Errors:** `INVALID_FILTER` (400).
+- `set_document_property` (write), `PUT documents/{id}/properties/{key}`, and
+  `remove_document_property`, `DELETE documents/{id}/properties/{key}`:
+  - They edit the front matter block with the shared writer.
+  - They follow every write rule of an edit, including attributed revisions.
+  - Removing the last property removes the block. A no-op is not written.
+
+### 4.7 What the build added or changed
+
+- **Trash:**
+  - `TRASH_NAME_RESERVED`: a second top-level folder named Trash would change which folder is
+    Trash.
+  - `update_document` keeps `ai_trash_origins` right when it moves a Document into or out of Trash.
+- **Templates and PDF:**
+  - `inputs` on `create_document_from_template` (JSON text for `{{input:Label}}`) and
+    `unfilledInputs` in the result.
+  - `page_size` on `export_pdf`.
+  - `{{input:…}}` values are now inserted literally in the app too (`$&` no longer expands).
+- **Images:**
+  - Upload Markdown carries the API path prefix (`/api/images/<id>` in production), as the editor
+    writes it.
+  - The API checks that uploaded bytes match the declared type.
+- **Revisions:** `restore_revision` and `save_revision` are both refused in a live session.
+- **Documents:**
+  - Search with several words now needs all of them, anywhere, rather than the phrase.
+  - Without a range, `get_document` still returns the whole body (up to 2 MiB), for compatibility.
 
 ## 5) Security
 

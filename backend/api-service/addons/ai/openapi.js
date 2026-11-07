@@ -13,7 +13,11 @@ export const API_USAGE_NOTE = [
     'To create in a space, pass space=<spaceId> (see GET /spaces). Writes need a read-write key.',
     'Prefer POST /documents/{id}/append for adding to a log, and send expectedUpdatedAt from your last read with',
     'PATCH to avoid overwriting someone else\'s edit (409 VERSION_CONFLICT means read again).',
-    'DELETE moves a Document to the Trash folder; nothing is removed. Every API edit is kept in revision history.',
+    'For small changes use POST /documents/{id}/edit (exact text) or /insert (around a heading) instead of PATCH.',
+    'DELETE moves a Document or folder to the Trash folder; POST /trash/{id}/restore brings it back. Every API edit is kept in',
+    'revision history (GET /documents/{id}/revisions), which can be compared and restored. Properties (word count, created and',
+    'modified on and by, front matter) are at GET /documents/{id}/properties and searchable with GET /properties/query?filter=….',
+    'Images, templates, global variables and PDF export have their own paths below.',
 ].join(' ');
 
 const METHODS = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
