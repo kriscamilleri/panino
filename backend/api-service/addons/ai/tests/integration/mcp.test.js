@@ -131,7 +131,7 @@ describe('AI agents add-on: MCP endpoint', () => {
 
         it('lists tools without 2026 fields, and answers unknown methods with -32601', async () => {
             const res = await legacy('tools/list');
-            expect(res.body.result.tools).toHaveLength(11);
+            expect(res.body.result.tools).toHaveLength(14);
             expect(res.body.result.resultType).toBeUndefined();
             const unknown = await legacy('resources/list');
             expect(unknown.status).toBe(200);
@@ -160,7 +160,7 @@ describe('AI agents add-on: MCP endpoint', () => {
         it('lists tools with cache hints', async () => {
             const res = await modern('tools/list');
             expect(res.body.result).toMatchObject({ resultType: 'complete', cacheScope: 'private', ttlMs: expect.any(Number) });
-            expect(res.body.result.tools).toHaveLength(11);
+            expect(res.body.result.tools).toHaveLength(14);
         });
 
         it('checks the headers against the body', async () => {
