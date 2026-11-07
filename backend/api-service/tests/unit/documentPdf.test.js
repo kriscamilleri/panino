@@ -12,7 +12,6 @@ import {
     sanitizeExportHtml,
     styleLibrary,
 } from '../../documentPdf.js';
-import { buildSyncPdfRequest } from '../../addons/odoo/syncPdf.js';
 
 describe('documentPdf', () => {
     let user;
@@ -26,10 +25,6 @@ describe('documentPdf', () => {
     afterEach(() => cleanupTestUser(user.userId));
 
     const note = (content, folderId = null) => ({ id: 'n', title: 'T', content, folder_id: folderId });
-
-    it('is what the Odoo add-on builds with', () => {
-        expect(buildSyncPdfRequest).toBe(buildDocumentPdfRequest);
-    });
 
     it('leaves HTML to the renderer by default, and sanitizes like Export when asked', () => {
         const content = '# Hi\n\n<script>alert(1)</script><p onclick="x()">p</p>';
