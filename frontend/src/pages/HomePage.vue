@@ -30,6 +30,7 @@
         <!-- Add-on modals on desktop; on a phone the Document menu hosts them. -->
         <AddonModalHost />
         <VariablesModal :show="ui.showVariablesModal" @close="ui.closeVariablesModal()" data-testid="homepage-variables-modal" />
+        <TagManagerModal />
         <ImageLibraryModal
             :show="ui.showImageLibraryModal"
             :db-key="docStore.selectedDbKey"
@@ -50,6 +51,7 @@ import ContentArea from '@/components/ContentArea.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
+import TagManagerModal from '@/components/tags/TagManagerModal.vue'
 import ImageLibraryModal from '@/components/ImageLibraryModal.vue'
 import AddonModalHost from '@/components/addons/AddonModalHost.vue'
 import PhoneShell from '@/components/phone/PhoneShell.vue'

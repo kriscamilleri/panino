@@ -243,6 +243,10 @@
         :textarea="liveTextarea"
         :participants="remoteParticipants"
       />
+      <TagAutocomplete
+        :textarea="liveTextarea"
+        :db-key="file.dbKey"
+      />
     </div>
   </div>
 
@@ -310,6 +314,7 @@ import DiffView from '@/components/DiffView.vue';
 import ConflictResolutionModal from '@/components/ConflictResolutionModal.vue';
 import AvatarStack from '@/components/AvatarStack.vue';
 import RemoteCarets from '@/components/phone/RemoteCarets.vue';
+import TagAutocomplete from '@/components/tags/TagAutocomplete.vue';
 import { YTextareaBinding } from '@/utils/yTextareaBinding';
 import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';

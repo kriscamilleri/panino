@@ -31,6 +31,9 @@ const structureStore = reactive({
   moveItem: vi.fn(),
 });
 
+// The tag stores (tag-system.md): no tags here, and no Pinia.
+vi.mock('@/store/tagStore', () => ({ useTagStore: () => ({ hasFilters: false, filters: [], styles: {}, loadStyles: async () => {}, styleRow: () => null, addFilter: () => {}, tagLook: (_dbKey, name) => ({ name, label: name, hex: '#78716c', colorKey: 'neutral', styled: false }) }) }));
+vi.mock('@/store/documentIndexStore', () => ({ useDocumentIndexStore: () => ({ version: 0, ensure: async () => {}, entry: () => null, versionOf: () => 0 }) }));
 vi.mock('@/store/addonsStore', () => ({ useAddonsStore: () => ({ isActive: () => false, get: () => null, fetchAddons: async () => {} }) }));
 vi.mock('vue-router', () => ({ useRouter: () => router }));
 vi.mock('@/store/docStore', () => ({ useDocStore: () => docStore }));

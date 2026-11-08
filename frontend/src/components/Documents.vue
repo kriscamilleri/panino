@@ -74,7 +74,15 @@
             </div>
         </div>
 
-        <div class="flex-1 overflow-y-auto">
+        <TagFilterBar />
+        <div
+            v-if="tagStore.hasFilters"
+            class="flex-1 overflow-y-auto"
+        >
+            <DocumentTransferPanel />
+            <TagFilterResults />
+        </div>
+        <div v-else class="flex-1 overflow-y-auto">
             <DocumentTransferPanel />
             <div
                 v-if="docStore.syncStore.bootstrapState.status === 'loading'"
@@ -241,11 +249,15 @@ import PromptModal from '@/components/PromptModal.vue'
 import { useStructureStore } from '@/store/structureStore'
 import { useSpaceTransferStore } from '@/store/spaceTransferStore'
 import DocumentTransferPanel from '@/components/DocumentTransferPanel.vue'
+import TagFilterBar from '@/components/tags/TagFilterBar.vue'
+import TagFilterResults from '@/components/tags/TagFilterResults.vue'
+import { useTagStore } from '@/store/tagStore'
 
 const docStore = useDocStore()
 const ui = useUiStore();
 const structureStore = useStructureStore()
 const transferStore = useSpaceTransferStore()
+const tagStore = useTagStore()
 const router = useRouter();
 
 const rootItems = computed(() => docStore.rootItems)
