@@ -89,11 +89,11 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     const spaceDb = getDb(`space:${spaceId}`);
     expect(userDb.prepare("SELECT kind, version FROM application_schema").get()).toEqual({
       kind: "user",
-      version: 2,
+      version: 3,
     });
     expect(spaceDb.prepare("SELECT kind, version FROM application_schema").get()).toEqual({
       kind: "space",
-      version: 2,
+      version: 3,
     });
     expect(userDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'addons'").get()).toBeDefined();
     expect(spaceDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'addons'").get()).toBeUndefined();
@@ -117,7 +117,7 @@ describe("Database keys and content initialization (COLLAB-04 Phase 1)", () => {
     });
     expect(db.prepare("SELECT kind, version FROM application_schema").get()).toEqual({
       kind: "user",
-      version: 2,
+      version: 3,
     });
   });
 

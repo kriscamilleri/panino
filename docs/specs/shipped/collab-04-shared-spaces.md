@@ -257,6 +257,9 @@ Body: { since, siteId, changes, space?: "<spaceId>" }
   | `notes` | `id`, `folder_id`, `title`, `content`, `pinned`, `created_at`, `updated_at`, `-1` |
   | `globals` | `key`, `id`, `value`, `created_at`, `updated_at`, `display_key`, `-1` |
   | `templates` | `id`, `name`, `content`, `title_pattern`, `default_folder_id`, `created_at`, `updated_at`, `-1` |
+  | `style_presets` | `id`, `kind`, `name`, `styles`, `created_at`, `updated_at`, `-1` ([named styles](named-styles.md)) |
+  | `style_assignments` | `id`, `target_type`, `target_id`, `kind`, `preset_id`, `updated_at`, `-1` ([named styles](named-styles.md)) |
+  | `tags` | `name`, `display_name`, `color`, `created_at`, `updated_at`, `-1` ([tag system](../active/tag-system.md) §6.1) |
 
   Reject `users`, `images`, `settings`, unknown tables, `user_id`, and any future column until this
   allowlist is deliberately updated with schema tests. Validate tombstone PKs as strictly as normal
