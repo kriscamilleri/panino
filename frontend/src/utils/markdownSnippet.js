@@ -25,8 +25,15 @@ const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
  * @param {string} text
  * @returns {string}
  */
+// A snippet shows a few hundred characters of a line; the patterns below
+// backtrack on long hostile lines (a 32 KB line of `{{ ` took 656 ms, a 2 MiB
+// one would take hours), so only this much of a line is stripped. The search
+// snippet window is the same size, so search snippets are unchanged.
+export const STRIP_INLINE_MAX = 2400;
+
 export function stripInline(text) {
-    return String(text ?? '')
+    const source = String(text ?? '');
+    return (source.length > STRIP_INLINE_MAX ? source.slice(0, STRIP_INLINE_MAX) : source)
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')            // images
         .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')         // links → their text
         .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')        // reference links
