@@ -63,7 +63,7 @@ describe('typewriter wiring (source checks)', () => {
     it('tells the controller about every highlight-layer rebuild, and teleports the layer into the wrapper', () => {
         expect(editor).toMatch(/onChange: \(value\) => \{\s*handleInput\(value\);\s*notifyTypewriter\(\);/);
         expect(editor).toContain('wrapperEl.value = editor.wrapper;');
-        expect(editor).toMatch(/<Teleport v-if="wrapperEl && typewriterLayerMounted" :to="wrapperEl">/);
+        expect(editor).toMatch(/<Teleport v-if="typewriterLayerHost" :to="typewriterLayerHost">/);
     });
 
     it('is given the element that scrolls the editor', () => {

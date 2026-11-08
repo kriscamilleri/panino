@@ -277,6 +277,7 @@ export function createDomLayout({ textarea, wrapper, preview, scrollContainer, c
             else contentElement.style.removeProperty('padding-top');
             if (bottom > 0) contentElement.style.setProperty('padding-bottom', `${bottom}px`, 'important');
             else contentElement.style.removeProperty('padding-bottom');
+            if (!contentElement.getAttribute('style')) contentElement.removeAttribute('style');
         },
         /** The editor's background colour, for the scrim. */
         background() {
@@ -557,6 +558,8 @@ export function createTypewriterController(options) {
         } else if (s.dim === 'off') {
             state.lastScrims = [];
         }
+        // An empty Document has nothing to dim, and the placeholder stays as it is.
+        if (!index.text.length) state.lastScrims = [];
         render({
             band: s.highlightLine && collapsed ? bandRect({ rowTop: headPos.top, rh, width: m.width }) : null,
             scrims: state.lastScrims,
@@ -873,13 +876,18 @@ const resolve = (source) => (typeof source === 'function' ? source() : unref(sou
  *   documentKey?: () => unknown,
  * }} options
  * @returns {{ active: import('vue').ComputedRef<boolean>, layerMounted: import('vue').Ref<boolean>,
+ *   layerHost: import('vue').ShallowRef<HTMLElement|null>,
  *   layerRef: (component: object|null) => void, onPreviewChange: () => void }}
+ *   `layerHost` is the element in OverType's wrapper to teleport TypewriterLayer
+ *   into; it exists only while the layer is mounted, so nothing is left in the
+ *   wrapper once the mode is off (Teleport leaves its anchor nodes behind).
  */
 export function useTypewriter(options) {
     const { settings, textarea, wrapper, contentElement } = options;
     const active = computed(() => Boolean(settings.value?.enabled));
     const layer = shallowRef(null);
     const layerMounted = ref(false);
+    const layerHost = shallowRef(null);
     let controller = null;
     let fadeTimer = null;
     let reducedMotionQuery = null;
@@ -945,6 +953,27 @@ export function useTypewriter(options) {
         else fadeTimer = setTimeout(() => { layerMounted.value = false; }, LAYER_FADE_MS + 50);
     }, { immediate: true });
 
+    // A plain static div: the layer inside it is positioned against the
+    // wrapper, and paints after the highlight layer.
+    watch(
+        () => [layerMounted.value, wrapper.value],
+        ([mounted, wrapperEl]) => {
+            const host = layerHost.value;
+            if (mounted && wrapperEl) {
+                if (host?.parentNode === wrapperEl) return;
+                host?.remove();
+                const next = document.createElement('div');
+                next.className = 'pn-typewriter-host';
+                wrapperEl.appendChild(next);
+                layerHost.value = next;
+            } else if (host) {
+                host.remove();
+                layerHost.value = null;
+            }
+        },
+        { flush: 'sync', immediate: true },
+    );
+
     // An option changed while on: apply it at once, and show a new line
     // position by moving an attached view there. Turning the mode on is not
     // such a change: then the text stays where it is (§5.3).
@@ -956,11 +985,14 @@ export function useTypewriter(options) {
     onScopeDispose(() => {
         clearTimeout(fadeTimer);
         stop();
+        layerHost.value?.remove();
+        layerHost.value = null;
     });
 
     return {
         active,
         layerMounted,
+        layerHost,
         /** Template ref callback for TypewriterLayer. */
         layerRef: (component) => {
             layer.value = component;

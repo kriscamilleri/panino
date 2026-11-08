@@ -244,7 +244,7 @@
         :participants="remoteParticipants"
       />
       <!-- Typewriter mode: drawn inside OverType's wrapper, over the text and under the caret. -->
-      <Teleport v-if="wrapperEl && typewriterLayerMounted" :to="wrapperEl">
+      <Teleport v-if="typewriterLayerHost" :to="typewriterLayerHost">
         <Transition name="pn-typewriter-fade" appear>
           <TypewriterLayer v-if="typewriterActive" :ref="typewriterLayerRef" />
         </Transition>
@@ -641,7 +641,7 @@ function handleInput(value) {
 const typewriterStore = useTypewriterStore();
 const {
   active: typewriterActive,
-  layerMounted: typewriterLayerMounted,
+  layerHost: typewriterLayerHost,
   layerRef: typewriterLayerRef,
   onPreviewChange: notifyTypewriter,
 } = useTypewriter({

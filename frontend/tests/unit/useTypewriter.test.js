@@ -497,16 +497,22 @@ describe('useTypewriter', () => {
         expect(remove).toHaveBeenCalledTimes(attached * 3);
     });
 
-    it('keeps the layer mounted long enough to fade out', async () => {
+    it('keeps the layer mounted long enough to fade out, then leaves nothing in the wrapper', async () => {
         vi.useFakeTimers();
         try {
-            const { api, scope, settings } = setup(true);
+            const { api, scope, settings, wrapper, wrapperEl } = setup(true);
+            const before = wrapperEl.childNodes.length;
+            wrapper.value = wrapperEl;
             expect(api.layerMounted.value).toBe(true);
+            expect(api.layerHost.value?.parentNode).toBe(wrapperEl);
+            expect(api.layerHost.value?.className).toBe('pn-typewriter-host');
             settings.value = { ...settings.value, enabled: false };
             await nextTick();
             expect(api.layerMounted.value).toBe(true);
             vi.advanceTimersByTime(250);
             expect(api.layerMounted.value).toBe(false);
+            expect(api.layerHost.value).toBeNull();
+            expect(wrapperEl.childNodes.length).toBe(before);
             scope.stop();
         } finally {
             vi.useRealTimers();

@@ -85,8 +85,13 @@ if (params.get('theme') === 'dark') theme.setPreference('dark');
 ui.showPreview = params.get('preview') === '1';
 
 async function openDocument(content, id = 'doc-1') {
-    structure.selectedFileId = id;
-    await nextTick();
+    // The id is set once: setting it again empties selectedFile for a moment
+    // (no database here), which destroys the editor. The app keeps the old
+    // Document selected until the new one has loaded.
+    if (!structure.selectedFileId) {
+        structure.selectedFileId = id;
+        await nextTick();
+    }
     structure.selectedFile = {
         id,
         title: 'Typewriter fixture',
