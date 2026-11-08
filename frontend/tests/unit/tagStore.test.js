@@ -238,4 +238,14 @@ describe('tag filter', () => {
         await nextTick();
         expect(store.filters).toEqual([]);
     });
+
+    it('removes the row when Neutral is chosen for a tag with no display name', async () => {
+        const db = fakeDatabase({ tags: [{ name: 'work', color: 'red' }] });
+        setup([[PERSONAL, db]]);
+        const store = useTagStore();
+        await store.loadStyles(PERSONAL, { force: true });
+        await store.setColor(PERSONAL, 'work', '');
+        expect(db.state.writes.at(-1).sql).toMatch(/^DELETE FROM tags/);
+        expect(db.state.tags.has('work')).toBe(false);
+    });
 });

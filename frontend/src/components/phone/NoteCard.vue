@@ -104,6 +104,7 @@ import { toSnippetLines, toSummary } from '@/utils/markdownSnippet'
 import { readTagEntries } from '@panino/content-merge/front-matter'
 import TagChip from '@/components/tags/TagChip.vue'
 import { useTagStore } from '@/store/tagStore'
+import { FRONT_MATTER_SCAN_CHARS } from '@/utils/documentMetadataIndex'
 
 const props = defineProps({
     /** A normalized dashboard Document (recentDocuments.normalizeRecentDocument). */
@@ -122,7 +123,11 @@ const emit = defineEmits(['open', 'select'])
  */
 let tagStore = null
 const tagStoreFor = () => (tagStore ||= useTagStore())
-const tagEntries = computed(() => (props.doc.dbKey ? readTagEntries(props.doc.content || '') : []))
+// The first 16 KB, as the sidebar, filter and manager read it (the metadata
+// index), so a card never shows tags the rest of the app does not know.
+const tagEntries = computed(() => (props.doc.dbKey
+    ? readTagEntries(String(props.doc.content || '').slice(0, FRONT_MATTER_SCAN_CHARS))
+    : []))
 const tags = computed(() => tagEntries.value.map(({ name, label }) => tagStoreFor().tagLook(props.doc.dbKey, name, label)))
 watch(() => tagEntries.value.length > 0 && props.doc.dbKey, (dbKey) => {
     if (dbKey) void tagStoreFor().loadStyles(dbKey)

@@ -42,7 +42,11 @@ export const INDEX_BUILD_PAGE_SIZE = 250;
 /** How long after a write the changed rows are re-read. */
 export const INDEX_FLUSH_DELAY_MS = 100;
 
-const HEAD_SQL = `substr(COALESCE(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS})`;
+// Only a body that opens with `---` (after blank lines) can have front matter,
+// so only those send their first 16 KB into JS; every other row sends its id.
+// The same 1 KB prefilter the API's property scan uses.
+const HEAD_SQL = `CASE WHEN ltrim(substr(COALESCE(content, ''), 1, 1024), ' ' || char(9, 13, 10)) LIKE '---%'
+  THEN substr(content, 1, ${FRONT_MATTER_SCAN_CHARS}) ELSE NULL END`;
 const PAGE_SQL = `SELECT rowid AS rid, id, ${HEAD_SQL} AS head FROM notes WHERE rowid > ? ORDER BY rowid LIMIT ?`;
 const CHANGED_SQL = `SELECT rowid AS rid, id, ${HEAD_SQL} AS head FROM notes
   WHERE rowid IN (SELECT value FROM json_each(?)) OR id IN (SELECT value FROM json_each(?))`;

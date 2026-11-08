@@ -128,6 +128,12 @@ export const useTagStore = defineStore('tagStore', () => {
         const canonical = canonicalTagName(name);
         if (!canonical) throw new Error('A tag needs a name of 1 to 50 characters.');
         if (!isTagColor(color)) throw new Error('Choose one of the tag colours.');
+        // Neutral with no display name is the unstyled look: remove the row
+        // rather than write one that changes nothing yet counts as styled.
+        if (color === '' && !styles[dbKey]?.[canonical]?.displayName) {
+            await resetTag(dbKey, canonical);
+            return;
+        }
         const now = new Date().toISOString();
         await writeStyle(dbKey,
             `INSERT INTO tags (name, color, created_at, updated_at) VALUES (?, ?, ?, ?)

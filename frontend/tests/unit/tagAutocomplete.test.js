@@ -76,3 +76,23 @@ describe('applyTagCompletion', () => {
         expect(applyTagCompletion(value, context, 'q3, plan').value).toBe('---\ntags:\n  - "q3, plan"\n');
     });
 });
+
+describe('autocomplete values read back as written (review, 2026-11-08)', () => {
+    it('quotes a name with both quote kinds so readTags returns it unchanged', async () => {
+        const { readTags } = await import('@panino/content-merge/front-matter');
+        for (const label of ['it\'s "fine"', 'issue #12', 'a: b', 'back\\slash "x"', "o'neil"]) {
+            const value = yamlTagValue(label);
+            expect(readTags(`---\ntags: ${value}\n---\n`)).toEqual([label.toLowerCase()]);
+            expect(readTags(`---\ntags:\n  - ${value}\n---\n`)).toEqual([label.toLowerCase()]);
+        }
+    });
+
+    it('treats a `#` inside a quoted item as part of the name being typed', () => {
+        const marked = '---\ntags:\n  - "issue #1|2"\n';
+        const caret = marked.indexOf('|');
+        const value = marked.replace('|', '');
+        const context = tagCompletionContext(value, caret);
+        expect(context).not.toBeNull();
+        expect(value.slice(context.start, context.end)).toBe('"issue #12"');
+    });
+});

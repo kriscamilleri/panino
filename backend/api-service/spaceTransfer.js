@@ -490,8 +490,11 @@ export async function resumeSpaceTransfer(req, initialRow, { deleteSource = true
     row = transferRow(row.actor_user_id, row.id);
     await copyImages(row, source, destination, plan.imageMap);
     copyDocument(row, source, destination, plan.imageMap);
-    copyTagStyles(row, source, destination);
     if (!await verifyDestination(row, destination, plan.imageMap)) throw new Error("Destination verification failed");
+    // Styles only for a verified copy, so a transfer that is given up never
+    // leaves the person's tag styles in the destination. Still before the
+    // status changes, so a crash here repeats the step on resume.
+    copyTagStyles(row, source, destination);
     updateTransfer(row.id, {
       status: "destination_confirmed",
       destination_confirmed_at: now(),

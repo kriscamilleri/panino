@@ -10,7 +10,7 @@
  *     list item there (`tags: [work, ur|`);
  *   - a `- ` item in the list under `tags:`.
  */
-import { canonicalTagName } from '@panino/content-merge/front-matter';
+import { canonicalTagName, quotedScalarEnd, stripYamlComment } from '@panino/content-merge/front-matter';
 import { FRONT_MATTER_SCAN_CHARS } from './documentMetadataIndex.js';
 
 /**
@@ -51,12 +51,20 @@ function unquoted(text) {
 }
 
 function cutComment(text) {
-    const at = text.indexOf(' #');
-    return at === -1 ? text : text.slice(0, at);
+    // Quote-aware, as the reader is: `"issue #12"` keeps its `#`.
+    return stripYamlComment(text);
 }
 
-/** Length of the token from `from` up to a delimiter (`,`, `]`, ` #`) or the end. */
-function tokenEnd(text, from, inline) {
+/**
+ * Where the token at the caret ends: at a delimiter (`,`, `]`, ` #`) or the
+ * end of the line. A token that opens with a quote ends at its closing quote,
+ * so a `#` or `,` inside it is part of the name.
+ */
+function tokenEnd(text, from, inline, tokenStart = from) {
+    if (text[tokenStart] === '"' || text[tokenStart] === "'") {
+        const close = quotedScalarEnd(text, tokenStart);
+        return Math.max(close === -1 ? text.length : close, from);
+    }
     let end = from;
     while (end < text.length) {
         const ch = text[end];
@@ -108,12 +116,24 @@ export function tagCompletionContext(value, caret) {
             const close = line.text.indexOf(']', start);
             if (close !== -1 && column > close) return null;
             let itemStart = start + 1;
+            let atItemStart = true;
             for (let i = start + 1; i < column; i += 1) {
-                if (line.text[i] === ',') itemStart = i + 1;
+                const ch = line.text[i];
+                if (atItemStart && (ch === '"' || ch === "'")) {
+                    const close = quotedScalarEnd(line.text, i);
+                    if (close === -1 || close > column) break; // the caret is inside this quoted item
+                    i = close - 1;
+                    atItemStart = false;
+                } else if (ch === ',') {
+                    itemStart = i + 1;
+                    atItemStart = true;
+                } else if (ch !== ' ' && ch !== '\t') {
+                    atItemStart = false;
+                }
             }
             while (itemStart < column && line.text[itemStart] === ' ') itemStart += 1;
             const items = line.text.slice(start + 1, close === -1 ? line.text.length : close).split(',');
-            const end = tokenEnd(line.text, column, true);
+            const end = tokenEnd(line.text, column, true, itemStart);
             return {
                 start: line.start + itemStart,
                 end: line.start + Math.max(end, column),
@@ -123,7 +143,7 @@ export function tagCompletionContext(value, caret) {
             };
         }
         if (rest.trim().startsWith('#')) return null;
-        const end = tokenEnd(line.text, column, false);
+        const end = tokenEnd(line.text, column, false, start);
         return {
             start: line.start + start,
             end: line.start + Math.max(end, column),
@@ -159,7 +179,7 @@ export function tagCompletionContext(value, caret) {
         if (!isListItem(next.text)) break;
         items.push(next.text.trim().slice(1));
     }
-    const end = tokenEnd(line.text, column, false);
+    const end = tokenEnd(line.text, column, false, start);
     return {
         start: line.start + start,
         end: line.start + Math.max(end, column),
@@ -197,7 +217,10 @@ const NEEDS_QUOTES = /[:#,[\]{}&*!|>'"%@`]|^[-?\s]|\s$/;
 export function yamlTagValue(label) {
     const text = String(label ?? '');
     if (!NEEDS_QUOTES.test(text)) return text;
-    return text.includes('"') ? `'${text}'` : `"${text}"`;
+    // Double quotes read back as written unless the name has `"` or `\`;
+    // otherwise single quotes, where the only escape is `''` (readTags undoes both).
+    if (!text.includes('"') && !text.includes('\\')) return `"${text}"`;
+    return `'${text.split("'").join("''")}'`;
 }
 
 /**

@@ -52,6 +52,14 @@ before relying on it.
 Roll back by reverting the commit on `main` and letting the pipeline deploy it, so the
 compose file, the frontend and the image all go back together.
 
+**Except across a content schema bump.** A release that raises `CONTENT_SCHEMA_VERSION` in
+`backend/api-service/db.js` stamps the new version on every personal and space database it
+opens, and an older server refuses a database whose version is newer than it knows ("Content
+database schema is newer than this server supports"). Reverting such a release fails every
+request for every user whose database was opened since the deploy. Roll forward instead: fix the
+problem in a new release. Version 3 (the `tags` table, 2026-11) is such a release. Before merging
+one, note in the release log that it is forward-only.
+
 Do **not** start the previous image under the current compose file. The previous image
 reads `/app/data`; the current compose file mounts the volume elsewhere, so that image would
 start on an empty directory inside the container. Every login would fail, new sign-ups would

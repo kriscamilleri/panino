@@ -120,9 +120,13 @@ would create two rows for one tag. With the canonical name as the key, both writ
 CR-SQLite merges them column by column (last writer wins per column). This mirrors `globals`
 (`key` primary key plus `display_key`).
 
-**Writes touch one column.** Setting a color updates `color` (and `updated_at`) only; setting a
-display name updates `display_name` only. A member changing the color therefore never overwrites
-another member's concurrent display name.
+**Later writes touch one column.** The first write creates the row, so it writes every column
+(the ones it does not set get `''`). After that, setting a color updates `color` (and
+`updated_at`) only, and setting a display name updates `display_name` only. A member changing the
+color therefore never overwrites another member's concurrent display name. Two first writes
+from different sites still converge: CR-SQLite breaks the version tie by value, and `''` is the
+smallest, so the set values win (checked with the native extension, 2026-11-08 review). Choosing
+Neutral for a tag with no display name removes the row, as Reset does.
 
 **A display name changes only the spelling.** `display_name` must have the same canonical name as
 the row (`Work` or `WORK` for `work`, not `Job`). Renaming a tag is out of scope (§5.3), and a
@@ -219,7 +223,7 @@ rules above, and a unit test runs the same checks.
   space the user belongs to. Everything below applies to the selected database only. It opens on
   the database of the Document being edited.
 - Lists every tag in that scope — styled tags and tags found in its Documents — with swatch,
-  name and Document count.
+  name and Document count. The count includes Documents in Trash; the filter leaves them out.
 - Per-row actions:
   - **Set color** (a row of palette swatches) and **Set display name** write the row.
   - **Reset** deletes the row; the tag returns to the neutral style.
@@ -287,10 +291,15 @@ before upload; a table missing there is never sent from a space.
   against an old client opening a space whose local schema it cannot maintain, not against bad
   writes. This change does not bump it.
 - An older client that pulls a `tags` row cannot apply it, and that database's sync stalls until
-  the service worker update reloads the app, as with the named-style tables. Rows exist only once
-  someone styles a tag with the new client (§4.1), so the window is small.
+  the service worker update reloads the app, as with the named-style tables. The whole pulled
+  change set fails, `notes` rows included, and the client downloads the same batch again on every
+  poke until it reloads. Uploads continue, so nothing is lost. The service worker checks for an
+  update every 60 s and reloads on `controllerchange`, so the window is about a minute for an open
+  tab. Rows exist only once someone styles a tag with the new client (§4.1).
 - A server rolled back to a build that knows content schema 2 refuses databases this build has
-  opened (`application_schema` records 3). Roll the backend forward, not back.
+  opened (`application_schema` records 3): every request for those users fails. **Roll the backend
+  forward, not back.** `docs/runbooks/deployment.md` ("Rolling back a release") says so for every
+  release that raises `CONTENT_SCHEMA_VERSION`.
 - Ship backend first (table + allowlist), then frontend.
 
 ### 6.3 Moving a Document between databases
@@ -326,8 +335,11 @@ One **per-database in-memory index of Document metadata** serves the tag system 
   read from the first 16 KB of the body (the API's `FRONT_MATTER_SCAN_CHARS`). A block longer than
   that is unclosed in the head and has neither tags nor properties, as in the API.
 - Built lazily the first time something needs a database's metadata, by streaming rows in pages
-  ordered by `rowid` with a yield between pages. Never at start-up: the sidebar asks for it when it
-  first shows that database's Documents, and the first build waits for the browser to be idle.
+  ordered by `rowid` with a yield between pages. Not during start-up: the sidebar asks for it when it
+  first shows that database's Documents (its chips need it), and the first build waits for the
+  browser to be idle. Only a body whose first 1 KB (after blank lines) starts with `---` sends its
+  head into JS; every other row sends only its id (the API's prefilter). The build's cost on a large
+  account is measured in the integration browser run (2026-11-08).
 - Updated for changed Documents only:
   - every local write to `notes` (save, create, duplicate, delete, import, restore) through the
     database's update hook: the changed rows are re-read in one query shortly after, inside the

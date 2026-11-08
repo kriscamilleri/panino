@@ -112,3 +112,37 @@ describe('canonicalTagName', () => {
         expect(canonicalTagName(` ${'a'.repeat(MAX_TAG_LENGTH)} `)).toBe('a'.repeat(MAX_TAG_LENGTH));
     });
 });
+
+describe('readTags and quoting (review, 2026-11-08)', () => {
+    const fm = (lines) => `---\n${lines}\n---\nBody`;
+
+    it('keeps a ` #` inside a quoted name, in every form', () => {
+        expect(readTags(fm('tags: "c #1"'))).toEqual(['c #1']);
+        expect(readTags(fm('tags:\n  - "issue #12"'))).toEqual(['issue #12']);
+        expect(readTags(fm('tags: ["a #b", c]'))).toEqual(['a #b', 'c']);
+        expect(readTags(fm('tags:\n  - one # note\n  - "two #2" # note'))).toEqual(['one', 'two #2']);
+    });
+
+    it('still drops a comment after a plain value, and keeps an apostrophe inside a plain word', () => {
+        expect(readTags(fm('tags: work # later'))).toEqual(['work']);
+        expect(readTags(fm("tags: it's # later"))).toEqual(["it's"]);
+    });
+
+    it('undoes YAML escapes in quoted names', () => {
+        expect(readTags(fm("tags: 'it''s'"))).toEqual(["it's"]);
+        expect(readTags(fm('tags: "say \\"hi\\""'))).toEqual(['say "hi"']);
+    });
+
+    it('reads no tag from an unclosed inline list, and reads `tags: - work` as a list item', () => {
+        expect(readTags(fm('tags: [a, b'))).toEqual([]);
+        expect(readTags(fm('tags: - work'))).toEqual(['work']);
+    });
+
+    it('stays linear on an unclosed quote and a huge quoted list', () => {
+        const long = 'a'.repeat(2 * 1024 * 1024);
+        const started = performance.now();
+        readTags(fm(`tags: "${long}`));
+        readTags(fm(`tags: [${'"x #y", '.repeat(200000)}]`));
+        expect(performance.now() - started).toBeLessThan(2000);
+    });
+});
