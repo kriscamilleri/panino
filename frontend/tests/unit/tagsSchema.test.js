@@ -1,6 +1,8 @@
-// The browser's `tags` repair (tag-system.md §6.2): what it runs for each table shape.
+// The browser's `tags` table (tag-system.md §6): what it uploads to a space, and the
+// repair it runs for each table shape.
 import { describe, expect, it, vi } from 'vitest';
 import { TAGS_COLUMNS, TAGS_SCHEMA_SQL, ensureTagsSchema } from '@/utils/tagsSchema';
+import { projectSpaceOutgoingChanges } from '@/utils/syncRegistry';
 
 function database({ columns, trigger }) {
     const statements = [];
@@ -16,6 +18,19 @@ function database({ columns, trigger }) {
 }
 
 const ALL = ['name', ...Object.keys(TAGS_COLUMNS)];
+
+describe('tags in a space', () => {
+    it('uploads every tags column and its reset to a space, and nothing the server refuses', () => {
+        // The client's projection mirrors the server allowlist; a column left out
+        // here is never uploaded, and the push cursor moves past it for good.
+        const changes = [
+            ...ALL.map((cid) => ({ table: 'tags', cid, val: 'x' })),
+            { table: 'tags', cid: '-1', val: null },
+            { table: 'tags', cid: 'user_id', val: 'u1' },
+        ];
+        expect(projectSpaceOutgoingChanges(changes)).toEqual(changes.slice(0, ALL.length + 1));
+    });
+});
 
 describe('ensureTagsSchema', () => {
     it('creates and registers the table from DB_SCHEMA with defaults on every column', () => {

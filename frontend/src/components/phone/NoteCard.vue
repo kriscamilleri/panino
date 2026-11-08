@@ -304,10 +304,10 @@ function handleClick(event) {
 
 .ph-note-tags {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 3px;
     min-width: 0;
-    overflow: hidden;
     color: var(--ph-ink-2);
 }
 

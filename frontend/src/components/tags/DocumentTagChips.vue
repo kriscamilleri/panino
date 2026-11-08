@@ -70,12 +70,19 @@ const hiddenLabels = computed(() => tags.value.slice(props.max).map((tag) => tag
 </script>
 
 <style scoped>
+/* The title keeps at least 40% of the row; chips shrink (ellipsis) before +N goes. */
 .pn-doc-tags {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     min-width: 0;
+    max-width: 60%;
     flex-shrink: 1;
     overflow: hidden;
+}
+
+.pn-doc-tags :deep(.pn-tag-chip) {
+    flex-shrink: 1;
+    min-width: 2.25rem;
 }
 </style>
