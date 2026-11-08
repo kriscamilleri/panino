@@ -131,6 +131,9 @@ describe('hostile headings (§9)', () => {
         expect(toc.block.closed).toBe(true);
         const html = renderDocumentHtml(inserted.slice(0, toc.block.end));
         expect(html).not.toMatch(/<img|<script|href="javascript|<strong>bold/);
+        // An HTML-only heading is listed by its source text, escaped (U16).
+        expect(inserted).toContain('[\\<img src=x onerror=alert(1)>](#section)')
+        expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
         expect(findTocs(inserted)).toHaveLength(1);
     });
 

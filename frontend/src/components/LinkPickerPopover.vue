@@ -53,20 +53,21 @@ const position = computed(() => {
     const anchor = picker.request?.anchor
     const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
     const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 768
-    let top
     let left
     if (anchor) {
-        top = anchor.bottom + 4
         left = anchor.left
-        if (top + HEIGHT > viewportHeight - 8 && anchor.top - HEIGHT - 4 > 8) top = anchor.top - HEIGHT - 4
     } else {
         const editor = document.querySelector('[data-testid="editor-container"]')?.getBoundingClientRect()
-        top = (editor?.top ?? 80) + 8
         left = (editor?.left ?? 16) + 8
+        const top = (editor?.top ?? 80) + 8
+        return { top: `${Math.max(8, top)}px`, left: `${Math.max(8, left)}px` }
     }
     left = Math.max(8, Math.min(left, viewportWidth - Math.min(WIDTH, viewportWidth - 16) - 8))
-    top = Math.max(8, Math.min(top, viewportHeight - 120))
-    return { top: `${top}px`, left: `${left}px` }
+    // Below the caret line; above it, hugging the line, when there is no room below.
+    if (anchor.bottom + 4 + HEIGHT > viewportHeight - 8 && anchor.top - HEIGHT - 4 > 8) {
+        return { bottom: `${Math.max(8, viewportHeight - anchor.top + 4)}px`, left: `${left}px` }
+    }
+    return { top: `${Math.max(8, Math.min(anchor.bottom + 4, viewportHeight - 120))}px`, left: `${left}px` }
 })
 
 function onChoose(markdown) {

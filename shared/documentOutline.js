@@ -156,7 +156,8 @@ export function decodeFragment(fragment) {
 /**
  * @typedef {object} OutlineHeading
  * @property {number} level 1–6
- * @property {string} text plain text, before typographer replacements
+ * @property {string} text plain text, before typographer replacements (the source as
+ *   written when the heading is only inline HTML)
  * @property {string} slug unique within the Document
  * @property {boolean} listed false inside a quote or list, or with `<!-- omit from toc -->`
  * @property {number|null} line 0-based source line of the heading in the rendered body
@@ -177,8 +178,11 @@ function headingAnchorsRule(state) {
         if (token.type !== 'heading_open') continue;
         const inline = tokens[i + 1];
         const children = inline?.type === 'inline' ? inline.children : [];
-        const text = inlineTokensText(children).trim();
-        const slug = slugger.slug(text);
+        const plain = inlineTokensText(children).trim();
+        const slug = slugger.slug(plain);
+        // A heading made only of inline HTML has no plain text; its label is then the
+        // source as written (escaped wherever it is written back), never an empty link.
+        const text = plain || String(inline?.content ?? '').trim();
         token.attrSet('id', `${HEADING_ID_PREFIX}${slug}`);
         outline.push({
             level: Number(token.tag.slice(1)) || 1,

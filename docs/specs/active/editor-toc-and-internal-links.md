@@ -4,7 +4,7 @@
 > to a heading in the same Document, to another Document, or to a heading in another Document.
 > Everything is stored as ordinary Markdown, so the Preview, the PDF, the phone, sync, shared
 > spaces, backups and other Markdown tools all read it without a new storage format.
-> Status: active — in implementation on `feature/toc-internal-links` (2026-11-08)
+> Status: active — all five phases of §11 built on `feature/toc-internal-links` (2026-11-08); remaining: the browser checks listed in `docs/agent-logs/2026/11/2026-11-08_19-10_toc-internal-links.md`, review, merge
 > Created: 2026-11-07
 > Last updated: 2026-11-07 — Kris answered Q1–Q6, then N1–N3
 > Requested by: Kris ("Insertable table of contents, which can be refreshed, similar to the Odoo
