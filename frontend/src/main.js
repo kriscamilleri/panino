@@ -79,3 +79,8 @@ window.alert = (msg) => ui.addToast(String(msg))
 app.config.globalProperties.$alert = window.alert
 
 app.mount('#app')
+
+// Development only: console helpers that time search (advanced-search.md §8, phase 0).
+if (import.meta.env.DEV) {
+  import('./utils/searchBench.js').then(({ installSearchBench }) => installSearchBench())
+}

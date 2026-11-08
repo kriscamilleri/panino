@@ -192,6 +192,30 @@ Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation
 
 ---
 
+## Search
+
+Spec: `docs/specs/active/advanced-search.md`. One engine for the phone Search page and the
+desktop search panel, and the same query language as the AI add-on's `search_documents`.
+
+- `docStore.searchDocuments({ query, limit, cursor })` returns `{ results, nextCursor, notices,
+  terms, cancelled }`. It hands every open database to `searchDatabases` in
+  `@panino/content-merge/document-search` (`shared/documentSearch.js`), which needs only an
+  `execute(sql, params)` per database, so the backend's parity test runs it on better-sqlite3
+  against the API. A newer call cancels an older one.
+- The parser, term helpers and checklist rule are `shared/searchText.js`; `prop:` uses
+  `shared/propertyFilter.js`; Trash and folder paths `shared/trashFolder.js`.
+- `composables/useDocumentSearch.js` holds a search session (150 ms debounce, paging, recent
+  searches) for both screens, and the desktop panel's open state and text for the session.
+  Chips write into the query (`utils/searchQuery.js`: `setTitlesChip`, `setChecklistChip`,
+  `setFolderChip`, `clearChips`, `chipState`).
+- Desktop: `SearchPanel.vue` replaces the tree in `Documents.vue` while open; the toggle and
+  `Ctrl/Cmd+Shift+F` (listened for in `SidebarWithResizer.vue`) open it, Esc closes it.
+- Recent searches (`panino-recent-searches`) are cleared on sign-out (`authStore`).
+- Development builds put `__paninoSearchBench(query, runs)` and `__paninoSearchSeed({ count,
+  confirm })` on `window` (`utils/searchBench.js`) for the browser benchmark.
+
+---
+
 ## Toast System
 
 ```javascript

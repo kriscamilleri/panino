@@ -49,7 +49,7 @@ Visual reference: [attached reference image](recent-documents-redesign/8015cb47-
 ## 3) Non-goals
 
 - This is not the full workspace search proposed in
-  [`advanced-search.md`](../proposed/advanced-search.md). It does not search every note body, tags, or
+  [`advanced-search.md`](../active/advanced-search.md). It does not search every note body, tags, or
   front-matter field.
 - It does not introduce shared-document ownership or a meaningful "My notes" scope: all notes
   in a user's local database are already their notes.
@@ -365,7 +365,7 @@ filters; and confirm a sync refresh updates each dashboard without a manual relo
 
 ## 12) Follow-ups
 
-- When [`advanced-search.md`](../proposed/advanced-search.md) ships, the page-header field may become a
+- When [`advanced-search.md`](../active/advanced-search.md) ships, the page-header field may become a
   global search launcher or be replaced by one. That change must preserve this dashboard's
   quick-filter behavior and its global-versus-folder scope boundary, or make the scope
   transition explicit.

@@ -2,11 +2,16 @@
 
 > Find Documents by their text, title, folder, front matter properties and tags, in personal
 > Documents and every space at once, on desktop and phone, with one search engine behind both.
-> Status: proposed
+> Status: active — phases 1–2 on `feature/advanced-search`
 > Created: 2026-03-21
 > Last updated: 2026-11-08 — rewritten for what shipped since March: shared spaces, the phone
 > Search page, the shared front matter parser, the AI agents add-on's search and property
-> filters, and the forthcoming [tag system](tag-system.md); then Kris decided Q1–Q4 (§12)
+> filters, and the forthcoming [tag system](../proposed/tag-system.md); then Kris decided Q1–Q4 (§12)
+> Implementation (phases 1–2): `shared/searchText.js`, `shared/propertyFilter.js`,
+> `shared/trashFolder.js`, `shared/documentSearch.js` (the app's engine), `docStore.searchDocuments`,
+> `composables/useDocumentSearch.js`, `pages/PhoneSearchPage.vue`, `components/SearchPanel.vue`,
+> the AI add-on's `documentService.searchDocuments` and `propertyService.searchByProperties`.
+> Build notes in §13. Remaining: phase 0 (browser benchmark), phases 3–4
 
 ---
 
@@ -79,7 +84,7 @@ A query is a list of parts separated by spaces. Every part must match (AND).
 | `"a phrase"` | the title or body contains the exact phrase | `"quarterly review"` |
 | `title:` word or phrase | the title only | `title:kickoff`, `title:"team sync"` |
 | `in:` folder path | Documents in that folder and below; a space name may lead | `in:Projects/2026`, `in:"Acme Team/Contracts"` |
-| `tag:` name | Documents carrying the tag ([tag system](tag-system.md) §3) | `tag:urgent` |
+| `tag:` name | Documents carrying the tag ([tag system](../proposed/tag-system.md) §3) | `tag:urgent` |
 | `is:checklist` | Documents with at least one checklist item (the phone's Checklists chip) | `is:checklist` |
 | `prop:` condition | one condition of the property filter language, quoted when it has spaces | `prop:status=draft`, `prop:"due <= 2026-12-01"`, `prop:"owner missing"` |
 | `-` before any part | must **not** match | `-tag:archived`, `-"draft"` |
@@ -88,6 +93,12 @@ Rules:
 
 - Prefixes are case-insensitive. A word that only looks like a prefix (`Note:`) is a plain word
   unless its prefix is in the table. Quote it to search it literally: `"title:"`.
+- `-` negates only when a letter or a quote follows it (`-draft`, `-"old plan"`, `-in:Archive`).
+  `-5 degrees`, `--` and `-` alone are plain words, as the first release of the API read them.
+  To search a word that starts with a dash, quote it: `"-draft"`.
+- A prefixed value runs to the next space outside quotes, so `prop:status="in progress"` and
+  `title:"team sync"` are one part each. A quote with no closing quote takes the rest of the
+  query, with a notice.
 - `prop:` uses `parseFilter` from the AI add-on, moved to `shared/` (§6.1): the operators
   `= != ~ ^= > < >= <=`, `exists` and `missing`, numbers as numbers, and dates at the precision
   both sides give. The built-in properties available locally are `word_count`, `created_on` and
@@ -257,7 +268,8 @@ parser, so every part in §4 works there too:
   working. Results in Trash keep the existing `inTrash: true` field.
 - **`prop:`** also accepts `created_by` and `modified_by` on the server, which has revision
   history. In the app these give a notice and are ignored (§3).
-- **`tag:`** returns the same "not available yet" notice until tags ship.
+- **`tag:`** returns the same "not available yet" notice until tags ship. A query whose only
+  part is `tag:` answers 200 with no results and that notice.
 - **Responses** gain `notices`, the parse messages as text, next to the existing `terms`. Update
   the OpenAPI document, the tool description and the add-on README, and give one example per new
   part.
@@ -269,7 +281,7 @@ parser, so every part in §4 works there too:
 
 ## 7) Tags dependency
 
-`tag:` and the tag chips need the [tag system](tag-system.md). Search ships without them
+`tag:` and the tag chips need the [tag system](../proposed/tag-system.md). Search ships without them
 (§10), and `tag:` shows "Tags are not available yet" until then. When the tag spec is revised,
 align it with this spec:
 
@@ -389,3 +401,49 @@ on large accounts and adds the picker, which needs the index for its list of key
 | Q2 | Should search hide a top-level `Trash` folder? | **Yes, in the app and the API alike.** One shared rule; `in:Trash` includes it, with an "In Trash" label (§4, §6.5). (Kris first chose to include it, then unified both on leaving it out) |
 | Q3 | Should people filter properties by typing `prop:` or with a picker? | **Both.** The picker writes `prop:` parts (§5.4) |
 | Q4 | Should the API's search accept the same parts? | **Yes, in phase 1** (§6.5) |
+
+---
+
+## 13) Build notes (phases 1–2, 2026-11-08)
+
+Where the build differs from the text above, or settles something it left open:
+
+- **The app's engine lives in `shared/documentSearch.js`**, not in `docStore`. It takes each
+  database as `{ dbKey, name, labels, execute }`, so the backend's parity tests run it on
+  better-sqlite3 next to the API. `docStore.searchDocuments` passes the open databases to it.
+  Its merge uses its own comparator (`compareSearchRows`); `mergeDashboardRows` is unchanged.
+- **`parseSearchTerms` keeps the first release's reading** (plain terms). The language is a new
+  `parseSearchQuery`, which records each token's position so the chips can rewrite the query.
+- **Exclusions only** (`-draft` alone) is not a search: the app shows a notice, the API answers
+  400 with it. Any positive part (`in:Projects`, `prop:…`, `is:checklist`) is enough.
+- **`in:`** resolves per database from the top level; several folders may share a path and all
+  count. Its first name may be a space's name, or `My Notes` for the personal database (the
+  sidebar's label). An `in:` that names nothing anywhere gives "No folder matches in:…". Trash
+  is searched when a positive `in:` names a folder inside it, so `in:Trash/Old` works too.
+- **`prop:`** with a negation (`-prop:status=done`) keeps the Documents the condition refuses.
+  `word_count` counts the whole body, front matter included (the API's rule).
+- **Terms with cased non-ASCII letters** (über) cannot be scored exactly by `LIKE`, so for such a
+  query the app reads every candidate's metadata (no bodies), scores titles in JS and sorts; the
+  ASCII path keeps SQL's `ORDER BY … LIMIT`. Both page with the same cursor.
+- **Refill** reads more candidates in growing batches (the page size, then doubling, at most
+  500), so a rare `is:checklist` or `prop:` does not cost one query per page-sized slice. Bodies
+  read to confirm a batch are kept only for the rows that match, so memory stays bounded by
+  the page; a check on the title alone reads no body.
+- **Checklists** skip front matter by the shared `findFrontMatterBlock` rule. An empty box
+  (`- [ ] ` with nothing after it) is not an item, as the earlier rule and the Preview read it.
+- **Recent searches** remember typed queries (after 2 s) and opened results, not text the page
+  writes itself (chips, the folder's `in:` part). Shown results are searched again after a sync
+  at most once per 2 s.
+- **Snippets** strip only a window of about 2400 characters around the first term found, so a
+  2 MiB body costs no more than a short one (`stripInline` is not linear on hostile lines).
+- **API**: `search` responses gain `notices` always, and `truncated` / `scanned` only when the
+  query has a `prop:` part. A `prop:` query uses `searchByProperties` (the `scanTarget` scan,
+  extended with the search's SQL filters and title score). Unreadable parts are notices; more
+  than 20 parts or over 200 characters stay 400s, as before.
+- **A first, rough phase 0 run** (headless Chrome, 5000 seeded Documents, 84 MB, sync off) found
+  any body search at about 1 s (4 s at 4× throttling), the same as a bare
+  `SELECT sum(length(content)) FROM notes`: the cost is reading pages through the WASM storage
+  layer, not LIKE or the engine. Titles only took 186 ms. Raising `cache_size` on that
+  connection made the next query fail with "database disk image is malformed". Numbers and
+  method: `docs/agent-logs/2026/11/2026-11-08_18-30_advanced-search-phases-1-2.md`. The phase 0
+  decision (§8) is still to be made on the dev stack.
