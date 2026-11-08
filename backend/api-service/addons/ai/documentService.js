@@ -267,12 +267,16 @@ export function searchDocuments(ctx, {
     if (parsed.partCount > MAX_SEARCH_TERMS) {
         throw new ApiError(400, 'INVALID_INPUT', `Search for at most ${MAX_SEARCH_TERMS} words or phrases at once.`);
     }
-    if (!parsed.hasPositive) {
+    if (!parsed.hasPositive && !parsed.onlyUnavailable) {
         throw new ApiError(400, 'INVALID_INPUT', parsed.notices.length ? parsed.notices.join(' ') : 'The search text has no words to look for.');
     }
     const max = parseLimit(limit, 20, 100);
     const skip = wholeNumber(offset, 'offset') ?? 0;
     if (skip > MAX_SEARCH_OFFSET) throw new ApiError(400, 'INVALID_INPUT', `offset can be at most ${MAX_SEARCH_OFFSET}.`);
+    if (parsed.onlyUnavailable) {
+        // `tag:urgent` before tags exist: a valid search that finds nothing, and says why.
+        return { query: q, terms: [], in: where, offset: skip, results: [], nextOffset: null, notices: parsed.notices };
+    }
     const after = isoTime(updatedAfter, 'updated_after');
     const folder = typeof folderId === 'string' && folderId ? folderId : null;
     const withTrash = includeTrash === true || folder !== null;

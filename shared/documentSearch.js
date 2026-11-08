@@ -252,8 +252,9 @@ function planQuery(parts) {
     return {
         where,
         confirm,
-        needsBody,
-        needsHead: needsHead && !needsBody,
+        // What confirmation reads besides the metadata row: the whole body, its first 16 KB
+        // (front matter), or nothing (a title-only check needs only the title).
+        loads: needsBody ? 'body' : needsHead ? 'head' : null,
         exactScore,
         scoreSql: score.length ? score.map((condition) => `(${condition.sql})`).join(' + ') : '0',
         scoreParams: score.flatMap((condition) => condition.params),
@@ -281,24 +282,18 @@ function scopeConditions(scope) {
     return conditions;
 }
 
-/** Bodies (or their first 16 KB) for some rows, by id, added to the rows. */
-async function attachBodies(database, rows, plan, bodies) {
-    const missing = rows.filter((row) => !bodies.has(row.id)).map((row) => row.id);
-    if (missing.length) {
-        const column = plan.needsHead
-            ? `substr(${BODY}, 1, ${FRONT_MATTER_SCAN_CHARS}) AS content`
-            : `${BODY} AS content`;
-        const found = await database.execute(
-            `SELECT notes.id AS id, ${column} FROM notes WHERE notes.id IN (SELECT value FROM json_each(?))`,
-            [JSON.stringify(missing)],
-        );
-        for (const row of found || []) bodies.set(row.id, row.content ?? '');
-    }
-    for (const row of rows) {
-        const content = bodies.get(row.id) ?? '';
-        if (plan.needsHead) row.head = content;
-        else row.content = content;
-    }
+/** Bodies (or their first 16 KB, as `plan.loads` says) of some rows, by id. */
+async function readBodies(database, rows, plan) {
+    const column = plan.loads === 'head'
+        ? `substr(${BODY}, 1, ${FRONT_MATTER_SCAN_CHARS}) AS content`
+        : `${BODY} AS content`;
+    const found = await database.execute(
+        `SELECT notes.id AS id, ${column} FROM notes WHERE notes.id IN (SELECT value FROM json_each(?))`,
+        [JSON.stringify(rows.map((row) => row.id))],
+    );
+    const texts = new Map();
+    for (const row of found || []) texts.set(row.id, row.content ?? '');
+    return texts;
 }
 
 function confirmed(row, plan) {
@@ -306,16 +301,43 @@ function confirmed(row, plan) {
 }
 
 /**
- * Up to `need` Documents of one database that match, in the search order, after `cursor`.
- * @returns {Promise<{ rows: object[], bodies: Map<string, string> } | null>} null when cancelled
+ * Confirm one batch of candidates, in order, adding those that match to `out` until it holds
+ * `need`. Bodies read for the check are kept only for the rows that match (and only whole
+ * bodies, which the page's snippets can reuse); a rejected row's body is dropped with the
+ * batch, so a query that rejects most candidates never holds more than one batch of bodies.
+ * The candidate rows are never changed: the check sees a copy with the body attached.
+ * @returns {Promise<boolean>} false when cancelled
  */
-async function searchOne(database, plan, scope, cursor, need, isCancelled) {
+async function confirmBatch(database, rows, plan, { out, kept, need, stats, isCancelled }) {
+    let texts = null;
+    if (plan.loads && rows.length) {
+        if (isCancelled()) return false;
+        texts = await readBodies(database, rows, plan);
+        stats.bodiesRead += texts.size;
+    }
+    for (const row of rows) {
+        if (out.length >= need) break;
+        const text = texts ? texts.get(row.id) ?? '' : null;
+        const candidate = text === null ? row : plan.loads === 'head' ? { ...row, head: text } : { ...row, content: text };
+        if (plan.confirm.length && !confirmed(candidate, plan)) continue;
+        out.push(row);
+        if (text !== null && plan.loads === 'body') kept.set(row.id, text);
+    }
+    return true;
+}
+
+/**
+ * Up to `need` Documents of one database that match, in the search order, after `cursor`.
+ * @returns {Promise<{ rows: object[], bodies: Map<string, string> } | null>} null when cancelled;
+ *   `bodies` holds the whole bodies already read for the rows returned, and nothing else
+ */
+async function searchOne(database, plan, scope, cursor, need, isCancelled, stats) {
     const conditions = [...plan.where, ...scopeConditions(scope)];
     const where = conditions.length ? conditions.map((condition) => condition.sql).join('\n   AND ') : '1';
     const whereParams = conditions.flatMap((condition) => condition.params);
-    const bodies = new Map();
-    const loadsBodies = plan.confirm.length > 0;
+    const kept = new Map();
     const out = [];
+    const context = { out, kept, need, stats, isCancelled };
 
     if (!plan.exactScore) {
         // LIKE cannot count title words with other cased letters exactly, so the order comes
@@ -328,17 +350,9 @@ async function searchOne(database, plan, scope, cursor, need, isCancelled) {
             .sort(compareSearchRows);
         let batch = need;
         for (let start = 0; start < ordered.length && out.length < need; start += batch, batch = Math.min(MAX_BATCH, batch * 2)) {
-            const slice = ordered.slice(start, start + batch);
-            if (loadsBodies) {
-                if (isCancelled()) return null;
-                await attachBodies(database, slice, plan, bodies);
-            }
-            for (const row of slice) {
-                if (out.length >= need) break;
-                if (!loadsBodies || confirmed(row, plan)) out.push(row);
-            }
+            if (!await confirmBatch(database, ordered.slice(start, start + batch), plan, context)) return null;
         }
-        return { rows: out, bodies };
+        return { rows: out, bodies: kept };
     }
 
     let position = cursor;
@@ -359,20 +373,14 @@ SELECT * FROM (
 )${keyset}
  ORDER BY title_score DESC, sort_updated DESC, id DESC
  LIMIT ?`, [...plan.scoreParams, ...whereParams, ...keysetParams, batch]) || [];
-        if (loadsBodies && rows.length) {
-            if (isCancelled()) return null;
-            await attachBodies(database, rows, plan, bodies);
-        }
-        for (const row of rows) {
-            if (out.length >= need) break;
-            if (!loadsBodies || confirmed(row, plan)) out.push(row);
-        }
-        if (out.length >= need || rows.length < batch || !loadsBodies) break;
+        if (!await confirmBatch(database, rows, plan, context)) return null;
+        // Without checks in JS every row matched, so one query was enough.
+        if (out.length >= need || rows.length < batch || !plan.confirm.length) break;
         const last = rows[rows.length - 1];
         position = { score: Number(last.title_score), updatedAt: last.sort_updated, id: last.id };
         batch = Math.min(MAX_BATCH, batch * 2);
     }
-    return { rows: out, bodies };
+    return { rows: out, bodies: kept };
 }
 
 /* ------------------------------------------------------------------ *
@@ -414,8 +422,9 @@ SELECT * FROM (
  * @param {{ score: number, updatedAt: string, id: string } | null} [input.cursor] `nextCursor` of the page before
  * @param {() => boolean} [input.isCancelled]
  * @returns {Promise<{ results: SearchResultRow[], nextCursor: object|null, notices: string[], terms: string[],
- *   failed?: Array<{ dbKey: string, error: unknown }>, cancelled?: boolean }>} `failed`: databases that
- *   could not be read and were left out
+ *   failed?: Array<{ dbKey: string, error: unknown }>, stats?: { bodiesRead: number, bodiesKept: number },
+ *   cancelled?: boolean }>} `failed`: databases that could not be read and were left out; `stats`:
+ *   bodies read to confirm candidates, and how many of them were kept for the page
  */
 export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH_LIMIT, cursor = null, isCancelled = () => false }) {
     const max = Math.min(MAX_SEARCH_LIMIT, Math.max(1, Math.floor(Number(limit)) || DEFAULT_SEARCH_LIMIT));
@@ -428,6 +437,9 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
     const inParts = parsed.parts.filter((part) => part.type === 'in');
     const named = inParts.map(() => false);
     const found = [];
+    // How many bodies confirmation read, and how many it kept for the page (at most the page
+    // size plus one per database): a check on memory use.
+    const stats = { bodiesRead: 0, bodiesKept: 0 };
 
     const failed = [];
     for (const database of databases || []) {
@@ -440,13 +452,14 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
             const scope = resolveFolderScope(folders, inParts, labels);
             scope.resolved.forEach((resolved, index) => { if (resolved) named[index] = true; });
             if (scope.skip) continue;
-            one = await searchOne(database, plan, scope, position, max + 1, isCancelled);
+            one = await searchOne(database, plan, scope, position, max + 1, isCancelled, stats);
         } catch (error) {
             // One database that cannot be read (a space still loading) does not stop the rest.
             failed.push({ dbKey: database.dbKey, error });
             continue;
         }
         if (!one) return { ...empty, cancelled: true };
+        stats.bodiesKept += one.bodies.size;
         const folderIndex = buildFolderIndex(folders);
         for (const row of one.rows) found.push({ row, database, folderIndex, bodies: one.bodies });
     }
@@ -458,12 +471,10 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
     found.sort((a, b) => compareSearchRows(a.row, b.row));
     const page = found.slice(0, max);
 
-    // Bodies for the page only (confirmation may have read some already, but only their
-    // first 16 KB when a property was all it needed).
+    // Bodies for the page only (confirmation may have read some whole bodies already).
     const byDatabase = new Map();
     for (const hit of page) {
-        const known = hit.bodies.has(hit.row.id) && !hit.row.head;
-        if (known) continue;
+        if (hit.bodies.has(hit.row.id)) continue;
         if (!byDatabase.has(hit.database)) byDatabase.set(hit.database, []);
         byDatabase.get(hit.database).push(hit.row.id);
     }
@@ -482,7 +493,7 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
         dbKey: database.dbKey,
         spaceName: database.name ?? null,
         title: row.title ?? null,
-        content: contentOf.get(`${database.dbKey}\n${row.id}`) ?? (row.head ? '' : bodies.get(row.id) ?? ''),
+        content: contentOf.get(`${database.dbKey}\n${row.id}`) ?? bodies.get(row.id) ?? '',
         folder_id: row.folder_id ?? null,
         folderPath: folderIndex.segmentsOf(row.folder_id).join(' / '),
         inTrash: folderIndex.isInTrash(row.folder_id),
@@ -500,5 +511,6 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
         notices,
         terms: parsed.terms,
         failed,
+        stats,
     };
 }

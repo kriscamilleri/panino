@@ -64,10 +64,10 @@ phrase queries give the same results as before. One example per part:
 | `title:` | `title:"team sync"` | the title only, whatever `in` says |
 | `in:` | `in:Projects/2026`, `in:"Acme Team/Contracts"` | that folder and below; a space name may lead (`My Notes` for the personal database); with `folderId`, only Documents in both |
 | `is:checklist` | `is:checklist` | at least one checklist item (SQL function `panino_has_checklist`, the shared rule) |
-| `prop:` | `prop:status=draft`, `prop:"due <= 2026-12-01"`, `prop:"owner missing"` | one property filter condition; also `word_count`, `created_on`, `modified_on`, `created_by`, `modified_by`. Goes through the property scan (5000 Documents per database, `truncated`, `scanned`) |
-| `-` | `-"old draft"`, `-in:Archive`, `-prop:status=done` | excludes |
+| `prop:` | `prop:status=draft`, `prop:"due <= 2026-12-01"`, `prop:status="in progress"` | one property filter condition; also `word_count`, `created_on`, `modified_on`, `created_by`, `modified_by`. Goes through the property scan (5000 Documents per database, `truncated`, `scanned`) |
+| `-` | `-"old draft"`, `-in:Archive`, `-prop:status=done` | excludes, but only before a letter or a quote: `-5`, `--` and `-` alone stay words. Quote anything to search it literally: `"title:"`, `"-draft"` |
 | `in:Trash` | `budget in:Trash` | Trash is left out unless asked: `in:Trash`, `includeTrash`, or a `folderId` inside it |
-| `tag:` | `tag:urgent` | not available yet: a notice |
+| `tag:` | `tag:urgent` | not available yet: a notice; a query of only `tag:` parts returns no results with it (200) |
 
 A part that cannot be read is skipped and explained in `notices`; a query of exclusions only is
 refused (400). The parity tests in `tests/integration/searchLanguage.test.js` run the app's

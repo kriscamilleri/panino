@@ -8,6 +8,7 @@
  * linear in its input anyway, and so are the term helpers that run on Document bodies (up to
  * 2 MiB). No regular expression here has two quantifiers that can share characters.
  */
+import { findFrontMatterBlock } from './frontMatter.js';
 import { parseFilter } from './propertyFilter.js';
 
 /** Most parts one query may hold (words, phrases and prefixed parts together). */
@@ -24,6 +25,8 @@ export const LOCAL_BUILT_IN_KEYS = Object.freeze(['word_count', 'created_on', 'm
 export const SERVER_BUILT_IN_KEYS = Object.freeze(['created_by', 'modified_by']);
 
 const PREFIXES = new Set(SEARCH_PREFIXES);
+/** One letter, in any script (tested on a single character, so it cannot backtrack). */
+const LETTER = /^\p{L}$/u;
 
 /* ------------------------------------------------------------------ *
  * Characters, words and snippets
@@ -275,7 +278,9 @@ function fenceOf(line) {
 /**
  * Whether a body has at least one checklist item (`- [ ] milk`, `1. [x] done`) outside fenced
  * code and the front matter block: the rule of the phone's Checklists chip and of
- * `is:checklist`. One pass over the lines, linear in the body.
+ * `is:checklist`. One pass over the lines, linear in the body. An item needs text after its
+ * box: `- [ ] ` alone is not one, as the earlier rule and the Preview's renderer
+ * (markdown-it-task-lists) both read it.
  * @param {string|null|undefined} markdown
  * @returns {boolean}
  */
@@ -283,12 +288,10 @@ export function hasChecklistItem(markdown) {
     const text = String(markdown ?? '');
     if (!text.includes('[')) return false;
     const lines = text.split('\n');
-    let index = 0;
-    if (lines[0]?.trim() === '---') {
-        for (let close = 1; close < lines.length; close += 1) {
-            if (lines[close].trim() === '---') { index = close + 1; break; }
-        }
-    }
+    // Front matter by the shared rule (closed and YAML-shaped), so a `---` rule around
+    // ordinary text is text here too, as the Preview reads it.
+    const block = findFrontMatterBlock(lines);
+    let index = block.end >= 0 ? block.end + 1 : 0;
     let fence = null;
     for (; index < lines.length; index += 1) {
         const line = lines[index].endsWith('\r') ? lines[index].slice(0, -1) : lines[index];
@@ -322,14 +325,19 @@ function collapseSpaces(text) {
  * @property {string} raw     the token as typed
  * @property {boolean} negated  it starts with `-`
  * @property {string|null} prefix  `title`, `in`, `tag`, `is` or `prop` (lower case), or null
- * @property {string} value   what follows the prefix, unquoted
- * @property {boolean} quoted the value was a "quoted phrase"
+ * @property {string} value   what follows the prefix, quotes removed and spaces collapsed
+ * @property {boolean} quoted the value was or held a "quoted phrase"
+ * @property {boolean} unclosed a quote in a prefixed value had no closing quote, so the value
+ *   runs to the end of the query
+ * @property {string} rawValue the value as typed, quotes kept (prefixed tokens), for `prop:`
  */
 
 /**
- * Split a query into tokens, in one pass. A token is an optional `-`, an optional known
- * prefix and its colon, then a "quoted phrase" (when a closing quote follows) or a run of
- * characters up to whitespace (quotes inside it are dropped, as the first release did).
+ * Split a query into tokens, in one pass. A token is an optional `-` (before a letter or a
+ * quote), an optional known prefix and its colon, then its value. A prefixed value runs to
+ * the next space outside quotes. Otherwise the value is a "quoted phrase" (when a closing
+ * quote follows) or a run of characters up to whitespace (quotes inside it are dropped, as
+ * the first release did).
  * @param {string} query
  * @returns {SearchToken[]}
  */
@@ -352,7 +360,9 @@ export function tokenizeSearchQuery(query) {
         if (i >= n) break;
         const start = i;
         let negated = false;
-        if (text[i] === '-' && i + 1 < n && !isSpaceCode(text.charCodeAt(i + 1))) {
+        // A dash negates only before a letter or a quote (which a prefix starts with too), so
+        // `-5 degrees`, `--` and `-` alone stay words, as the first release read them.
+        if (text[i] === '-' && i + 1 < n && (text[i + 1] === '"' || LETTER.test(text[i + 1]))) {
             negated = true;
             i += 1;
         }
@@ -365,18 +375,39 @@ export function tokenizeSearchQuery(query) {
         }
         let value;
         let quoted = false;
-        const close = text[i] === '"' ? closingQuote(i + 1) : -1;
-        if (close >= 0) {
-            value = collapseSpaces(text.slice(i + 1, close));
-            quoted = true;
-            i = close + 1;
-        } else {
+        let unclosed = false;
+        let rawValue;
+        if (prefix !== null) {
+            // A prefixed value runs to the next space outside quotes: `prop:status="in progress"`
+            // and `title:"a b"c` are one part each. Each quote is paired with the next one; an
+            // unclosed quote takes the rest of the query.
+            const from = i;
             let k = i;
-            while (k < n && !isSpaceCode(text.charCodeAt(k))) k += 1;
-            value = text.slice(i, k).replace(/"/g, '');
+            while (k < n && !isSpaceCode(text.charCodeAt(k))) {
+                if (text[k] !== '"') { k += 1; continue; }
+                const close = closingQuote(k + 1);
+                if (close < 0) { unclosed = true; k = n; break; }
+                quoted = true;
+                k = close + 1;
+            }
+            rawValue = text.slice(from, k);
+            value = collapseSpaces(rawValue.replace(/"/g, ''));
             i = k;
+        } else {
+            const close = text[i] === '"' ? closingQuote(i + 1) : -1;
+            if (close >= 0) {
+                value = collapseSpaces(text.slice(i + 1, close));
+                quoted = true;
+                i = close + 1;
+            } else {
+                let k = i;
+                while (k < n && !isSpaceCode(text.charCodeAt(k))) k += 1;
+                value = text.slice(i, k).replace(/"/g, '');
+                i = k;
+            }
+            rawValue = value;
         }
-        tokens.push({ start, end: i, raw: text.slice(start, i), negated, prefix, value, quoted });
+        tokens.push({ start, end: i, raw: text.slice(start, i), negated, prefix, value, quoted, unclosed, rawValue });
     }
     return tokens;
 }
@@ -407,6 +438,21 @@ export function quoteSearchValue(value) {
 }
 
 /**
+ * The filter a `prop:` token holds: its value as typed, without the quotes around the whole
+ * of it (`prop:"due <= 2026-12-01"`); quotes around a value inside are kept for
+ * `parseFilter` (`prop:status="in progress"`). An unclosed quote is closed at the end.
+ * @param {SearchToken} token
+ * @returns {string}
+ */
+function filterText(token) {
+    let text = token.unclosed ? `${token.rawValue}"` : token.rawValue;
+    if (text.length >= 2 && text[0] === '"' && text.endsWith('"') && text.indexOf('"', 1) === text.length - 1) {
+        text = text.slice(1, -1);
+    }
+    return collapseSpaces(text);
+}
+
+/**
  * Read a query (§4): words, "phrases", `title:`, `in:`, `tag:`, `is:checklist`, `prop:` and
  * `-` before any of them. Every part must match. A part that cannot be read becomes a notice
  * (one sentence for the person or agent) and the rest is searched.
@@ -420,8 +466,9 @@ export function quoteSearchValue(value) {
  * @param {boolean} [options.tags] whether `tag:` is available (it is not until tags ship)
  * @returns {{
  *   parts: SearchPart[], notices: string[], tokens: SearchToken[], terms: string[],
- *   partCount: number, hasPositive: boolean, truncated: boolean
- * }} `terms` are the words and phrases to find and mark, without repeats; `partCount` is how
+ *   partCount: number, hasPositive: boolean, onlyUnavailable: boolean, truncated: boolean
+ * }} `onlyUnavailable`: nothing to look for but a part that is not available yet (`tag:`), so
+ *   the answer is no Documents, with the notice. `terms` are the words and phrases to find and mark, without repeats; `partCount` is how
  *   many parts were read before the 20-part limit; `truncated` says the query was longer than
  *   200 characters and was cut.
  */
@@ -444,9 +491,11 @@ export function parseSearchQuery(query, { context = 'app', field = 'any', tags =
         parts.push(part);
     };
 
+    let unavailableTags = 0;
     tokens.forEach((token, index) => {
         const { prefix, value, negated } = token;
         const dash = negated ? '-' : '';
+        if (token.unclosed) notices.push(`${token.raw.slice(0, 40)} has no closing quote, so the rest of the search was read as its value`);
         switch (prefix) {
             case null: {
                 if (!value) return;
@@ -474,7 +523,11 @@ export function parseSearchQuery(query, { context = 'app', field = 'any', tags =
                 return;
             }
             case 'tag': {
-                if (!tags) { notices.push('Tags are not available yet'); return; }
+                if (!tags) {
+                    notices.push('Tags are not available yet');
+                    if (!negated && value) unavailableTags += 1;
+                    return;
+                }
                 const name = collapseSpaces(value).toLowerCase();
                 if (!name) { notices.push(`${dash}tag: needs a tag name, e.g. tag:urgent`); return; }
                 add({ type: 'tag', name, negated, token: index }, `g|${negated}|${name}`);
@@ -482,10 +535,11 @@ export function parseSearchQuery(query, { context = 'app', field = 'any', tags =
             }
             case 'prop': {
                 if (!value) { notices.push(`${dash}prop: needs a condition, e.g. prop:status=draft`); return; }
-                const parsed = parseFilter(value);
-                if (!parsed.ok) { notices.push(`prop:${quoteSearchValue(value)}: ${parsed.error}`); return; }
+                const filter = filterText(token);
+                const parsed = parseFilter(filter);
+                if (!parsed.ok) { notices.push(`prop:${quoteSearchValue(filter)}: ${parsed.error}`); return; }
                 if (parsed.conditions.length > 1) {
-                    notices.push(`prop:${quoteSearchValue(value)} holds ${parsed.conditions.length} conditions; write one prop: part for each`);
+                    notices.push(`prop:${quoteSearchValue(filter)} holds ${parsed.conditions.length} conditions; write one prop: part for each`);
                     return;
                 }
                 const condition = parsed.conditions[0];
@@ -493,7 +547,7 @@ export function parseSearchQuery(query, { context = 'app', field = 'any', tags =
                     notices.push(`prop:${condition.key} needs revision history, which only the API has; it was left out`);
                     return;
                 }
-                add({ type: 'prop', condition, value, negated, token: index },
+                add({ type: 'prop', condition, value: filter, negated, token: index },
                     `p|${negated}|${condition.key.toLowerCase()}|${condition.operator}|${String(condition.value ?? '').toLowerCase()}`);
                 return;
             }
@@ -517,8 +571,11 @@ export function parseSearchQuery(query, { context = 'app', field = 'any', tags =
         terms.push(part.value);
     }
     const hasPositive = parts.some((part) => !part.negated);
-    if (parts.length && !hasPositive) notices.push('Add something to look for; a search cannot be only exclusions (-).');
-    return { parts, notices, tokens, terms, partCount, hasPositive, truncated };
+    // A search for a tag while tags are not available finds nothing (and says why); it is not
+    // a search of exclusions only.
+    const onlyUnavailable = !hasPositive && unavailableTags > 0;
+    if (parts.length && !hasPositive && !onlyUnavailable) notices.push('Add something to look for; a search cannot be only exclusions (-).');
+    return { parts, notices: [...new Set(notices)], tokens, terms, partCount, hasPositive, onlyUnavailable, truncated };
 }
 
 /**

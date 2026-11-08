@@ -14,6 +14,8 @@ export const SEARCH_DEBOUNCE_MS = 150;
 /** A query is remembered after this long without typing. */
 export const REMEMBER_AFTER_MS = 2000;
 export const SEARCH_PAGE_SIZE = 20;
+/** Shown results are searched again after a sync at most this often. */
+export const REFRESH_AFTER_SYNC_MS = 2000;
 
 /** localStorage, or a stand-in when it is unavailable (private mode). */
 export function searchStorage() {
@@ -107,12 +109,24 @@ export function useDocumentSearch({
         onQuery(next);
     }
 
+    // Only what the person typed is remembered after a pause; text the page writes itself (a
+    // chip, the folder's in: part, a recent search) goes through setText and is not.
+    let written = false;
     watch(text, (value) => {
         clearTimeout(debounceTimer);
         clearTimeout(rememberTimer);
         debounceTimer = setTimeout(() => settle(value), SEARCH_DEBOUNCE_MS);
-        rememberTimer = setTimeout(() => remember(value), REMEMBER_AFTER_MS);
+        if (!written) rememberTimer = setTimeout(() => remember(value), REMEMBER_AFTER_MS);
+        written = false;
     });
+
+    /** Put text in the field without counting it as typed (it is not remembered on a pause). */
+    function setText(value) {
+        clearTimeout(rememberTimer);
+        if (text.value === value) return;
+        written = true;
+        text.value = value;
+    }
 
     /** Use the field's text now, without waiting (Enter, a chip, a recent search). */
     function flush() {
@@ -155,17 +169,37 @@ export function useDocumentSearch({
         loadingMore.value = false;
     }
 
-    watch(() => [query.value, syncStore.isInitialized, docStore.recentDocVersion], runSearch, { immediate: true });
+    watch(() => [query.value, syncStore.isInitialized], runSearch, { immediate: true });
+
+    // After a sync changes Documents, search again so the list stays true, but at most once
+    // per REFRESH_AFTER_SYNC_MS (a burst of syncs gives one re-run at its end) and only while
+    // results are on screen.
+    let refreshTimer = null;
+    let lastRefresh = 0;
+    function refreshAfterSync() {
+        if (refreshTimer) return;
+        const wait = Math.max(0, lastRefresh + REFRESH_AFTER_SYNC_MS - Date.now());
+        refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            if (!query.value) return;
+            lastRefresh = Date.now();
+            runSearch();
+        }, wait);
+    }
+    watch(() => docStore.recentDocVersion, () => {
+        if (query.value) refreshAfterSync();
+    });
 
     onBeforeUnmount(() => {
         clearTimeout(debounceTimer);
         clearTimeout(rememberTimer);
+        clearTimeout(refreshTimer);
         run += 1;
     });
 
     return {
         text, query, results, notices, terms, nextCursor, searching, loadingMore, recent,
-        flush, loadMore, remember, runSearch,
+        flush, loadMore, remember, runSearch, setText,
     };
 }
 

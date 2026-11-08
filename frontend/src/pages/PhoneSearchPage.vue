@@ -216,7 +216,7 @@ const folderPath = ref('')
 
 const {
     text, query, results, notices, terms, nextCursor, searching, loadingMore, recent,
-    flush, loadMore, remember,
+    flush, loadMore, remember, setText,
 } = useDocumentSearch({
     initialText: typeof route.query.q === 'string' ? route.query.q : '',
     onQuery: (value) => router.replace({ query: { ...route.query, q: value || undefined } }),
@@ -258,17 +258,17 @@ onMounted(async () => {
     folderPath.value = folderSearchPath({ spaceName, segments })
     // Opened from a folder: the page starts with that folder's in: part.
     if (folderPath.value && normalizeScope(route.query.scope) === 'folder' && !text.value.trim()) {
-        text.value = `${setFolderChip('', folderPath.value, true)} `
+        setText(`${setFolderChip('', folderPath.value, true)} `)
         flush()
     }
 })
 
 function toggleChip(value) {
     const on = chipsOn.value
-    if (value === 'everything') text.value = clearChips(text.value, folderPath.value)
-    else if (value === 'titles') text.value = setTitlesChip(text.value, !on.titles)
-    else if (value === 'checklists') text.value = setChecklistChip(text.value, !on.checklists)
-    else if (value === 'folder') text.value = setFolderChip(text.value, folderPath.value, !on.folder)
+    if (value === 'everything') setText(clearChips(text.value, folderPath.value))
+    else if (value === 'titles') setText(setTitlesChip(text.value, !on.titles))
+    else if (value === 'checklists') setText(setChecklistChip(text.value, !on.checklists))
+    else if (value === 'folder') setText(setFolderChip(text.value, folderPath.value, !on.folder))
     flush()
 }
 
@@ -278,12 +278,12 @@ function onEnter() {
 }
 
 function useRecent(item) {
-    text.value = item
+    setText(item)
     flush()
 }
 
 function clear() {
-    text.value = ''
+    setText('')
     flush()
     inputRef.value?.focus()
 }

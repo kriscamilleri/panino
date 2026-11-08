@@ -82,9 +82,9 @@ Docs: spec moved to `active/` with an Implementation line and §13 build notes;
 
 | Suite | Command | Result |
 |---|---|---|
-| Shared | `npm test --prefix shared` | 91 passed (7 files) |
-| Frontend | `cd frontend && npx vitest run` | 1112 passed (92 files) |
-| Backend | `PANINO_TEST_IMAGE=panino-api-test-search ./scripts/test-backend.sh` | 1210 passed, 1 skipped (the opt-in perf file), 78 files |
+| Shared | `npm test --prefix shared` | 91 passed (7 files); after the review fixes 94 |
+| Frontend | `cd frontend && npx vitest run` | 1112 passed (92 files); after the review fixes 1119 |
+| Backend | `PANINO_TEST_IMAGE=panino-api-test-search ./scripts/test-backend.sh` | 1210 passed, 1 skipped (the opt-in perf file), 78 files; after the review fixes 1222 passed, 1 skipped (one test of mine expected `--` to match only one Document, but front matter fences contain it; fixed the test and re-ran its file: 26/26) |
 | Lint | `npx eslint --ignore-pattern '.claude/**' .` | clean |
 | Build | `npx vite build` | builds; the bench module is not in the production bundle |
 
@@ -162,6 +162,26 @@ What this says, for the phase 0 decision (not made here):
   metadata index is what fixes that.
 - In the first run, with sync on, the upload of the seeded rows overlapped the timing and gave
   1–3.9 s per run; those numbers are not used.
+
+## Review fixes (independent review by Fable; the coordinator chose nine findings)
+
+| # | Finding | Fix | Test (fails before, passes after) |
+|---|---|---|---|
+| 1 | Refill kept every body it read (`searchOne`), so a query that rejects most candidates could hold the whole account | `confirmBatch` checks a copy of each row with its body attached and keeps bodies only for rows that match (whole bodies only, reused for snippets); rejected bodies go with the batch, in both the exact-score and the JS-ordered path. `searchDatabases` reports `stats: { bodiesRead, bodiesKept }` | `documentSearch.test.js`: 300 candidates, 290 rejected, for `zebra -is:checklist`, `über -is:checklist`, `zebra prop:word_count>50000`: over 250 read, at most limit + 1 kept |
+| 2a | `-5 degrees`, `--`, `-` changed meaning in the API | `-` negates only before a letter (any script) or a quote; documented in the tool description, OpenAPI, the README and spec §4 ("quote it to search literally") | `searchText.test.js`; API `searchLanguage.test.js` (`-5 degrees` finds the Document, `--` is a word) |
+| 2b | `tag:urgent` alone was a 400 | the parser reports `onlyUnavailable`; the API answers 200 with no results and the notice, the app shows the notice only | API and app tests |
+| 3 | `prop:status="in progress"` was split into two parts | a prefixed value runs to the next space outside quotes (each quote paired with the next, using the same once-only search for quotes, so it stays linear); an unclosed quote takes the rest of the query with a notice; `prop:` passes inner quotes to `parseFilter` | `searchText.test.js` (incl. 2 MiB hostile prefixed input); API test |
+| 4 | the perf generator had no brackets, so `is:checklist` never ran its rule | a link in two of three paragraphs, without drawing from the generator (the same in `searchBench.js`) | perf row below |
+| 5 | title-only checks read bodies | `plan.loads` is `body`, `head` or null; with null no body is read for confirmation | `documentSearch.test.js`: `title:über`, `budget -title:über` read 0 bodies |
+| 6 | a re-run on every `recentDocVersion` bump | at most one re-run per 2 s (a burst gives one at its end), and only while a query is shown | `searchPanel.test.js` |
+| 7 | the phone's folder `in:` part was remembered as a recent search | `setText` writes the field without arming the remember-on-pause timer (chips, the folder part, a recent search, Clear); typed text and opened results are still remembered | `searchPanel.test.js` |
+| 8 | focus after closing | Esc or the close button puts focus on `documents-search-toggle`; the syntax help takes focus when it opens and gives it back to its button | `searchPanel.test.js` |
+| 9 | checklist rule | front matter is skipped by the shared `findFrontMatterBlock` rule. **Not changed:** `- [ ] ` with nothing after the box still is not an item: the earlier rule (`toSnippetLines` drops a task with no text) and the Preview's markdown-it-task-lists both say so (checked: `- [ ] `, `- [ ]`, `- [ ]  ` → no task, no checkbox) | `searchText.test.js` |
+
+Perf after the generator change (the account is now 86.4 MB; adding text changes how many
+blocks each body gets, so counts shift slightly, e.g. `status = draft` 815 instead of 780):
+`search lorem is:checklist` **77.8 ms** (was 22 ms when no body had a bracket); the existing
+search rows are unchanged (`zebra` 19.3, `lorem` 19.2, 3 words 21.8, phrase 26.4, `über` 86.5 ms).
 
 ## Open Items / Notes
 

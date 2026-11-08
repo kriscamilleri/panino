@@ -199,6 +199,44 @@ describe('searchDatabases', () => {
         expect(partial.failed).toHaveLength(1);
     });
 
+    it('keeps only the bodies of matching rows while refilling, so memory is bounded by the page', async () => {
+        const notes = [];
+        for (let i = 0; i < 300; i += 1) {
+            // All but the ten oldest have a checklist, so `-is:checklist` rejects nearly every candidate.
+            const plain = i < 10;
+            notes.push({ id: `n${String(i).padStart(3, '0')}`, title: `Item ${i}`, content: `${plain ? 'zebra über' : '- [ ] zebra über'} ${'x'.repeat(200)}`, updated: `2026-${String(1 + (i % 12)).padStart(2, '0')}-${String(1 + (i % 28)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00:00.000Z` });
+        }
+        const db = database(PERSONAL, null, { notes });
+        for (const query of ['zebra -is:checklist', 'über -is:checklist', 'zebra prop:word_count>50000']) {
+            const result = await searchDatabases({ databases: [db], query, limit: 3 });
+            expect(result.stats.bodiesRead, query).toBeGreaterThan(250);
+            expect(result.stats.bodiesKept, query).toBeLessThanOrEqual(4);
+        }
+        const plain = await searchDatabases({ databases: [db], query: 'zebra -is:checklist', limit: 3 });
+        expect(plain.results).toHaveLength(3);
+        expect(plain.results.every((row) => !row.content.startsWith('- [ ]'))).toBe(true);
+    });
+
+    it('answers tag: alone with no results and only the tags notice', async () => {
+        const { databases } = fixture();
+        const result = await searchDatabases({ databases, query: 'tag:urgent' });
+        expect(result).toMatchObject({ results: [], nextCursor: null, notices: ['Tags are not available yet'] });
+        // A dash before a digit is a word: "-5" is searched for, not excluded.
+        expect((await searchDatabases({ databases, query: '-5' })).notices).toEqual([]);
+    });
+
+    it('reads no bodies to confirm a title-only check', async () => {
+        const { databases } = fixture();
+        const title = await searchDatabases({ databases, query: 'title:über' });
+        expect(ids(title)).toEqual(['p5']);
+        expect(title.stats.bodiesRead).toBe(0);
+        const without = await searchDatabases({ databases, query: 'budget -title:über' });
+        expect(ids(without)).toEqual(['s1', 'p4', 'p1', 's2', 'p2']);
+        expect(without.stats.bodiesRead).toBe(0);
+        // Snippets still come from the page's bodies.
+        expect(title.results[0].content).toBe('Wir sind ÜBERALL.');
+    });
+
     it('binds every value: hostile text is only ever a parameter', async () => {
         const { databases } = fixture();
         const result = await searchDatabases({ databases, query: "'); DROP TABLE notes; -- in:\"x'); --\" prop:\"a=') OR 1=1 --\"" });

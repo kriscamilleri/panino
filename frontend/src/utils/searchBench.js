@@ -52,6 +52,10 @@ function makeBody(rand, targetBytes, { frontMatter, rare }) {
         else {
             const words = Array.from({ length: 40 + Math.floor(rand() * 80) }, () => WORDS[Math.floor(rand() * WORDS.length)]);
             if (rand() < 0.05) words.push('Über');
+            // A link in two of three paragraphs, without drawing from the generator (so the
+            // account is otherwise the same): brackets in most bodies, as real notes have, so
+            // `is:checklist` has to run its checklist rule on them.
+            if (words.length % 3 !== 0) words.push('see [the notes](https://example.test/notes)');
             block = words.join(' ');
         }
         parts.push(block, '');

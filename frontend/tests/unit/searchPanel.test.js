@@ -181,6 +181,58 @@ describe('desktop search panel', () => {
         expect(useDesktopSearchState().open.value).toBe(true);
     });
 
+    it('returns focus to the search button on Esc, and moves it through the syntax help', async () => {
+        const wrapper = mountIt(Documents);
+        await wrapper.get('[data-testid="documents-search-toggle"]').trigger('click');
+        await flushPromises();
+        await wrapper.get('[data-testid="documents-search-syntax-toggle"]').trigger('click');
+        await flushPromises();
+        expect(document.activeElement?.dataset.testid).toBe('documents-search-syntax');
+        await wrapper.get('[data-testid="documents-search-syntax"]').trigger('keydown', { key: 'Escape' });
+        await flushPromises();
+        expect(document.activeElement?.dataset.testid).toBe('documents-search-syntax-toggle');
+        await wrapper.get('[data-testid="documents-search-input"]').trigger('keydown', { key: 'Escape' });
+        await flushPromises();
+        expect(wrapper.find('[data-testid="documents-search-panel"]').exists()).toBe(false);
+        expect(document.activeElement?.dataset.testid).toBe('documents-search-toggle');
+        // The close button does the same.
+        await wrapper.get('[data-testid="documents-search-toggle"]').trigger('click');
+        await wrapper.get('[data-testid="documents-search-close"]').trigger('click');
+        await flushPromises();
+        expect(document.activeElement?.dataset.testid).toBe('documents-search-toggle');
+    });
+
+    it('searches again after a sync at most once per 2 s, and only while results are shown', async () => {
+        useDesktopSearchState().text.value = 'budget';
+        mountIt(SearchPanel);
+        await settle();
+        const before = searchDocuments.mock.calls.length;
+        for (let i = 0; i < 5; i += 1) {
+            docStore.recentDocVersion += 1;
+            await flushPromises();
+            vi.advanceTimersByTime(100);
+        }
+        await flushPromises();
+        expect(searchDocuments.mock.calls.length - before).toBe(1);
+        vi.advanceTimersByTime(2100);
+        await flushPromises();
+        // The bumps inside the window gave one more re-run at its end, not one each.
+        expect(searchDocuments.mock.calls.length - before).toBeLessThanOrEqual(2);
+        const settled = searchDocuments.mock.calls.length;
+        vi.advanceTimersByTime(5000);
+        await flushPromises();
+        expect(searchDocuments.mock.calls.length).toBe(settled);
+    });
+
+    it('does not search again after a sync while the field is empty', async () => {
+        mountIt(SearchPanel);
+        await settle();
+        docStore.recentDocVersion += 1;
+        vi.advanceTimersByTime(3000);
+        await flushPromises();
+        expect(searchDocuments).not.toHaveBeenCalled();
+    });
+
     it('opens with Ctrl+Shift+F, showing a collapsed sidebar first', async () => {
         ui.showDocuments = false;
         mountIt(SidebarWithResizer, { global: { stubs: { Documents: true } } });
@@ -205,6 +257,20 @@ describe('phone Search page', () => {
         await wrapper.get('[data-testid="phone-search-more"]').trigger('click');
         await flushPromises();
         expect(wrapper.findAll('[data-testid^="phone-search-result-"]')).toHaveLength(3);
+    });
+
+    it('remembers what was typed, not the folder part it filled in itself', async () => {
+        route.query = { scope: 'folder', folder: 'f2', dbKey: PERSONAL };
+        const wrapper = mountIt(PhoneSearchPage);
+        await flushPromises();
+        vi.advanceTimersByTime(2500);
+        expect(localStorage.getItem('panino-recent-searches')).toBeNull();
+        await wrapper.get('[data-testid="phone-search-scope-titles"]').trigger('click');
+        vi.advanceTimersByTime(2500);
+        expect(localStorage.getItem('panino-recent-searches')).toBeNull();
+        await wrapper.get('[data-testid="phone-search-input"]').setValue('in:"Projects/Q1 plans" budget');
+        vi.advanceTimersByTime(2500);
+        expect(JSON.parse(localStorage.getItem('panino-recent-searches'))).toEqual(['in:"Projects/Q1 plans" budget']);
     });
 
     it('turns words into title: with the Titles chip', async () => {

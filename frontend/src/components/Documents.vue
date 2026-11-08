@@ -12,7 +12,10 @@
             >
                 Documents
             </h2>
-            <div class="flex space-x-2">
+            <div
+                ref="headerButtonsRef"
+                class="flex space-x-2"
+            >
                 <BaseButton
                     :isActive="searchOpen"
                     @click="toggleSearch"
@@ -219,7 +222,13 @@ function toggleSearch() {
     if (desktopSearch.open.value) desktopSearch.closeSearch()
     else desktopSearch.openSearch()
 }
-function closeSearch() { desktopSearch.closeSearch() }
+// Closing the panel (Esc or its close button) puts focus back on the search button.
+// (BaseButton renders a fragment, so the button is found in the header rather than by a ref.)
+const headerButtonsRef = ref(null)
+function closeSearch() {
+    desktopSearch.closeSearch()
+    nextTick(() => headerButtonsRef.value?.querySelector('[data-testid="documents-search-toggle"]')?.focus())
+}
 
 
 /* create-modal helpers */

@@ -31,7 +31,7 @@
                 title="Close search (Esc)"
                 aria-label="Close search"
                 data-testid="documents-search-close"
-                @click="$emit('close')"
+                @click="emit('close')"
             >
                 <X class="w-4 h-4" />
             </button>
@@ -50,17 +50,20 @@
             >{{ chip.label }}</button>
             <div class="relative ml-auto">
                 <button
+                    ref="syntaxButtonRef"
                     type="button"
                     class="text-xs text-blue-600 hover:underline"
                     :aria-expanded="showSyntax"
                     aria-controls="documents-search-syntax"
                     data-testid="documents-search-syntax-toggle"
-                    @click="showSyntax = !showSyntax"
+                    @click="toggleSyntax"
                 >Search syntax</button>
                 <div
                     v-if="showSyntax"
                     id="documents-search-syntax"
-                    class="absolute right-0 z-30 mt-1 w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg"
+                    ref="syntaxRef"
+                    tabindex="-1"
+                    class="absolute right-0 z-30 mt-1 w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg focus:outline-none"
                     role="dialog"
                     aria-label="Search syntax"
                     data-testid="documents-search-syntax"
@@ -215,7 +218,7 @@ import { formatRelativeTime } from '@/utils/recentDocuments'
  * replaces the sidebar's tree while open. Esc closes it and the query stays for
  * the session.
  */
-defineEmits(['close'])
+const emit = defineEmits(['close'])
 
 const router = useRouter()
 const docStore = useDocStore()
@@ -224,13 +227,15 @@ const syncStore = useSyncStore()
 const desktop = useDesktopSearchState()
 
 const inputRef = ref(null)
+const syntaxRef = ref(null)
+const syntaxButtonRef = ref(null)
 const showSyntax = ref(false)
 const folderName = ref('')
 const folderPath = ref('')
 
 const {
     text, query, results, notices, terms, nextCursor, searching, loadingMore, recent,
-    flush, loadMore, remember,
+    flush, loadMore, remember, setText,
 } = useDocumentSearch({ text: desktop.text })
 
 const chipsOn = computed(() => chipState(text.value, folderPath.value))
@@ -276,10 +281,10 @@ watch(() => [structureStore.selectedFolderId, structureStore.selectedDbKey], asy
 
 function toggleChip(value) {
     const on = chipsOn.value
-    if (value === 'everything') text.value = clearChips(text.value, folderPath.value)
-    else if (value === 'titles') text.value = setTitlesChip(text.value, !on.titles)
-    else if (value === 'checklists') text.value = setChecklistChip(text.value, !on.checklists)
-    else if (value === 'folder') text.value = setFolderChip(text.value, folderPath.value, !on.folder)
+    if (value === 'everything') setText(clearChips(text.value, folderPath.value))
+    else if (value === 'titles') setText(setTitlesChip(text.value, !on.titles))
+    else if (value === 'checklists') setText(setChecklistChip(text.value, !on.checklists))
+    else if (value === 'folder') setText(setFolderChip(text.value, folderPath.value, !on.folder))
     flush()
     focusInput()
 }
@@ -289,16 +294,33 @@ function onEnter() {
     remember()
 }
 
+// The help moves focus into itself when it opens and back to its button when it closes.
+function openSyntax() {
+    showSyntax.value = true
+    nextTick(() => syntaxRef.value?.focus())
+}
+
+function closeSyntax() {
+    showSyntax.value = false
+    nextTick(() => syntaxButtonRef.value?.focus())
+}
+
+function toggleSyntax() {
+    if (showSyntax.value) closeSyntax()
+    else openSyntax()
+}
+
 function onEscape() {
     if (showSyntax.value) {
-        showSyntax.value = false
+        closeSyntax()
         return
     }
-    desktop.closeSearch()
+    // The sidebar closes the panel and puts focus back on the search button.
+    emit('close')
 }
 
 function useRecent(item) {
-    text.value = item
+    setText(item)
     flush()
     focusInput()
 }

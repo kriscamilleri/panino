@@ -93,6 +93,12 @@ Rules:
 
 - Prefixes are case-insensitive. A word that only looks like a prefix (`Note:`) is a plain word
   unless its prefix is in the table. Quote it to search it literally: `"title:"`.
+- `-` negates only when a letter or a quote follows it (`-draft`, `-"old plan"`, `-in:Archive`).
+  `-5 degrees`, `--` and `-` alone are plain words, as the first release of the API read them.
+  To search a word that starts with a dash, quote it: `"-draft"`.
+- A prefixed value runs to the next space outside quotes, so `prop:status="in progress"` and
+  `title:"team sync"` are one part each. A quote with no closing quote takes the rest of the
+  query, with a notice.
 - `prop:` uses `parseFilter` from the AI add-on, moved to `shared/` (§6.1): the operators
   `= != ~ ^= > < >= <=`, `exists` and `missing`, numbers as numbers, and dates at the precision
   both sides give. The built-in properties available locally are `word_count`, `created_on` and
@@ -262,7 +268,8 @@ parser, so every part in §4 works there too:
   working. Results in Trash keep the existing `inTrash: true` field.
 - **`prop:`** also accepts `created_by` and `modified_by` on the server, which has revision
   history. In the app these give a notice and are ignored (§3).
-- **`tag:`** returns the same "not available yet" notice until tags ship.
+- **`tag:`** returns the same "not available yet" notice until tags ship. A query whose only
+  part is `tag:` answers 200 with no results and that notice.
 - **Responses** gain `notices`, the parse messages as text, next to the existing `terms`. Update
   the OpenAPI document, the tool description and the add-on README, and give one example per new
   part.
@@ -419,7 +426,14 @@ Where the build differs from the text above, or settles something it left open:
   query the app reads every candidate's metadata (no bodies), scores titles in JS and sorts; the
   ASCII path keeps SQL's `ORDER BY … LIMIT`. Both page with the same cursor.
 - **Refill** reads more candidates in growing batches (the page size, then doubling, at most
-  500), so a rare `is:checklist` or `prop:` does not cost one query per page-sized slice.
+  500), so a rare `is:checklist` or `prop:` does not cost one query per page-sized slice. Bodies
+  read to confirm a batch are kept only for the rows that match, so memory stays bounded by
+  the page; a check on the title alone reads no body.
+- **Checklists** skip front matter by the shared `findFrontMatterBlock` rule. An empty box
+  (`- [ ] ` with nothing after it) is not an item, as the earlier rule and the Preview read it.
+- **Recent searches** remember typed queries (after 2 s) and opened results, not text the page
+  writes itself (chips, the folder's `in:` part). Shown results are searched again after a sync
+  at most once per 2 s.
 - **Snippets** strip only a window of about 2400 characters around the first term found, so a
   2 MiB body costs no more than a short one (`stripInline` is not linear on hostile lines).
 - **API**: `search` responses gain `notices` always, and `truncated` / `scanned` only when the

@@ -61,6 +61,36 @@ describe('parseSearchQuery', () => {
         expect(parseSearchQuery('a - b -c').terms).toEqual(['a', '-', 'b']);
     });
 
+    it('negates only before a letter or a quote, so -5, -- and - stay words', () => {
+        expect(kinds('-5 degrees -- - -é -"x" -title:y').map((part) => [part.type, part.value, part.negated])).toEqual([
+            ['text', '-5', false], ['text', 'degrees', false], ['text', '--', false], ['text', '-', false],
+            ['text', 'é', true], ['text', 'x', true], ['text', 'y', true],
+        ]);
+        // Quoted, a leading dash is searched literally.
+        expect(kinds('"-draft"')).toEqual([{ type: 'text', field: 'any', value: '-draft', negated: false }]);
+    });
+
+    it('reads a prefixed value to the next space outside quotes', () => {
+        expect(kinds('prop:status="in progress" title:"a b"c budget')).toEqual([
+            { type: 'prop', condition: { key: 'status', operator: '=', value: 'in progress' }, value: 'status="in progress"', negated: false },
+            { type: 'text', field: 'title', value: 'a bc', negated: false },
+            { type: 'text', field: 'any', value: 'budget', negated: false },
+        ]);
+        expect(kinds('in:"Acme Team"/Contracts')[0]).toMatchObject({ type: 'in', path: ['Acme Team', 'Contracts'] });
+        const open = parseSearchQuery('budget prop:status="in progress and more');
+        expect(open.parts.map((part) => part.type)).toEqual(['text', 'prop']);
+        expect(open.parts[1].condition).toEqual({ key: 'status', operator: '=', value: 'in progress and more' });
+        expect(open.notices).toEqual(['prop:status="in progress and more has no closing quote, so the rest of the search was read as its value']);
+        expect(parseSearchQuery('title:"never closed words').parts[0]).toMatchObject({ field: 'title', value: 'never closed words' });
+    });
+
+    it('answers a search for tags alone with no Documents rather than refusing it', () => {
+        const only = parseSearchQuery('tag:urgent tag:later -draft');
+        expect(only).toMatchObject({ hasPositive: false, onlyUnavailable: true, notices: ['Tags are not available yet'] });
+        expect(parseSearchQuery('budget tag:urgent')).toMatchObject({ hasPositive: true, onlyUnavailable: false });
+        expect(parseSearchQuery('-tag:urgent').onlyUnavailable).toBe(false);
+    });
+
     it('keeps a word that only looks like a prefix, and a quoted prefix, as text', () => {
         expect(kinds('Note: http://x "title:"')).toEqual([
             { type: 'text', field: 'any', value: 'Note:', negated: false },
@@ -118,8 +148,8 @@ describe('parseSearchQuery', () => {
 
     it('records where each token is, so chips can rewrite the query', () => {
         expect(tokenizeSearchQuery(' -title:"a b" x')).toEqual([
-            { start: 1, end: 13, raw: '-title:"a b"', negated: true, prefix: 'title', value: 'a b', quoted: true },
-            { start: 14, end: 15, raw: 'x', negated: false, prefix: null, value: 'x', quoted: false },
+            { start: 1, end: 13, raw: '-title:"a b"', negated: true, prefix: 'title', value: 'a b', quoted: true, unclosed: false, rawValue: '"a b"' },
+            { start: 14, end: 15, raw: 'x', negated: false, prefix: null, value: 'x', quoted: false, unclosed: false, rawValue: 'x' },
         ]);
     });
 
@@ -142,6 +172,9 @@ describe('parseSearchQuery', () => {
             'title:'.repeat(LONG / 6),
             `prop:"${'a and '.repeat(LONG / 6)}`,
             'a"b '.repeat(LONG / 4),
+            `title:a${'"b '.repeat(LONG / 3)}`,
+            `prop:${'x"'.repeat(LONG / 2)}`,
+            '-"'.repeat(LONG / 2),
         ];
         for (const input of inputs) {
             const started = performance.now();
@@ -194,6 +227,12 @@ describe('hasChecklistItem', () => {
         expect(hasChecklistItem('```\n- [ ] in code\n```')).toBe(false);
         expect(hasChecklistItem('~~~~\n- [ ] in code\n~~~\n~~~~')).toBe(false);
         expect(hasChecklistItem('---\ntask: - [ ] x\n---\nbody')).toBe(false);
+        // Front matter by the shared rule: a block that is not YAML-shaped is ordinary text.
+        expect(hasChecklistItem('---\ntitle: Plan\n---\n- [ ] x')).toBe(true);
+        expect(hasChecklistItem('---\n- [ ] in a rule-framed list\nSome prose.\n---\nmore')).toBe(true);
+        expect(hasChecklistItem('---\ntitle: x\n- [ ] a YAML item\n---\nbody')).toBe(false);
+        // An empty box is not an item, as the Preview renders it.
+        expect(hasChecklistItem('- [ ] ')).toBe(false);
         expect(hasChecklistItem('1234567890. [ ] too many digits')).toBe(false);
     });
 

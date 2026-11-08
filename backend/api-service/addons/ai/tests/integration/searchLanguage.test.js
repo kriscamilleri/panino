@@ -158,6 +158,33 @@ describe('AI agents add-on: search query language', () => {
         expect((await q(Array.from({ length: 21 }, (_, i) => `w${i}`).join(' '))).status).toBe(400);
     });
 
+    it('keeps a dash before a digit or a dash a word, as the first release read it', async () => {
+        note(db(), 'p6', 'Weather', 'It was -5 degrees -- cold.', { updatedAt: day(4) });
+        const res = await q('-5 degrees');
+        expect(ids(res)).toEqual(['p6']);
+        expect(res.body.terms).toEqual(['-5', 'degrees']);
+        // `--` is a word too (front matter fences contain it, so pair it with another word).
+        expect(ids(await q('-- cold'))).toEqual(['p6']);
+        expect(ids(await q('"-5"'))).toEqual(['p6']);
+    });
+
+    it('answers a search for tags alone with no results and the notice, not an error', async () => {
+        const res = await q('tag:urgent');
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ results: [], nextOffset: null, terms: [], notices: ['Tags are not available yet'] });
+        const mcpRes = await mcp('search_documents', { query: 'tag:urgent' });
+        expect(mcpRes.body.result.isError).toBeFalsy();
+        expect(mcpRes.body.result.content[0].text).toBe('No Documents match tag:urgent.\nNote: Tags are not available yet');
+    });
+
+    it('reads a quoted value inside a prop: part', async () => {
+        note(db(), 'p7', 'Rollout', '---\nstatus: in progress\n---\nbudget rollout', { updatedAt: day(4) });
+        const res = await q('prop:status="in progress"');
+        expect(ids(res)).toEqual(['p7']);
+        expect(res.body.notices).toEqual([]);
+        expect(ids(await q('budget prop:status="in progress"'))).toEqual(['p7']);
+    });
+
     it('works through MCP, with the notices in the text', async () => {
         const res = await mcp('search_documents', { query: 'budget in:"Acme Team/Contracts" tag:x' });
         const { text } = res.body.result.content[0];
