@@ -12,10 +12,12 @@
  * Per database, SQL does the cheap work on metadata and with LIKE: every word and phrase, the
  * `in:` folders, Trash, and the order (words found in the title, then `updated_at`, then id,
  * all descending), with `limit + 1` candidates. What LIKE cannot decide (letters outside ASCII
- * that have a case, `is:checklist`, `prop:`) is confirmed in JS; when that drops candidates,
- * the database is read again from its last candidate until the page is full or the database
- * has no more. Only the confirmed page's bodies are read for snippets, and only the candidates'
- * bodies for confirmation.
+ * that have a case, `is:checklist`, `prop:`, `tag:` without the metadata index) is confirmed
+ * in JS: then one pass lists every candidate in order (metadata only, at most 5000), and the
+ * bodies the checks need are read by id in batches until the page is full, so the table is
+ * scanned once per database however many candidates are rejected. The metadata index, when the
+ * caller gives one, answers `tag:` and front matter `prop:` as id lists instead. Only the
+ * confirmed page's bodies are read for snippets.
  *
  * Every SQL fragment is a fixed string chosen by the part's type; every value is a bound
  * parameter, and LIKE wildcards in terms are escaped.
@@ -37,14 +39,20 @@ import {
     matchesFilter,
     readProperties,
 } from './propertyFilter.js';
+import { readTags } from './frontMatter.js';
 import { buildFolderIndex, findFoldersByPath, folderSubtree, trashFolderIds } from './trashFolder.js';
 
 export const DEFAULT_SEARCH_LIMIT = 20;
 /** Names that may lead an `in:` path for the personal database, as the sidebar labels it. */
 export const PERSONAL_LABELS = Object.freeze(['My Notes']);
 export const MAX_SEARCH_LIMIT = 100;
-/** Most candidates one refill reads from a database. */
+/** Most candidates whose bodies one batch reads, by id. */
 const MAX_BATCH = 500;
+/**
+ * Most candidates per database a query with checks in JS considers (the API's property scan
+ * has the same cap); past it the answer says it was cut short.
+ */
+export const CONFIRM_SCAN_CAP = 5000;
 
 /* ------------------------------------------------------------------ *
  * Order
@@ -184,7 +192,7 @@ function textCondition(part) {
  * What one query needs from each database: SQL conditions with their parameters, the title
  * score, and the checks JS must make on candidates.
  */
-function planQuery(parts) {
+function planQuery(parts, decided = new Set()) {
     const where = [];
     const confirm = [];
     let needsBody = false;
@@ -193,6 +201,8 @@ function planQuery(parts) {
     const scoreParts = [];
 
     for (const part of parts) {
+        // A part the metadata index already decided restricts the ids instead.
+        if (decided.has(part)) continue;
         if (part.type === 'text') {
             const folded = hasCasedNonAscii(part.value);
             if (!part.negated) {
@@ -214,7 +224,9 @@ function planQuery(parts) {
                 if (part.field !== 'title') needsBody = true;
             }
         } else if (part.type === 'is') {
-            if (!part.negated) where.push({ sql: `${BODY} LIKE '%[%]%'`, params: [] });
+            // A checklist item has a box, `[ ]` or `[x]` (LIKE folds the X): far fewer Documents
+            // than every one with a bracket (links), and still a superset of the rule.
+            if (!part.negated) where.push({ sql: `(${BODY} LIKE '%[ ]%' OR ${BODY} LIKE '%[x]%')`, params: [] });
             confirm.push(part.negated ? (row) => !hasChecklistItem(row.content) : (row) => hasChecklistItem(row.content));
             needsBody = true;
         } else if (part.type === 'prop') {
@@ -243,6 +255,14 @@ function planQuery(parts) {
                 return matchesFilter(entries, [condition]);
             };
             confirm.push(part.negated ? (row) => !test(row) : test);
+        } else if (part.type === 'tag') {
+            // Without the index: the tags of the first 16 KB, read as the index and the API read them.
+            needsHead = true;
+            if (!part.negated) {
+                where.push({ sql: `substr(${BODY}, 1, ${FRONT_MATTER_SCAN_CHARS}) LIKE ? ESCAPE '\\'`, params: [likeContains('tags')] });
+            }
+            const test = (row) => readTags(String(row.head ?? row.content ?? '').slice(0, FRONT_MATTER_SCAN_CHARS)).includes(part.name);
+            confirm.push(part.negated ? (row) => !test(row) : test);
         }
     }
 
@@ -263,6 +283,67 @@ function planQuery(parts) {
 }
 
 /* ------------------------------------------------------------------ *
+ * The metadata index: `prop:` and `tag:` without reading bodies
+ * ------------------------------------------------------------------ */
+
+const LOCAL_BUILT_INS = new Set(['word_count', 'created_on', 'modified_on']);
+
+/**
+ * @typedef {object} MetadataIndex
+ * @property {() => Iterable<[string, { tags: string[], properties: Record<string, string> }]>} entries
+ *   every Document of the database with tags or front matter properties (the others have neither)
+ * @property {(names: string[]) => Set<string>} idsWithTags the Documents carrying every tag (AND)
+ */
+
+/** A Document's front matter properties as the filter reads them. */
+function propertyList(properties) {
+    return Object.entries(properties || {}).map(([key, value]) => ({ key, value }));
+}
+
+/**
+ * What a database's metadata index decides about a query's `tag:` and front matter `prop:`
+ * parts: Documents that must be among the results (`include`, one id list per part, all of
+ * which must hold) and Documents that must not (`exclude`). A Document without tags or front
+ * matter is not in the index's entries; whether it passes a part follows from the condition
+ * (`owner missing` holds for it, `status = draft` does not), so a part that such Documents
+ * pass becomes an exclusion of the indexed ones that fail it, and any other part a list of
+ * the ones that pass. Built-in properties (`word_count`, `created_on`, `modified_on`) are not
+ * in the index and stay with SQL and the row.
+ *
+ * @param {import('./searchText.js').SearchPart[]} parts
+ * @param {MetadataIndex} index
+ * @returns {{ include: string[][], exclude: string[], decided: Set<object> }}
+ */
+export function metadataRestrictions(parts, index) {
+    const include = [];
+    const exclude = new Set();
+    const decided = new Set();
+    let entries = null;
+    for (const part of parts) {
+        if (part.type === 'tag') {
+            const ids = index.idsWithTags([part.name]);
+            if (part.negated) for (const id of ids) exclude.add(id);
+            else include.push([...ids]);
+            decided.add(part);
+            continue;
+        }
+        if (part.type !== 'prop' || LOCAL_BUILT_INS.has(part.condition.key.toLowerCase())) continue;
+        entries ??= [...index.entries()];
+        const conditions = [part.condition];
+        const passes = [];
+        const fails = [];
+        for (const [id, entry] of entries) {
+            (matchesFilter(propertyList(entry.properties), conditions) !== part.negated ? passes : fails).push(id);
+        }
+        const plainPasses = matchesFilter([], conditions) !== part.negated;
+        if (plainPasses) for (const id of fails) exclude.add(id);
+        else include.push(passes);
+        decided.add(part);
+    }
+    return { include, exclude: [...exclude], decided };
+}
+
+/* ------------------------------------------------------------------ *
  * One database
  * ------------------------------------------------------------------ */
 
@@ -278,6 +359,12 @@ function scopeConditions(scope) {
             sql: '(notes.folder_id IS NULL OR notes.folder_id NOT IN (SELECT value FROM json_each(?)))',
             params: [JSON.stringify(scope.exclude)],
         });
+    }
+    for (const ids of scope.includeIds || []) {
+        conditions.push({ sql: 'notes.id IN (SELECT value FROM json_each(?))', params: [JSON.stringify(ids)] });
+    }
+    if (scope.excludeIds?.length) {
+        conditions.push({ sql: 'notes.id NOT IN (SELECT value FROM json_each(?))', params: [JSON.stringify(scope.excludeIds)] });
     }
     return conditions;
 }
@@ -344,42 +431,50 @@ async function searchOne(database, plan, scope, cursor, need, isCancelled, stats
         // from JS: every candidate's metadata (no bodies), scored on its title, then sorted.
         if (isCancelled()) return null;
         const rows = await database.execute(`SELECT ${METADATA} FROM notes WHERE ${where}`, whereParams);
-        const ordered = (rows || [])
+        stats.scans += 1;
+        let ordered = (rows || [])
             .map((row) => ({ ...row, title_score: plan.scoreParts.filter((part) => foldedIncludes(row.title, part.value)).length }))
             .filter((row) => !cursor || isAfter(row, cursor))
             .sort(compareSearchRows);
+        const cut = ordered.length > CONFIRM_SCAN_CAP && plan.confirm.length > 0;
+        if (cut) ordered = ordered.slice(0, CONFIRM_SCAN_CAP);
         let batch = need;
         for (let start = 0; start < ordered.length && out.length < need; start += batch, batch = Math.min(MAX_BATCH, batch * 2)) {
             if (!await confirmBatch(database, ordered.slice(start, start + batch), plan, context)) return null;
         }
+        if (cut && out.length < need) stats.truncated = true;
         return { rows: out, bodies: kept };
     }
 
-    let position = cursor;
-    let batch = need;
-    for (;;) {
-        const keyset = position
-            ? '\n WHERE title_score < ? OR (title_score = ? AND (sort_updated < ? OR (sort_updated = ? AND id < ?)))'
-            : '';
-        const keysetParams = position
-            ? [position.score, position.score, position.updatedAt, position.updatedAt, position.id]
-            : [];
-        if (isCancelled()) return null;
-        const rows = await database.execute(`
+    const keyset = cursor
+        ? '\n WHERE title_score < ? OR (title_score = ? AND (sort_updated < ? OR (sort_updated = ? AND id < ?)))'
+        : '';
+    const keysetParams = cursor ? [cursor.score, cursor.score, cursor.updatedAt, cursor.updatedAt, cursor.id] : [];
+    // Without checks in JS every row SQL returns matches, so `need` rows are the page. With
+    // checks, ONE pass returns every candidate's metadata in order (no bodies, so the sorter
+    // holds a few columns per row), capped; the bodies the checks need are then read in
+    // batches by id (primary-key lookups), never by scanning the table again. Reading the
+    // pages of every body is what a scan costs in the browser, so a query whose checks reject
+    // most candidates costs one scan plus the bodies of the candidates, not one scan per batch.
+    const limit = plan.confirm.length ? CONFIRM_SCAN_CAP + 1 : need;
+    if (isCancelled()) return null;
+    let rows = await database.execute(`
 SELECT * FROM (
   SELECT ${METADATA}, coalesce(notes.updated_at, '') AS sort_updated, ${plan.scoreSql} AS title_score
     FROM notes
    WHERE ${where}
 )${keyset}
  ORDER BY title_score DESC, sort_updated DESC, id DESC
- LIMIT ?`, [...plan.scoreParams, ...whereParams, ...keysetParams, batch]) || [];
-        if (!await confirmBatch(database, rows, plan, context)) return null;
-        // Without checks in JS every row matched, so one query was enough.
-        if (out.length >= need || rows.length < batch || !plan.confirm.length) break;
-        const last = rows[rows.length - 1];
-        position = { score: Number(last.title_score), updatedAt: last.sort_updated, id: last.id };
-        batch = Math.min(MAX_BATCH, batch * 2);
+ LIMIT ?`, [...plan.scoreParams, ...whereParams, ...keysetParams, limit]) || [];
+    stats.scans += 1;
+    const cut = rows.length > CONFIRM_SCAN_CAP;
+    if (cut) rows = rows.slice(0, CONFIRM_SCAN_CAP);
+    let batch = need;
+    for (let start = 0; start < rows.length && out.length < need; start += batch, batch = Math.min(MAX_BATCH, batch * 2)) {
+        if (!await confirmBatch(database, rows.slice(start, start + batch), plan, context)) return null;
     }
+    // Cut short only matters when the candidates checked did not fill the page.
+    if (cut && out.length < need) stats.truncated = true;
     return { rows: out, bodies: kept };
 }
 
@@ -392,6 +487,9 @@ SELECT * FROM (
  * @property {string} dbKey
  * @property {string|null} [name]  the space's name; null for the personal database
  * @property {string[]} [labels]   names that may lead an `in:` path (default: `[name]`)
+ * @property {() => Promise<MetadataIndex|null>} [index] the database's metadata index, asked
+ *   for only when the query has `tag:` or a front matter `prop:`; null (or no function) means
+ *   the first 16 KB of the candidates' bodies are read instead
  * @property {(sql: string, params?: unknown[]) => (object[] | Promise<object[]>)} execute
  */
 
@@ -422,24 +520,26 @@ SELECT * FROM (
  * @param {{ score: number, updatedAt: string, id: string } | null} [input.cursor] `nextCursor` of the page before
  * @param {() => boolean} [input.isCancelled]
  * @returns {Promise<{ results: SearchResultRow[], nextCursor: object|null, notices: string[], terms: string[],
- *   failed?: Array<{ dbKey: string, error: unknown }>, stats?: { bodiesRead: number, bodiesKept: number },
+ *   failed?: Array<{ dbKey: string, error: unknown }>, stats?: { bodiesRead: number, bodiesKept: number, indexed: number },
  *   cancelled?: boolean }>} `failed`: databases that could not be read and were left out; `stats`:
  *   bodies read to confirm candidates, and how many of them were kept for the page
  */
 export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH_LIMIT, cursor = null, isCancelled = () => false }) {
     const max = Math.min(MAX_SEARCH_LIMIT, Math.max(1, Math.floor(Number(limit)) || DEFAULT_SEARCH_LIMIT));
-    const parsed = parseSearchQuery(query, { context: 'app' });
+    const parsed = parseSearchQuery(query, { context: 'app', tags: true });
     const notices = [...parsed.notices];
     const empty = { results: [], nextCursor: null, notices, terms: parsed.terms };
     if (!parsed.hasPositive) return empty;
     const position = readSearchCursor(cursor);
     const plan = planQuery(parsed.parts);
+    const usesMetadata = parsed.parts.some((part) => part.type === 'tag'
+        || (part.type === 'prop' && !LOCAL_BUILT_INS.has(part.condition.key.toLowerCase())));
     const inParts = parsed.parts.filter((part) => part.type === 'in');
     const named = inParts.map(() => false);
     const found = [];
     // How many bodies confirmation read, and how many it kept for the page (at most the page
     // size plus one per database): a check on memory use.
-    const stats = { bodiesRead: 0, bodiesKept: 0 };
+    const stats = { bodiesRead: 0, bodiesKept: 0, indexed: 0, scans: 0, truncated: false };
 
     const failed = [];
     for (const database of databases || []) {
@@ -452,7 +552,18 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
             const scope = resolveFolderScope(folders, inParts, labels);
             scope.resolved.forEach((resolved, index) => { if (resolved) named[index] = true; });
             if (scope.skip) continue;
-            one = await searchOne(database, plan, scope, position, max + 1, isCancelled, stats);
+            let dbPlan = plan;
+            const index = usesMetadata && typeof database.index === 'function' ? await database.index() : null;
+            if (isCancelled()) return { ...empty, cancelled: true };
+            if (index) {
+                const restricted = metadataRestrictions(parsed.parts, index);
+                if (restricted.include.some((ids) => ids.length === 0)) continue;
+                scope.includeIds = restricted.include;
+                scope.excludeIds = restricted.exclude;
+                dbPlan = planQuery(parsed.parts, restricted.decided);
+                stats.indexed += 1;
+            }
+            one = await searchOne(database, dbPlan, scope, position, max + 1, isCancelled, stats);
         } catch (error) {
             // One database that cannot be read (a space still loading) does not stop the rest.
             failed.push({ dbKey: database.dbKey, error });
@@ -466,6 +577,9 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
     inParts.forEach((part, index) => {
         if (!named[index] && !part.negated) notices.push(`No folder matches in:${quoteSearchValue(part.value)}`);
     });
+    if (stats.truncated) {
+        notices.push(`Only the first ${CONFIRM_SCAN_CAP} Documents that could match in a database were checked; add words or in: to narrow the search.`);
+    }
     if (failed.length) notices.push(failed.length === 1 ? 'One database could not be searched.' : `${failed.length} databases could not be searched.`);
 
     found.sort((a, b) => compareSearchRows(a.row, b.row));

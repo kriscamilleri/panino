@@ -67,7 +67,7 @@ phrase queries give the same results as before. One example per part:
 | `prop:` | `prop:status=draft`, `prop:"due <= 2026-12-01"`, `prop:status="in progress"` | one property filter condition; also `word_count`, `created_on`, `modified_on`, `created_by`, `modified_by`. Goes through the property scan (5000 Documents per database, `truncated`, `scanned`) |
 | `-` | `-"old draft"`, `-in:Archive`, `-prop:status=done` | excludes, but only before a letter or a quote: `-5`, `--` and `-` alone stay words. Quote anything to search it literally: `"title:"`, `"-draft"` |
 | `in:Trash` | `budget in:Trash` | Trash is left out unless asked: `in:Trash`, `includeTrash`, or a `folderId` inside it |
-| `tag:` | `tag:urgent` | not available yet: a notice; a query of only `tag:` parts returns no results with it (200) |
+| `tag:` | `tag:urgent`, `tag:"to do"`, `-tag:archived` | a tag of the front matter `tags` list (`readTags`, canonical: case and spacing ignored). Goes through the property scan like `prop:` (`truncated`, `scanned`); the app answers it from its metadata index |
 
 A part that cannot be read is skipped and explained in `notices`; a query of exclusions only is
 refused (400). The parity tests in `tests/integration/searchLanguage.test.js` run the app's

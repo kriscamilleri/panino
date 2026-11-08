@@ -13,7 +13,7 @@
 //   body reach JS, and only when a front matter key is needed;
 // - conditions run cheapest first (front matter and dates, then authors, then word
 //   counts), each on the Documents still matching; a word count reads one body at a time.
-import { removeFrontMatterKeys, setFrontMatterValues } from '@panino/content-merge/front-matter';
+import { readTags, removeFrontMatterKeys, setFrontMatterValues } from '@panino/content-merge/front-matter';
 import {
     ApiError,
     announce,
@@ -122,12 +122,14 @@ function wordCounter(db) {
  * block holding every key in `keys`. With `withProperties`, each comes with its front
  * matter properties.
  *
- * Search (`searchDocuments` with a `prop:` part) passes more `filters` (fixed SQL fragments
+ * With `withTags`, each also comes with its tags (`readTags` on the same 16 KB, as the app's
+ * metadata index reads them). Search (`searchDocuments` with a `prop:` or `tag:` part) passes more `filters` (fixed SQL fragments
  * with bound parameters: its words, folders and Trash) and a `score` (the words found in the
  * title), which orders first and comes back as each row's `title_score`.
  */
 function scanTarget(target, {
     includeTrash, folderId, keys = [], anyDocument = false, withProperties = true, filters = [], score = null,
+    withTags = false,
 }) {
     const db = target.db;
     const folders = readFolders(db);
@@ -165,7 +167,7 @@ function scanTarget(target, {
     const truncated = ids.length > PROPERTY_SCAN_CAP;
     const capped = ids.slice(0, PROPERTY_SCAN_CAP);
     const order = new Map(capped.map((id, index) => [id, index]));
-    const head = withProperties ? `substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS})` : 'NULL';
+    const head = withProperties || withTags ? `substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS})` : 'NULL';
     const rows = db.prepare(`
         SELECT id, title, folder_id, created_at, updated_at, pinned, ${head} AS head
           FROM notes WHERE id IN (SELECT value FROM json_each(?))
@@ -173,9 +175,10 @@ function scanTarget(target, {
     const documents = [];
     for (const { head: text, ...row } of rows.iterate(JSON.stringify(capped))) {
         const properties = withProperties ? readProperties(text) : null;
-        if (!anyDocument && !properties?.length) continue;
+        const tags = withTags ? readTags(text ?? '') : null;
+        if (!anyDocument && !properties?.length && !tags?.length) continue;
         if (score) row.title_score = scores.get(row.id) ?? 0;
-        documents.push({ row, properties });
+        documents.push({ row, properties, tags });
     }
     documents.sort((a, b) => order.get(a.row.id) - order.get(b.row.id));
     return { folderIndex, truncated, documents, wordCount: wordCounter(db) };
@@ -362,7 +365,7 @@ export function queryDocumentsByProperty(ctx, { filter, space, folderId, include
 }
 
 /**
- * The Documents of one database that satisfy search `prop:` parts (docs/specs/active/
+ * The Documents of one database that satisfy search `prop:` and `tag:` parts (docs/specs/active/
  * advanced-search.md §6.5): the property scan of `queryDocumentsByProperty`, with the same cap
  * and the same cheapest-first order of conditions, narrowed further by the search's own SQL
  * `filters` and ordered by its `score`. A negated part keeps the Documents its condition
@@ -376,23 +379,29 @@ export function queryDocumentsByProperty(ctx, { filter, space, folderId, include
  * @returns {{ rows: object[], folderIndex: object, truncated: boolean, scanned: 'all'|'front_matter' }}
  *   rows in the scan's order, each with `title_score` when a score was given
  */
-export function searchByProperties(ctx, target, { parts, includeTrash, folderId = null, filters = [], score = null }) {
+export function searchByProperties(ctx, target, {
+    parts, tagParts = [], includeTrash, folderId = null, filters = [], score = null,
+}) {
     const isBuiltIn = (part) => part.condition.key.toLowerCase() in BUILT_IN_FILTER_KEYS;
     const frontMatter = parts.filter((part) => !isBuiltIn(part));
     const keys = requiredKeys(frontMatter.filter((part) => !part.negated).map((part) => part.condition));
-    const anyDocument = parts.some((part) => part.negated || isBuiltIn(part)
+    // A tag must sit under a `tags` key (prefilter only; readTags decides).
+    if (tagParts.some((part) => !part.negated) && !keys.includes('tags')) keys.push('tags');
+    const anyDocument = tagParts.some((part) => part.negated) || parts.some((part) => part.negated || isBuiltIn(part)
         || part.condition.operator === 'missing' || part.condition.operator === '!=');
     const keyOf = (part) => part.condition.key.toLowerCase();
     const cheap = parts.filter((part) => !isBuiltIn(part) || ['created_on', 'modified_on'].includes(keyOf(part)));
     const byAuthor = parts.filter((part) => AUTHOR_KEYS.includes(keyOf(part)));
     const byWords = parts.filter((part) => keyOf(part) === 'word_count');
     const holds = (entries, group) => group.every((part) => matchesFilter(entries, [part.condition]) !== part.negated);
+    const tagged = (entry) => tagParts.every((part) => (entry.tags || []).includes(part.name) !== part.negated);
 
     const result = scanTarget(target, {
         includeTrash, folderId, keys, anyDocument, withProperties: frontMatter.length > 0, filters, score,
+        withTags: tagParts.length > 0,
     });
     const builtInOf = (entry, authors) => builtInProperties(entry.row, result.folderIndex, { authors });
-    let candidates = result.documents.filter((entry) => holds(
+    let candidates = result.documents.filter((entry) => tagged(entry) && holds(
         [...builtInEntries(builtInOf(entry)), ...(entry.properties || [])], cheap));
     if (byAuthor.length && candidates.length) {
         const authors = documentAuthorship(ctx, target, candidates.map((entry) => entry.row.id));

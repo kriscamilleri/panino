@@ -39,6 +39,9 @@ function makeBody(rand, targetBytes, { frontMatter, rare }) {
     if (frontMatter) {
         parts.push('---', `status: ${rand() < 0.5 ? 'draft' : 'final'}`, `priority: ${Math.floor(rand() * 10)}`);
         if (rand() < 0.5) parts.push(`owner: ${rand() < 0.5 ? 'Kris' : 'Sam'}`);
+        // Tags without drawing from the generator: every front matter block has `report`, and
+        // those with priority 0 or 7 (about one in five) also `alpha`, for the tag: rows.
+        parts.push(`tags: [report${parts[2] === 'priority: 0' || parts[2] === 'priority: 7' ? ', alpha' : ''}]`);
         parts.push(`due: 2026-${String(1 + Math.floor(rand() * 12)).padStart(2, '0')}-15`, '---', '');
     }
     let size = 0;

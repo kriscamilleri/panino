@@ -176,6 +176,15 @@ export class DocumentMetadataIndex {
     }
 
     /**
+     * Every Document with tags or front matter properties, with its metadata. The others the
+     * index has seen have neither. For search's `prop:` parts (advanced-search.md §6.3).
+     * @returns {IterableIterator<[string, DocumentMetadata]>}
+     */
+    documents() {
+        return this.entries.entries();
+    }
+
+    /**
      * The Documents carrying every one of the tags (AND). Names are
      * canonicalised; an empty list or an unusable name matches nothing.
      * @param {string[]} names

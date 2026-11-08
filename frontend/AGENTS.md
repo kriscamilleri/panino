@@ -210,6 +210,13 @@ desktop search panel, and the same query language as the AI add-on's `search_doc
   `setFolderChip`, `clearChips`, `chipState`).
 - Desktop: `SearchPanel.vue` replaces the tree in `Documents.vue` while open; the toggle and
   `Ctrl/Cmd+Shift+F` (listened for in `SidebarWithResizer.vue`) open it, Esc closes it.
+- `tag:` and front matter `prop:` parts are answered by the metadata index
+  (`documentIndexStore`: `ensure`, `metadataEntries`, `idsWithTags`), which docStore hands the
+  engine as each database's `index()`; without it the engine reads the bodies' first 16 KB.
+- The property picker: `components/PropertyPicker.vue` (form), `composables/usePropertyPicker.js`
+  (keys and values from the index), `utils/propertyPicker.js` (conditions, the part it writes).
+  Desktop popover in `SearchPanel`, phone bottom sheet in `PhoneSearchPage`. Results show
+  `DocumentTagChips` with `selectable`: a click adds `tag:<name>`.
 - Recent searches (`panino-recent-searches`) are cleared on sign-out (`authStore`).
 - Development builds put `__paninoSearchBench(query, runs)` and `__paninoSearchSeed({ count,
   confirm })` on `window` (`utils/searchBench.js`) for the browser benchmark.

@@ -13,6 +13,7 @@ import { normalizeRecentDocument } from "../utils/recentDocuments.js";
 import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 import { mergeDashboardRows } from "../utils/syncRegistry.js";
 import { DEFAULT_SEARCH_LIMIT, PERSONAL_LABELS, searchDatabases } from "@panino/content-merge/document-search";
+import { useDocumentIndexStore } from "./documentIndexStore";
 import { normalizeSort, sortDocuments } from "../utils/homeView.js";
 
 export const useDocStore = defineStore("docStore", () => {
@@ -251,16 +252,32 @@ ${DOCUMENT_COLUMNS}
    */
   async function searchDocuments({ query, limit = DEFAULT_SEARCH_LIMIT, cursor = null } = {}) {
     const run = ++searchRun;
+    const documentIndexStore = useDocumentIndexStore();
     const databases = [];
     for (const entry of syncStore.databases.values()) {
       if (!entry.db) continue;
       const repository = syncStore.repository(entry.dbKey);
       const isSpace = entry.kind === 'space';
+      const dbKey = entry.dbKey;
       databases.push({
-        dbKey: entry.dbKey,
+        dbKey,
         name: isSpace ? entry.name : null,
         labels: isSpace ? [entry.name] : [...PERSONAL_LABELS],
         execute: (sql, params) => repository.execute(sql, params),
+        // tag: and front matter prop: parts read the metadata index (built on first use)
+        // instead of the bodies; if it cannot be built, the engine reads the bodies' heads.
+        index: async () => {
+          try {
+            await documentIndexStore.ensure(dbKey);
+          } catch (error) {
+            console.warn(`Search could not use the metadata index of ${dbKey}:`, error?.name || error);
+            return null;
+          }
+          return {
+            entries: () => documentIndexStore.metadataEntries(dbKey),
+            idsWithTags: (names) => documentIndexStore.idsWithTags(dbKey, names),
+          };
+        },
       });
     }
     const found = await searchDatabases({

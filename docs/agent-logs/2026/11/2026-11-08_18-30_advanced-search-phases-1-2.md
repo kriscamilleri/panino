@@ -183,6 +183,107 @@ blocks each body gets, so counts shift slightly, e.g. `status = draft` 815 inste
 `search lorem is:checklist` **77.8 ms** (was 22 ms when no body had a bracket); the existing
 search rows are unchanged (`zebra` 19.3, `lorem` 19.2, 3 words 21.8, phrase 26.4, `über` 86.5 ms).
 
+## Phases 3–4 (on `feature/advanced-search-3-4`, from `feature/pending-specs` 4270639)
+
+Built on the merged tag system (its metadata index: `documentIndexStore`).
+
+- **Phase 3, `prop:` from the index.** `shared/documentSearch.js` gained `metadataRestrictions`:
+  for each database whose `index()` is available it turns `tag:` and front matter `prop:` parts
+  into id lists (`notes.id IN / NOT IN json_each(?)`) and drops their SQL prefilter and JS
+  check. Built-ins stay on the row (`created_on`, `modified_on`) or the body (`word_count`). The
+  index store gained `metadataEntries(dbKey)` (and the pure index `documents()`), additively.
+- **Phase 3, the property picker.** `utils/propertyPicker.js` (keys merged across databases plus
+  built-ins, `tags` left out; ten conditions in words; date detection; the plainest part that
+  parses back to the same condition), `PropertyPicker.vue`, `usePropertyPicker.js`; a
+  "Property…" chip in the desktop panel (popover, `useDialogFocus`) and on the phone page (bottom
+  sheet).
+- **Phase 4, `tag:`.** App: the index's `idsWithTags`, one part each (AND), Trash out unless
+  `in:Trash`; fallback without an index: `readTags` on the 16 KB head. API: `searchByProperties`
+  takes `tagParts`, `scanTarget` reads tags with `readTags` (`withTags`), `tags` key prefilter.
+  The "not available" notice is gone; `tag:` names use `canonicalTagName` (over 50 characters is
+  a notice). Tag chips on results: `DocumentTagChips` with a new `selectable` prop (emits
+  `select`), placed below the result link.
+- Docs: spec §4, §7, §10, §13 "Phases 3–4"; OpenAPI, tool description, add-on README,
+  `public-api.md`, `frontend/AGENTS.md`.
+
+Tests added: `documentSearch.test.js` (13 queries give the same Documents with and without the
+index and read no body with it; tags across databases, AND, Trash; the filter bar's set equals
+`tag:`'s; `word_count` still reads; a database without an index; `metadataRestrictions` lists),
+`propertyPicker.test.js`, `documentIndexStore.test.js` (`metadataEntries`), `searchPanel.test.js`
+(picker focus and writing, date field, Esc, tag chips on both screens), `searchText.test.js`
+(`tag:` names), API `searchLanguage.test.js` (`tag:` through REST and MCP, `-tag:`, `in:Trash`,
+5 more parity queries). The perf generator now puts `tags: [report]` in every front matter block
+and `alpha` in about one in five (no draws from the generator), the same in `searchBench.js`.
+
+Perf, API (87 MB account, median of 3): `tag:report` 46.9 ms, `tag:alpha` 44.6 ms,
+`lorem tag:report` 46.3 ms, `lorem -tag:report` 80.5 ms (`scanned: all`); `prop:` rows as before
+(`lorem prop:status=draft` 49.3 ms, `prop:status=draft` 47.9 ms); the rest unchanged.
+
+Test results at the end of phases 3–4 (with the two fixes below): frontend 1369 passed (109
+files); shared 113; backend (Docker, `panino-api-test-search`, full suite) 1241 passed, 1 skipped
+(78 files); lint clean.
+
+### Priority fix from the coordinator's phase 0 run: one scan per database
+
+The coordinator's phase 0 run in Chrome (5000 Documents) found `lorem is:checklist` (0 results)
+at **16.7 s** (62.9 s at 4×): when JS checks rejected most candidates, every refill batch
+re-ran the whole SQL query, and each run reads every content page (~1 s). Fixed like the API's
+`scanTarget`:
+- A query with checks in JS now runs **one** pass per database: every candidate's metadata in
+  the search order (no bodies), capped at `CONFIRM_SCAN_CAP` = 5000 (past it, if the page is
+  not full, a notice says the search was cut short). The bodies the checks need are then read
+  in batches by id (`WHERE notes.id IN (SELECT value FROM json_each(?))`, primary-key lookups),
+  and only confirmed bodies are kept. A query without checks keeps its single `LIMIT` query.
+  Paging: the cursor's keyset applies to that one pass.
+- The checklist prefilter is tighter in the app and the API: a box, `[ ]` or `[x]` (LIKE folds
+  the X), instead of any `[` (every link).
+- Test (`documentSearch.test.js`): counts the queries on `notes` that are not a lookup by id,
+  per database; for `lorem -is:checklist`, `über -is:checklist`, `lorem prop:word_count>50000`
+  and `lorem -prop:"status missing"` over 400 + 50 Documents with nine in ten rejected it is 1
+  per database, and paging 40 matches 4 at a time is 1 scan per page. A second test checks the
+  cap's notice (and that it is not shown when the page filled).
+
+Perf, app (headless Chromium 151, isolated stack, 5000 seeded Documents / 86.1 MB, sync off,
+median of 5), after the fix:
+
+| Query | 1× | 4× |
+|---|---|---|
+| `zebra` / `lorem` / `über` | 1032 / 1012 / 1101 ms | — / 4078 ms / — |
+| `title:lorem` | 175 ms | — |
+| `budget -draft` | 1008 ms | — |
+| **`lorem is:checklist`** (0 results; was 16.7 s) | **1109 ms** (1.10× `lorem`) | **4362 ms** (1.07×) |
+| `lorem -is:checklist` | 1047 ms | — |
+| `prop:status=draft` (index; phase 1 2.19 s) | **191 ms** | 808 ms |
+| `lorem prop:status=draft` | 222 ms | — |
+| `prop:"owner missing"` (an exclusion: every page) | 862 ms | — |
+| `lorem prop:word_count>2000` (bodies by id) | 1109 ms | — |
+| `tag:alpha` (~330 Documents) | 93 ms | 330 ms |
+| `tag:report` (~1650) / `lorem tag:report` | 388 / 384 ms | — |
+| `lorem -tag:report` | 1020 ms | — |
+| index build (first `ensure`) | 1127 ms | — |
+
+Body searches stay at about 1 s (reading every page through the WASM storage, the phase 0
+finding); index-answered `tag:`/`prop:` cost grows with the ids looked up.
+
+### Popovers clipped in the sidebar (from the integration browser run)
+
+The "Search syntax" popover was `absolute right-0 w-72` against its link, so at the sidebar's
+default 300 px it overflowed the sidebar's left edge and its text was cut. Both popovers (syntax
+help and the new property picker) are now positioned against the panel's root (`relative`),
+`inset-x-0 max-w-full`, below the control that opened them, scrolling past 70vh. Checks: a
+component test asserts the classes and that nothing positioned sits between a popover and the
+panel; a headless run at 1280×900 measured both boxes at x 16–283 inside the sidebar's 0–300
+(screenshots `search-assets/desktop-1280-search-syntax-fits.png`,
+`desktop-1280-property-picker-fits.png`).
+
+Browser (same stack, throwaway accounts): 13/13 checks passed. Desktop 1280: `tag:urgent` finds
+the two tagged Documents and leaves Trash out; `tag:urgent in:Trash` finds the trashed one; tag
+chips on results; a chip adds `tag:work`; the picker takes focus, lists `status, due` then the
+built-ins, writes `prop:status=draft`, focus returns to its chip; `due` gets a date field; Esc
+closes only the picker; a typed `prop:"due <= 2026-11-30"`. Phone 375: the sheet writes
+`prop:status!=draft`; a tag chip adds `tag:urgent`. Screenshots: `search-assets/*tag*`,
+`*property*`, `desktop-1280-prop-results.png`.
+
 ## Open Items / Notes
 
 - **Browser checks not done here** (for the orchestrator, on the dev stack with a space):

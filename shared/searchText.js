@@ -8,7 +8,7 @@
  * linear in its input anyway, and so are the term helpers that run on Document bodies (up to
  * 2 MiB). No regular expression here has two quantifiers that can share characters.
  */
-import { findFrontMatterBlock } from './frontMatter.js';
+import { canonicalTagName, findFrontMatterBlock, MAX_TAG_LENGTH } from './frontMatter.js';
 import { parseFilter } from './propertyFilter.js';
 
 /** Most parts one query may hold (words, phrases and prefixed parts together). */
@@ -463,7 +463,8 @@ function filterText(token) {
  *   and `prop:modified_by` are a notice there
  * @param {'any'|'title'|'content'} [options.field] where plain words and phrases must occur
  *   (the API's `in` parameter); `title:` parts always mean the title
- * @param {boolean} [options.tags] whether `tag:` is available (it is not until tags ship)
+ * @param {boolean} [options.tags] whether `tag:` is available (default true; false gives the
+ *   "not available yet" notice, as before tags shipped)
  * @returns {{
  *   parts: SearchPart[], notices: string[], tokens: SearchToken[], terms: string[],
  *   partCount: number, hasPositive: boolean, onlyUnavailable: boolean, truncated: boolean
@@ -472,7 +473,7 @@ function filterText(token) {
  *   many parts were read before the 20-part limit; `truncated` says the query was longer than
  *   200 characters and was cut.
  */
-export function parseSearchQuery(query, { context = 'app', field = 'any', tags = false } = {}) {
+export function parseSearchQuery(query, { context = 'app', field = 'any', tags = true } = {}) {
     let text = String(query ?? '');
     const notices = [];
     const truncated = text.length > MAX_QUERY_LENGTH;
@@ -528,8 +529,9 @@ export function parseSearchQuery(query, { context = 'app', field = 'any', tags =
                     if (!negated && value) unavailableTags += 1;
                     return;
                 }
-                const name = collapseSpaces(value).toLowerCase();
-                if (!name) { notices.push(`${dash}tag: needs a tag name, e.g. tag:urgent`); return; }
+                if (!value) { notices.push(`${dash}tag: needs a tag name, e.g. tag:urgent`); return; }
+                const name = canonicalTagName(value);
+                if (name === null) { notices.push(`tag:${quoteSearchValue(value.slice(0, 60))} is longer than a tag name can be (${MAX_TAG_LENGTH} characters)`); return; }
                 add({ type: 'tag', name, negated, token: index }, `g|${negated}|${name}`);
                 return;
             }

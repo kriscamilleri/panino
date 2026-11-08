@@ -22,6 +22,7 @@
  *   isReady(dbKey) → boolean
  *   entry(dbKey, id) → { tags, tagLabels, properties } | null
  *   idsWithTags(dbKey, names) → Set<string>          (AND)
+ *   metadataEntries(dbKey) → Iterable<[id, entry]>     (Documents with tags or properties)
  *   tagCounts(dbKey) → Map<string, number>
  *   tagLabel(dbKey, name) → string | null
  *   propertyKeys(dbKey) → { key, count }[]            (most used first)
@@ -259,6 +260,17 @@ export const useDocumentIndexStore = defineStore('documentIndexStore', () => {
     }
 
     /**
+     * Every Document of a database with tags or front matter properties, with its metadata
+     * (the others have neither). Empty before the index is built. Search's `prop:` parts read
+     * it instead of the bodies (advanced-search.md §6.3).
+     * @param {string} dbKey
+     * @returns {Iterable<[string, { tags: string[], tagLabels: Record<string,string>, properties: Record<string,string> }]>}
+     */
+    function metadataEntries(dbKey) {
+        return readyState(dbKey)?.index.documents() ?? [];
+    }
+
+    /**
      * The Documents in a database carrying every one of the tags (AND). Names
      * are canonicalised. Empty before the index is built.
      * @param {string} dbKey
@@ -407,6 +419,7 @@ export const useDocumentIndexStore = defineStore('documentIndexStore', () => {
         isReady,
         entry,
         idsWithTags,
+        metadataEntries,
         tagCounts,
         tagLabel,
         propertyKeys,

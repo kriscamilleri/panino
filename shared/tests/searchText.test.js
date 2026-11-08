@@ -84,11 +84,14 @@ describe('parseSearchQuery', () => {
         expect(parseSearchQuery('title:"never closed words').parts[0]).toMatchObject({ field: 'title', value: 'never closed words' });
     });
 
-    it('answers a search for tags alone with no Documents rather than refusing it', () => {
-        const only = parseSearchQuery('tag:urgent tag:later -draft');
+    it('answers a search for tags alone with no Documents where tags are switched off', () => {
+        const off = { tags: false };
+        const only = parseSearchQuery('tag:urgent tag:later -draft', off);
         expect(only).toMatchObject({ hasPositive: false, onlyUnavailable: true, notices: ['Tags are not available yet'] });
-        expect(parseSearchQuery('budget tag:urgent')).toMatchObject({ hasPositive: true, onlyUnavailable: false });
-        expect(parseSearchQuery('-tag:urgent').onlyUnavailable).toBe(false);
+        expect(parseSearchQuery('budget tag:urgent', off)).toMatchObject({ hasPositive: true, onlyUnavailable: false });
+        expect(parseSearchQuery('-tag:urgent', off).onlyUnavailable).toBe(false);
+        // Tags are on by default now.
+        expect(parseSearchQuery('tag:urgent')).toMatchObject({ hasPositive: true, notices: [] });
     });
 
     it('keeps a word that only looks like a prefix, and a quoted prefix, as text', () => {
@@ -105,7 +108,7 @@ describe('parseSearchQuery', () => {
     });
 
     it('gives a notice for each part it cannot read, and searches the rest', () => {
-        const parsed = parseSearchQuery('budget title: in: is:archived is: tag:urgent prop: prop:status prop:"a=1 AND b=2" prop:created_by=Kris');
+        const parsed = parseSearchQuery(`budget title: in: is:archived is: tag: tag:${'x'.repeat(51)} prop: prop:status prop:"a=1 AND b=2" prop:created_by=Kris`);
         expect(parsed.terms).toEqual(['budget']);
         expect(parsed.parts).toHaveLength(1);
         expect(parsed.notices).toEqual([
@@ -113,7 +116,8 @@ describe('parseSearchQuery', () => {
             'in: needs a folder, e.g. in:Projects/2026',
             'is:archived is not known; use is:checklist',
             'is: needs a value, e.g. is:checklist',
-            'Tags are not available yet',
+            'tag: needs a tag name, e.g. tag:urgent',
+            `tag:${'x'.repeat(51)} is longer than a tag name can be (50 characters)`,
             'prop: needs a condition, e.g. prop:status=draft',
             expect.stringMatching(/^prop:status: "status" has no operator/),
             'prop:"a=1 AND b=2" holds 2 conditions; write one prop: part for each',
@@ -123,8 +127,9 @@ describe('parseSearchQuery', () => {
         expect(parseSearchQuery('prop:created_by=Kris', { context: 'api' }).parts[0].type).toBe('prop');
     });
 
-    it('reads tag: once tags are available', () => {
-        expect(kinds('tag:" Urgent "', { tags: true })).toEqual([{ type: 'tag', name: 'urgent', negated: false }]);
+    it('reads tag: with the canonical tag name', () => {
+        expect(kinds('tag:" Urgent "')).toEqual([{ type: 'tag', name: 'urgent', negated: false }]);
+        expect(kinds('-tag:"To   Do"')).toEqual([{ type: 'tag', name: 'to do', negated: true }]);
     });
 
     it('needs something to look for besides exclusions', () => {

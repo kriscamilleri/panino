@@ -94,9 +94,9 @@ The tool and route names below are the MCP and REST forms of the same operation.
   - Search reads `q` with the app's query language, parsed by `shared/searchText.js`
     (`parseSearchQuery`), so the app and the API read a query alike
     (`docs/specs/active/advanced-search.md` §4, §6.5): words and "quoted phrases", `title:`,
-    `in:` folder paths (a space name may lead), `is:checklist`, `prop:` (one property filter
-    condition, through the property scan with its cap, `truncated` and `scanned`) and `-` before
-    any part. Every part must match. Parts that cannot be read come back in `notices`.
+    `in:` folder paths (a space name may lead), `is:checklist`, `tag:` (a front matter tag,
+    canonical, read with `readTags`) and `prop:` (one property filter condition) — both through
+    the property scan with its cap, `truncated` and `scanned` — and `-` before any part. Every part must match. Parts that cannot be read come back in `notices`.
   - Case is ignored for every letter: ASCII terms are a `LIKE` (which folds ASCII), others are
     narrowed by a `LIKE` of their shape and then compared in JS lower case
     (`panino_folded_contains`, registered per connection). `is:checklist` is the shared

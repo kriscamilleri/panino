@@ -1,6 +1,6 @@
 <template>
     <div
-        class="flex flex-col min-h-0"
+        class="relative flex flex-col min-h-0"
         data-testid="documents-search-panel"
         @keydown.esc.stop="onEscape"
     >
@@ -48,7 +48,38 @@
                 :data-testid="`documents-search-chip-${chip.value}`"
                 @click="toggleChip(chip.value)"
             >{{ chip.label }}</button>
-            <div class="relative ml-auto">
+            <div>
+                <button
+                    ref="propertyChipRef"
+                    type="button"
+                    class="rounded-full border px-2.5 text-xs leading-5"
+                    :class="picker.open.value ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'"
+                    aria-haspopup="dialog"
+                    :aria-expanded="picker.open.value"
+                    data-testid="documents-search-chip-property"
+                    @click="togglePicker"
+                >Property…</button>
+                <div
+                    v-if="picker.open.value"
+                    ref="pickerRef"
+                    class="search-popover absolute inset-x-0 z-30 mt-1 max-w-full rounded-lg border border-gray-200 bg-white p-3 shadow-lg focus:outline-none"
+                    role="dialog"
+                    aria-label="Filter by property"
+                    tabindex="-1"
+                    data-testid="documents-search-property-picker"
+                    @keydown="onPickerKeydown"
+                >
+                    <PropertyPicker
+                        layout="desktop"
+                        :keys="picker.keys.value"
+                        :loading="picker.loading.value"
+                        :values-for="picker.valuesFor"
+                        @add="addPropertyPart"
+                        @close="closePicker"
+                    />
+                </div>
+            </div>
+            <div class="ml-auto">
                 <button
                     ref="syntaxButtonRef"
                     type="button"
@@ -63,7 +94,7 @@
                     id="documents-search-syntax"
                     ref="syntaxRef"
                     tabindex="-1"
-                    class="absolute right-0 z-30 mt-1 w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg focus:outline-none"
+                    class="search-popover absolute inset-x-0 z-30 mt-1 max-w-full rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg focus:outline-none"
                     role="dialog"
                     aria-label="Search syntax"
                     data-testid="documents-search-syntax"
@@ -177,6 +208,14 @@
                                 </template>
                             </span>
                         </a>
+                        <DocumentTagChips
+                            class="search-result-tags"
+                            :db-key="doc.dbKey"
+                            :note-id="doc.id"
+                            :filterable="false"
+                            selectable
+                            @select="addTag"
+                        />
                     </li>
                 </ul>
                 <button
@@ -200,7 +239,13 @@ import { useDocStore } from '@/store/docStore'
 import { useStructureStore } from '@/store/structureStore'
 import { useSyncStore } from '@/store/syncStore'
 import { resultCountLabel, useDesktopSearchState, useDocumentSearch } from '@/composables/useDocumentSearch'
+import { usePropertyPicker } from '@/composables/usePropertyPicker'
+import { useDialogFocus } from '@/composables/useDialogFocus'
+import PropertyPicker from '@/components/PropertyPicker.vue'
+import DocumentTagChips from '@/components/tags/DocumentTagChips.vue'
+import { appendPart } from '@/utils/propertyPicker'
 import {
+    addTagPart,
     chipState,
     clearChips,
     folderSearchPath,
@@ -227,6 +272,12 @@ const syncStore = useSyncStore()
 const desktop = useDesktopSearchState()
 
 const inputRef = ref(null)
+const propertyChipRef = ref(null)
+const pickerRef = ref(null)
+const picker = usePropertyPicker()
+// Focus moves into the picker when it opens, stays there on Tab, and goes back to the
+// Property… chip when it closes.
+const { handleKeydown: pickerKeydown } = useDialogFocus(pickerRef, () => picker.open.value, closePicker)
 const syntaxRef = ref(null)
 const syntaxButtonRef = ref(null)
 const showSyntax = ref(false)
@@ -289,6 +340,32 @@ function toggleChip(value) {
     focusInput()
 }
 
+function togglePicker() {
+    if (picker.open.value) closePicker()
+    else void picker.openPicker()
+}
+
+function closePicker() {
+    picker.closePicker()
+}
+
+function onPickerKeydown(event) {
+    // Esc closes the picker only, not the whole panel.
+    if (event.key === 'Escape') event.stopPropagation()
+    pickerKeydown(event)
+}
+
+function addPropertyPart(part) {
+    setText(appendPart(text.value, part))
+    closePicker()
+    flush()
+}
+
+function addTag(name) {
+    setText(addTagPart(text.value, name))
+    flush()
+}
+
 function onEnter() {
     flush()
     remember()
@@ -344,6 +421,23 @@ function open(doc) {
 <style scoped>
 .search-input::-webkit-search-cancel-button {
     display: none;
+}
+
+/*
+ * The popovers (syntax help, property picker) span the panel, positioned against its root
+ * (`relative`), so they never overflow the sidebar however narrow it is; they open below the
+ * control that opened them (their static position) and scroll if taller than the screen.
+ */
+.search-popover {
+    box-sizing: border-box;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.search-result-tags {
+    display: flex;
+    max-width: 100%;
+    padding: 0 8px 4px;
 }
 
 .search-snippet {

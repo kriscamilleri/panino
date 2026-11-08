@@ -291,6 +291,24 @@ export function clearChips(query, folderPath = '') {
 }
 
 /**
+ * Add `tag:<name>` (a tag chip on a result), unless the query already asks for that tag.
+ *
+ * @param {string} query
+ * @param {string} name canonical tag name
+ * @returns {string}
+ */
+export function addTagPart(query, name) {
+    const wanted = String(name ?? '').trim().toLowerCase();
+    if (!wanted) return String(query ?? '');
+    const tokens = tokenizeSearchQuery(query);
+    if (tokens.some((token) => token.prefix === 'tag' && !token.negated && token.value.trim().toLowerCase() === wanted)) {
+        return rebuild(tokens);
+    }
+    tokens.push({ raw: `tag:${quoteSearchValue(wanted)}` });
+    return rebuild(tokens);
+}
+
+/**
  * The `in:` path of a folder: its names from the top level, led by the
  * space's name for a space folder, so the part names that folder and no
  * other. A space's top level is the space's name alone.
@@ -309,7 +327,8 @@ export const SEARCH_SYNTAX = Object.freeze([
     { part: 'title:', meaning: 'The title contains the word or phrase', example: 'title:"team sync"' },
     { part: 'in:', meaning: 'In that folder and below; a space name may lead', example: 'in:"Acme Team/Contracts"' },
     { part: 'is:checklist', meaning: 'Has at least one checklist item', example: 'is:checklist' },
+    { part: 'tag:', meaning: 'Carries the tag (case ignored)', example: 'tag:urgent' },
     { part: 'prop:', meaning: 'A front matter property; also word_count, created_on, modified_on', example: 'prop:status=draft' },
-    { part: '-', meaning: 'Before any part: must not match', example: '-"draft"' },
+    { part: '-', meaning: 'Before any part: must not match', example: '-tag:archived' },
     { part: 'in:Trash', meaning: 'Trash is left out unless you name it', example: 'in:Trash' },
 ]);
