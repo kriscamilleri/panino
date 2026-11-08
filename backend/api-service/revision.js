@@ -248,7 +248,8 @@ export function createRevisionSnapshot(db, {
   return { created: true, revisionId: payload.id };
 }
 
-function decodeRevisionContent(contentGzip) {
+/** The body of a stored revision; throws when the payload is corrupt. */
+export function decodeRevisionContent(contentGzip) {
   const buffer = Buffer.isBuffer(contentGzip) ? contentGzip : Buffer.from(contentGzip);
   return gunzipSync(buffer).toString('utf8');
 }
@@ -487,6 +488,122 @@ revisionRoutes.post('/notes/:id/revisions', (req, res) => {
   return res.status(201).json({ created: true, revisionId: result.revisionId });
 });
 
+/**
+ * Why a restore was refused: `code` is NOTE_NOT_FOUND, VERSION_CONFLICT,
+ * REVISION_NOT_FOUND or CORRUPT_REVISION; `httpStatus` is what the app's
+ * restore route answers with (404, 409, 404, 422).
+ */
+export class RevisionRestoreError extends Error {
+  constructor(code, httpStatus) {
+    super(code);
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
+/**
+ * Restore a Document to one of its revisions, in one transaction: save the
+ * current title and body as a `pre-restore` revision (so the restore can be
+ * undone), then write the revision's title and body. With `afterActor`, an
+ * attributed `auto` revision of the restored body is recorded too (the AI
+ * add-on names the key or app that restored it this way).
+ *
+ * The caller chooses the connection and announces the change; this function
+ * only reads and writes `db`.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {object} options
+ * @param {string} options.noteId
+ * @param {string} options.revisionId
+ * @param {string|null} [options.expectedUpdatedAt] refused unless it matches (when truthy)
+ * @param {{ userId?: string|null, kind?: string|null, label?: string|null }} [options.preRestoreActor]
+ * @param {{ userId?: string|null, kind?: string|null, label?: string|null }|null} [options.afterActor]
+ * @returns {{ restored: true, note: { id: string, title: string|null, content: string, updatedAt: string },
+ *   preRestoreRevisionId: string, afterRevisionId?: string }}
+ * @throws {RevisionRestoreError}
+ */
+export function restoreNoteRevision(db, {
+  noteId,
+  revisionId,
+  expectedUpdatedAt = null,
+  preRestoreActor = {},
+  afterActor = null,
+}) {
+  return db.transaction(() => {
+    const current = ensureNoteExists(db, noteId);
+    if (!current) throw new RevisionRestoreError('NOTE_NOT_FOUND', 404);
+
+    if (expectedUpdatedAt && current.updated_at !== expectedUpdatedAt) {
+      throw new RevisionRestoreError('VERSION_CONFLICT', 409);
+    }
+
+    const revision = db.prepare(`
+      SELECT id, note_id, title, content_gzip
+      FROM note_revisions
+      WHERE id = ? AND note_id = ?
+    `).get(revisionId, noteId);
+
+    if (!revision) throw new RevisionRestoreError('REVISION_NOT_FOUND', 404);
+
+    let restoredContent;
+    try {
+      restoredContent = decodeRevisionContent(revision.content_gzip);
+    } catch {
+      throw new RevisionRestoreError('CORRUPT_REVISION', 422);
+    }
+
+    const preRestore = createRevisionSnapshot(db, {
+      noteId,
+      title: current.title,
+      content: current.content,
+      type: 'pre-restore',
+      skipDuplicateCheck: true,
+      enforceAutoThrottle: false,
+      runPruneGate: true,
+      actorUserId: preRestoreActor?.userId ?? null,
+      actorKind: preRestoreActor?.kind ?? null,
+      actorLabel: preRestoreActor?.label ?? null,
+    });
+
+    const nextUpdatedAt = new Date().toISOString();
+    db.prepare(`
+      UPDATE notes
+      SET title = ?, content = ?, updated_at = ?
+      WHERE id = ?
+    `).run(revision.title, restoredContent, nextUpdatedAt, noteId);
+
+    const result = {
+      restored: true,
+      note: {
+        id: noteId,
+        title: revision.title,
+        content: restoredContent,
+        updatedAt: nextUpdatedAt,
+      },
+      preRestoreRevisionId: preRestore.revisionId,
+    };
+
+    if (afterActor) {
+      // Always recorded: it is what names who restored the Document.
+      const after = createRevisionSnapshot(db, {
+        noteId,
+        title: revision.title,
+        content: restoredContent,
+        type: 'auto',
+        skipDuplicateCheck: true,
+        enforceAutoThrottle: false,
+        runPruneGate: true,
+        actorUserId: afterActor.userId ?? null,
+        actorKind: afterActor.kind ?? null,
+        actorLabel: afterActor.label ?? null,
+      });
+      result.afterRevisionId = after.revisionId;
+    }
+
+    return result;
+  })();
+}
+
 revisionRoutes.post('/notes/:id/revisions/:revisionId/restore', (req, res) => {
   const userId = req.user?.user_id;
   const noteId = req.params.id;
@@ -507,79 +624,18 @@ revisionRoutes.post('/notes/:id/revisions/:revisionId/restore', (req, res) => {
   const { db } = target;
 
   try {
-    const tx = db.transaction(() => {
-      const current = ensureNoteExists(db, noteId);
-      if (!current) {
-        const err = new Error('NOTE_NOT_FOUND');
-        err.httpStatus = 404;
-        throw err;
-      }
-
-      if (expectedUpdatedAt && current.updated_at !== expectedUpdatedAt) {
-        const err = new Error('VERSION_CONFLICT');
-        err.httpStatus = 409;
-        throw err;
-      }
-
-      const revision = db.prepare(`
-        SELECT id, note_id, title, content_gzip
-        FROM note_revisions
-        WHERE id = ? AND note_id = ?
-      `).get(revisionId, noteId);
-
-      if (!revision) {
-        const err = new Error('REVISION_NOT_FOUND');
-        err.httpStatus = 404;
-        throw err;
-      }
-
-      let restoredContent;
-      try {
-        restoredContent = decodeRevisionContent(revision.content_gzip);
-      } catch (error) {
-        const err = new Error('CORRUPT_REVISION');
-        err.httpStatus = 422;
-        throw err;
-      }
-
-      const preRestore = createRevisionSnapshot(db, {
-        noteId,
-        title: current.title,
-        content: current.content,
-        type: 'pre-restore',
-        skipDuplicateCheck: true,
-        enforceAutoThrottle: false,
-        runPruneGate: true,
-        actorUserId: userId,
-        actorKind: 'system',
-      });
-
-      const nextUpdatedAt = new Date().toISOString();
-      db.prepare(`
-        UPDATE notes
-        SET title = ?, content = ?, updated_at = ?
-        WHERE id = ?
-      `).run(revision.title, restoredContent, nextUpdatedAt, noteId);
-
-      return {
-        restored: true,
-        note: {
-          id: noteId,
-          title: revision.title,
-          content: restoredContent,
-          updatedAt: nextUpdatedAt,
-        },
-        preRestoreRevisionId: preRestore.revisionId,
-      };
+    const { restored, note, preRestoreRevisionId } = restoreNoteRevision(db, {
+      noteId,
+      revisionId,
+      expectedUpdatedAt,
+      preRestoreActor: { userId, kind: 'system' },
     });
-
-    const result = tx();
     if (target.isSpace) {
       pokeSpaceSubscribers(req.clients, target.dbKey, null);
     } else {
       pokeUserClients(req, userId);
     }
-    return res.json(result);
+    return res.json({ restored, note, preRestoreRevisionId });
   } catch (error) {
     if (error.httpStatus === 404) {
       return res.status(404).json({ error: 'Not found' });

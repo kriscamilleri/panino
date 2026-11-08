@@ -3,6 +3,7 @@
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getUserDb } from '../../../../db.js';
+import { listTools } from '../../mcpTools.js';
 import { aiUser, createKey, createTestApp, offerAiAddon, resetAiState } from '../aiTestSetup.js';
 
 const MCP = '/addons/ai/v1/mcp';
@@ -131,7 +132,7 @@ describe('AI agents add-on: MCP endpoint', () => {
 
         it('lists tools without 2026 fields, and answers unknown methods with -32601', async () => {
             const res = await legacy('tools/list');
-            expect(res.body.result.tools).toHaveLength(11);
+            expect(res.body.result.tools).toHaveLength(listTools('write').length);
             expect(res.body.result.resultType).toBeUndefined();
             const unknown = await legacy('resources/list');
             expect(unknown.status).toBe(200);
@@ -160,7 +161,7 @@ describe('AI agents add-on: MCP endpoint', () => {
         it('lists tools with cache hints', async () => {
             const res = await modern('tools/list');
             expect(res.body.result).toMatchObject({ resultType: 'complete', cacheScope: 'private', ttlMs: expect.any(Number) });
-            expect(res.body.result.tools).toHaveLength(11);
+            expect(res.body.result.tools).toHaveLength(listTools('write').length);
         });
 
         it('checks the headers against the body', async () => {

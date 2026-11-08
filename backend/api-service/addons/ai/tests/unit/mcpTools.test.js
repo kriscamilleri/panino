@@ -3,21 +3,53 @@
 import { describe, expect, it } from 'vitest';
 import { listTools, PORTABLE_SCHEMA_KEYS, SERVER_INSTRUCTIONS } from '../../mcpTools.js';
 
-const WRITE_TOOLS = ['create_document', 'update_document', 'append_to_document', 'move_document_to_trash', 'create_folder'];
+// Per area, in the order api/index.js lists them.
+const AREA_TOOLS = {
+    documents: {
+        read: ['get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document', 'get_document_outline'],
+        write: ['create_document', 'update_document', 'edit_document', 'insert_into_document', 'append_to_document'],
+    },
+    properties: {
+        read: ['get_document_properties', 'list_document_properties', 'query_documents_by_property'],
+        write: ['set_document_property', 'remove_document_property'],
+    },
+    folders: {
+        read: ['get_folder', 'list_trash'],
+        write: ['move_document_to_trash', 'create_folder', 'rename_folder', 'move_folder', 'move_folder_to_trash', 'restore_from_trash'],
+    },
+    revisions: {
+        read: ['list_revisions', 'get_revision', 'compare_revisions'],
+        write: ['save_revision', 'restore_revision'],
+    },
+    images: {
+        read: ['list_images', 'get_image', 'get_image_usage'],
+        write: ['upload_image', 'delete_image'],
+    },
+    library: {
+        read: ['list_templates', 'get_template', 'list_variables', 'export_pdf'],
+        write: ['create_document_from_template'],
+    },
+};
+const READ_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.read);
+const WRITE_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.write);
+// Writes that replace or remove something (spec §3): a body, a name, a property value.
+const DESTRUCTIVE_TOOLS = [
+    'update_document', 'edit_document', 'restore_revision', 'delete_image',
+    'rename_folder', 'set_document_property', 'remove_document_property',
+];
 
 describe('MCP tool definitions', () => {
     const tools = listTools('write');
 
     it('offers the v1 operations under stable names', () => {
-        expect(tools.map((tool) => tool.name)).toEqual([
-            'get_account', 'list_spaces', 'search_documents', 'list_documents', 'list_folders', 'get_document',
-            ...WRITE_TOOLS,
-        ]);
+        expect(new Set(tools.map((tool) => tool.name))).toEqual(new Set([...READ_TOOLS, ...WRITE_TOOLS]));
+        expect(tools).toHaveLength(READ_TOOLS.length + WRITE_TOOLS.length);
     });
 
     it('lists only read tools for read-only access', () => {
         const names = listTools('read').map((tool) => tool.name);
-        expect(names).toHaveLength(6);
+        expect(names).toEqual(tools.filter((tool) => READ_TOOLS.includes(tool.name)).map((tool) => tool.name));
+        expect(names).toHaveLength(READ_TOOLS.length);
         for (const name of WRITE_TOOLS) expect(names).not.toContain(name);
     });
 
@@ -41,12 +73,19 @@ describe('MCP tool definitions', () => {
         }
     });
 
-    it('marks reads read-only and only update as destructive', () => {
+    it('marks reads read-only and only replacing or removing writes as destructive', () => {
         for (const tool of tools) {
             expect(tool.annotations.openWorldHint).toBe(false);
             expect(tool.annotations.readOnlyHint).toBe(!WRITE_TOOLS.includes(tool.name));
-            expect(tool.annotations.destructiveHint).toBe(tool.name === 'update_document');
+            expect(tool.annotations.destructiveHint).toBe(DESTRUCTIVE_TOOLS.includes(tool.name));
         }
+    });
+
+    it('says image deletion is permanent and only on request', () => {
+        const remove = tools.find((tool) => tool.name === 'delete_image');
+        expect(remove.description).toMatch(/Permanently/);
+        expect(remove.description).toMatch(/only when the user asks/);
+        expect(SERVER_INSTRUCTIONS).toMatch(/delete_image is permanent/);
     });
 
     it('tells the model that Document text is data', () => {

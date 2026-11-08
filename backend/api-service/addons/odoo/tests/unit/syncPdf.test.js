@@ -5,8 +5,13 @@ import { getUserDb } from '../../../../db.js';
 import { DEFAULT_PRINT_STYLES } from '@panino/content-merge/style-defaults';
 import { assignmentId } from '@panino/content-merge/style-presets';
 import { accountPrintStyles, buildSyncPdfRequest, folderTrail, styleLibrary } from '../../syncPdf.js';
+import { buildDocumentPdfRequest } from '../../../../documentPdf.js';
 
 describe('buildSyncPdfRequest', () => {
+    it('is the core builder (documentPdf.js), shared with other add-ons', () => {
+        expect(buildSyncPdfRequest).toBe(buildDocumentPdfRequest);
+    });
+
     let user;
     let db;
     const now = () => new Date().toISOString();

@@ -1,267 +1,70 @@
-// The v1 Document operations, without HTTP (docs/specs/active/ai-integration.md §7).
-// REST (restRoutes.js) and MCP (mcpTools.js) are two adapters over these
-// functions, so every rule — scope, space reach, live sessions, Trash instead of
-// delete, revisions, size — has one implementation. Writes are ordinary CRR
-// writes on the server's replica; devices pick them up on their next sync.
-//
-// Every function takes a context `{ userId, agent, clients }`:
-//   agent   { kind: 'key' | 'app', id, name, scope: 'read' | 'write',
-//             spaceAccess: 'all' | 'personal', expiresAt }
-//   clients the WebSocket client map, for poking devices after a write
-// and throws ApiError for anything the caller should report.
-import { v4 as uuidv4, validate as validateUuid } from 'uuid';
-import { getAuthDb, getDb, getHealthyDb, getUserDb } from '../../db.js';
-import { createRevisionSnapshot } from '../../revision.js';
-import { isSharedSpacesEnabled, listSpacesForUser, resolveSpaceAccess } from '../../spaces.js';
-import { pokePersonalClients, pokeSpaceSubscribers } from '../../websocket.js';
-import { runAddonHooks } from '../registry.js';
+// The v1 Document operations, without HTTP (docs/specs/active/ai-integration.md §7,
+// docs/specs/proposed/ai-api-expansion.md §4.1): account, spaces, tree, search, list,
+// read (whole, by lines or by section), outline, create, update, exact edits, insertion
+// and append. REST and MCP (api/documents.js) are two adapters over these functions, so
+// every rule has one implementation; the shared rules are in serviceCore.js and the pure
+// text helpers in documentText.js.
+import { documentAuthorship } from './authorship.js';
+import { noteFolderChanged } from './folderService.js';
+import { readProperties } from './propertyText.js';
+import { v4 as uuidv4 } from 'uuid';
+import { getAuthDb } from '../../db.js';
 import {
-    buildFolderIndex,
-    decodeDocumentCursor,
-    encodeDocumentCursor,
-    makeSnippet,
-    parseLimit,
-    scopeAllows,
-    TRASH_FOLDER_NAME,
-    validateName,
-} from './keyUtils.js';
+    ApiError,
+    announce,
+    assertBodySize,
+    assertExpected,
+    assertFolder,
+    assertNoLiveSession,
+    fullDocument,
+    documentSummary,
+    locateDocument,
+    notFound,
+    optionalText,
+    reachableTargets,
+    readFolders,
+    readNote,
+    requireAgentScope,
+    requireName,
+    resolveMany,
+    resolveOne,
+    snapshotAfter,
+    snapshotBefore,
+    trashFolderIds,
+    TREE_DOCUMENT_CAP,
+    updateNote,
+    writableDb,
+} from './serviceCore.js';
+import { appBaseUrl } from './config.js';
+import {
+    applyEdit,
+    compareBinary,
+    compareNoCase,
+    decodeListCursor,
+    documentStats,
+    encodeListCursor,
+    findHeadings,
+    hasCasedNonAscii,
+    HEADING_POSITIONS,
+    INSERT_POSITIONS,
+    insertContent,
+    likeContains,
+    LIST_SORTS,
+    likeShape,
+    MAX_OUTLINE_HEADINGS,
+    MAX_SEARCH_TERMS,
+    parseHeadings,
+    parseSearchTerms,
+    referencedImageIds,
+    SEARCH_FIELDS,
+    sliceLines,
+    termMatches,
+    termsIn,
+    trimBlankLines,
+} from './documentText.js';
+import { buildFolderIndex, makeSnippet, parseLimit } from './keyUtils.js';
 
-/** Largest Document body the API will write, in bytes (UTF-8). */
-export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
-const TREE_DOCUMENT_CAP = 5000;
-
-export class ApiError extends Error {
-    /**
-     * @param {number} status HTTP status a REST caller answers with
-     * @param {string} code closed error code
-     * @param {string} message fixed, user-safe text
-     * @param {object} [details] extra fields for the caller (never secrets)
-     */
-    constructor(status, code, message, details = undefined) {
-        super(message);
-        this.status = status;
-        this.code = code;
-        this.details = details;
-    }
-}
-
-const notFound = () => new ApiError(404, 'NOT_FOUND', 'Document not found.');
-const spaceNotFound = () => new ApiError(404, 'SPACE_NOT_FOUND', 'Space not found.');
-
-/**
- * @param {{ agent: { scope: string, kind: string } }} ctx
- * @param {'read'|'write'} scope
- */
-export function requireAgentScope(ctx, scope) {
-    if (scopeAllows(ctx.agent?.scope, scope)) return;
-    const who = ctx.agent?.kind === 'app' ? 'This connected app has' : 'This API key has';
-    throw new ApiError(403, 'INSUFFICIENT_SCOPE', `${who} read-only access.`);
-}
-
-/* ------------------------------------------------------------------ *
- * Databases an agent can reach
- * ------------------------------------------------------------------ */
-
-function personalTarget(userId) {
-    return { kind: 'personal', dbKey: `user:${userId}`, spaceId: null, name: 'Personal', role: 'owner', db: getUserDb(userId) };
-}
-
-function isPersonal(space) {
-    return space === undefined || space === null || space === '' || space === 'personal';
-}
-
-/**
- * One database by `space`: absent, '' or 'personal' is the personal database.
- * A space the agent may not reach is indistinguishable from a missing one.
- */
-function resolveOne(ctx, space) {
-    if (isPersonal(space)) return personalTarget(ctx.userId);
-    if (typeof space !== 'string' || !validateUuid(space)) throw spaceNotFound();
-    if (ctx.agent.spaceAccess !== 'all') throw spaceNotFound();
-    const access = resolveSpaceAccess(space, ctx.userId);
-    if (!access) throw spaceNotFound();
-    const dbKey = `space:${access.spaceId}`;
-    return { kind: 'space', dbKey, spaceId: access.spaceId, name: null, role: access.role, db: getDb(dbKey) };
-}
-
-/** Every database the agent can reach, personal first. Space databases open lazily. */
-function reachableTargets(ctx) {
-    const targets = [personalTarget(ctx.userId)];
-    if (ctx.agent.spaceAccess !== 'all' || !isSharedSpacesEnabled()) return targets;
-    for (const space of listSpacesForUser(ctx.userId).spaces) {
-        const dbKey = `space:${space.spaceId}`;
-        targets.push({
-            kind: 'space',
-            dbKey,
-            spaceId: space.spaceId,
-            name: space.name,
-            role: space.role,
-            get db() { return getDb(dbKey); },
-        });
-    }
-    return targets;
-}
-
-/** `space` 'all' (or absent) means every reachable database. */
-function resolveMany(ctx, space) {
-    if (space === undefined || space === null || space === '' || space === 'all') return reachableTargets(ctx);
-    return [resolveOne(ctx, space)];
-}
-
-/**
- * The database holding an existing Document. With `space` given it is that
- * database; without, the reachable databases are searched, so an agent can
- * address a Document by id alone.
- */
-function locateDocument(ctx, space, noteId) {
-    if (typeof noteId !== 'string' || !noteId || noteId.length > 200) throw notFound();
-    const candidates = space === undefined || space === null || space === '' ? reachableTargets(ctx) : [resolveOne(ctx, space)];
-    for (const target of candidates) {
-        const note = readNote(target.db, noteId);
-        if (note) return { target, note };
-    }
-    throw notFound();
-}
-
-/* ------------------------------------------------------------------ *
- * Rows and shapes
- * ------------------------------------------------------------------ */
-
-function readNote(db, noteId) {
-    return db.prepare(`
-        SELECT id, title, content, folder_id, pinned, created_at, updated_at
-          FROM notes WHERE id = ?
-    `).get(noteId) || null;
-}
-
-function readFolders(db) {
-    return db.prepare('SELECT id, name, parent_id, created_at FROM folders').all();
-}
-
-function documentSummary(row, target, folderIndex) {
-    return {
-        id: row.id,
-        title: row.title,
-        folderId: row.folder_id ?? null,
-        folderPath: folderIndex.pathOf(row.folder_id),
-        space: target.spaceId,
-        updatedAt: row.updated_at,
-        ...(folderIndex.isInTrash(row.folder_id) ? { inTrash: true } : {}),
-    };
-}
-
-function fullDocument(row, target, folderIndex) {
-    return {
-        ...documentSummary(row, target, folderIndex),
-        content: row.content ?? '',
-        pinned: Boolean(row.pinned),
-        createdAt: row.created_at,
-    };
-}
-
-/** Folder ids inside the database's Trash, for exclusion in SQL. */
-function trashFolderIds(folders, folderIndex) {
-    if (!folderIndex.trashFolderId) return [];
-    return folders.filter((folder) => folderIndex.isInTrash(folder.id)).map((folder) => folder.id);
-}
-
-/* ------------------------------------------------------------------ *
- * Write rules
- * ------------------------------------------------------------------ */
-
-/**
- * The connection a write goes through. Writes change CRR tables, so they never
- * run on a cached handle whose CR-SQLite sync bit a failed merge left set: its
- * triggers would be suppressed and devices would never receive the change
- * (docs/architecture/crsqlite-sync.md, "The sync bit").
- */
-function writableDb(target, operation) {
-    return getHealthyDb(target.dbKey, `ai-${operation}`);
-}
-
-function assertNoLiveSession(db, target, noteId) {
-    if (target.kind !== 'space') return;
-    const open = db.prepare('SELECT 1 FROM collab_sessions WHERE note_id = ?').get(noteId);
-    if (open) {
-        throw new ApiError(409, 'DOCUMENT_IN_LIVE_SESSION',
-            'This Document is open in a live session. Try again after the session ends.');
-    }
-}
-
-function assertExpected(note, expectedUpdatedAt) {
-    if (expectedUpdatedAt === undefined || expectedUpdatedAt === null) return;
-    if (typeof expectedUpdatedAt !== 'string' || note.updated_at !== expectedUpdatedAt) {
-        throw new ApiError(409, 'VERSION_CONFLICT', 'The Document changed since you read it. Read it again and retry.',
-            { currentUpdatedAt: note.updated_at });
-    }
-}
-
-function assertBodySize(content) {
-    if (Buffer.byteLength(content, 'utf8') > MAX_DOCUMENT_BYTES) {
-        throw new ApiError(413, 'DOCUMENT_TOO_LARGE', 'Documents written through the API can be at most 2 MiB.');
-    }
-}
-
-function assertFolder(db, folderId, code = 'FOLDER_NOT_FOUND') {
-    if (folderId === null) return;
-    if (typeof folderId !== 'string' || !db.prepare('SELECT 1 FROM folders WHERE id = ?').get(folderId)) {
-        throw new ApiError(400, code, 'Folder not found in this database.');
-    }
-}
-
-function requireName(value, label) {
-    const result = validateName(value, label);
-    if (!result.ok) throw new ApiError(400, 'INVALID_INPUT', result.error);
-    return result.value;
-}
-
-function optionalText(value, label) {
-    if (value !== undefined && typeof value !== 'string') throw new ApiError(400, 'INVALID_INPUT', `${label} must be text.`);
-    return value;
-}
-
-/**
- * Record the stored body before an API write (unattributed: we do not know who
- * wrote it) and the body after (attributed to the owner and labelled with the
- * key's or app's name), so every change can be undone from revision history
- * and traced to the credential that made it.
- */
-function snapshotBefore(db, note) {
-    createRevisionSnapshot(db, {
-        noteId: note.id, title: note.title, content: note.content ?? '', type: 'auto',
-        skipDuplicateCheck: false, enforceAutoThrottle: false, runPruneGate: false,
-    });
-}
-
-function snapshotAfter(db, noteId, title, content, ctx) {
-    createRevisionSnapshot(db, {
-        noteId, title, content, type: 'auto',
-        skipDuplicateCheck: false, enforceAutoThrottle: false, runPruneGate: true,
-        actorUserId: ctx.userId,
-        actorKind: ctx.agent.kind === 'app' ? 'app' : 'api',
-        actorLabel: ctx.agent.name,
-    });
-}
-
-/** Tell devices, live subscribers and add-ons that a database changed. */
-function announce(ctx, target) {
-    if (ctx.clients) {
-        if (target.kind === 'space') pokeSpaceSubscribers(ctx.clients, target.dbKey, null);
-        else pokePersonalClients(ctx.clients, ctx.userId, null);
-    }
-    runAddonHooks('afterChangesApplied', target.dbKey);
-}
-
-/** Apply a change to an existing note's columns and return the stored row. */
-function updateNote(db, noteId, changes) {
-    const columns = Object.keys(changes);
-    // Column names come from this module's fixed set, never from input.
-    const allowed = new Set(['title', 'content', 'folder_id', 'pinned', 'updated_at']);
-    for (const column of columns) if (!allowed.has(column)) throw new Error(`unexpected column ${column}`);
-    const assignments = columns.map((column) => `${column} = ?`).join(', ');
-    db.prepare(`UPDATE notes SET ${assignments} WHERE id = ?`).run(...columns.map((column) => changes[column]), noteId);
-    return readNote(db, noteId);
-}
+export { ApiError, MAX_DOCUMENT_BYTES, requireAgentScope } from './serviceCore.js';
 
 /* ------------------------------------------------------------------ *
  * Operations
@@ -312,52 +115,254 @@ export function getTree(ctx, { space } = {}) {
     };
 }
 
-/** Case-insensitive search of titles and bodies across databases; title matches first. */
-export function searchDocuments(ctx, { query, space, limit, includeTrash = false } = {}) {
+/* ------------------------------------------------------------------ *
+ * Input helpers
+ * ------------------------------------------------------------------ */
+
+/** A whole number from a tool (integer) or a query string (digits), or undefined. */
+function wholeNumber(value, label) {
+    if (value === undefined || value === null || value === '') return undefined;
+    const number = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+    if (!Number.isSafeInteger(number)) throw new ApiError(400, 'INVALID_INPUT', `${label} must be a whole number.`);
+    return number;
+}
+
+function optionalBoolean(value, label) {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'boolean') throw new ApiError(400, 'INVALID_INPUT', `${label} must be true or false.`);
+    return value;
+}
+
+/** An ISO 8601 time as the canonical UTC string stored timestamps use, or null. */
+function isoTime(value, label) {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value) || Number.isNaN(Date.parse(value))) {
+        throw new ApiError(400, 'INVALID_INPUT', `${label} must be an ISO 8601 time, such as 2026-11-01T00:00:00Z.`);
+    }
+    return new Date(value).toISOString();
+}
+
+function oneOf(value, allowed, fallback, label) {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (!allowed.includes(value)) throw new ApiError(400, 'INVALID_INPUT', `${label} must be one of ${allowed.join(', ')}.`);
+    return value;
+}
+
+/** A summary with the fields list and search add to the first release's. */
+function listedDocument(row, target, folderIndex) {
+    return { ...documentSummary(row, target, folderIndex), createdAt: row.created_at ?? null, pinned: Boolean(row.pinned) };
+}
+
+/** Folder ids of `folderId` and everything below it (cycles in corrupted data stop the walk). */
+function folderSubtree(folders, folderId) {
+    const children = new Map();
+    for (const folder of folders) {
+        if (!folder.parent_id) continue;
+        if (!children.has(folder.parent_id)) children.set(folder.parent_id, []);
+        children.get(folder.parent_id).push(folder.id);
+    }
+    const ids = new Set([folderId]);
+    const queue = [folderId];
+    while (queue.length) {
+        for (const child of children.get(queue.shift()) || []) {
+            if (ids.has(child)) continue;
+            ids.add(child);
+            queue.push(child);
+        }
+    }
+    return [...ids];
+}
+
+/* ------------------------------------------------------------------ *
+ * Search and list
+ * ------------------------------------------------------------------ */
+
+const MAX_SEARCH_OFFSET = 10000;
+
+/*
+ * Matching a term, ignoring case, across every body is the cost of a search, so each term
+ * is a LIKE: SQLite scans with it about eight times faster than with
+ * `instr(lower(content), ?)` (which copies each body to lower-case it), and both fold ASCII
+ * letters only. A term with other cased letters (über, ΣΟΦΙΑ) is matched by the
+ * lower-case forms JS gives, the way snippets are found, through a SQL function; a LIKE
+ * of the term's shape goes first (`_` for those letters), so the function only sees
+ * bodies that may match.
+ */
+const FOLDED_CONTAINS = 'panino_folded_contains';
+const withFolding = new WeakSet();
+
+/** `db`, with the SQL function `panino_folded_contains(text, lowerCaseTerm)` registered. */
+function withFoldedContains(db) {
+    if (!withFolding.has(db)) {
+        db.function(FOLDED_CONTAINS, { deterministic: true }, (text, term) => (String(text ?? '').toLowerCase().includes(term) ? 1 : 0));
+        withFolding.add(db);
+    }
+    return db;
+}
+
+/** The SQL condition "`column` contains `term`, ignoring case", with its parameters. */
+function termCondition(column, term) {
+    if (!hasCasedNonAscii(term)) return { sql: `${column} LIKE ? ESCAPE '\\'`, params: [likeContains(term)] };
+    return {
+        sql: `(CASE WHEN ${column} LIKE ? ESCAPE '\\' THEN ${FOLDED_CONTAINS}(${column}, ?) ELSE 0 END)`,
+        params: [likeShape(term), term.toLowerCase()],
+    };
+}
+
+/**
+ * Search titles and bodies across databases. Every term must match (a "quoted phrase" is
+ * one term), case-insensitively; Documents matching more terms in the title come first,
+ * then the most recently updated. SQL filters and orders on metadata only; bodies are read
+ * for the page alone, to count matches and cut snippets.
+ */
+export function searchDocuments(ctx, {
+    query, space, limit, includeTrash = false, in: field, folderId, updatedAfter, offset,
+} = {}) {
     requireAgentScope(ctx, 'read');
     const q = typeof query === 'string' ? query.trim() : '';
     if (q.length < 2 || q.length > 200) {
         throw new ApiError(400, 'INVALID_INPUT', 'The search text must be 2 to 200 characters.');
     }
-    const max = parseLimit(limit, 20, 100);
-    const hits = [];
-    for (const target of resolveMany(ctx, space)) {
-        const db = target.db;
-        const folders = readFolders(db);
-        const folderIndex = buildFolderIndex(folders);
-        const excluded = includeTrash ? [] : trashFolderIds(folders, folderIndex);
-        const rows = db.prepare(`
-            SELECT id, title, folder_id, updated_at, content,
-                   CASE WHEN instr(lower(coalesce(title, '')), lower(?)) > 0 THEN 1 ELSE 0 END AS title_hit
-              FROM notes
-             WHERE (instr(lower(coalesce(title, '')), lower(?)) > 0
-                    OR instr(lower(coalesce(content, '')), lower(?)) > 0)
-               AND (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
-             ORDER BY title_hit DESC, updated_at DESC, id DESC
-             LIMIT ?
-        `).all(q, q, q, JSON.stringify(excluded), max);
-        for (const row of rows) {
-            hits.push({
-                ...documentSummary(row, target, folderIndex),
-                spaceName: target.name,
-                matchedTitle: row.title_hit === 1,
-                snippet: makeSnippet(row.content, q),
-            });
-        }
+    const terms = parseSearchTerms(q);
+    if (terms.length === 0) throw new ApiError(400, 'INVALID_INPUT', 'The search text has no words to look for.');
+    if (terms.length > MAX_SEARCH_TERMS) {
+        throw new ApiError(400, 'INVALID_INPUT', `Search for at most ${MAX_SEARCH_TERMS} words or phrases at once.`);
     }
-    hits.sort((a, b) => Number(b.matchedTitle) - Number(a.matchedTitle)
-        || String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-    return { query: q, results: hits.slice(0, max) };
+    const where = oneOf(field, SEARCH_FIELDS, 'all', 'in');
+    const max = parseLimit(limit, 20, 100);
+    const skip = wholeNumber(offset, 'offset') ?? 0;
+    if (skip > MAX_SEARCH_OFFSET) throw new ApiError(400, 'INVALID_INPUT', `offset can be at most ${MAX_SEARCH_OFFSET}.`);
+    const after = isoTime(updatedAfter, 'updated_after');
+    const folder = typeof folderId === 'string' && folderId ? folderId : null;
+    const withTrash = includeTrash === true || folder !== null;
+
+    // Fixed SQL fragments, one per term; the terms themselves are bound parameters.
+    const title = terms.map((term) => termCondition("coalesce(title, '')", term));
+    const body = terms.map((term) => termCondition("coalesce(content, '')", term));
+    const filters = terms.map((_, i) => (where === 'title' ? title[i].sql : where === 'content' ? body[i].sql : `(${title[i].sql} OR ${body[i].sql})`));
+    const filterParams = terms.flatMap((_, i) => (where === 'title' ? title[i].params : where === 'content' ? body[i].params : [...title[i].params, ...body[i].params]));
+    const titleScore = where === 'content' ? '0' : title.map((condition) => `(${condition.sql})`).join(' + ');
+    const titleParams = where === 'content' ? [] : title.flatMap((condition) => condition.params);
+    const folding = terms.some(hasCasedNonAscii);
+
+    const hits = [];
+    let folderSeen = folder === null;
+    for (const target of resolveMany(ctx, space)) {
+        const db = folding ? withFoldedContains(target.db) : target.db;
+        const folders = readFolders(db);
+        let inFolders = null;
+        if (folder !== null) {
+            if (!folders.some((row) => row.id === folder)) continue;
+            folderSeen = true;
+            inFolders = folderSubtree(folders, folder);
+        }
+        const folderIndex = buildFolderIndex(folders);
+        const excluded = withTrash ? [] : trashFolderIds(folders, folderIndex);
+        const rows = db.prepare(`
+            SELECT id, title, folder_id, pinned, created_at, updated_at, ${titleScore} AS title_score
+              FROM notes
+             WHERE ${filters.join(' AND ')}
+               AND (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
+               AND (? IS NULL OR folder_id IN (SELECT value FROM json_each(?)))
+               AND (? IS NULL OR updated_at > ?)
+             ORDER BY title_score DESC, coalesce(updated_at, '') DESC, id DESC
+             LIMIT ?
+        `).all(
+            ...titleParams, ...filterParams, JSON.stringify(excluded),
+            inFolders ? 1 : null, JSON.stringify(inFolders ?? []),
+            after, after, skip + max + 1,
+        );
+        for (const row of rows) hits.push({ row, target, folderIndex });
+    }
+    if (!folderSeen) throw new ApiError(400, 'FOLDER_NOT_FOUND', 'Folder not found in this database.');
+
+    hits.sort((a, b) => b.row.title_score - a.row.title_score
+        || compareBinary(b.row.updated_at ?? '', a.row.updated_at ?? '')
+        || compareBinary(b.row.id, a.row.id));
+    const page = hits.slice(skip, skip + max);
+
+    // Bodies for this page only.
+    const bodies = new Map();
+    for (const hit of page) {
+        if (!bodies.has(hit.target.dbKey)) bodies.set(hit.target.dbKey, { target: hit.target, ids: [] });
+        bodies.get(hit.target.dbKey).ids.push(hit.row.id);
+    }
+    const contentOf = new Map();
+    for (const { target, ids } of bodies.values()) {
+        const rows = target.db.prepare('SELECT id, content FROM notes WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(ids));
+        for (const row of rows) contentOf.set(`${target.dbKey}\n${row.id}`, row.content ?? '');
+    }
+
+    const results = page.map(({ row, target, folderIndex }) => {
+        const content = contentOf.get(`${target.dbKey}\n${row.id}`) ?? '';
+        const inBody = where === 'title' ? { matchCount: 0, snippets: [] } : termMatches(content, terms);
+        const inTitle = where === 'content' ? 0 : termMatches(row.title, terms, 0).matchCount;
+        const firstInBody = terms.find((term) => content.toLowerCase().includes(term.toLowerCase())) ?? terms[0];
+        return {
+            ...listedDocument(row, target, folderIndex),
+            spaceName: target.name,
+            matchedTitle: where !== 'content' && termsIn(row.title, terms) === terms.length,
+            matchCount: inBody.matchCount + inTitle,
+            snippet: makeSnippet(content, firstInBody),
+            snippets: inBody.snippets,
+        };
+    });
+    return {
+        query: q,
+        terms,
+        in: where,
+        offset: skip,
+        results,
+        nextOffset: hits.length > skip + max ? skip + max : null,
+    };
 }
 
-/** Documents, most recently updated first (metadata only), with cursor paging. */
-export function listDocuments(ctx, { space, folderId, limit, cursor, includeTrash = false } = {}) {
+/** How each list sort orders rows, in SQL and in JS (for merging databases). */
+const LIST_ORDER = {
+    updated: {
+        key: 'coalesce(updated_at, \'\')',
+        descending: true,
+        value: (row) => row.updated_at ?? '',
+        compare: (a, b) => compareBinary(b.updated_at ?? '', a.updated_at ?? '') || compareBinary(b.id, a.id),
+    },
+    created: {
+        key: 'coalesce(created_at, \'\')',
+        descending: true,
+        value: (row) => row.created_at ?? '',
+        compare: (a, b) => compareBinary(b.created_at ?? '', a.created_at ?? '') || compareBinary(b.id, a.id),
+    },
+    title: {
+        key: 'coalesce(title, \'\') COLLATE NOCASE',
+        descending: false,
+        value: (row) => row.title ?? '',
+        compare: (a, b) => compareNoCase(a.title ?? '', b.title ?? '') || compareBinary(a.id, b.id),
+    },
+};
+
+/**
+ * Documents (metadata only) with cursor paging: most recently updated first by default,
+ * or newest first (`created`), or by title A to Z. A cursor carries its sort; one from
+ * another sort is refused.
+ */
+export function listDocuments(ctx, {
+    space, folderId, limit, cursor, includeTrash = false, sort, pinnedOnly, updatedAfter,
+} = {}) {
     requireAgentScope(ctx, 'read');
+    const order = oneOf(sort, LIST_SORTS, 'updated', 'sort');
     const max = parseLimit(limit, 50, 200);
-    const position = cursor === undefined || cursor === null || cursor === '' ? null : decodeDocumentCursor(cursor);
+    const position = cursor === undefined || cursor === null || cursor === '' ? null : decodeListCursor(cursor);
     if (cursor && !position) throw new ApiError(400, 'INVALID_INPUT', 'The cursor is not valid.');
+    if (position && position.sort !== order) {
+        throw new ApiError(400, 'INVALID_INPUT', 'The cursor belongs to a list with another sort. Start again without a cursor.');
+    }
+    const pinned = optionalBoolean(pinnedOnly, 'pinned_only') ?? false;
+    const after = isoTime(updatedAfter, 'updated_after');
     const folder = typeof folderId === 'string' && folderId ? folderId : undefined;
     const withTrash = includeTrash || folder !== undefined;
+    const { key, descending, compare } = LIST_ORDER[order];
+    // Fixed fragments per sort; never input.
+    const beyond = descending ? '<' : '>';
+    const direction = descending ? 'DESC' : 'ASC';
 
     const items = [];
     for (const target of resolveMany(ctx, space)) {
@@ -366,34 +371,137 @@ export function listDocuments(ctx, { space, folderId, limit, cursor, includeTras
         const folderIndex = buildFolderIndex(folders);
         const excluded = withTrash ? [] : trashFolderIds(folders, folderIndex);
         const rows = db.prepare(`
-            SELECT id, title, folder_id, updated_at FROM notes
-             WHERE (? IS NULL OR coalesce(updated_at, '') < ? OR (coalesce(updated_at, '') = ? AND id < ?))
+            SELECT id, title, folder_id, pinned, created_at, updated_at FROM notes
+             WHERE (? IS NULL OR ${key} ${beyond} ? OR (${key} = ? AND id ${beyond} ?))
                AND (? IS NULL OR (CASE WHEN ? = 'root' THEN folder_id IS NULL ELSE folder_id = ? END))
                AND (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
-             ORDER BY coalesce(updated_at, '') DESC, id DESC
+               AND (? = 0 OR pinned = 1)
+               AND (? IS NULL OR updated_at > ?)
+             ORDER BY ${key} ${direction}, id ${direction}
              LIMIT ?
         `).all(
-            position ? 1 : null, position?.updatedAt ?? '', position?.updatedAt ?? '', position?.id ?? '',
+            position ? 1 : null, position?.value ?? '', position?.value ?? '', position?.id ?? '',
             folder ?? null, folder ?? null, folder ?? null,
-            JSON.stringify(excluded), max + 1,
+            JSON.stringify(excluded), pinned ? 1 : 0, after, after, max + 1,
         );
-        for (const row of rows) items.push({ row, summary: documentSummary(row, target, folderIndex) });
+        for (const row of rows) items.push({ row, summary: listedDocument(row, target, folderIndex) });
     }
-    items.sort((a, b) => String(b.row.updated_at || '').localeCompare(String(a.row.updated_at || ''))
-        || (a.row.id < b.row.id ? 1 : a.row.id > b.row.id ? -1 : 0));
+    items.sort((a, b) => compare(a.row, b.row));
     const page = items.slice(0, max);
     return {
         documents: page.map((item) => item.summary),
-        nextCursor: items.length > max ? encodeDocumentCursor(page[page.length - 1].row) : null,
+        nextCursor: items.length > max ? encodeListCursor(order, page[page.length - 1].row) : null,
     };
 }
 
-/** One Document with its Markdown body. */
-export function getDocument(ctx, { id, space } = {}) {
+/* ------------------------------------------------------------------ *
+ * Read
+ * ------------------------------------------------------------------ */
+
+/** The web app's link to a Document, when the app's URL is configured. */
+function documentWebUrl(noteId, target) {
+    const base = appBaseUrl();
+    if (!base || !/^https?:\/\//i.test(base)) return null;
+    // The app opens a space Document only when told its database.
+    const query = target.kind === 'space' ? `?dbKey=${encodeURIComponent(target.dbKey)}` : '';
+    return `${base}/#/doc/${encodeURIComponent(noteId)}${query}`;
+}
+
+function revisionCount(db, noteId) {
+    return db.prepare('SELECT COUNT(*) AS count FROM note_revisions WHERE note_id = ?').get(noteId).count;
+}
+
+function invalidRange(message, totalLines) {
+    return new ApiError(400, 'INVALID_RANGE', message, { totalLines });
+}
+
+/** One heading by its text (and line, when several share it). */
+function resolveHeading(headings, text, line) {
+    const matches = findHeadings(headings, text, line);
+    if (matches.length === 0) {
+        throw new ApiError(400, 'HEADING_NOT_FOUND', 'No heading with that text in this Document.');
+    }
+    if (matches.length > 1) {
+        throw new ApiError(400, 'HEADING_AMBIGUOUS', 'Several headings have that text.', {
+            matchCount: matches.length, lines: matches.map((heading) => heading.line),
+        });
+    }
+    return matches[0];
+}
+
+/**
+ * One Document with its Markdown body and metadata. The body can be limited to lines
+ * `startLine`..`endLine` (1-based, inclusive; `endLine` past the end reads to the end) or
+ * to one heading's section, or left out with `includeContent: false`.
+ */
+export function getDocument(ctx, {
+    id, space, startLine, endLine, section, headingLine, includeContent,
+} = {}) {
+    requireAgentScope(ctx, 'read');
+    const first = wholeNumber(startLine, 'start_line');
+    const last = wholeNumber(endLine, 'end_line');
+    const atLine = wholeNumber(headingLine, 'heading_line');
+    const sectionName = optionalText(section, 'section');
+    const withContent = optionalBoolean(includeContent, 'include_content') ?? true;
+    const { target, note } = locateDocument(ctx, space, id);
+
+    const content = note.content ?? '';
+    const stats = documentStats(content);
+    const totalLines = stats.lineCount;
+    const authors = documentAuthorship(ctx, target, [note.id]).get(note.id);
+    let range = totalLines > 0 ? { startLine: 1, endLine: totalLines } : null;
+    let sectionInfo;
+    if (sectionName !== undefined && sectionName !== '') {
+        if (first !== undefined || last !== undefined) {
+            throw new ApiError(400, 'INVALID_INPUT', 'Give either section or start_line/end_line, not both.');
+        }
+        const heading = resolveHeading(parseHeadings(content), sectionName, atLine);
+        range = { startLine: heading.line, endLine: heading.endLine };
+        sectionInfo = { text: heading.text, level: heading.level, slug: heading.slug, line: heading.line };
+    } else if (first !== undefined || last !== undefined) {
+        const from = first ?? 1;
+        if (from < 1) throw invalidRange('start_line starts at 1.', totalLines);
+        if (from > totalLines) throw invalidRange(`start_line is past the end: the Document has ${totalLines} lines.`, totalLines);
+        if (last !== undefined && last < from) throw invalidRange('end_line must not be before start_line.', totalLines);
+        range = { startLine: from, endLine: Math.min(last ?? totalLines, totalLines) };
+    }
+
+    const document = {
+        ...fullDocument(note, target, buildFolderIndex(readFolders(target.db))),
+        ...stats,
+        revisionCount: revisionCount(target.db, note.id),
+        createdBy: authors?.createdBy ?? null,
+        modifiedBy: authors?.modifiedBy ?? null,
+        properties: Object.fromEntries(readProperties(content).map(({ key, value }) => [key, value])),
+        imageIds: referencedImageIds(content),
+        webUrl: documentWebUrl(note.id, target),
+        totalLines,
+        range,
+        partial: withContent && range !== null && (range.startLine > 1 || range.endLine < totalLines),
+        ...(sectionInfo ? { section: sectionInfo } : {}),
+    };
+    if (!withContent) delete document.content;
+    else if (document.partial) document.content = sliceLines(content, range.startLine, range.endLine);
+    return { document };
+}
+
+/** A Document's headings: level, text, slug, the line each starts on and its section's last line. */
+export function getDocumentOutline(ctx, { id, space } = {}) {
     requireAgentScope(ctx, 'read');
     const { target, note } = locateDocument(ctx, space, id);
-    return { document: fullDocument(note, target, buildFolderIndex(readFolders(target.db))) };
+    const summary = documentSummary(note, target, buildFolderIndex(readFolders(target.db)));
+    const headings = parseHeadings(note.content ?? '');
+    return {
+        document: { id: summary.id, title: summary.title, space: summary.space, folderPath: summary.folderPath, updatedAt: summary.updatedAt },
+        totalLines: documentStats(note.content).lineCount,
+        headings: headings.slice(0, MAX_OUTLINE_HEADINGS).map(({ level, text, slug, line, endLine }) => ({ level, text, slug, line, endLine })),
+        truncated: headings.length > MAX_OUTLINE_HEADINGS,
+    };
 }
+
+/* ------------------------------------------------------------------ *
+ * Write
+ * ------------------------------------------------------------------ */
 
 /** Create a Document; the body defaults to a heading with the title. */
 export function createDocument(ctx, { space, title, content, folderId } = {}) {
@@ -453,6 +561,7 @@ export function updateDocument(ctx, { id, space, title, content, folderId, pinne
         const textChanges = changes.title !== undefined || changes.content !== undefined;
         if (textChanges) snapshotBefore(db, current);
         const row = updateNote(db, current.id, { ...changes, updated_at: new Date().toISOString() });
+        if (changes.folder_id !== undefined) noteFolderChanged(db, row.id, current.folder_id, row.folder_id);
         if (textChanges) snapshotAfter(db, row.id, row.title, row.content ?? '', ctx);
         return row;
     })();
@@ -481,7 +590,7 @@ export function appendToDocument(ctx, { id, space, content, separator, expectedU
         let next;
         if (!existing.trim()) next = content;
         else if (separator !== undefined) next = existing + separator + content;
-        else next = `${existing.replace(/\s+$/, '')}\n\n${content}`;
+        else next = `${existing.trimEnd()}\n\n${content}`;
         assertBodySize(next);
         snapshotBefore(db, current);
         const row = updateNote(db, current.id, { content: next, updated_at: new Date().toISOString() });
@@ -492,62 +601,77 @@ export function appendToDocument(ctx, { id, space, content, separator, expectedU
     return { document: fullDocument(updated, target, buildFolderIndex(readFolders(db))) };
 }
 
-/** Move a Document into the database's Trash folder (created on first use). Nothing is deleted. */
-export function trashDocument(ctx, { id, space } = {}) {
-    requireAgentScope(ctx, 'write');
+/**
+ * Write a new body under the same rules as updateDocument: a healthy connection, the
+ * expected version, no live session, the size cap, revisions before and after, and an
+ * announcement. `change(current)` returns `{ content, ...extra }` from the stored body, or
+ * throws. An unchanged body is not written.
+ */
+function rewriteBody(ctx, { id, space, expectedUpdatedAt, operation }, change) {
     const { target } = locateDocument(ctx, space, id);
-    const db = writableDb(target, 'trash-document');
-    const result = db.transaction(() => {
+    const db = writableDb(target, operation);
+    let wrote = false;
+    const { row, extra } = db.transaction(() => {
         const current = readNote(db, id);
         if (!current) throw notFound();
+        assertExpected(current, expectedUpdatedAt);
         assertNoLiveSession(db, target, current.id);
-        const folderIndex = buildFolderIndex(readFolders(db));
-        if (folderIndex.isInTrash(current.folder_id)) {
-            return { row: current, previousFolderId: current.folder_id ?? null, alreadyInTrash: true };
-        }
-        let trashId = folderIndex.trashFolderId;
-        if (!trashId) {
-            trashId = uuidv4();
-            const now = new Date().toISOString();
-            if (target.kind === 'personal') {
-                db.prepare('INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, NULL, ?)')
-                    .run(trashId, ctx.userId, TRASH_FOLDER_NAME, now);
-            } else {
-                db.prepare('INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, NULL, ?)')
-                    .run(trashId, TRASH_FOLDER_NAME, now);
-            }
-        }
-        const row = updateNote(db, current.id, { folder_id: trashId, updated_at: new Date().toISOString() });
-        return { row, previousFolderId: current.folder_id ?? null, alreadyInTrash: false };
+        const { content: next, ...rest } = change(current.content ?? '');
+        if (next === (current.content ?? '')) return { row: current, extra: rest };
+        assertBodySize(next);
+        snapshotBefore(db, current);
+        const updated = updateNote(db, current.id, { content: next, updated_at: new Date().toISOString() });
+        snapshotAfter(db, updated.id, updated.title, updated.content ?? '', ctx);
+        wrote = true;
+        return { row: updated, extra: rest };
     })();
-    if (!result.alreadyInTrash) announce(ctx, target);
-    return {
-        document: fullDocument(result.row, target, buildFolderIndex(readFolders(db))),
-        previousFolderId: result.previousFolderId,
-        alreadyInTrash: result.alreadyInTrash,
-    };
+    if (wrote) announce(ctx, target);
+    return { document: fullDocument(row, target, buildFolderIndex(readFolders(db))), ...extra, changed: wrote };
 }
 
-/** Create a folder, at the top level or inside `parentId`. */
-export function createFolder(ctx, { space, name, parentId } = {}) {
+/**
+ * Replace exact text in a Document's body. `oldText` must occur exactly once, unless
+ * `replaceAll`; an empty `newText` deletes it.
+ */
+export function editDocument(ctx, { id, space, oldText, newText, replaceAll, expectedUpdatedAt } = {}) {
     requireAgentScope(ctx, 'write');
-    const target = resolveOne(ctx, space);
-    const folderName = requireName(name, 'folder name');
-    const parent = parentId === undefined || parentId === '' || parentId === 'root' ? null : parentId;
-    const db = writableDb(target, 'create-folder');
-    const id = uuidv4();
-    const now = new Date().toISOString();
-    db.transaction(() => {
-        assertFolder(db, parent, 'PARENT_NOT_FOUND');
-        if (target.kind === 'personal') {
-            db.prepare('INSERT INTO folders (id, user_id, name, parent_id, created_at) VALUES (?, ?, ?, ?, ?)')
-                .run(id, ctx.userId, folderName, parent, now);
-        } else {
-            db.prepare('INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)')
-                .run(id, folderName, parent, now);
+    if (typeof oldText !== 'string' || oldText === '') {
+        throw new ApiError(400, 'INVALID_INPUT', 'old_text must be non-empty text: the exact text to replace.');
+    }
+    if (typeof newText !== 'string') throw new ApiError(400, 'INVALID_INPUT', 'new_text must be text (empty to delete old_text).');
+    const all = optionalBoolean(replaceAll, 'replace_all') ?? false;
+    return rewriteBody(ctx, { id, space, expectedUpdatedAt, operation: 'edit-document' }, (content) => {
+        const result = applyEdit(content, oldText, newText, all);
+        if (!result.ok && result.reason === 'no_match') {
+            throw new ApiError(400, 'EDIT_NO_MATCH', 'old_text does not occur in the Document.');
         }
-    })();
-    announce(ctx, target);
-    const folderIndex = buildFolderIndex(readFolders(db));
-    return { folder: { id, name: folderName, parentId: parent, path: folderIndex.pathOf(id), space: target.spaceId } };
+        if (!result.ok) {
+            throw new ApiError(400, 'EDIT_AMBIGUOUS', 'old_text occurs more than once in the Document.', { matchCount: result.matchCount });
+        }
+        return { content: result.content, replacements: result.replacements, line: result.line };
+    });
+}
+
+/**
+ * Insert Markdown at the start (after any front matter), at the end, before or after a
+ * heading, or at the end of a heading's section, a blank line apart from its neighbours.
+ */
+export function insertIntoDocument(ctx, { id, space, content, position, heading, headingLine, expectedUpdatedAt } = {}) {
+    requireAgentScope(ctx, 'write');
+    if (typeof content !== 'string' || trimBlankLines(content) === '') {
+        throw new ApiError(400, 'INVALID_INPUT', 'content must be non-empty text.');
+    }
+    if (!INSERT_POSITIONS.includes(position)) {
+        throw new ApiError(400, 'INVALID_INPUT', `position must be one of ${INSERT_POSITIONS.join(', ')}.`);
+    }
+    const byHeading = HEADING_POSITIONS.includes(position);
+    if (byHeading && (typeof heading !== 'string' || !heading.trim())) {
+        throw new ApiError(400, 'INVALID_INPUT', `heading is required for position ${position}: the text of a heading in the Document.`);
+    }
+    const atLine = wholeNumber(headingLine, 'heading_line');
+    return rewriteBody(ctx, { id, space, expectedUpdatedAt, operation: 'insert-document' }, (body) => {
+        const target = byHeading ? resolveHeading(parseHeadings(body), heading, atLine) : undefined;
+        const result = insertContent(body, content, position, target);
+        return { content: result.content, line: result.line };
+    });
 }

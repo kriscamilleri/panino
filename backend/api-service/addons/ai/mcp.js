@@ -131,7 +131,7 @@ function checkModernRequest(req, message) {
  * Dispatch
  * ------------------------------------------------------------------ */
 
-function dispatch(ctx, message, modern) {
+async function dispatch(ctx, message, modern) {
     const { id, method, params } = message;
     const complete = (result) => rpcResult(id, modern ? { resultType: 'complete', ...result } : result);
 
@@ -160,7 +160,7 @@ function dispatch(ctx, message, modern) {
             if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
                 return rpcError(id, ERR.INVALID_PARAMS, 'arguments must be an object.');
             }
-            return complete(callTool(ctx, name, args));
+            return complete(await callTool(ctx, name, args));
         }
         default:
             return rpcError(id, ERR.METHOD_NOT_FOUND, `Method not found: ${String(method).slice(0, 100)}`);
@@ -173,7 +173,7 @@ function send(res, payload, modern) {
     return res.status(status).json(payload);
 }
 
-mcpRoutes.post('/', (req, res) => {
+mcpRoutes.post('/', async (req, res) => {
     if (!originAllowed(req)) return res.status(403).json(rpcError(null, ERR.INVALID_REQUEST, 'Origin not allowed.'));
 
     const message = req.body;
@@ -211,7 +211,7 @@ mcpRoutes.post('/', (req, res) => {
 
     const ctx = { userId: auth.userId, agent: auth.agent, clients: req.clients };
     try {
-        return send(res, dispatch(ctx, message, modern), modern);
+        return send(res, await dispatch(ctx, message, modern), modern);
     } catch (error) {
         console.error('[ai:mcp]', message.method, message.method === 'tools/call' ? message.params?.name : '', error?.code || error?.message || 'unknown error');
         return send(res, rpcError(message.id, ERR.INTERNAL, 'Internal error'), modern);

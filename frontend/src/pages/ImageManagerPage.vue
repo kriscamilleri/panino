@@ -286,21 +286,30 @@ function toggleAll() {
 function summarizeUsage(usageMap) {
     const referenced = Object.values(usageMap).filter((usage) => usage.count > 0);
     if (referenced.length === 0) {
-        return 'No documents reference the selected images. This is a safe delete.';
+        return 'No Documents or templates reference the selected images. This is a safe delete.';
     }
 
+    // `count` is Documents and templates together; older servers send Documents only.
     const totalReferences = referenced.reduce((acc, usage) => acc + usage.count, 0);
     const notes = [];
+    const templates = [];
     referenced.forEach((usage) => {
-        usage.notes.forEach((note) => {
+        (usage.notes || []).forEach((note) => {
             if (notes.length < 5 && !notes.some((existing) => existing.id === note.id)) {
                 notes.push(note);
             }
         });
+        (usage.templates || []).forEach((template) => {
+            if (templates.length < 5 && !templates.some((existing) => existing.id === template.id)) {
+                templates.push(template);
+            }
+        });
     });
 
-    const noteList = notes.map((note) => `- ${note.title}`).join('\n');
-    return `Warning: ${totalReferences} document reference(s) found. Markdown links will break if deleted.\n\nAffected documents (up to 5):\n${noteList}`;
+    const sections = [];
+    if (notes.length) sections.push(`Affected Documents (up to 5):\n${notes.map((note) => `- ${note.title}`).join('\n')}`);
+    if (templates.length) sections.push(`Affected templates (up to 5):\n${templates.map((template) => `- ${template.name}`).join('\n')}`);
+    return `Warning: ${totalReferences} reference(s) found. Markdown links will break if deleted.\n\n${sections.join('\n\n')}`;
 }
 
 async function collectUsage(imageIds) {
