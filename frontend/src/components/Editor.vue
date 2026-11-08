@@ -243,6 +243,12 @@
         :textarea="liveTextarea"
         :participants="remoteParticipants"
       />
+      <!-- Typewriter mode: drawn inside OverType's wrapper, over the text and under the caret. -->
+      <Teleport v-if="typewriterLayerHost" :to="typewriterLayerHost">
+        <Transition name="pn-typewriter-fade" appear>
+          <TypewriterLayer v-if="typewriterActive" :ref="typewriterLayerRef" />
+        </Transition>
+      </Teleport>
     </div>
   </div>
 
@@ -290,7 +296,7 @@
 </style>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted, markRaw, shallowRef } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, markRaw, shallowRef, inject } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
@@ -310,6 +316,9 @@ import DiffView from '@/components/DiffView.vue';
 import ConflictResolutionModal from '@/components/ConflictResolutionModal.vue';
 import AvatarStack from '@/components/AvatarStack.vue';
 import RemoteCarets from '@/components/phone/RemoteCarets.vue';
+import TypewriterLayer from '@/components/TypewriterLayer.vue';
+import { useTypewriter } from '@/composables/useTypewriter';
+import { useTypewriterStore } from '@/store/typewriterStore';
 import { YTextareaBinding } from '@/utils/yTextareaBinding';
 import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';
@@ -354,6 +363,8 @@ const syncStore = useSyncStore();
 const collabStore = useCollabSessionStore();
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
+// OverType's wrapper, where typewriter mode's overlay goes. Cleared before OverType is destroyed.
+const wrapperEl = shallowRef(null);
 
 const { selectedFile: file, isSaving, isDirty } = storeToRefs(docStore);
 const {
@@ -450,6 +461,14 @@ const debouncedRecord = debounce((text, cursor) => {
 
 /* ───── Keydown Handler (Trap Undo/Redo) ───── */
 function handleKeydown(e) {
+  // Ctrl/Cmd+Shift+Enter: typewriter mode on or off (desktop only).
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Enter' && !props.phone) {
+    e.preventDefault();
+    const on = typewriterStore.toggle();
+    ui.addToast(on ? 'Typewriter mode on' : 'Typewriter mode off', 'info', 2000);
+    return;
+  }
+
   // Trap Ctrl+Z (Undo)
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault();
@@ -618,6 +637,25 @@ function handleInput(value) {
   }
 }
 
+/* ───── typewriter mode (docs/specs/active/typewriter-mode.md) ───── */
+const typewriterStore = useTypewriterStore();
+const {
+  active: typewriterActive,
+  layerHost: typewriterLayerHost,
+  layerRef: typewriterLayerRef,
+  onPreviewChange: notifyTypewriter,
+} = useTypewriter({
+  settings: computed(() => typewriterStore.current),
+  textarea: () => getTextareaElement(),
+  wrapper: wrapperEl,
+  contentElement: editorContainerRef,
+  // ContentArea and PhoneEditor provide the element that scrolls the editor.
+  scrollContainer: inject('editorScrollContainer', null),
+  bottomInset: inject('editorBottomInset', null),
+  isApplyingRemote: () => Boolean(collabBinding.value?.applyingRemote),
+  documentKey: () => file.value?.id,
+});
+
 /* ───── Overtype initialization ───── */
 function initEditor() {
   if (!editorContainerRef.value || editorInstance.value) return;
@@ -630,6 +668,7 @@ function initEditor() {
     value: contentDraft.value || '',
     onChange: (value) => {
       handleInput(value);
+      notifyTypewriter();
     },
     onKeydown: (event) => {
       // Forward keydown to our handler
@@ -653,6 +692,7 @@ function initEditor() {
   });
 
   editorInstance.value = editor;
+  wrapperEl.value = editor.wrapper;
 
   // Add paste event listener to the textarea
   nextTick(() => {
@@ -726,6 +766,8 @@ function destroyEditor() {
   }
 
   if (editorInstance.value) {
+    // Takes typewriter mode's overlay and padding off while the old editor is still there.
+    wrapperEl.value = null;
     editorInstance.value.destroy();
     editorInstance.value = null;
   }

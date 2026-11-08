@@ -3,9 +3,9 @@
 > A focused writing mode for the markdown editor: the line being written stays at a fixed height
 > on screen, that line is highlighted, a set number of lines stays visible around the cursor,
 > and the text outside the current paragraph or sentence is dimmed.
-> Status: proposed
+> Status: active — in progress on branch `feature/typewriter-mode`
 > Created: 2026-11-07
-> Last updated: 2026-11-07 (Kris answered Q1–Q6)
+> Last updated: 2026-11-08 (implementation notes, §19)
 
 ---
 
@@ -617,8 +617,11 @@ rounds integers, and falls back to the defaults per field. It never throws.
 
 ### 9.3 Storage and sync (decision)
 
-- Settings are stored in a **new row** of the synced `settings` table:
-  `id = 'typewriter'`, value `{"version":1,"desktop":{…},"phone":{…}}`.
+- Settings are stored in **two new rows** of the synced `settings` table, one per form factor:
+  `id = 'typewriter.desktop'` and `id = 'typewriter.phone'`, each with value
+  `{"version":1,"settings":{…}}`. A device writes only the row of the profiles it changed.
+  (Revised 2026-11-08 after review: one row holding both profiles let a desktop save overwrite a
+  phone change it had not yet received, because CR-SQLite keeps the last write per column.)
   **Not inside `uiSettings`:** `uiStore.saveSettingsToDB` rewrites `uiSettings` from a fixed list
   of fields. An older cached PWA on another device would therefore erase a new nested key the next
   time it saved a panel toggle. A separate row is never touched by older clients.
@@ -630,7 +633,8 @@ rounds integers, and falls back to the defaults per field. It never throws.
   `syncStore.personalRepository()`, and exposes `current` (the active form factor's normalised
   settings) and `update(patch)`.
 - **No schema change.** The `settings` table and its CRR registration already exist. As with
-  `uiSettings`, concurrent edits on two devices are last-writer-wins on the row.
+  `uiSettings`, concurrent edits on two devices of the same form factor are last-writer-wins on
+  that form factor's row; a phone and a desktop never overwrite each other.
 
 ### 9.4 Desktop entry points
 
@@ -707,7 +711,7 @@ How the design meets these budgets:
 | `frontend/src/utils/textFocus.js` | pure | `lineStarts`, `lineIndexAt`, `findBlock`, `findSentence`, `focusRange(text, selection, granularity)` |
 | `frontend/src/utils/typewriterScroll.js` | pure | `effectiveAnchor`, `typewriterPadding`, `scrollTargetFor({ style, rowTop, rh, H, scrollTop, anchorY, nEff })`, `isAttached`, `classifyCaretChange`, `pointerRecentreDecision(gesture, state)` returning `none`, `schedule`, `afterViewportSettle` or `cancel`, the constants `CLICK_SETTLE_MS = 350`, `TAP_SLOP_PX = 10`, `CLICK_SLOP_PX = 4`, `TAP_MAX_MS = 500`, and `tweenStep(t)` |
 | `frontend/src/utils/focusGeometry.js` | pure | `scrimRects({ focusStart, focusEnd, contentBox, totalHeight, rh })` returning ≤ 4 rectangles; `bandRect` |
-| `frontend/src/store/typewriterStore.js` | store | load, normalise and save the `typewriter` settings row; `current`, `update`, `toggle` |
+| `frontend/src/store/typewriterStore.js` | store | load, normalise and save the `typewriter.desktop` / `typewriter.phone` settings rows; `current`, `update`, `toggle` |
 | `frontend/src/composables/useTypewriter.js` | controller | attach and detach listeners, the per-frame measure/compute/apply loop, mirror probe, padding, scroll tween, composition tracking, pointer-gesture tracking and the click-settle timer (cleared on unmount, disable and Document switch), and a hook for `useViewport`'s settle for the keyboard-opening tap. Takes `{ editor, textarea, wrapper, scrollContainer, bottomInset, settings }` plus an injectable `layout` adapter for tests. |
 | `frontend/src/components/TypewriterLayer.vue` | UI | teleported band and scrim; reads the geometry the controller provides |
 | `frontend/src/components/TypewriterOptions.vue` | UI | desktop options popover |
@@ -921,7 +925,7 @@ log.
 | D11 | Motion | 100 ms / 180 ms rAF tween; instant for open, resize, remote edits and IME; reduced motion turns it off | Native smooth scroll (uncontrollable, stutters under rapid calls); always instant (jarring line jumps) |
 | D12 | Top and end | Symmetric padding so both ends reach the anchor | No top padding (the line is not fixed near the start) |
 | D13 | Sentence detection | `Intl.Segmenter` on an offset-preserving masked string, with a regex fallback | A hand-written regex alone (worse with abbreviations and CJK) |
-| D14 | Storage (Kris, 2026-11-07: former Q3) | A new synced `settings` row `typewriter`, with desktop and phone profiles | Inside `uiSettings` (older clients erase unknown keys); `localStorage` (no sync between a writer's desktops) |
+| D14 | Storage (Kris, 2026-11-07: former Q3) | New synced `settings` rows, one per form factor (`typewriter.desktop`, `typewriter.phone`; split after review, 2026-11-08) | Inside `uiSettings` (older clients erase unknown keys); `localStorage` (no sync between a writer's desktops) |
 | D15 | Shortcut (Kris, 2026-11-07: former Q5) | Ctrl/Cmd+Shift+Enter, scoped to the editor (P10 still checks browsers) | Mod+Shift+T (reopen tab), Mod+D (bookmark), Ctrl+Alt+T (Linux terminal) |
 | D16 | Defaults (dim strength: Kris, 2026-11-07: former Q4) | Off; when on: Typewriter at Middle, N = 3 (phone 2), highlight on, Paragraph at **Medium** | Subtle by default (Kris chose Medium) |
 | D17 | Click-settle delay (Kris, 2026-11-07: former Q6) | Start at 350 ms; prototype check P11 sets the final value within 300–500 ms. A constant, not a user setting. | No delay (breaks double-click); a user setting (a knob nobody should need) |
@@ -943,3 +947,45 @@ D14, D15, D16 and D17. None remain open.
   `typewriterScroll`'s margin logic with N = 3.
 - **F3:** remember the caret position per Document and restore it on open.
 - **F4:** a continuous anchor slider in place of the three presets (storage already allows 20–80).
+
+---
+
+## 19) Implementation notes (2026-11-08, branch `feature/typewriter-mode`)
+
+Built as specified, phases 0–5. Prototype results and numbers are in
+`docs/agent-logs/2026/11/2026-11-08_19-31_typewriter-mode.md`; the durable facts are in
+`docs/architecture/editor.md`. Where the build differs from the text above, or the text left a
+choice open:
+
+1. **Measurement (§4.3 step 2).** The row and x of an offset come from a Range on the highlight
+   layer's line element (P2: exact; P6: a 50,000-character line costs well under 1 ms, where the
+   one-line mirror cost 5 ms at p95). The one-line mirror is the fallback when the element's text
+   does not match the line, and it puts the **next character** in the marker, because a
+   zero-width marker at a soft-wrap point lands on the earlier row (P2). It lives in the body, not
+   the wrapper: OverType's CSS reset forces padding to 0 inside its container. The whole-prefix
+   mirror is used only when the element count does not match the line count.
+2. **Padding (§5.3).** `padBottom` is measured against the scroll container's whole client height
+   (on phones that includes the strip under the key row, which `H` leaves out); `trailingSpace` is
+   the wrapper height below the last row.
+3. **Click and tap re-centre (§5.4.1).** At `pointerup` only the gesture is judged. A touch
+   browser places the caret after `pointerup`, so the selection and the row are checked when the
+   350 ms wait ends (a tap on a row already at the anchor still does nothing). The click count
+   comes from `mousedown`: `PointerEvent.detail` is 0 in Chrome (P11).
+4. **Changing an option while on** (not turning the mode on) moves an attached view to the new
+   anchor with the short tween, so the change is visible at once. Turning the mode on still
+   leaves the text where it is.
+5. **Turning the mode off at the very top or bottom** cannot keep the text still (U3): without
+   the padding there is nothing to scroll into. Everywhere else it holds.
+6. **A caret nobody placed.** Setting an unfocused textarea's value leaves its caret at the end.
+   While the editor does not have focus and the caret is at the end, the mode takes it to be at
+   the start, so an opened Document shows its first row on the anchor (§8.7).
+7. **Content set from code without local input** (undo applying a state, a sync adoption) only
+   re-anchors an attached view, like a remote edit. The caret restore that follows an undo key is
+   keyboard navigation and follows. Live-session remote applies are recognised synchronously
+   from the binding's `applyingRemote` in OverType's `onChange`.
+8. **Sync (§9.3, U11).** `typewriterStore` reads its row again after each sync round, so a change
+   on another device shows without a reload.
+9. **Components (§11.1).** The desktop controls are `TypewriterMenuControls.vue` (the toggle, the
+   options button) and `TypewriterOptions.vue` (the popover, teleported to the body because the
+   menu bar scrolls sideways). SubMenuBar gains one tag.
+10. **Shortcut.** Desktop only, as §9.5 says for phones.

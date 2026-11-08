@@ -150,6 +150,17 @@
 
                 <section
                     class="ph-settings-group"
+                    aria-labelledby="ph-settings-writing"
+                >
+                    <h2
+                        id="ph-settings-writing"
+                        class="ph-section-label"
+                    >Writing</h2>
+                    <PhoneTypewriterSettings />
+                </section>
+
+                <section
+                    class="ph-settings-group"
                     aria-labelledby="ph-settings-appearance"
                 >
                     <h2
@@ -345,6 +356,7 @@ import {
 import PhoneShell from '@/components/phone/PhoneShell.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import SortControls from '@/components/phone/SortControls.vue'
+import PhoneTypewriterSettings from '@/components/phone/PhoneTypewriterSettings.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'

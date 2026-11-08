@@ -68,7 +68,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch, nextTick } from 'vue'
+import { ref, onUnmounted, watch, nextTick, provide } from 'vue'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
 import FolderPreview from '@/components/FolderPreview.vue'
@@ -93,6 +93,9 @@ let isSyncingScroll = false
 function getEditorScrollEl() {
     return editorPaneRef.value?.querySelector('.overflow-y-auto')
 }
+
+// Typewriter mode scrolls this element (Editor.vue, composables/useTypewriter.js).
+provide('editorScrollContainer', getEditorScrollEl)
 
 function getPreviewScrollEl() {
     return previewPaneRef.value?.querySelector('.overflow-y-auto')

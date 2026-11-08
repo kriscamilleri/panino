@@ -76,6 +76,7 @@
                 hides its text but keeps its banners and dialogs on screen.
             -->
             <div
+                ref="writeEl"
                 class="ph-write"
                 :class="{ 'ph-write-banners': mode !== 'write' }"
                 data-testid="phone-editor-write"
@@ -113,6 +114,7 @@
 
         <KeyRow
             v-if="mode === 'write'"
+            ref="keyRowRef"
             :keys="WRITE_KEYS"
             label="Markdown keys"
             @press="pressKey"
@@ -195,7 +197,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ArrowLeft, MoreHorizontal, Pencil, Image as ImageIcon, Mic, Undo2, Redo2, PenLine, Eye } from 'lucide-vue-next'
@@ -239,6 +241,13 @@ const { selectedFile: file, isSaving, isDirty } = storeToRefs(docStore)
 
 const mode = ref(MODE_PREVIEW)
 const imageInput = ref(null)
+const writeEl = ref(null)
+const keyRowRef = ref(null)
+
+// Typewriter mode scrolls `.ph-write` and keeps the caret row above the
+// docked key row, which covers the bottom of it (Edit mode only).
+provide('editorScrollContainer', writeEl)
+provide('editorBottomInset', () => (mode.value === MODE_WRITE ? keyRowRef.value?.$el?.offsetHeight || 0 : 0))
 const trail = ref([])
 
 const title = computed(() => file.value?.title || 'Untitled')

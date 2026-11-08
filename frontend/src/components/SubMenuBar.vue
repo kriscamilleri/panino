@@ -321,6 +321,7 @@
                     />
                     <span class="button-text">Scroll&nbsp;Sync</span>
                 </BaseButton>
+                <TypewriterMenuControls />
 
                 <div class="separator"></div>
 
@@ -496,6 +497,7 @@ import { useSyncStore } from '@/store/syncStore'
 import { useAddonsStore } from '@/store/addonsStore'
 import AddonActions from '@/components/addons/AddonActions.vue'
 import BaseButton from '@/components/BaseButton.vue'
+import TypewriterMenuControls from '@/components/TypewriterMenuControls.vue'
 import {
     Folder,
     History,

@@ -36,6 +36,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `editorStore` | Bridge/proxy to Editor component's exposed methods for toolbar actions | — (independent) |
 | `historyStore` | Per-document undo/redo stack (max 100 entries per document) | — (independent) |
 | `uiStore` | Panel visibility (persisted to DB), menus, modals, toast notifications | syncStore |
+| `typewriterStore` | Typewriter mode settings: its own synced `settings` rows `typewriter.desktop` and `typewriter.phone` (`current` is this form factor's); never inside `uiSettings` | syncStore, authStore |
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
@@ -95,6 +96,10 @@ Keystroke → draftStore.setDraft() (instant)
 ## Component Patterns
 
 - **Editor.vue** — Uses OverType library for the markdown textarea. Exposes methods via `defineExpose()` for `editorStore` bridge. Handles image paste upload to `POST /images`. Intercepts Ctrl+Z/Y for custom undo/redo via `historyStore`. Three-layer update: keystroke → `draftStore` (instant) → debounced DB write.
+- **Typewriter mode** — `composables/useTypewriter.js` plus `TypewriterLayer.vue`, teleported
+  into OverType's wrapper (over the text, under the caret). Never decorate OverType's highlight
+  layer: it is rebuilt with `innerHTML` on every input and selection change. Draw in a separate
+  layer and only measure the line elements. See `docs/architecture/editor.md`.
 - **Preview.vue** — Purely computed-driven. Reads from `draftStore` for instant preview. Sanitizes rendered HTML via DOMPurify. Applies front-matter variable substitution. No watchers or methods — reactive rendering only.
 - **`@` alias** — Vite resolves `@/` to `frontend/src/`.
 

@@ -30,6 +30,8 @@
     /* The home-indicator area; 0 while the keyboard covers it (PhoneShell). */
     --ph-safe-bottom: env(safe-area-inset-bottom, 0px);
     --ph-fab-radius: 16px;
+    /* Typewriter mode's current-line band (main.css), light and dark alike. */
+    --ph-typewriter-line: var(--pn-typewriter-line);
 
     font-family: var(--ph-font);
     color: var(--ph-ink);
@@ -186,3 +188,5 @@ html[data-theme='dark'] .phone-ui .ph-preview [data-testid='preview-content'] :i
         animation-duration: 0.001ms !important; transition-duration: 0.001ms !important;
     }
 }
+
+.phone-ui .pn-typewriter-band { background: var(--ph-typewriter-line); }

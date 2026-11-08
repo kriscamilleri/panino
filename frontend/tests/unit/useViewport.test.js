@@ -61,6 +61,36 @@ describe('useViewport', () => {
         expect(keyboardOpen.value).toBe(false);
     });
 
+    it('calls back once the visible area has settled after focus moves (typewriter mode)', async () => {
+        vi.useFakeTimers();
+        try {
+            const { useViewport, onViewportSettled } = await import('@/composables/useViewport');
+            const { onSettled } = useViewport();
+            expect(onSettled).toBe(onViewportSettled);
+            const settled = vi.fn();
+            const stop = onSettled(settled);
+            window.dispatchEvent(new Event('focusin'));
+            vi.advanceTimersByTime(699);
+            expect(settled).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(1);
+            expect(settled).toHaveBeenCalledTimes(1);
+
+            // A second focus change restarts the wait; only the last one calls back.
+            window.dispatchEvent(new Event('focusout'));
+            vi.advanceTimersByTime(300);
+            window.dispatchEvent(new Event('focusin'));
+            vi.advanceTimersByTime(700);
+            expect(settled).toHaveBeenCalledTimes(2);
+
+            stop();
+            window.dispatchEvent(new Event('focusin'));
+            vi.advanceTimersByTime(700);
+            expect(settled).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('falls back to the dynamic viewport height without visualViewport', async () => {
         Object.defineProperty(window, 'visualViewport', { configurable: true, value: undefined });
         const { useViewport } = await import('@/composables/useViewport');
