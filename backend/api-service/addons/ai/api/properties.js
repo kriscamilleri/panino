@@ -18,11 +18,11 @@ import {
     object,
     READ,
     reader,
+    REPLACING,
     SPACE_FOR_EXISTING,
     str,
 } from './toolKit.js';
 
-const IDEMPOTENT_WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const SPACE_FOR_MANY = 'Optional. "all" (default) for every database, "personal", or a space id from list_spaces.';
 const FILTER_HELP = [
     'Conditions joined by AND, at most 5. Each is "<property> <operator> <value>" or "<property> exists" / "<property> missing".',
@@ -138,7 +138,9 @@ export const tools = [
                 lines.length ? `${result.total} Document${result.total === 1 ? '' : 's'} match "${result.filter}".` : `No Documents match "${result.filter}".`,
                 ...lines,
                 ...(result.nextOffset !== null ? [`next_offset: ${result.nextOffset}`] : []),
-                ...(result.truncated ? ['(Only the 5000 most recently updated Documents with front matter per database were read.)'] : []),
+                ...(result.truncated ? [result.scanned === 'all'
+                    ? '(Only the 5000 most recently updated Documents per database were read.)'
+                    : '(Only the 5000 most recently updated Documents with front matter per database were read.)'] : []),
             ].join('\n');
             return { text, structured: { ...result, next_offset: result.nextOffset } };
         },
@@ -148,7 +150,7 @@ export const tools = [
         title: 'Set a Document property',
         description: 'Set one property in a Document\'s front matter (the "key: value" lines between --- at the top), replacing the value of the same key (ignoring case) or adding it. A Document without front matter gets a block. Nothing else in the text changes; the previous text stays in revision history.',
         access: 'write',
-        annotations: IDEMPOTENT_WRITE,
+        annotations: REPLACING,
         inputSchema: object({
             id: str(ID_HINT),
             key: str('Property name, one line, no ":", up to 100 characters.'),
@@ -173,7 +175,7 @@ export const tools = [
         title: 'Remove a Document property',
         description: 'Remove one property (key compared ignoring case) from a Document\'s front matter. Removing the last one removes the block. The previous text stays in revision history.',
         access: 'write',
-        annotations: IDEMPOTENT_WRITE,
+        annotations: REPLACING,
         inputSchema: object({
             id: str(ID_HINT),
             key: str('Property name to remove.'),

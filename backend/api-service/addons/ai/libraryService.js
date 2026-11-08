@@ -10,7 +10,7 @@ import { extractInputLabels, resolveTemplateTitle, resolveTemplateVariables } fr
 import { Buffer } from 'node:buffer';
 import { PDFDocument } from 'pdf-lib';
 import { buildDocumentPdfRequest, databaseGlobals, sanitizeExportHtml, styleLibrary } from '../../documentPdf.js';
-import { parseInternalImageSource, renderPdf } from '../../pdf.js';
+import { parseInternalImageSource, PDF_RUNTIME, renderPdf } from '../../pdf.js';
 import { createDocument } from './documentService.js';
 import { buildFolderIndex } from './keyUtils.js';
 import {
@@ -290,6 +290,13 @@ function renderFailure(rendered) {
  *   `maxBytes` refuses a larger result with PDF_TOO_LARGE (the MCP cap)
  * @returns {Promise<{ document: object, pdf: Buffer, bytes: number, pages: number|null, filename: { ascii: string, unicode: string }, pageSize: string, printStyle: string|null }>}
  */
+// PDFs render one at a time on a shared queue of PDF_QUEUE_LIMIT jobs. An agent may loop
+// over many Documents, so each account keeps at most this many API exports in the queue,
+// across all its keys and connected apps; the rest of the queue stays for the app's
+// Export and for other accounts. Over the cap the answer is PDF_BUSY, as for a full queue.
+export const MAX_PDF_EXPORTS_PER_ACCOUNT = 2;
+const pdfExportsInFlight = new Map();
+
 export async function exportPdf(ctx, { id, space, pageSize, maxBytes } = {}) {
     requireAgentScope(ctx, 'read');
     if (pageSize !== undefined && pageSize !== null && pageSize !== '' && !['A4', 'Letter'].includes(pageSize)) {
@@ -313,7 +320,19 @@ export async function exportPdf(ctx, { id, space, pageSize, maxBytes } = {}) {
         request.printStyles.printFooterHtml = withoutSpaceImages(request.printStyles.printFooterHtml);
     }
 
-    const rendered = await renderPdf(request, { userId: ctx.userId });
+    const running = pdfExportsInFlight.get(ctx.userId) ?? 0;
+    if (running >= MAX_PDF_EXPORTS_PER_ACCOUNT) {
+        throw renderFailure({ status: 503, retryAfterSeconds: PDF_RUNTIME.retryAfterSeconds });
+    }
+    pdfExportsInFlight.set(ctx.userId, running + 1);
+    let rendered;
+    try {
+        rendered = await renderPdf(request, { userId: ctx.userId });
+    } finally {
+        const left = (pdfExportsInFlight.get(ctx.userId) ?? 1) - 1;
+        if (left > 0) pdfExportsInFlight.set(ctx.userId, left);
+        else pdfExportsInFlight.delete(ctx.userId);
+    }
     if (!rendered?.ok) throw renderFailure(rendered || {});
     const pdf = Buffer.isBuffer(rendered.pdf) ? rendered.pdf : Buffer.from(rendered.pdf);
     if (maxBytes && pdf.length > maxBytes) {

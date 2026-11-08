@@ -230,6 +230,18 @@ describe('AI agents add-on: Documents area', () => {
             ]);
         });
 
+        it('says nothing changed when new_text equals old_text, and records no revision', async () => {
+            const rest = await request(app).post(`${V1}/documents/n-edit/edit`).set(bearer()).send({ oldText: 'Ship', newText: 'Ship' });
+            expect(rest.status).toBe(200);
+            expect(rest.body).toMatchObject({ changed: false, document: { updatedAt: T0 } });
+            const viaMcp = await mcp('edit_document', { id: 'n-edit', old_text: 'Ship', new_text: 'Ship' });
+            expect(text(viaMcp)).toContain('Nothing changed');
+            expect(text(viaMcp)).not.toContain('replaced');
+            expect(revisions('n-edit')).toEqual([]);
+            const changed = await request(app).post(`${V1}/documents/n-edit/edit`).set(bearer()).send({ oldText: 'Ship', newText: 'Sail' });
+            expect(changed.body.changed).toBe(true);
+        });
+
         it('refuses no match and an ambiguous match, and replaces all on request', async () => {
             const none = await request(app).post(`${V1}/documents/n-edit/edit`).set(bearer()).send({ oldText: 'Sunday', newText: 'x' });
             expect(none.status).toBe(400);
@@ -290,6 +302,26 @@ describe('AI agents add-on: Documents area', () => {
     describe('insert_into_document', () => {
         const DOC = '# Log\n\n## Monday\n\n- one\n\n## Tuesday\n\n- two\n';
         beforeEach(() => insertNote('n-ins', 'Log', DOC));
+
+        it('keeps each line ending of a Document that mixes CRLF and LF', async () => {
+            // The review case: every ending used to become CRLF, so history showed a whole-Document change.
+            insertNote('n-mixed', 'Mixed', 'a\r\nb\nc\r\n');
+            await request(app).post(`${V1}/documents/n-mixed/insert`).set(bearer()).send({ content: 'X', position: 'end' }).expect(200);
+            expect(contentOf('n-mixed')).toBe('a\r\nb\nc\r\n\r\nX\r\n');
+        });
+
+        it('reads the outline of a Document holding a 2 MiB line of spaces in linear time', async () => {
+            // The review's high finding: the fence pattern backtracked quadratically on it,
+            // which would have blocked the server for hours.
+            insertNote('n-spaces', 'Spaces', `# Top\n${' '.repeat(2 * 1024 * 1024 - 100)}\n## Below\n`);
+            const started = performance.now();
+            const outline = await request(app).get(`${V1}/documents/n-spaces/outline`).set(bearer());
+            expect(outline.status).toBe(200);
+            expect(outline.body.headings.map((heading) => heading.text)).toEqual(['Top', 'Below']);
+            const appended = await request(app).post(`${V1}/documents/n-spaces/append`).set(bearer()).send({ content: 'x' });
+            expect(appended.status).toBe(200);
+            expect(performance.now() - started).toBeLessThan(5000);
+        });
 
         it('inserts at each position with blank-line spacing', async () => {
             const cases = [
@@ -369,6 +401,26 @@ describe('AI agents add-on: Documents area', () => {
             expect(phrase.body.results.map((hit) => hit.id)).toEqual(['n-3', 'n-1', 'n-2']);
             const strict = await search(`q=${encodeURIComponent('"date is"')}`);
             expect(strict.body.results.map((hit) => hit.id)).toEqual(['n-1']);
+        });
+
+        it('ignores the case of letters outside ASCII, in titles and bodies', async () => {
+            // The review case: SQL folded ASCII only, so "ÜBER" missed "über".
+            insertNote('n-5', 'Über uns', 'Wir sind ÜBERALL. Größe zählt.', { updatedAt: '2026-11-05T10:00:00.000Z' });
+            insertNote('n-6', 'Sigma', 'ΣΟΦΊΑ and wisdom', { updatedAt: '2026-11-06T10:00:00.000Z' });
+            expect((await search(`q=${encodeURIComponent('über')}`)).body.results.map((hit) => hit.id)).toEqual(['n-5']);
+            expect((await search(`q=${encodeURIComponent('überall')}&in=content`)).body.results.map((hit) => hit.id)).toEqual(['n-5']);
+            expect((await search(`q=${encodeURIComponent('größe')}`)).body.results.map((hit) => hit.id)).toEqual(['n-5']);
+            expect((await search(`q=${encodeURIComponent('σοφία')}`)).body.results.map((hit) => hit.id)).toEqual(['n-6']);
+            const hit = (await search(`q=${encodeURIComponent('ÜBER uns')}`)).body.results[0];
+            expect(hit).toMatchObject({ id: 'n-5', matchedTitle: true });
+        });
+
+        it('matches % and _ literally', async () => {
+            insertNote('n-7', 'Rates', 'Growth of 100% in a_b terms.', { updatedAt: '2026-11-05T10:00:00.000Z' });
+            insertNote('n-8', 'Other rates', 'Growth of 1000 in axb terms.', { updatedAt: '2026-11-05T11:00:00.000Z' });
+            expect((await search(`q=${encodeURIComponent('100%')}`)).body.results.map((hit) => hit.id)).toEqual(['n-7']);
+            expect((await search(`q=${encodeURIComponent('a_b')}`)).body.results.map((hit) => hit.id)).toEqual(['n-7']);
+            expect((await search(`q=${encodeURIComponent('\\ab')}`)).body.results).toEqual([]);
         });
 
         it('counts matches and returns up to three snippets with line numbers', async () => {

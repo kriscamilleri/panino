@@ -2,8 +2,17 @@
 // built-in ones every Document has (title, folder, word count, created and modified
 // on and by, pinned) and the front matter `key: value` pairs at the top of its text.
 // Read one Document's properties, list the keys in use, query Documents by property
-// (built-in or front matter), and set or remove a front matter one. Setting and removing edit the body, so they follow every write
-// rule of an edit (serviceCore.js) and land in revision history.
+// (built-in or front matter), and set or remove a front matter one. Setting and removing
+// edit the body, so they follow every write rule of an edit (serviceCore.js) and land in
+// revision history.
+//
+// Load: a query or key listing reads up to PROPERTY_SCAN_CAP Documents per database, so it
+// is built to keep memory flat and work proportional to what a filter needs:
+// - SQL picks and orders the Documents by id alone, so its sorter never holds a body;
+// - the rows are then read one at a time, and only the first FRONT_MATTER_SCAN_CHARS of a
+//   body reach JS, and only when a front matter key is needed;
+// - conditions run cheapest first (front matter and dates, then authors, then word
+//   counts), each on the Documents still matching; a word count reads one body at a time.
 import { removeFrontMatterKeys, setFrontMatterValues } from '@panino/content-merge/front-matter';
 import {
     ApiError,
@@ -25,6 +34,7 @@ import {
     writableDb,
 } from './serviceCore.js';
 import { documentAuthorship } from './authorship.js';
+import { countWords, hasCasedNonAscii, likeContains, likeShape } from './documentText.js';
 import { buildFolderIndex, parseLimit } from './keyUtils.js';
 import {
     BUILT_IN_FILTER_KEYS,
@@ -40,53 +50,25 @@ import {
 /** Documents read per database for a query or a key listing. */
 export const PROPERTY_SCAN_CAP = 5000;
 const MAX_SAMPLE_VALUES = 5;
+const AUTHOR_KEYS = ['created_by', 'modified_by'];
 
-/** Words in a body, by the rule the app's Document lists use. */
-export function countWords(content) {
-    const words = String(content || '').trim().match(/\S+/g);
-    return words ? words.length : 0;
-}
-
-/**
- * The built-in properties of Documents in one database.
- * @param {object} ctx
- * @param {object} target
- * @param {{ row: object, content?: string }[]} entries rows with id, title, folder_id, created_at, updated_at, pinned
- * @param {object} folderIndex
- * @param {{ authors?: boolean, words?: boolean }} [options] false skips the revision lookup / the word count
- * @returns {Map<string, object>}
- */
-function builtInProperties(ctx, target, entries, folderIndex, { authors: withAuthors = true, words = true } = {}) {
-    const authors = withAuthors ? documentAuthorship(ctx, target, entries.map((entry) => entry.row.id)) : new Map();
-    const missing = words ? entries.filter((entry) => entry.content === undefined).map((entry) => entry.row.id) : [];
-    const bodies = new Map();
-    if (missing.length) {
-        for (const row of target.db.prepare('SELECT id, content FROM notes WHERE id IN (SELECT value FROM json_each(?))').all(JSON.stringify(missing))) {
-            bodies.set(row.id, row.content ?? '');
-        }
-    }
-    const result = new Map();
-    for (const { row, content } of entries) {
-        const who = authors.get(row.id) || {};
-        result.set(row.id, {
-            title: row.title ?? '',
-            folder: folderIndex.pathOf(row.folder_id),
-            wordCount: words ? countWords(content ?? bodies.get(row.id) ?? '') : null,
-            createdOn: row.created_at ?? null,
-            createdBy: who.createdBy ?? null,
-            modifiedOn: row.updated_at ?? null,
-            modifiedBy: who.modifiedBy ?? null,
-            pinned: Boolean(row.pinned),
-        });
-    }
-    return result;
-}
+// Whitespace String.prototype.trim removes, for SQLite's ltrim: front matter opens on the
+// first non-blank line, so a body whose first non-whitespace text is not `---` has none.
+const TRIM_CHARS = 'char(9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, '
+    + '8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279)';
+// Only the first KB is read for that; a body that starts with more blank space than that
+// falls back to looking for `---` anywhere in the part that is parsed.
+const FRONT_MATTER_PREFILTER = `(CASE
+    WHEN ltrim(substr(coalesce(content, ''), 1, 1024), ${TRIM_CHARS}) = ''
+        THEN instr(substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS}), '---') > 0
+    ELSE ltrim(substr(coalesce(content, ''), 1, 1024), ${TRIM_CHARS}) LIKE '---%'
+END)`;
 
 /** Built-in properties as filterable entries, ahead of front matter so they win on a clash. */
 function builtInEntries(builtIn) {
     const actor = (who) => (who ? { value: who.text, alternatives: [who.userName, who.label] } : { value: null });
     return [
-        { key: 'word_count', value: builtIn.wordCount === null ? null : String(builtIn.wordCount) },
+        { key: 'word_count', value: builtIn.wordCount === null || builtIn.wordCount === undefined ? null : String(builtIn.wordCount) },
         { key: 'created_on', value: builtIn.createdOn },
         { key: 'modified_on', value: builtIn.modifiedOn },
         { key: 'created_by', ...actor(builtIn.createdBy) },
@@ -123,41 +105,90 @@ function folderScope(folders, folderId) {
     return { ids };
 }
 
+/** A word counter for one database that reads one body at a time and remembers the counts. */
+function wordCounter(db) {
+    const body = db.prepare("SELECT coalesce(content, '') FROM notes WHERE id = ?").pluck();
+    const counts = new Map();
+    return (id) => {
+        if (!counts.has(id)) counts.set(id, countWords(body.get(id) ?? ''));
+        return counts.get(id);
+    };
+}
+
 /**
- * The start of every Document with front matter in a database, most recently
- * updated first. Bodies are cut to the first few KB: front matter is at the top.
+ * The Documents of one database a query or key listing considers: at most
+ * PROPERTY_SCAN_CAP, most recently updated first, in the folder scope and outside Trash
+ * unless asked. Without `anyDocument`, only those whose text opens with a front matter
+ * block holding every key in `keys`. With `withProperties`, each comes with its front
+ * matter properties.
  */
-function scanTarget(target, { includeTrash, folderId, keys = [], anyDocument = false, fullBody = false }) {
+function scanTarget(target, { includeTrash, folderId, keys = [], anyDocument = false, withProperties = true }) {
     const db = target.db;
     const folders = readFolders(db);
     const folderIndex = buildFolderIndex(folders);
     const excluded = includeTrash ? [] : trashFolderIds(folders, folderIndex);
     const scope = folderScope(folders, folderId);
-    const keyFilter = keys.map(() => 'AND instr(lower(head), ?) > 0').join(' ');
-    const rows = db.prepare(`
-        SELECT * FROM (
-            SELECT id, title, folder_id, created_at, updated_at, pinned,
-                   substr(coalesce(content, ''), 1, ?) AS head,
-                   CASE WHEN ? THEN coalesce(content, '') END AS body
-              FROM notes
-             WHERE (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
-        )
-         WHERE (? OR instr(head, '---') > 0) ${keyFilter}
+    const scopeMode = !scope ? 0 : scope.rootOnly ? 1 : 2;
+    // Each key must appear in the parsed part; a prefilter, so LIKE's ASCII-only case
+    // folding is enough (readProperties decides).
+    const keyFilter = keys.map(() => `AND substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS}) LIKE ? ESCAPE '\\'`).join(' ');
+    const ids = db.prepare(`
+        SELECT id FROM notes
+         WHERE (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
+           AND (? = 0 OR (? = 1 AND folder_id IS NULL) OR (? = 2 AND folder_id IN (SELECT value FROM json_each(?))))
+           AND (? OR ${FRONT_MATTER_PREFILTER})
+           ${keyFilter}
          ORDER BY coalesce(updated_at, '') DESC, id DESC
          LIMIT ?
-    `).all(FRONT_MATTER_SCAN_CHARS, fullBody ? 1 : 0, JSON.stringify(excluded), anyDocument ? 1 : 0, ...keys, PROPERTY_SCAN_CAP + 1);
-    const truncated = rows.length > PROPERTY_SCAN_CAP;
-    const inScope = rows.slice(0, PROPERTY_SCAN_CAP).filter((row) => {
-        if (!scope) return true;
-        if (scope.rootOnly) return row.folder_id === null || row.folder_id === undefined;
-        return scope.ids.has(row.folder_id);
-    });
+    `).pluck().all(
+        JSON.stringify(excluded),
+        scopeMode, scopeMode, scopeMode, JSON.stringify(scope?.ids ? [...scope.ids] : []),
+        anyDocument ? 1 : 0,
+        ...keys.map((key) => (hasCasedNonAscii(key) ? likeShape(key) : likeContains(key))),
+        PROPERTY_SCAN_CAP + 1,
+    );
+    const truncated = ids.length > PROPERTY_SCAN_CAP;
+    const capped = ids.slice(0, PROPERTY_SCAN_CAP);
+    const order = new Map(capped.map((id, index) => [id, index]));
+    const head = withProperties ? `substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS})` : 'NULL';
+    const rows = db.prepare(`
+        SELECT id, title, folder_id, created_at, updated_at, pinned, ${head} AS head
+          FROM notes WHERE id IN (SELECT value FROM json_each(?))
+    `);
+    const documents = [];
+    for (const { head: text, ...row } of rows.iterate(JSON.stringify(capped))) {
+        const properties = withProperties ? readProperties(text) : null;
+        if (!anyDocument && !properties?.length) continue;
+        documents.push({ row, properties });
+    }
+    documents.sort((a, b) => order.get(a.row.id) - order.get(b.row.id));
+    return { folderIndex, truncated, documents, wordCount: wordCounter(db) };
+}
+
+/** Front matter properties of some Documents of one database, read for a page of results. */
+function propertiesOf(db, ids) {
+    const result = new Map();
+    const rows = db.prepare(`SELECT id, substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS}) AS head
+                               FROM notes WHERE id IN (SELECT value FROM json_each(?))`);
+    for (const row of rows.iterate(JSON.stringify(ids))) result.set(row.id, readProperties(row.head));
+    return result;
+}
+
+/**
+ * Built-in properties of Documents in one database.
+ * @param {Map<string, object>} [authors] from documentAuthorship, if already read
+ */
+function builtInProperties(row, folderIndex, { authors, wordCount }) {
+    const who = authors?.get(row.id) || {};
     return {
-        folderIndex,
-        truncated,
-        documents: inScope
-            .map((row) => ({ row, properties: readProperties(row.head), ...(fullBody ? { content: row.body } : {}) }))
-            .filter((entry) => anyDocument || entry.properties.length > 0),
+        title: row.title ?? '',
+        folder: folderIndex.pathOf(row.folder_id),
+        wordCount: wordCount ? wordCount(row.id) : null,
+        createdOn: row.created_at ?? null,
+        createdBy: who.createdBy ?? null,
+        modifiedOn: row.updated_at ?? null,
+        modifiedBy: who.modifiedBy ?? null,
+        pinned: Boolean(row.pinned),
     };
 }
 
@@ -178,7 +209,10 @@ export function getDocumentProperties(ctx, { id, space } = {}) {
     const { target, note } = locateDocument(ctx, space, id);
     const folderIndex = buildFolderIndex(readFolders(target.db));
     const list = readProperties(note.content ?? '');
-    const builtIn = builtInProperties(ctx, target, [{ row: note, content: note.content ?? '' }], folderIndex).get(note.id);
+    const builtIn = builtInProperties(note, folderIndex, {
+        authors: documentAuthorship(ctx, target, [note.id]),
+        wordCount: () => countWords(note.content ?? ''),
+    });
     return {
         document: {
             ...documentSummary(note, target, folderIndex),
@@ -232,7 +266,11 @@ export function listPropertyKeys(ctx, { space, folderId, includeTrash = false } 
     };
 }
 
-/** Documents whose properties satisfy a filter, most recently updated first. */
+/**
+ * Documents whose properties satisfy a filter, most recently updated first. A Document
+ * without front matter has every front matter key missing, so `missing` and `!=` consider
+ * every Document, as built-in keys do.
+ */
 export function queryDocumentsByProperty(ctx, { filter, space, folderId, includeTrash = false, limit, offset } = {}) {
     requireAgentScope(ctx, 'read');
     const parsed = parseFilter(filter);
@@ -241,48 +279,69 @@ export function queryDocumentsByProperty(ctx, { filter, space, folderId, include
     const start = offset === undefined || offset === null || offset === '' ? 0 : Number(offset);
     if (!Number.isInteger(start) || start < 0) throw invalid('offset must be a whole number of at least 0.');
     const builtIns = builtInKeysIn(parsed.conditions);
-    const keys = requiredKeys(parsed.conditions).filter((key) => !builtIns.includes(key));
-    const needsAuthors = builtIns.includes('created_by') || builtIns.includes('modified_by');
+    const isBuiltIn = (condition) => builtIns.includes(condition.key.toLowerCase());
+    const frontMatter = parsed.conditions.filter((condition) => !isBuiltIn(condition));
+    const keys = requiredKeys(frontMatter);
+    // Cheapest first: front matter and dates (in the row), then authors (an index lookup per
+    // Document), then word counts (a body read per Document).
+    const cheap = parsed.conditions.filter((condition) => !isBuiltIn(condition)
+        || ['created_on', 'modified_on'].includes(condition.key.toLowerCase()));
+    const byAuthor = parsed.conditions.filter((condition) => AUTHOR_KEYS.includes(condition.key.toLowerCase()));
+    const byWords = parsed.conditions.filter((condition) => condition.key.toLowerCase() === 'word_count');
+    const anyDocument = builtIns.length > 0
+        || parsed.conditions.some((condition) => condition.operator === 'missing' || condition.operator === '!=');
 
     const matches = [];
     let truncated = false;
     for (const target of resolveMany(ctx, space)) {
         const result = scanTarget(target, {
-            includeTrash, folderId, keys,
-            anyDocument: builtIns.length > 0,
-            fullBody: builtIns.includes('word_count'),
+            includeTrash, folderId, keys, anyDocument, withProperties: frontMatter.length > 0,
         });
         truncated ||= result.truncated;
-        let candidates = result.documents;
-        if (builtIns.length) {
-            const builtIn = builtInProperties(ctx, target, candidates, result.folderIndex, { authors: needsAuthors, words: builtIns.includes('word_count') });
-            candidates = candidates.filter((entry) => matchesFilter([...builtInEntries(builtIn.get(entry.row.id)), ...entry.properties], parsed.conditions));
-        } else {
-            candidates = candidates.filter((entry) => matchesFilter(entry.properties, parsed.conditions));
+        const builtInOf = (entry, authors) => builtInProperties(entry.row, result.folderIndex, { authors });
+        let candidates = result.documents.filter((entry) => matchesFilter(
+            [...builtInEntries(builtInOf(entry)), ...(entry.properties || [])], cheap));
+        let authors = null;
+        if (byAuthor.length && candidates.length) {
+            authors = documentAuthorship(ctx, target, candidates.map((entry) => entry.row.id));
+            candidates = candidates.filter((entry) => matchesFilter(builtInEntries(builtInOf(entry, authors)), byAuthor));
         }
-        for (const entry of candidates) matches.push({ entry, target, folderIndex: result.folderIndex });
+        if (byWords.length) {
+            candidates = candidates.filter((entry) => matchesFilter(builtInEntries({
+                ...builtInOf(entry), wordCount: result.wordCount(entry.row.id),
+            }), byWords));
+        }
+        for (const entry of candidates) matches.push({ entry, target, result, authors });
     }
     matches.sort((a, b) => String(b.entry.row.updated_at || '').localeCompare(String(a.entry.row.updated_at || ''))
         || (a.entry.row.id < b.entry.row.id ? 1 : -1));
     const page = matches.slice(start, start + max);
-    // Built-in properties of the returned page only, one batch per database.
+    // Built-in properties and front matter of the returned page, one batch per database;
+    // word counts and authors already read for the filter are reused.
     const byTarget = new Map();
     for (const match of page) {
         if (!byTarget.has(match.target)) byTarget.set(match.target, []);
         byTarget.get(match.target).push(match);
     }
-    const pageBuiltIns = new Map();
+    const documents = new Map();
     for (const [target, group] of byTarget) {
-        const values = builtInProperties(ctx, target, group.map((match) => ({ row: match.entry.row, content: match.entry.content })), group[0].folderIndex);
-        for (const [id, value] of values) pageBuiltIns.set(`${target.dbKey}|${id}`, value);
+        const ids = group.map((match) => match.entry.row.id);
+        const authors = group[0].authors ?? documentAuthorship(ctx, target, ids);
+        const properties = frontMatter.length ? null : propertiesOf(target.db, ids);
+        for (const match of group) {
+            const entry = properties ? { ...match.entry, properties: properties.get(match.entry.row.id) || [] } : match.entry;
+            const builtIn = builtInProperties(entry.row, match.result.folderIndex, { authors, wordCount: match.result.wordCount });
+            documents.set(match, summaryWithProperties(entry, target, match.result.folderIndex, builtIn));
+        }
     }
     return {
         filter: filter.trim(),
         conditions: parsed.conditions,
         total: matches.length,
-        documents: page.map((match) => summaryWithProperties(match.entry, match.target, match.folderIndex, pageBuiltIns.get(`${match.target.dbKey}|${match.entry.row.id}`))),
+        documents: page.map((match) => documents.get(match)),
         nextOffset: start + max < matches.length ? start + max : null,
         truncated,
+        scanned: anyDocument ? 'all' : 'front_matter',
     };
 }
 

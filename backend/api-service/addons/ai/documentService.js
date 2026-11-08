@@ -44,10 +44,13 @@ import {
     documentStats,
     encodeListCursor,
     findHeadings,
+    hasCasedNonAscii,
     HEADING_POSITIONS,
     INSERT_POSITIONS,
     insertContent,
+    likeContains,
     LIST_SORTS,
+    likeShape,
     MAX_OUTLINE_HEADINGS,
     MAX_SEARCH_TERMS,
     parseHeadings,
@@ -176,6 +179,36 @@ function folderSubtree(folders, folderId) {
 
 const MAX_SEARCH_OFFSET = 10000;
 
+/*
+ * Matching a term, ignoring case, across every body is the cost of a search, so each term
+ * is a LIKE: SQLite scans with it about eight times faster than with
+ * `instr(lower(content), ?)` (which copies each body to lower-case it), and both fold ASCII
+ * letters only. A term with other cased letters (über, ΣΟΦΙΑ) is matched by the
+ * lower-case forms JS gives, the way snippets are found, through a SQL function; a LIKE
+ * of the term's shape goes first (`_` for those letters), so the function only sees
+ * bodies that may match.
+ */
+const FOLDED_CONTAINS = 'panino_folded_contains';
+const withFolding = new WeakSet();
+
+/** `db`, with the SQL function `panino_folded_contains(text, lowerCaseTerm)` registered. */
+function withFoldedContains(db) {
+    if (!withFolding.has(db)) {
+        db.function(FOLDED_CONTAINS, { deterministic: true }, (text, term) => (String(text ?? '').toLowerCase().includes(term) ? 1 : 0));
+        withFolding.add(db);
+    }
+    return db;
+}
+
+/** The SQL condition "`column` contains `term`, ignoring case", with its parameters. */
+function termCondition(column, term) {
+    if (!hasCasedNonAscii(term)) return { sql: `${column} LIKE ? ESCAPE '\\'`, params: [likeContains(term)] };
+    return {
+        sql: `(CASE WHEN ${column} LIKE ? ESCAPE '\\' THEN ${FOLDED_CONTAINS}(${column}, ?) ELSE 0 END)`,
+        params: [likeShape(term), term.toLowerCase()],
+    };
+}
+
 /**
  * Search titles and bodies across databases. Every term must match (a "quoted phrase" is
  * one term), case-insensitively; Documents matching more terms in the title come first,
@@ -204,17 +237,18 @@ export function searchDocuments(ctx, {
     const withTrash = includeTrash === true || folder !== null;
 
     // Fixed SQL fragments, one per term; the terms themselves are bound parameters.
-    const TITLE = 'instr(lower(coalesce(title, \'\')), lower(?)) > 0';
-    const BODY = 'instr(lower(coalesce(content, \'\')), lower(?)) > 0';
-    const filters = terms.map(() => (where === 'title' ? TITLE : where === 'content' ? BODY : `(${TITLE} OR ${BODY})`));
-    const filterParams = terms.flatMap((term) => (where === 'all' ? [term, term] : [term]));
-    const titleScore = where === 'content' ? '0' : terms.map(() => `(${TITLE})`).join(' + ');
-    const titleParams = where === 'content' ? [] : terms;
+    const title = terms.map((term) => termCondition("coalesce(title, '')", term));
+    const body = terms.map((term) => termCondition("coalesce(content, '')", term));
+    const filters = terms.map((_, i) => (where === 'title' ? title[i].sql : where === 'content' ? body[i].sql : `(${title[i].sql} OR ${body[i].sql})`));
+    const filterParams = terms.flatMap((_, i) => (where === 'title' ? title[i].params : where === 'content' ? body[i].params : [...title[i].params, ...body[i].params]));
+    const titleScore = where === 'content' ? '0' : title.map((condition) => `(${condition.sql})`).join(' + ');
+    const titleParams = where === 'content' ? [] : title.flatMap((condition) => condition.params);
+    const folding = terms.some(hasCasedNonAscii);
 
     const hits = [];
     let folderSeen = folder === null;
     for (const target of resolveMany(ctx, space)) {
-        const db = target.db;
+        const db = folding ? withFoldedContains(target.db) : target.db;
         const folders = readFolders(db);
         let inFolders = null;
         if (folder !== null) {
@@ -556,7 +590,7 @@ export function appendToDocument(ctx, { id, space, content, separator, expectedU
         let next;
         if (!existing.trim()) next = content;
         else if (separator !== undefined) next = existing + separator + content;
-        else next = `${existing.replace(/\s+$/, '')}\n\n${content}`;
+        else next = `${existing.trimEnd()}\n\n${content}`;
         assertBodySize(next);
         snapshotBefore(db, current);
         const row = updateNote(db, current.id, { content: next, updated_at: new Date().toISOString() });
@@ -592,7 +626,7 @@ function rewriteBody(ctx, { id, space, expectedUpdatedAt, operation }, change) {
         return { row: updated, extra: rest };
     })();
     if (wrote) announce(ctx, target);
-    return { document: fullDocument(row, target, buildFolderIndex(readFolders(db))), ...extra };
+    return { document: fullDocument(row, target, buildFolderIndex(readFolders(db))), ...extra, changed: wrote };
 }
 
 /**

@@ -4,12 +4,17 @@ import {
     applyEdit,
     compareNoCase,
     countOccurrences,
+    countWords,
     decodeListCursor,
     documentStats,
     encodeListCursor,
     findHeadings,
+    hasCasedNonAscii,
     headingPlainText,
     insertContent,
+    likeContains,
+    likeShape,
+    parseAtxHeading,
     parseHeadings,
     parseSearchTerms,
     referencedImageIds,
@@ -17,6 +22,7 @@ import {
     slugify,
     termMatches,
     termsIn,
+    trimBlankLines,
 } from '../../documentText.js';
 import { encodeDocumentCursor } from '../../keyUtils.js';
 
@@ -232,6 +238,15 @@ describe('insertContent', () => {
     it('trims blank lines around the inserted text and keeps CRLF', () => {
         expect(insertContent('a\r\nb\r\n', '\n\nX\nY\n\n', 'end').content).toBe('a\r\nb\r\n\r\nX\r\nY\r\n');
     });
+
+    it('changes only the inserted lines of a Document that mixes CRLF and LF', () => {
+        // The review case: every line ending used to become CRLF.
+        expect(insertContent('a\r\nb\nc\r\n', 'X', 'end').content).toBe('a\r\nb\nc\r\n\r\nX\r\n');
+        expect(insertContent('a\nb\r\nc', 'X', 'end').content).toBe('a\nb\r\nc\r\n\r\nX');
+        expect(insertContent('# H\nb\r\n\r\n# I\r\n', 'X', 'after_heading', { line: 1, headingEndLine: 1, endLine: 3 }).content)
+            .toBe('# H\n\nX\n\nb\r\n\r\n# I\r\n');
+        expect(insertContent('', 'X', 'start').content).toBe('X');
+    });
 });
 
 describe('search terms and snippets', () => {
@@ -288,5 +303,141 @@ describe('list cursors', () => {
         expect(compareNoCase('apple', 'BANANA')).toBeLessThan(0);
         expect(compareNoCase('Plan', 'plan')).toBe(0);
         expect(compareNoCase('Zebra', 'Äpfel')).toBeLessThan(0);
+    });
+});
+
+/** A small seeded PRNG (mulberry32), so a failing random case can be replayed. */
+function seeded(seed) {
+    let state = seed >>> 0;
+    return () => {
+        state = (state + 0x6d2b79f5) >>> 0;
+        let t = state;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function randomText(rand, alphabet, maxLength) {
+    const length = Math.floor(rand() * maxLength);
+    let text = '';
+    for (let i = 0; i < length; i += 1) text += alphabet[Math.floor(rand() * alphabet.length)];
+    return text;
+}
+
+describe('linear-time parsing of hostile text', () => {
+    // The regular expressions these helpers replaced, kept to check the hand-written
+    // versions against. Each backtracks on long input, which is why they were replaced.
+    const OLD_PLAIN_TEXT = (text) => String(text ?? '')
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '$1')
+        .replace(/(?<![\p{L}\p{N}])__(?=\S)(.+?)(?<=\S)__(?![\p{L}\p{N}])/gu, '$1')
+        .replace(/\*(?=\S)(.+?)(?<=\S)\*/g, '$1')
+        .replace(/(?<![\p{L}\p{N}])_(?=\S)(.+?)(?<=\S)_(?![\p{L}\p{N}])/gu, '$1')
+        .replace(/~~(?=\S)(.+?)(?<=\S)~~/g, '$1')
+        .replace(/\\([!-/:-@[-`{-~])/g, '$1')
+        .trim();
+    const OLD_ATX = (line) => {
+        const match = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/.exec(line);
+        if (!match) return null;
+        return { level: match[1].length, text: (match[2] ?? '').replace(/(?:^|[ \t]+)#+[ \t]*$/, '').trim() };
+    };
+    const OLD_TRIM = (text) => String(text ?? '').replace(/^(?:[ \t]*\r?\n)+/, '').replace(/(?:\r?\n[ \t]*)+$/, '').replace(/^[ \t]+$/, '');
+
+    it('strips inline Markdown from heading text exactly as the old expressions did', () => {
+        // Backticks are left out: code spans now follow CommonMark (tested below).
+        const alphabet = ['*', '*', '_', '_', '~', '[', ']', '(', ')', '!', '<', '>', 'a', 'b', 'é', '1', ' ', ' ', '\\', '\t', '😀'];
+        const rand = seeded(7);
+        for (let run = 0; run < 20000; run += 1) {
+            const text = randomText(rand, alphabet, 24);
+            expect(headingPlainText(text), JSON.stringify(text)).toBe(OLD_PLAIN_TEXT(text));
+        }
+    });
+
+    it('reads code spans as CommonMark does', () => {
+        expect(headingPlainText('Use `npm ci` here')).toBe('Use npm ci here');
+        expect(headingPlainText('``a`b`` and `c`')).toBe('a`b and c');
+        expect(headingPlainText('an `unclosed tick')).toBe('an `unclosed tick');
+        expect(headingPlainText('```a`` b`')).toBe('```a`` b`');
+    });
+
+    it('parses ATX headings exactly as the old expression did', () => {
+        const alphabet = ['#', '#', '#', ' ', ' ', '\t', 'a', 'C', '\\', '\r'];
+        const rand = seeded(11);
+        for (let run = 0; run < 20000; run += 1) {
+            const line = randomText(rand, alphabet, 14);
+            expect(parseAtxHeading(line), JSON.stringify(line)).toEqual(OLD_ATX(line));
+        }
+    });
+
+    it('trims blank lines exactly as the old expressions did', () => {
+        const alphabet = ['\n', '\n', '\r', ' ', '\t', 'x'];
+        const rand = seeded(13);
+        for (let run = 0; run < 20000; run += 1) {
+            const text = randomText(rand, alphabet, 14);
+            expect(trimBlankLines(text), JSON.stringify(text)).toBe(OLD_TRIM(text));
+        }
+    });
+
+    it('counts words without building a list of them', () => {
+        const rand = seeded(17);
+        const alphabet = ['a', ' ', '\n', '\t', ' ', ' ', '　', '﻿', 'é', '😀', '​'];
+        for (let run = 0; run < 5000; run += 1) {
+            const text = randomText(rand, alphabet, 20);
+            expect(countWords(text), JSON.stringify(text)).toBe(text.trim() ? text.trim().split(/\s+/).length : 0);
+        }
+    });
+
+    // A Document may hold 2 MiB. Each input below took minutes or hours with the old
+    // expressions (quadratic in the line); linear code reads them in milliseconds. The
+    // limit is generous so a slow CI machine passes, and far below what a regression costs.
+    const LONG = 2 * 1024 * 1024;
+    const HOSTILE = {
+        'a line of spaces': ' '.repeat(LONG),
+        'a heading with a long run of spaces': `# a${' '.repeat(LONG)}b`,
+        'a heading of image openers': `# ${'!['.repeat(LONG / 2)}`,
+        'a heading of link openers': `# ${'[a]('.repeat(LONG / 4)}`,
+        'a heading of tag openers': `# ${'<'.repeat(LONG)}`,
+        'a heading of backticks': `# ${'`a``'.repeat(LONG / 4)}`,
+        'a heading of unclosed emphasis': `# ${'**a _b '.repeat(LONG / 8)}`,
+        'a quote of markers': `${'> '.repeat(LONG / 2)}x`,
+        'a fence over long lines': `\`\`\`\n${' '.repeat(LONG)}x\n\`\`\``,
+    };
+    for (const [name, text] of Object.entries(HOSTILE)) {
+        it(`reads the outline of ${name} in linear time`, () => {
+            const started = performance.now();
+            parseHeadings(text);
+            expect(performance.now() - started).toBeLessThan(2000);
+        });
+    }
+
+    it('trims and inserts around long blank runs in linear time', () => {
+        const started = performance.now();
+        trimBlankLines(`${'\n '.repeat(LONG / 2)}x`);
+        insertContent(`a${' '.repeat(LONG)}b\n`, `x${'\n '.repeat(LONG / 2)}`, 'end');
+        expect(performance.now() - started).toBeLessThan(2000);
+    });
+});
+
+describe('LIKE patterns for search', () => {
+    it('escapes LIKE wildcards and the escape character', () => {
+        expect(likeContains('100%')).toBe('%100\\%%');
+        expect(likeContains('a_b\\c')).toBe('%a\\_b\\\\c%');
+    });
+
+    it('tells which terms LIKE cannot fold', () => {
+        expect(hasCasedNonAscii('Invoice 2026')).toBe(false);
+        expect(hasCasedNonAscii('日本 € 😀')).toBe(false);
+        expect(hasCasedNonAscii('über')).toBe(true);
+        expect(hasCasedNonAscii('ΣΟΦΙΑ')).toBe(true);
+    });
+
+    it('shapes a term with one wildcard per cased letter outside ASCII', () => {
+        expect(likeShape('Größe')).toBe('%gr__e%');
+        expect(likeShape('ÜBER 100%')).toBe('%_ber 100\\%%');
+        expect(likeShape('日本über')).toBe('%日本_ber%');
     });
 });

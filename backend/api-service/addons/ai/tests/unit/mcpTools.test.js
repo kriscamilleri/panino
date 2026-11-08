@@ -32,7 +32,11 @@ const AREA_TOOLS = {
 };
 const READ_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.read);
 const WRITE_TOOLS = Object.values(AREA_TOOLS).flatMap((area) => area.write);
-const DESTRUCTIVE_TOOLS = ['update_document', 'edit_document', 'restore_revision', 'delete_image'];
+// Writes that replace or remove something (spec §3): a body, a name, a property value.
+const DESTRUCTIVE_TOOLS = [
+    'update_document', 'edit_document', 'restore_revision', 'delete_image',
+    'rename_folder', 'set_document_property', 'remove_document_property',
+];
 
 describe('MCP tool definitions', () => {
     const tools = listTools('write');

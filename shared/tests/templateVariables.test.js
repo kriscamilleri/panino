@@ -55,4 +55,13 @@ describe('extractInputLabels and formatDate', () => {
     it('formats with the simple tokens', () => {
         expect(formatDate(fixed(), 'yyyy/MM/dd HH:mm:ss yy')).toBe('2026/11/07 09:05:03 26');
     });
+
+    it('reads a template of unclosed placeholders in linear time', () => {
+        const hostile = '{{today:{{now:{{input:'.repeat(100000);
+        const started = performance.now();
+        resolveTemplateVariables(hostile, { a: 'b' });
+        extractInputLabels(hostile, hostile);
+        expect(performance.now() - started).toBeLessThan(2000);
+        expect(resolveTemplateVariables('{{today:{{today:yyyy}}', {}, { now: () => new Date(2026, 10, 8) })).toBe('{{today:2026');
+    });
 });

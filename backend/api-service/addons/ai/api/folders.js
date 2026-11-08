@@ -13,7 +13,7 @@ import {
 } from '../folderService.js';
 import { documentSummary, errorSchema, errors, fullDocument, idPath, json, jsonBody, spaceQuery, writeErrors } from './openapiKit.js';
 import { body, context, first, handler, spaceParam } from './restKit.js';
-import { ADDITIVE, ID_HINT, int, object, READ, reader, SPACE_FOR_EXISTING, SPACE_FOR_NEW, str } from './toolKit.js';
+import { ADDITIVE, ID_HINT, int, object, READ, reader, REPLACING, SPACE_FOR_EXISTING, SPACE_FOR_NEW, str } from './toolKit.js';
 
 /** A write that changes something existing but loses nothing, and gives the same result when repeated. */
 const REVERSIBLE = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
@@ -146,7 +146,7 @@ export const tools = [
         title: 'Rename a folder',
         description: 'Give a folder a new name. Its Documents and subfolders stay inside it. The Trash folder cannot be renamed.',
         access: 'write',
-        annotations: REVERSIBLE,
+        annotations: REPLACING,
         inputSchema: object({
             id: str(FOLDER_ID_HINT),
             name: str('New folder name, one line.'),
@@ -391,7 +391,11 @@ export const paths = {
             summary: 'Create a folder',
             parameters: [spaceQuery],
             requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, parentId: { type: ['string', 'null'] } } } } } },
-            responses: { 201: json({ type: 'object' }, 'Created'), ...writeErrors },
+            responses: {
+                201: json({ type: 'object' }, 'Created'),
+                ...writeErrors,
+                400: errorResponse('Invalid input, PARENT_NOT_FOUND, or TRASH_NAME_RESERVED (a top-level folder named Trash)'),
+            },
         },
     },
     '/folders/{id}': {

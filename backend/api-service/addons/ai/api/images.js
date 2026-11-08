@@ -1,7 +1,7 @@
 // Images in the v1 API (docs/specs/proposed/ai-api-expansion.md §4.5), as MCP tools,
 // REST routes and OpenAPI paths. The rules are in imageService.js; this file only adapts.
 import multer from 'multer';
-import { setImageResponseHeaders } from '../../../image.js';
+import { normalizeOriginalFilename, setImageResponseHeaders } from '../../../image.js';
 import { publicUrls } from '../config.js';
 import {
     assertCanUpload,
@@ -13,6 +13,7 @@ import {
     MAX_IMAGE_SIZE_BYTES,
     readImage,
     uploadImage,
+    USAGE_LIST_CAP,
 } from '../imageService.js';
 import { ApiError } from '../serviceCore.js';
 import { errors, idPath, json, spaceQuery } from './openapiKit.js';
@@ -33,7 +34,10 @@ function size(bytes) {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-const usedBy = (count) => (count === 0 ? 'not used by any Document' : `used by ${count} Document${count === 1 ? '' : 's'}`);
+// Usage counts Documents and templates together: a template that shows the image would
+// break the Documents made from it.
+const usedBy = (count) => (count === 0 ? 'not used by any Document or template' : `used by ${count} Document${count === 1 ? '' : 's'} or template${count === 1 ? '' : 's'}`);
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
 function imageLine(image, index) {
     return `${index + 1}. ${image.filename} — ${image.mimeType}, ${size(image.sizeBytes)} — id ${image.id} — ${usedBy(image.usageCount)} — created ${image.createdAt}\n   ${image.markdown}`;
@@ -119,30 +123,41 @@ export const tools = [
     {
         name: 'get_image_usage',
         title: 'Where an image is used',
-        description: 'The Documents whose text shows this image (id and title), in the image\'s database. Use it to find where a picture appears, or before delete_image.',
+        description: 'The Documents and templates whose text shows this image (id and title or name), in the image\'s database. Use it to find where a picture appears, or before delete_image.',
         access: 'read',
         annotations: READ,
         inputSchema: object({ id: str(IMAGE_ID_HINT), space: str(SPACE_FOR_IMAGE) }, ['id']),
         run(ctx, args) {
             const get = reader(args);
             const result = getImageUsageReport(ctx, { id: get('id', 'string', { required: true }), space: get('space', 'string') });
-            const lines = result.documents.length
+            const name = `"${result.image.filename}" (id ${result.image.id})`;
+            const lines = result.usageCount
                 ? [
-                    `"${result.image.filename}" (id ${result.image.id}) is ${usedBy(result.usageCount)}:`,
+                    `${name} is used by ${plural(result.documentCount, 'Document')} and ${plural(result.templateCount, 'template')}:`,
                     ...result.documents.map((doc, i) => `${i + 1}. ${doc.title || '(untitled)'} — id ${doc.id} — updated ${doc.updatedAt}`),
-                    ...(result.truncated ? [`(Only the ${result.documents.length} most recently updated are listed.)`] : []),
+                    ...(result.templates.length ? ['Templates:'] : []),
+                    ...result.templates.map((template, i) => `${i + 1}. ${template.name} — template id ${template.id}`),
+                    ...(result.truncated ? [`(Only the ${USAGE_LIST_CAP} most recently updated of each are listed.)`] : []),
                 ]
-                : [`"${result.image.filename}" (id ${result.image.id}) is not used by any Document.`];
+                : [`${name} is not used by any Document or template.`];
             return {
                 text: lines.join('\n'),
-                structured: { image: result.image, usage_count: result.usageCount, documents: result.documents, truncated: result.truncated },
+                structured: {
+                    image: result.image,
+                    usage_count: result.usageCount,
+                    document_count: result.documentCount,
+                    template_count: result.templateCount,
+                    documents: result.documents,
+                    templates: result.templates,
+                    truncated: result.truncated,
+                },
             };
         },
     },
     {
         name: 'upload_image',
         title: 'Upload an image',
-        description: `Store an image (PNG, JPEG, GIF, WebP or SVG, at most 1 MB) and get the Markdown that shows it. Uploading changes no Document: insert the returned Markdown into a Document in the same database (for example with append_to_document). An image no Document shows is removed automatically after ${IMAGE_PRUNE_MIN_AGE_DAYS} days.`,
+        description: `Store an image (PNG, JPEG, GIF, WebP or SVG, at most 1 MB) and get the Markdown that shows it. Uploading changes no Document: insert the returned Markdown into a Document in the same database (for example with append_to_document). An image no Document or template shows is removed automatically after ${IMAGE_PRUNE_MIN_AGE_DAYS} days.`,
         access: 'write',
         annotations: ADDITIVE,
         inputSchema: object({
@@ -170,7 +185,7 @@ export const tools = [
     {
         name: 'delete_image',
         title: 'Delete an image',
-        description: 'Permanently delete an image: its file and record are removed and cannot be restored (images have no Trash). Refused while any Document still shows it. Use only when the user asks to delete an image.',
+        description: 'Permanently delete an image: its file and record are removed and cannot be restored (images have no Trash). Refused while any Document or template still shows it. Use only when the user asks to delete an image.',
         access: 'write',
         annotations: DESTRUCTIVE,
         inputSchema: object({ id: str(IMAGE_ID_HINT), space: str(SPACE_FOR_IMAGE) }, ['id']),
@@ -186,7 +201,7 @@ export const tools = [
 export const nextSteps = {
     IMAGE_NOT_FOUND: 'No image with that id is reachable. Use list_images to find image ids (in a Document, the id follows /images/ in the image link).',
     IMAGE_FILE_MISSING: 'The image is listed but its file is not on the server, so it cannot be read. Tell the user; the image may need to be uploaded again.',
-    IMAGE_IN_USE: 'Documents still show this image, so nothing was deleted. Call get_image_usage to see which; only remove the image from them if the user wants that.',
+    IMAGE_IN_USE: 'Documents or templates still show this image, so nothing was deleted. Call get_image_usage to see which; only remove the image from them if the user wants that.',
     IMAGE_TOO_LARGE: 'The image is over the 1 MB limit. For an upload, use a smaller or more compressed image; a stored image this large can only be viewed in Panino.',
     IMAGE_TYPE_NOT_ALLOWED: 'Only PNG, JPEG, GIF, WebP and SVG images are allowed. Convert the image to one of these and set mime_type to match.',
     IMAGE_EXTENSION_MISMATCH: 'The filename must end in an extension of its type: .png, .jpg or .jpeg, .gif, .webp or .svg. Rename it or correct mime_type.',
@@ -256,12 +271,13 @@ export function routes(router) {
         const ctx = context(req);
         if (req.is('multipart/form-data')) {
             // Refuse a read-only key or an unreachable space before reading the upload.
-            assertCanUpload(ctx, first(req.query.space));
+            assertCanUpload(ctx, spaceParam(req));
             const file = await readMultipart(req, res);
             if (!file) throw new ApiError(400, 'INVALID_INPUT', 'Send one image file in the multipart field "image".');
             return res.status(201).json(uploadImage(ctx, {
                 space: spaceParam(req),
-                filename: file.originalname,
+                // Multer reads the part's filename as Latin-1; repair UTF-8 names as the app's route does.
+                filename: normalizeOriginalFilename(file.originalname),
                 mimeType: file.mimetype,
                 buffer: file.buffer,
             }));
@@ -292,7 +308,7 @@ const image = {
         mimeType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'] },
         sizeBytes: { type: 'integer' },
         createdAt: { type: 'string', format: 'date-time' },
-        usageCount: { type: 'integer', description: 'How many Documents in the database reference the image' },
+        usageCount: { type: 'integer', description: 'How many Documents and templates in the database reference the image' },
         url: { type: 'string', description: 'Canonical path, /images/<id> (with ?space=<id> in a space)' },
         markdown: { type: 'string', description: 'Markdown that shows the image in a Document of the same database' },
         space: { type: ['string', 'null'], description: 'Space id, or null for the personal database' },
@@ -309,6 +325,10 @@ const imageErrors = {
 const usageDocument = {
     type: 'object',
     properties: { id: { type: 'string' }, title: { type: 'string' }, updatedAt: { type: 'string', format: 'date-time' } },
+};
+const usageTemplate = {
+    type: 'object',
+    properties: { id: { type: 'string' }, name: { type: 'string' }, updatedAt: { type: 'string' } },
 };
 
 export const paths = {
@@ -389,7 +409,7 @@ export const paths = {
             responses: {
                 200: json({ type: 'object', properties: { deleted: { type: 'boolean' }, image } }),
                 ...imageErrors,
-                409: { description: 'IMAGE_IN_USE; details.documents lists the Documents that reference it', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+                409: { description: 'IMAGE_IN_USE; details.documents and details.templates list what references it', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
             },
         },
     },
@@ -399,7 +419,15 @@ export const paths = {
             summary: 'The Documents that reference an image',
             parameters: [idPath, imageSpaceQuery],
             responses: {
-                200: json({ type: 'object', properties: { image, usageCount: { type: 'integer' }, documents: { type: 'array', items: usageDocument }, truncated: { type: 'boolean' } } }),
+                200: json({ type: 'object', properties: {
+                    image,
+                    usageCount: { type: 'integer', description: 'documentCount + templateCount' },
+                    documentCount: { type: 'integer' },
+                    templateCount: { type: 'integer' },
+                    documents: { type: 'array', items: usageDocument },
+                    templates: { type: 'array', items: usageTemplate },
+                    truncated: { type: 'boolean' },
+                } }),
                 ...imageErrors,
             },
         },

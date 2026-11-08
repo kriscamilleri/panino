@@ -159,7 +159,7 @@ export const tools = [
 /** What the model should do next, per v1 error code. */
 export const nextSteps = {
     TEMPLATE_NOT_FOUND: 'No template with that id is reachable. Use list_templates to find template ids.',
-    PDF_BUSY: `The PDF service is busy. Wait about ${PDF_RUNTIME.retryAfterSeconds} seconds, then call export_pdf again.`,
+    PDF_BUSY: `The PDF service is busy, or this account already has two exports rendering. Wait about ${PDF_RUNTIME.retryAfterSeconds} seconds, then call export_pdf again, one Document at a time.`,
     PDF_TIMEOUT: 'Making the PDF took too long, often because of many or slow external images. Try once more later; if it fails again, tell the user.',
     PDF_INPUT_TOO_LARGE: 'The Document or its print style is too large for the PDF renderer. Tell the user; it cannot be exported as it is.',
     PDF_NOTHING_TO_RENDER: 'The Document is empty, so there is nothing to put in a PDF. Check the id, or add content first.',
@@ -239,7 +239,7 @@ const PDF_ERRORS = {
     413: { description: 'PDF_INPUT_TOO_LARGE', content: { 'application/json': { schema: errorSchema } } },
     422: { description: 'PDF_NOTHING_TO_RENDER (empty Document)', content: { 'application/json': { schema: errorSchema } } },
     500: { description: 'PDF_FAILED', content: { 'application/json': { schema: errorSchema } } },
-    503: { description: 'PDF_BUSY; see Retry-After and details.retryAfterSeconds', content: { 'application/json': { schema: errorSchema } } },
+    503: { description: 'PDF_BUSY (the queue is full, or this account has two exports rendering); see Retry-After and details.retryAfterSeconds', content: { 'application/json': { schema: errorSchema } } },
     504: { description: 'PDF_TIMEOUT', content: { 'application/json': { schema: errorSchema } } },
 };
 

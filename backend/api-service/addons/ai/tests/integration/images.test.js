@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { deleteTestDb, getDb, getSpacesDb, getUserDb } from '../../../../db.js';
 import { createSpace } from '../../../../spaces.js';
 import { deleteSpaceUploads, resolveDatabaseUploadRoot, resolveSpaceUploadRoot } from '../../../../spaceStorage.js';
+import { getImageUsageReport, listImages, locateImageFile, readImage } from '../../imageService.js';
 import { aiUser, createKey, createTestApp, offerAiAddon, resetAiState } from '../aiTestSetup.js';
 
 const V1 = '/addons/ai/v1';
@@ -133,6 +134,13 @@ describe('AI agents add-on: images', () => {
             expect(res.body.image).toMatchObject({ filename: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: JPEG.length });
             const row = personalDb().prepare('SELECT path FROM images WHERE id = ?').get(res.body.image.id);
             expect(row.path).toMatch(/\.jpg$/);
+
+            // Multer reads the part's filename as Latin-1; a UTF-8 name is repaired, as in the app.
+            const named = await request(app).post(`${V1}/images`).set(bearer())
+                .attach('image', JPEG, { filename: 'Über Straße.jpg', contentType: 'image/jpeg' });
+            expect(named.status).toBe(201);
+            expect(named.body.image.filename).toBe('Über Straße.jpg');
+            expect(named.body.image.markdown).toContain('![Über Straße.jpg]');
 
             const wrongField = await request(app).post(`${V1}/images`).set(bearer())
                 .attach('file', JPEG, { filename: 'photo.jpg', contentType: 'image/jpeg' });
@@ -354,6 +362,27 @@ describe('AI agents add-on: images', () => {
             expect(usageViaMcp.body.result.content[0].text).toContain('1. Report — id doc-1');
         });
 
+        it('counts a template that shows the image as a use, and refuses to delete it', async () => {
+            // The review case: only Documents were counted, so a template's image could be deleted.
+            const { body } = await uploadJson({ filename: 'logo.png', data: b64(PNG) });
+            const id = body.image.id;
+            personalDb().prepare(`INSERT INTO templates (id, name, content, title_pattern, created_at, updated_at)
+                VALUES ('t-1', 'Letterhead', ?, '', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z')`).run(`# {{input:To}}\n\n${body.image.markdown}`);
+
+            const usage = await request(app).get(`${V1}/images/${id}/usage`).set(bearer());
+            expect(usage.body).toMatchObject({ usageCount: 1, documentCount: 0, templateCount: 1, documents: [], truncated: false });
+            expect(usage.body.templates).toEqual([{ id: 't-1', name: 'Letterhead', updatedAt: '2026-11-01T00:00:00.000Z' }]);
+            const listed = await request(app).get(`${V1}/images`).set(bearer());
+            expect(listed.body.images.find((image) => image.id === id).usageCount).toBe(1);
+
+            const refused = await request(app).delete(`${V1}/images/${id}`).set(bearer());
+            expect(refused.status).toBe(409);
+            expect(refused.body.details).toMatchObject({ usageCount: 1, templates: [{ id: 't-1', name: 'Letterhead' }] });
+            const usageViaMcp = await mcp('get_image_usage', { id });
+            expect(usageViaMcp.body.result.content[0].text).toContain('used by 0 Documents and 1 template');
+            expect(usageViaMcp.body.result.content[0].text).toContain('1. Letterhead — template id t-1');
+        });
+
         it('deletes an unused image: row and file gone', async () => {
             const { body } = await uploadJson({ filename: 'chart.png', data: b64(PNG) });
             const id = body.image.id;
@@ -390,6 +419,20 @@ describe('AI agents add-on: images', () => {
     });
 
     describe('access', () => {
+        it('checks read access on every read, like the other areas', () => {
+            // No credential lacks read today; the check keeps one rule for every area.
+            const ctx = { userId: user.userId, agent: { kind: 'key', scope: 'none' } };
+            const id = insertImageRow(personalDb(), {});
+            for (const read of [
+                () => listImages(ctx, {}),
+                () => locateImageFile(ctx, { id }),
+                () => readImage(ctx, { id }),
+                () => getImageUsageReport(ctx, { id }),
+            ]) {
+                expect(read).toThrow(expect.objectContaining({ code: 'INSUFFICIENT_SCOPE' }));
+            }
+        });
+
         it('a read-only key reads images but cannot upload or delete', async () => {
             const { body } = await uploadJson({ filename: 'chart.png', data: b64(PNG) });
             const { secret: readKey } = await createKey(app, user, { name: 'Reader', scope: 'read' });

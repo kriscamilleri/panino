@@ -20,6 +20,8 @@ export const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint
 export const ADDITIVE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 /** A write that replaces or removes something (revision history still keeps it). */
 export const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
+/** The same, where repeating the call changes nothing more: set a name or value, remove a key. */
+export const REPLACING = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false };
 
 /** Keywords a portable tool schema may use (enforced by tests). */
 export const PORTABLE_SCHEMA_KEYS = Object.freeze({

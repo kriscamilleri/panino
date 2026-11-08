@@ -263,6 +263,8 @@ export function createFolder(ctx, { space, name, parentId } = {}) {
     const target = resolveOne(ctx, space);
     const folderName = requireName(name, 'folder name');
     const parent = parentId === undefined || parentId === '' || parentId === 'root' ? null : parentId;
+    // A new top-level "Trash" would become the Trash folder when there is none yet.
+    if (parent === null && isTrashName(folderName)) throw trashNameReserved();
     const db = writableDb(target, 'create-folder');
     const id = uuidv4();
     const now = new Date().toISOString();

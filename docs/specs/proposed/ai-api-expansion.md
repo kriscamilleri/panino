@@ -159,8 +159,9 @@ lifecycle, no sync, no settings or styles writes.
   - Same limits and checks as the app's upload. The storing logic is shared with it.
   - Returns the Markdown to embed it.
 - `delete_image` (write, destructive):
-  - Refused while any Document in the database references it (`IMAGE_IN_USE`, with the
-    Documents).
+  - Refused while any Document or template in the database references it (`IMAGE_IN_USE`, with
+    the Documents and templates). A template counts because the Documents made from it would
+    show the image; the app's delete and daily prune count templates too.
   - Removes the row and the file, as the app's delete does.
 - REST: `GET images`, `GET images/{id}`, `GET images/{id}/usage`, `POST images`,
   `DELETE images/{id}`.
@@ -175,7 +176,11 @@ lifecycle, no sync, no settings or styles writes.
   - They are worded as the app's history words them.
   - In the personal database the owner stands in when history is silent (`inferred: true`).
 - **Front matter properties:** the `key: value` lines read by `shared/frontMatter.js`, values
-  unquoted.
+  unquoted. A block is front matter only when it is closed by a second `---`, holds at least
+  one `key: value` line, and holds nothing but YAML-shaped lines (keys, indented lines, `- `
+  items, `#` comments). So a Document that opens with a `---` rule above ordinary text has no
+  front matter, and an unclosed block is text (the Preview used to show such a Document
+  empty).
 - `get_document_properties` (read), `GET documents/{id}/properties`:
   - Returns `builtIn`, `properties` and `order`.
   - `get_document` also gains `createdBy`, `modifiedBy` and `properties`.
@@ -189,15 +194,22 @@ lifecycle, no sync, no settings or styles writes.
     - `<key> exists` and `<key> missing`.
   - **Comparison:**
     - case is ignored;
-    - numbers compare as numbers and ISO dates as text;
+    - numbers compare as numbers;
+    - ISO dates and times compare at the precision both sides give, so a date alone is that
+      whole day (`modified_on <= 2026-11-07` holds all of that day, UTC); two times with zones
+      compare as instants;
     - author `=` accepts the person's name or the key's or app's name.
   - **Built-in names:** `word_count`, `created_on`, `modified_on`, `created_by` and `modified_by`
     take precedence over a front matter key with the same name.
+  - **Absent keys:** a Document without front matter has every front matter key missing, so
+    `missing` and `!=` consider every Document, whether or not the filter also names a built-in
+    key. `scanned` says whether every Document (`all`) or only those with front matter were read.
   - **Paging and limits:**
     - `offset` paging.
-    - It reads up to 5000 of the most recently updated Documents per database, and `truncated`
-      says when it hit that.
-    - It reads only the first 16 KB of a body unless the filter needs the word count.
+    - It reads up to 5000 of the most recently updated Documents per database (in the folder
+      scope, if given), and `truncated` says when it hit that.
+    - It reads only the first 16 KB of a body for front matter. A word count reads one body at a
+      time, and only for Documents the other conditions kept (see §4.8).
   - **Errors:** `INVALID_FILTER` (400).
 - `set_document_property` (write), `PUT documents/{id}/properties/{key}`, and
   `remove_document_property`, `DELETE documents/{id}/properties/{key}`:
@@ -224,6 +236,42 @@ lifecycle, no sync, no settings or styles writes.
 - **Documents:**
   - Search with several words now needs all of them, anywhere, rather than the phrase.
   - Without a range, `get_document` still returns the whole body (up to 2 MiB), for compatibility.
+
+### 4.8 Review fixes and load (2026-11-08)
+
+An independent review of the branch found one high, two medium and nine low findings; all are
+fixed. Kris asked for extra care on load, so every read was also measured on an 87 MB account
+(5001 Documents, 50000 revisions, 300 images; `tests/perf/load.perf.test.js`, opt-in with
+`PANINO_PERF=1`).
+
+- **Linear-time text handling.** A Document can hold 2 MiB, and the server is one Node
+  process, so no pattern may backtrack on long lines. Rewritten or replaced:
+  - the fence, ATX heading and inline-Markdown patterns of the outline and section reads (a
+    2 MiB line of spaces would have blocked the server for hours);
+  - the front matter key patterns in `shared/frontMatter.js` (92 ms for one 16 KB line);
+  - the `{{today:…}}`, `{{now:…}}` and `{{input:…}}` patterns in `shared/templateVariables.js`
+    (4.5 s for a 240 KB template), which any space member can write;
+  - the trailing-space trim of `append_to_document` and the blank-line trim of insertion.
+  Tests run each on hostile 2 MiB input and compare the hand-written parsers with the old
+  expressions on random text.
+- **Property queries:** SQL orders ids only and rows stream one at a time, so memory stays flat
+  (`word_count >= 1000`: 612 ms and +85 MB before, 262 ms and +0 MB after); conditions run
+  cheapest first; authors are found with two index seeks per Document instead of sorting all
+  history (171 → 72 ms).
+- **Search:** each term is a `LIKE` (8× faster than `instr(lower(…))`, the same ASCII folding).
+  A term with other cased letters (über, ΣΟΦΙΑ) now matches regardless of case: a `LIKE` of its
+  shape narrows the rows, then a SQL function compares JS lower-case forms.
+- **Images:** usage counts for a page of images come from one pass over the bodies that link
+  to an image, instead of a full scan per image (200 images: 2737 → 23 ms, in the app's image
+  manager too). The daily prune and bulk delete use the same pass.
+- **PDF:** an account keeps at most two API exports in the shared render queue (`PDF_BUSY`
+  beyond), so one agent cannot fill it.
+- **Smaller fixes:** `create_folder` refuses a top-level Trash name; image reads check read
+  access like other reads; multipart uploads repair UTF-8 filenames; insertion keeps each line
+  ending of a Document that mixes CRLF and LF; `edit_document` says when nothing changed
+  (`changed: false`); truncation notes say what was scanned; `rename_folder`,
+  `set_document_property` and `remove_document_property` are `destructiveHint: true` by the
+  rule in §3.
 
 ## 5) Security
 

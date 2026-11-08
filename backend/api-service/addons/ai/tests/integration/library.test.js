@@ -372,6 +372,37 @@ describe('AI agents add-on: templates, variables and PDF export', () => {
             expect(JSON.stringify(failed.body)).not.toContain('generation failed');
         });
 
+        it('keeps at most two API exports per account in the PDF queue', async () => {
+            // One agent looping over Documents must not fill the shared queue (20 jobs).
+            const id = note(db, { title: 'Memo', content: '# Memo' });
+            const get = () => request(app).get(`${V1}/documents/${id}/pdf`).set(bearer()).then((res) => res);
+            const pending = [];
+            const passThrough = renderPdf.getMockImplementation();
+            renderPdf.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+            const done = { ok: true, pdf: Buffer.from('%PDF-1.4 tiny') };
+            const slow = { timeout: 10000 };
+            try {
+                const first = get();
+                const second = get();
+                await vi.waitFor(() => expect(pending).toHaveLength(2), slow);
+                const third = await get();
+                expect([third.status, third.body.code]).toEqual([503, 'PDF_BUSY']);
+                expect(third.headers['retry-after']).toBeDefined();
+                expect(renderPdf).toHaveBeenCalledTimes(2);
+
+                pending.shift()(done);
+                expect((await first).status).toBe(200);
+                const fourth = get();
+                await vi.waitFor(() => expect(pending).toHaveLength(2), slow);
+                pending.splice(0).forEach((resolve) => resolve(done));
+                expect((await second).status).toBe(200);
+                expect((await fourth).status).toBe(200);
+            } finally {
+                pending.splice(0).forEach((resolve) => resolve(done));
+                renderPdf.mockImplementation(passThrough);
+            }
+        }, 30000);
+
         it('refuses an empty Document without rendering, and a missing one with NOT_FOUND', async () => {
             const id = note(db, { title: 'Empty', content: '' });
             const empty = await request(app).get(`${V1}/documents/${id}/pdf`).set(bearer());

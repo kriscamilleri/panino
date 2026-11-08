@@ -90,7 +90,10 @@ The tool and route names below are the MCP and REST forms of the same operation.
 
 **Documents** (`documentService.js`, `documentText.js`).
 - Search and list:
-  - Search needs every term to match; a "quoted phrase" counts as one term.
+  - Search needs every term to match; a "quoted phrase" counts as one term. Case is ignored for
+    every letter: ASCII terms are a `LIKE` (which folds ASCII), others are narrowed by a `LIKE`
+    of their shape and then compared in JS lower case (`panino_folded_contains`, registered per
+    connection).
   - It can be limited to titles or bodies, a folder and its subfolders, or `updatedAfter`. It pages with `offset`.
   - Each hit has `matchCount` and up to three snippets with line numbers.
   - Lists sort by updated, created or title. Each cursor carries its sort.
@@ -118,15 +121,20 @@ The tool and route names below are the MCP and REST forms of the same operation.
   - In the personal database the owner stands in when history says nothing (`inferred: true`).
   - History may have been pruned, so created by is the earliest recorded author.
 - Front matter properties are the `key: value` lines at the top of the body, read with the shared
-  parser (`shared/frontMatter.js`).
+  parser (`shared/frontMatter.js`). A block counts only when closed, with at least one key and
+  only YAML-shaped lines, so a `---` rule above ordinary text is not front matter.
 - `query_documents_by_property` (`GET properties/query?filter=`) takes a filter:
   - Conditions joined by `AND`, at most five, quotes respected.
   - Operators: `= != ~ ^= > < >= <=`, `exists` and `missing`. Comparisons ignore case; numbers
-    compare as numbers and ISO dates as text.
+    compare as numbers; ISO dates and times compare at the precision both sides give (a date
+    alone is a whole day, UTC).
+  - `missing` and `!=` consider every Document, since one without front matter lacks every key.
   - Built-in names (`word_count`, `created_on`, `modified_on`, `created_by`, `modified_by`)
     override a front matter key of the same name.
-  - Up to 5000 recently updated Documents per database are read, and only the first 16 KB of each
-    body unless the filter needs the word count.
+  - Up to 5000 recently updated Documents per database (in the folder scope) are read. SQL orders
+    ids only; rows then stream one at a time with the first 16 KB of each body. Conditions run
+    cheapest first: front matter and dates, then authors (two index seeks per Document), then
+    word counts (one body at a time, for the Documents still matching).
 - `set_document_property` and `remove_document_property` are attributed, undoable edits of the
   front matter block.
 
@@ -169,8 +177,11 @@ The tool and route names below are the MCP and REST forms of the same operation.
   the declared type, which the app does not.
 - The Markdown returned carries the API path prefix (`/api/images/<id>` in production), as the
   editor writes it.
-- `delete_image` is permanent. It is refused with `IMAGE_IN_USE` while any Document references
-  the image.
+- `delete_image` is permanent. It is refused with `IMAGE_IN_USE` while any Document or template
+  references the image (core `getImageUsage` counts templates, for the app's delete and prune
+  too).
+- Usage counts for several images come from core `getImageUsageCounts`: one pass over the bodies
+  that link to any image, not a scan per image.
 
 **Templates, variables and PDF** (`libraryService.js`, core `documentPdf.js`,
 `shared/templateVariables.js`).
@@ -184,6 +195,13 @@ The tool and route names below are the MCP and REST forms of the same operation.
   - The request builder is core `documentPdf.js`, shared with the Odoo add-on, because add-ons
     may not import each other.
   - MCP returns an embedded `application/pdf` resource of up to 10 MB.
+  - An account keeps at most two API exports in the shared queue (`PDF_BUSY` beyond).
+
+**Load.** A Document can hold 2 MiB and the server is one Node process, so text handling that
+runs on Document lines must be linear in the line: no regular expression with two quantifiers
+that can share characters, and hand-written parsers where a pattern would backtrack (see the
+comments in `documentText.js` and `shared/frontMatter.js`). `tests/perf/load.perf.test.js`
+times every read on an 87 MB account; run it (`PANINO_PERF=1`) after changing a scan.
 
 ## MCP
 

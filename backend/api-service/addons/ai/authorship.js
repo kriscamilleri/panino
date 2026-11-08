@@ -26,26 +26,29 @@ export function documentAuthorship(ctx, target, noteIds) {
     const ids = [...new Set(noteIds)].slice(0, MAX_IDS);
     const result = new Map();
     if (!ids.length) return result;
+    // Per Document, its oldest revision and its newest attributed one, each found by a seek
+    // on idx_note_revisions_note_created: no sort of the whole history, which a window over
+    // every revision of thousands of Documents needed.
     const rows = target.db.prepare(`
-        SELECT note_id, actor_user_id, actor_kind, actor_label, created_at, first_rank, last_rank FROM (
-            SELECT note_id, actor_user_id, actor_kind, actor_label, created_at,
-                   ROW_NUMBER() OVER (PARTITION BY note_id ORDER BY created_at ASC, rowid ASC) AS first_rank,
-                   CASE WHEN actor_kind IS NULL AND actor_user_id IS NULL THEN NULL
-                        ELSE ROW_NUMBER() OVER (
-                            PARTITION BY note_id, (actor_kind IS NULL AND actor_user_id IS NULL)
-                            ORDER BY created_at DESC, rowid DESC)
-                   END AS last_rank
-              FROM note_revisions
-             WHERE note_id IN (SELECT value FROM json_each(?))
+        WITH picks AS (
+            SELECT j.value AS note_id,
+                   (SELECT r.rowid FROM note_revisions r WHERE r.note_id = j.value
+                     ORDER BY r.created_at ASC, r.rowid ASC LIMIT 1) AS first_row,
+                   (SELECT r.rowid FROM note_revisions r WHERE r.note_id = j.value
+                       AND (r.actor_kind IS NOT NULL OR r.actor_user_id IS NOT NULL)
+                     ORDER BY r.created_at DESC, r.rowid DESC LIMIT 1) AS last_row
+              FROM json_each(?) j
         )
-         WHERE first_rank = 1 OR last_rank = 1
+        SELECT r.note_id, r.actor_user_id, r.actor_kind, r.actor_label, r.created_at,
+               r.rowid = p.first_row AS is_first, r.rowid = p.last_row AS is_last
+          FROM picks p JOIN note_revisions r ON r.rowid IN (p.first_row, p.last_row)
     `).all(JSON.stringify(ids));
     const names = actorNames(ctx, target, rows);
     const firsts = new Map();
     const lasts = new Map();
     for (const row of rows) {
-        if (row.first_rank === 1) firsts.set(row.note_id, row);
-        if (row.last_rank === 1) lasts.set(row.note_id, row);
+        if (row.is_first) firsts.set(row.note_id, row);
+        if (row.is_last) lasts.set(row.note_id, row);
     }
     const owner = target.kind === 'personal' ? ownerActor(ctx) : null;
     const attributed = (row) => row && (row.actor_kind || row.actor_user_id);

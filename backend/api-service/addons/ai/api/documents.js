@@ -33,6 +33,7 @@ import {
     object,
     READ,
     reader,
+    REPLACING,
     SPACE_FOR_EXISTING,
     SPACE_FOR_NEW,
     str,
@@ -326,7 +327,7 @@ export const tools = [
         title: 'Change a Document',
         description: 'Change a Document\'s title, replace its whole text, move it to another folder, or pin it. To change part of the text use edit_document, to add text at a place use insert_into_document, and to add to the end use append_to_document: they do not resend the whole text and leave the rest untouched. The previous text stays in Panino\'s revision history.',
         access: 'write',
-        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+        annotations: REPLACING,
         inputSchema: object({
             id: str(ID_HINT),
             title: str('Optional. New title.'),
@@ -374,7 +375,13 @@ export const tools = [
                 expectedUpdatedAt: get('expected_updated_at', 'string'),
                 space: get('space', 'string'),
             });
-            const { document, replacements, line } = result;
+            const { document, replacements, line, changed } = result;
+            if (!changed) {
+                return {
+                    text: `Nothing changed in "${document.title}" (id ${document.id}): new_text is the same as old_text. updated_at is still ${document.updatedAt}.`,
+                    structured: result,
+                };
+            }
             const what = replacements === 1 ? `1 occurrence at line ${line}` : `${replacements} occurrences, the first at line ${line}`;
             return {
                 text: `Edited "${document.title}" (id ${document.id}): replaced ${what}. updated_at is now ${document.updatedAt}.`,
@@ -819,7 +826,12 @@ export const paths = {
                 } } } },
             },
             responses: {
-                200: json({ type: 'object', properties: { document: fullDocument, replacements: { type: 'integer' }, line: { type: 'integer', description: 'Line where the first replacement starts' } } }),
+                200: json({ type: 'object', properties: {
+                    document: fullDocument,
+                    replacements: { type: 'integer' },
+                    line: { type: 'integer', description: 'Line where the first replacement starts' },
+                    changed: { type: 'boolean', description: 'false when newText equals oldText: nothing was written and no revision recorded' },
+                } }),
                 ...editErrors,
             },
         },
@@ -840,7 +852,7 @@ export const paths = {
                 } } } },
             },
             responses: {
-                200: json({ type: 'object', properties: { document: fullDocument, line: { type: 'integer', description: 'Line where the inserted text starts' } } }),
+                200: json({ type: 'object', properties: { document: fullDocument, line: { type: 'integer', description: 'Line where the inserted text starts' }, changed: { type: 'boolean' } } }),
                 ...editErrors,
             },
         },

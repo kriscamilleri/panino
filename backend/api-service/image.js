@@ -111,9 +111,10 @@ function escapeLike(value) {
     return String(value).replace(/[!%_]/g, '!$&');
 }
 
-function getImageReferencePatterns(imageId) {
-    const escapedId = escapeLike(imageId);
-    return [`%/images/${escapedId}%`, `%/api/images/${escapedId}%`];
+// Every link to an image contains `/images/<id>`: relative, `/api`-prefixed or absolute, with
+// or without `?space=`. One LIKE finds them all (it also folds ASCII case, as before).
+function imageReferencePattern(imageId) {
+    return `%/images/${escapeLike(imageId)}%`;
 }
 
 function resolveImageTarget(req, res, operation, { healthy = false } = {}) {
@@ -224,42 +225,95 @@ function respondImageTargetError(res, error, event) {
  * The Documents whose body references an image: how many, and the most
  * recently updated of them (5 unless `limit` says otherwise).
  */
+/**
+ * The Documents and templates whose text references an image. A template counts: a
+ * Document made from it would show the image, so deleting it would break that Document.
+ * `count` is both together, so callers that refuse an image "in use" keep refusing it.
+ * @returns {{ count: number, documentCount: number, notes: Array<{ id: string, title: string, updatedAt: string }>,
+ *   templateCount: number, templates: Array<{ id: string, name: string, updatedAt: string }> }}
+ */
 export function getImageUsage(db, imageId, { limit = 5 } = {}) {
-    const [relPattern, apiPattern] = getImageReferencePatterns(imageId);
-
-    const countRow = db.prepare(`
-        SELECT COUNT(*) as count
-        FROM notes
-        WHERE content LIKE ? ESCAPE '!' OR content LIKE ? ESCAPE '!'
-    `).get(relPattern, apiPattern);
-
+    const pattern = imageReferencePattern(imageId);
+    // One scan of the bodies for the count and the first rows.
     const noteRows = db.prepare(`
-        SELECT id, title, updated_at
+        SELECT id, title, updated_at, COUNT(*) OVER () AS total
         FROM notes
-        WHERE content LIKE ? ESCAPE '!' OR content LIKE ? ESCAPE '!'
+        WHERE content LIKE ? ESCAPE '!'
         ORDER BY updated_at DESC, id ASC
         LIMIT ?
-    `).all(relPattern, apiPattern, limit);
+    `).all(pattern, Math.max(1, limit));
+    const templateRows = db.prepare(`
+        SELECT id, name, updated_at
+        FROM templates
+        WHERE content LIKE ? ESCAPE '!'
+        ORDER BY updated_at DESC, id ASC
+    `).all(pattern);
+    const documentCount = noteRows.length ? Number(noteRows[0].total) : 0;
 
     return {
-        count: Number(countRow?.count || 0),
+        count: documentCount + templateRows.length,
+        documentCount,
         notes: noteRows.map((note) => ({
             id: note.id,
             title: note.title || 'Untitled',
             updatedAt: note.updated_at,
         })),
+        templateCount: templateRows.length,
+        templates: templateRows.slice(0, limit).map((template) => ({
+            id: template.id,
+            name: template.name || 'Untitled template',
+            updatedAt: template.updated_at,
+        })),
     };
 }
 
+/** How many Documents and templates reference an image. */
 export function getImageUsageCount(db, imageId) {
-    const [relPattern, apiPattern] = getImageReferencePatterns(imageId);
-    const row = db.prepare(`
-        SELECT COUNT(*) as count
-        FROM notes
-        WHERE content LIKE ? ESCAPE '!' OR content LIKE ? ESCAPE '!'
-    `).get(relPattern, apiPattern);
+    return getImageUsageCounts(db, [imageId]).get(imageId) ?? 0;
+}
 
-    return Number(row?.count || 0);
+const IMAGE_ID_SHAPE = /^[0-9a-f-]{36}$/i;
+const IMAGE_LINK = /\/images\/([0-9a-f-]{36})/gi;
+
+/**
+ * Usage counts (Documents plus templates) of several images in one database, in one pass:
+ * the bodies that link to any image are read once, one row at a time, instead of one scan
+ * per image (a page of 200 images took 2.7 s on 87 MB of Documents). Same rule as
+ * getImageUsage: a body counts once per image it contains `/images/<id>` for, ignoring
+ * ASCII case. An id not shaped like a UUID is counted with its own LIKE.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string[]} imageIds
+ * @returns {Map<string, number>}
+ */
+export function getImageUsageCounts(db, imageIds) {
+    const counts = new Map(imageIds.map((id) => [id, 0]));
+    const byKey = new Map();
+    for (const id of imageIds) {
+        if (!IMAGE_ID_SHAPE.test(String(id))) {
+            const pattern = imageReferencePattern(id);
+            const total = ['notes', 'templates'].reduce((sum, table) => sum
+                + Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE content LIKE ? ESCAPE '!'`).get(pattern)?.count || 0), 0);
+            counts.set(id, total);
+            continue;
+        }
+        const key = String(id).toLowerCase();
+        if (!byKey.has(key)) byKey.set(key, []);
+        byKey.get(key).push(id);
+    }
+    if (byKey.size === 0) return counts;
+    for (const table of ['notes', 'templates']) {
+        const rows = db.prepare(`SELECT content FROM ${table} WHERE content LIKE '%/images/%'`).pluck();
+        for (const content of rows.iterate()) {
+            const seen = new Set();
+            for (const match of String(content).matchAll(IMAGE_LINK)) {
+                const key = match[1].toLowerCase();
+                if (seen.has(key) || !byKey.has(key)) continue;
+                seen.add(key);
+                for (const id of byKey.get(key)) counts.set(id, counts.get(id) + 1);
+            }
+        }
+    }
+    return counts;
 }
 
 function encodeCursor(payload) {
@@ -387,6 +441,7 @@ export function listImages(target, { limit: rawLimit, search = '', sort: rawSort
     const hasMore = rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;
 
+    const usage = getImageUsageCounts(target.db, pageRows.map((row) => row.id));
     const images = pageRows.map((row) => ({
         id: row.id,
         filename: row.filename,
@@ -394,7 +449,7 @@ export function listImages(target, { limit: rawLimit, search = '', sort: rawSort
         sizeBytes: Number(row.size_bytes || 0),
         createdAt: row.created_at,
         url: toCanonicalImageUrl(row.id, target.dbKey),
-        usageCount: getImageUsageCount(target.db, row.id),
+        usageCount: usage.get(row.id) ?? 0,
     }));
 
     let nextCursor = null;
@@ -657,6 +712,7 @@ imageRoutes.post('/images/bulk-delete', (req, res) => {
             return res.status(400).json({ error: 'No image ids provided' });
         }
         const uniqueIds = [...new Set(ids.map((id) => String(id)).filter(Boolean))];
+        const usage = force ? new Map() : getImageUsageCounts(target.db, uniqueIds);
 
         const results = uniqueIds.map((imageId) => {
             const image = findImage(target, imageId);
@@ -664,13 +720,13 @@ imageRoutes.post('/images/bulk-delete', (req, res) => {
                 return { id: imageId, deleted: false, reason: 'not-found' };
             }
 
-            const usage = getImageUsage(target.db, imageId);
-            if (!force && usage.count > 0) {
+            const usageCount = usage.get(imageId) ?? 0;
+            if (!force && usageCount > 0) {
                 return {
                     id: imageId,
                     deleted: false,
                     reason: 'in-use',
-                    usageCount: usage.count,
+                    usageCount,
                 };
             }
 
@@ -741,13 +797,13 @@ export function pruneOrphanImagesForDb(dbKey, options = {}) {
     `).all(cutoff, ...scope.params, maxDeletes * 5);
 
     let deletedCount = 0;
+    const usage = getImageUsageCounts(target.db, candidates.map((candidate) => candidate.id));
     for (const candidate of candidates) {
         if (deletedCount >= maxDeletes) {
             break;
         }
 
-        const usageCount = getImageUsageCount(target.db, candidate.id);
-        if (usageCount > 0) {
+        if (usage.get(candidate.id) > 0) {
             continue;
         }
 

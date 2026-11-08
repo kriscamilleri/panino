@@ -61,6 +61,8 @@ export function validateProperty(key, value, { requireValue = true } = {}) {
     return { ok: true, key: cleanKey, value: cleanValue };
 }
 
+const AND_JOINER = /\s+and\s+/iy;
+
 /** Split on AND (any case) outside quotes. */
 function splitConditions(filter) {
     const parts = [];
@@ -78,7 +80,8 @@ function splitConditions(filter) {
             current += char;
             continue;
         }
-        const joiner = /^\s+and\s+/i.exec(filter.slice(i));
+        AND_JOINER.lastIndex = i;
+        const joiner = AND_JOINER.exec(filter);
         if (joiner) {
             parts.push(current);
             current = '';
@@ -91,6 +94,18 @@ function splitConditions(filter) {
     return parts.map((part) => part.trim()).filter(Boolean);
 }
 
+/** `key exists` / `key missing` (any case): the key and the operator, or null. */
+function existenceCondition(part) {
+    const lower = part.toLowerCase();
+    for (const operator of ['exists', 'missing']) {
+        if (!lower.endsWith(operator)) continue;
+        const before = part.slice(0, part.length - operator.length);
+        const key = before.trim();
+        if (key && before !== before.trimEnd()) return { key, operator };
+    }
+    return null;
+}
+
 function unquote(text) {
     const match = text.match(/^(["'])(.*)\1$/);
     return match ? match[2] : text;
@@ -100,7 +115,8 @@ function unquote(text) {
  * Parse a filter such as `status = draft AND priority >= 2 AND due exists`.
  * Conditions are joined by AND (any case). Operators: = != ~ (contains)
  * ^= (starts with) > < >= <=, and the words exists / missing. Values may be
- * quoted; comparisons ignore case.
+ * quoted; comparisons ignore case. Numbers compare as numbers, and ISO dates
+ * and times at the precision both sides give (a date alone is a whole day).
  * @param {string} filter
  * @returns {{ ok: true, conditions: { key: string, operator: string, value?: string }[] } | { ok: false, error: string }}
  */
@@ -111,11 +127,11 @@ export function parseFilter(filter) {
     if (parts.length > MAX_FILTER_CONDITIONS) return { ok: false, error: `A filter can have at most ${MAX_FILTER_CONDITIONS} conditions.` };
     const conditions = [];
     for (const part of parts) {
-        const word = part.match(/^(.+?)\s+(exists|missing)$/i);
+        const word = existenceCondition(part);
         if (word) {
-            const key = unquote(word[1].trim());
+            const key = unquote(word.key);
             if (!key || /[:\r\n]/.test(key)) return { ok: false, error: `"${part}" is not a valid condition.` };
-            conditions.push({ key, operator: word[2].toLowerCase() });
+            conditions.push({ key, operator: word.operator });
             continue;
         }
         let found = null;
@@ -140,12 +156,47 @@ export function parseFilter(filter) {
 
 const NUMBER = /^-?\d+(\.\d+)?$/;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
+// An ISO date, optionally with a time (to the hour, minute, second or fraction) and a zone.
+const ISO_TIME = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}(?::\d{2}(?::\d{2}(?:\.\d+)?)?)?))?(Z|[+-]\d{2}:?\d{2})?$/i;
 
-/** Order two values: numerically when both are numbers, ISO dates as plain text, else ignoring case. */
+/** @returns {{ local: string, zoned: boolean, full: boolean } | null} */
+function isoParts(text) {
+    const match = ISO_TIME.exec(text.trim());
+    if (!match) return null;
+    return {
+        local: match[2] ? `${match[1]}T${match[2]}` : match[1],
+        zoned: Boolean(match[3]),
+        full: Boolean(match[2] && match[3]),
+        text: text.trim(),
+    };
+}
+
+/**
+ * Compare two ISO times at the precision both have: `2026-11-07` covers the whole day, so
+ * `modified_on <= 2026-11-07` holds for any time that day and `= 2026-11-07` means "on that
+ * day". Two times with zones compare as instants. A time without a zone is read as written
+ * (UTC for the built-in times, which are stored in UTC).
+ * @returns {number|null} null when either is not an ISO date
+ */
+function compareTimes(a, b) {
+    const left = isoParts(a);
+    const right = isoParts(b);
+    if (!left || !right) return null;
+    if (left.full && right.full) {
+        const difference = Date.parse(left.text) - Date.parse(right.text);
+        if (!Number.isNaN(difference)) return Math.sign(difference);
+    }
+    const length = Math.min(left.local.length, right.local.length);
+    const x = left.local.slice(0, length);
+    const y = right.local.slice(0, length);
+    return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/** Order two values: numerically when both are numbers, ISO times by `compareTimes`, else ignoring case. */
 function compare(a, b) {
     if (NUMBER.test(a) && NUMBER.test(b)) return Number(a) - Number(b);
-    if (ISO_DATE.test(a) && ISO_DATE.test(b)) return a < b ? -1 : a > b ? 1 : 0;
+    const times = compareTimes(a, b);
+    if (times !== null) return times;
     return a.localeCompare(b, undefined, { sensitivity: 'base' });
 }
 
@@ -155,8 +206,8 @@ function compare(a, b) {
  */
 export const BUILT_IN_FILTER_KEYS = Object.freeze({
     word_count: 'Number of words in the body',
-    created_on: 'When the Document was created (ISO time)',
-    modified_on: 'When the Document was last changed (ISO time)',
+    created_on: 'When the Document was created (ISO time, UTC; a date alone means that whole day)',
+    modified_on: 'When the Document was last changed (ISO time, UTC; a date alone means that whole day)',
     created_by: 'Who created it, from revision history ("by Kris", "via Claude (connected app)")',
     modified_by: 'Who changed it last, from revision history',
 });
@@ -183,9 +234,10 @@ export function matchesFilter(properties, conditions) {
         const left = actual.toLowerCase();
         const right = value.toLowerCase();
         const spellings = [left, ...(property.alternatives || []).filter(Boolean).map((text) => text.toLowerCase())];
+        const sameTime = compareTimes(actual, value);
         switch (operator) {
-            case '=': return spellings.includes(right);
-            case '!=': return !spellings.includes(right);
+            case '=': return sameTime !== null ? sameTime === 0 : spellings.includes(right);
+            case '!=': return sameTime !== null ? sameTime !== 0 : !spellings.includes(right);
             case '~': return left.includes(right);
             case '^=': return left.startsWith(right);
             case '>': return compare(actual, value) > 0;

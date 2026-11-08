@@ -131,7 +131,8 @@ describe('AI agents add-on: Document properties', () => {
             expect(res.body.documents[0].builtIn.wordCount).toBe(14);
 
             expect((await query('status = DRAFT')).body.documents.map((doc) => doc.id)).toEqual(['p-1']);
-            expect((await query('owner missing')).body.documents.map((doc) => doc.id)).toEqual(['p-2']);
+            // A Document without front matter has every front matter key missing (p-3).
+            expect((await query('owner missing')).body.documents.map((doc) => doc.id)).toEqual(['p-2', 'p-3']);
         });
 
         it('filters on built-in properties, including Documents without front matter', async () => {
@@ -161,6 +162,42 @@ describe('AI agents add-on: Document properties', () => {
             const viaMcp = await mcp('query_documents_by_property', { filter: 'status' });
             expect(viaMcp.body.result.isError).toBe(true);
             expect(text(viaMcp)).toContain('Operators:');
+        });
+
+        const ids = async (filter) => (await query(filter)).body.documents.map((doc) => doc.id);
+
+        it('answers missing and != the same with or without a built-in key in the filter', async () => {
+            // The review case: alone, `owner missing` left out p-3, which has no front matter.
+            expect(await ids('owner missing')).toEqual(await ids('owner missing AND word_count >= 0'));
+            expect(await ids('status != draft')).toEqual(['p-2', 'p-3']);
+            expect(await ids('status != draft AND word_count >= 0')).toEqual(['p-2', 'p-3']);
+            expect((await query('status != draft')).body.scanned).toBe('all');
+            expect((await query('status = draft')).body.scanned).toBe('front_matter');
+        });
+
+        it('reads a date without a time as that whole day', async () => {
+            // p-1 was changed at 2026-11-03T10:00Z, p-2 a day earlier, p-3 two.
+            expect(await ids('modified_on <= 2026-11-03')).toEqual(['p-1', 'p-2', 'p-3']);
+            expect(await ids('modified_on = 2026-11-03')).toEqual(['p-1']);
+            expect(await ids('modified_on > 2026-11-02')).toEqual(['p-1']);
+            expect(await ids('modified_on < 2026-11-02')).toEqual(['p-3']);
+        });
+
+        it('does not read a --- rule at the top of a Document as front matter', async () => {
+            const ruled = '---\n\nIntro.\n\nNote: remember this\n\n---\n\n# Body';
+            note(db(), 'p-4', 'Ruled', ruled, '2026-10-30T10:00:00.000Z');
+            const read = await request(app).get(`${V1}/documents/p-4/properties`).set(bearer());
+            expect(read.body.properties).toEqual({});
+            expect(await ids('Note exists')).toEqual([]);
+            const set = await request(app).put(`${V1}/documents/p-4/properties/status`).set(bearer()).send({ value: 'draft' });
+            expect(set.status).toBe(200);
+            expect(contentOf('p-4')).toBe(`---\nstatus: draft\n---\n\n${ruled}`);
+        });
+
+        it('finds keys and values with letters outside ASCII, ignoring their case', async () => {
+            note(db(), 'p-5', 'Sizes', '---\nGRÖSSE: Über\n---\n\nx', '2026-10-29T10:00:00.000Z');
+            expect(await ids('grösse exists')).toEqual(['p-5']);
+            expect(await ids('Grösse = über')).toEqual(['p-5']);
         });
 
         it('answers over MCP with each Document\'s properties', async () => {

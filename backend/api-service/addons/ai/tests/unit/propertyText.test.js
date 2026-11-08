@@ -72,7 +72,30 @@ describe('matchesFilter', () => {
         expect(match('priority > 9')).toBe(true);
         expect(match('priority < 9')).toBe(false);
         expect(match('due >= 2026-11-01')).toBe(true);
-        expect(match('due < 2026-11-20T00:00:00Z')).toBe(true);
+        expect(match('due < 2026-11-21T00:00:00Z')).toBe(true);
+        // At the precision both sides give, 2026-11-20 and midnight that day are the same day.
+        expect(match('due < 2026-11-20T00:00:00Z')).toBe(false);
+    });
+
+    it('reads a date without a time as that whole day', () => {
+        // The review case: a modified time later on the boundary day.
+        const modified = [{ key: 'modified_on', value: '2026-11-07T10:00:00.000Z' }];
+        const on = (filter) => matchesFilter(modified, parseFilter(filter).conditions);
+        expect(on('modified_on <= 2026-11-07')).toBe(true);
+        expect(on('modified_on >= 2026-11-07')).toBe(true);
+        expect(on('modified_on = 2026-11-07')).toBe(true);
+        expect(on('modified_on != 2026-11-07')).toBe(false);
+        expect(on('modified_on < 2026-11-07')).toBe(false);
+        expect(on('modified_on > 2026-11-07')).toBe(false);
+        expect(on('modified_on > 2026-11-06')).toBe(true);
+        // Hours and minutes narrow it; zoned times compare as instants.
+        expect(on('modified_on = 2026-11-07T10')).toBe(true);
+        expect(on('modified_on < 2026-11-07T10:01')).toBe(true);
+        expect(on('modified_on > 2026-11-07T09:59:59Z')).toBe(true);
+        expect(on('modified_on < 2026-11-07T11:00:00+01:00')).toBe(false);
+        expect(on('modified_on < 2026-11-07T11:00:01+01:00')).toBe(true);
+        // Not dates: compared as text.
+        expect(matchesFilter([{ key: 'v', value: '2026-11-07x' }], parseFilter('v = 2026-11-07x').conditions)).toBe(true);
     });
 
     it('handles exists, missing and != on an absent key', () => {
@@ -89,6 +112,19 @@ describe('matchesFilter', () => {
         expect(matchesFilter(withAuthor, parseFilter('modified_by = kris').conditions)).toBe(true);
         expect(matchesFilter(withAuthor, parseFilter('modified_by ~ api key').conditions)).toBe(true);
         expect(matchesFilter(withAuthor, parseFilter('modified_by = someone').conditions)).toBe(false);
+    });
+
+    it('parses exists and missing without being fooled by the words inside a key', () => {
+        expect(parseFilter('due   EXISTS').conditions).toEqual([{ key: 'due', operator: 'exists' }]);
+        expect(parseFilter('"has missing" missing').conditions).toEqual([{ key: 'has missing', operator: 'missing' }]);
+        expect(parseFilter('dismissing = x').conditions).toEqual([{ key: 'dismissing', operator: '=', value: 'x' }]);
+        expect(parseFilter('missing').ok).toBe(false);
+    });
+
+    it('parses a long filter in linear time', () => {
+        const started = performance.now();
+        for (let i = 0; i < 200; i += 1) parseFilter(`a${' '.repeat(990)}b exists`);
+        expect(performance.now() - started).toBeLessThan(2000);
     });
 
     it('needs every condition', () => {

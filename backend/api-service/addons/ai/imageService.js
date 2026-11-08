@@ -104,6 +104,10 @@ function usageDocuments(usage) {
     return usage.notes.map((note) => ({ id: note.id, title: note.title, updatedAt: note.updatedAt }));
 }
 
+function usageTemplates(usage) {
+    return (usage.templates || []).map((template) => ({ id: template.id, name: template.name, updatedAt: template.updatedAt }));
+}
+
 /* ------------------------------------------------------------------ *
  * Finding an image
  * ------------------------------------------------------------------ */
@@ -144,6 +148,7 @@ function storedFile(target, row) {
 
 /** One page of a database's images, with its totals and quota. */
 export function listImages(ctx, { space, search, sort, cursor, limit } = {}) {
+    requireAgentScope(ctx, 'read');
     const target = resolveOne(ctx, space);
     if (search !== undefined && (typeof search !== 'string' || search.length > MAX_SEARCH_LENGTH)) {
         throw new ApiError(400, 'INVALID_INPUT', 'search must be text of at most 200 characters.');
@@ -177,6 +182,7 @@ export function listImages(ctx, { space, search, sort, cursor, limit } = {}) {
 
 /** An image's metadata and the path of its file, checked to exist inside its upload root. */
 export function locateImageFile(ctx, { id, space } = {}) {
+    requireAgentScope(ctx, 'read');
     const { target, row } = locateImage(ctx, space, id);
     const { absolutePath, sizeOnDisk } = storedFile(target, row);
     const usageCount = getImageUsageCount(target.db, row.id);
@@ -188,6 +194,7 @@ export function locateImageFile(ctx, { id, space } = {}) {
  * to the upload limit, and only for a stored type on the upload allow-list.
  */
 export function readImage(ctx, { id, space } = {}) {
+    requireAgentScope(ctx, 'read');
     const { image, absolutePath, sizeOnDisk, storedMimeType } = locateImageFile(ctx, { id, space });
     if (!isAllowedMime(storedMimeType)) throw typeNotAllowed();
     if (sizeOnDisk > MAX_IMAGE_SIZE_BYTES) throw tooLarge();
@@ -200,15 +207,22 @@ export function readImage(ctx, { id, space } = {}) {
     return { image: { ...image, mimeType: String(storedMimeType).toLowerCase() }, buffer };
 }
 
-/** The Documents in the image's database whose text references it. */
+/**
+ * The Documents and templates in the image's database whose text references it. A
+ * template counts: Documents made from it would show the image.
+ */
 export function getImageUsageReport(ctx, { id, space } = {}) {
+    requireAgentScope(ctx, 'read');
     const { target, row } = locateImage(ctx, space, id);
     const usage = getImageUsage(target.db, row.id, { limit: USAGE_LIST_CAP });
     return {
         image: imageShape(row, target, usage.count),
         usageCount: usage.count,
+        documentCount: usage.documentCount,
+        templateCount: usage.templateCount,
         documents: usageDocuments(usage),
-        truncated: usage.count > usage.notes.length,
+        templates: usageTemplates(usage),
+        truncated: usage.documentCount > usage.notes.length || usage.templateCount > usage.templates.length,
     };
 }
 
@@ -348,9 +362,10 @@ export function deleteImage(ctx, { id, space } = {}) {
 
     const usage = getImageUsage(db, row.id, { limit: USAGE_LIST_CAP });
     if (usage.count > 0) {
-        throw new ApiError(409, 'IMAGE_IN_USE', 'Documents still reference this image.', {
+        throw new ApiError(409, 'IMAGE_IN_USE', 'Documents or templates still reference this image.', {
             usageCount: usage.count,
             documents: usageDocuments(usage),
+            templates: usageTemplates(usage),
         });
     }
 

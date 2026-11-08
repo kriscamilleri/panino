@@ -9,13 +9,12 @@
  * (`applyDocumentVariables` in markdownRender.js).
  */
 
-// Match {{today:format}} — format group is optional
-const TODAY_REGEX = /\{\{today(?::([^}]*))?\}\}/g;
-
-// Match {{now:format}} — format group is optional
-const NOW_REGEX = /\{\{now(?::([^}]*))?\}\}/g;
-
-const INPUT_REGEX = /\{\{input:([^}]+)\}\}/g;
+// {{today}} / {{today:format}} and {{now}} / {{now:format}}, and {{input:Label}}. A format or
+// label holds no braces, so a scan from one `{{` stops at the next: with `[^}]*`, a template
+// of many unclosed `{{today:` rescanned to its end from each one (seconds at 240 KB).
+const TODAY_REGEX = /\{\{today(?::([^{}]*))?\}\}/g;
+const NOW_REGEX = /\{\{now(?::([^{}]*))?\}\}/g;
+const INPUT_REGEX = /\{\{input:([^{}]+)\}\}/g;
 
 /**
  * Format a Date object using simple pattern tokens.

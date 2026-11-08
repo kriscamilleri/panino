@@ -196,6 +196,13 @@ describe('AI agents add-on: folders and Trash', () => {
             const lifted = await request(app).patch(`${V1}/folders/b`).set(auth()).send({ parentId: 'root' });
             expect(lifted.body.code).toBe('TRASH_NAME_RESERVED');
             expect(parentOf(db(), 'b')).toBe('a');
+            // The review case: a new top-level "Trash" would quietly become the Trash folder.
+            const created = await request(app).post(`${V1}/folders`).set(auth()).send({ name: ' TRASH ' });
+            expect(created.status).toBe(400);
+            expect(created.body.code).toBe('TRASH_NAME_RESERVED');
+            expect(db().prepare("SELECT COUNT(*) AS n FROM folders WHERE parent_id IS NULL AND lower(trim(name)) = 'trash'").get().n).toBe(0);
+            const inside = await request(app).post(`${V1}/folders`).set(auth()).send({ name: 'Trash', parentId: 'a' });
+            expect(inside.status).toBe(201);
         });
     });
 

@@ -50,4 +50,4 @@ answers 503 without them).
 | `agentAuth.js` | Resolves `pnk_` keys and `pna_` tokens, checks the switch, rate limit |
 | `keys.js`, `keyUtils.js` | Key management routes and lookup; pure helpers |
 | `oauth.js`, `oauthClients.js`, `oauthUtils.js` | Authorization server, client resolution (metadata documents through `safeFetch.js`, DCR), pure helpers |
-| `tests/` | `unit/` (helpers, tool schemas), `integration/` (gate, REST, MCP, OAuth), `aiTestSetup.js` |
+| `tests/` | `unit/` (helpers, tool schemas), `integration/` (gate, REST, MCP, OAuth), `perf/` (opt-in load benchmark on an 87 MB account: `PANINO_PERF=1`, see the file's header), `aiTestSetup.js` |
