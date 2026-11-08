@@ -1,6 +1,7 @@
 // Pure text helpers for the Documents area of the v1 API (docs/specs/shipped/ai-api-expansion.md
 // §4.1): statistics, referenced images, headings and sections, line ranges, exact edits,
-// insertion with blank-line spacing, search terms and snippets, and list cursors.
+// insertion with blank-line spacing, and list cursors (search terms and snippets are in
+// shared/searchText.js, re-exported below).
 // No database, no HTTP: documentService.js applies the rules around them.
 //
 // Line numbers are 1-based and count `content.split('\n')`, the way the editor's line count
@@ -8,12 +9,27 @@
 // (`Text` over `===` / `---`) headings outside fenced code blocks, HTML comments and the front
 // matter block.
 import { findFrontMatterBlock } from '@panino/content-merge/front-matter';
-import { encodeDocumentCursor, makeSnippet } from './keyUtils.js';
+import { countOccurrences, countWords } from '@panino/content-merge/search-text';
+import { encodeDocumentCursor } from './keyUtils.js';
+
+// The search term helpers and the word count moved to shared/searchText.js, so the app's
+// search reads a query as the API does (docs/specs/active/advanced-search.md §6.1). They are
+// re-exported here under their old names.
+export {
+    countOccurrences,
+    countWords,
+    hasCasedNonAscii,
+    likeContains,
+    likeShape,
+    MAX_SEARCH_TERMS,
+    MAX_SNIPPETS,
+    parseSearchTerms,
+    termMatches,
+    termsIn,
+} from '@panino/content-merge/search-text';
 
 export const MAX_IMAGE_IDS = 500;
 export const MAX_OUTLINE_HEADINGS = 1000;
-export const MAX_SEARCH_TERMS = 20;
-export const MAX_SNIPPETS = 3;
 export const SLUG_MAX_LENGTH = 200;
 export const INSERT_POSITIONS = Object.freeze(['start', 'end', 'before_heading', 'after_heading', 'end_of_section']);
 export const HEADING_POSITIONS = Object.freeze(['before_heading', 'after_heading', 'end_of_section']);
@@ -27,31 +43,6 @@ export const SEARCH_FIELDS = Object.freeze(['all', 'title', 'content']);
 /** @param {string|null|undefined} content @returns {string[]} */
 export function splitLines(content) {
     return String(content ?? '').split('\n');
-}
-
-/** Whether a UTF-16 code unit is whitespace, as `\s` matches it. */
-function isSpaceCode(code) {
-    if (code > 32 && code < 127) return false;
-    return code === 32 || (code >= 9 && code <= 13) || code === 0xa0 || code === 0x1680
-        || (code >= 0x2000 && code <= 0x200a) || code === 0x2028 || code === 0x2029
-        || code === 0x202f || code === 0x205f || code === 0x3000 || code === 0xfeff;
-}
-
-/**
- * Words in a text: runs of non-whitespace, the rule the editor and the app's Document lists
- * use. Counted in one pass without building a list of words, since a body can be 2 MiB.
- * @param {string|null|undefined} content
- */
-export function countWords(content) {
-    const text = String(content ?? '');
-    let count = 0;
-    let inWord = false;
-    for (let i = 0; i < text.length; i += 1) {
-        const space = isSpaceCode(text.charCodeAt(i));
-        if (!space && !inWord) count += 1;
-        inWord = !space;
-    }
-    return count;
 }
 
 /** Lines in a text, as `text.split('\n').length` counts them, without splitting it. */
@@ -349,7 +340,7 @@ function stripDelimited(text, delim, { flanking = false } = {}) {
 
 /**
  * GitHub-compatible slug of a heading's plain text (the rule in
- * docs/specs/proposed/editor-toc-and-internal-links.md §5.1; the shared renderer has no
+ * docs/specs/active/editor-toc-and-internal-links.md §5.1; the shared renderer has no
  * slug rule yet): lower case; drop everything but letters, marks, numbers, spaces, `-`
  * and `_`; each space becomes `-`; empty becomes `section`; at most 200 characters.
  * @param {string} text plain heading text
@@ -500,14 +491,6 @@ export function findHeadings(headings, text, line) {
  * Edits and insertion
  * ------------------------------------------------------------------ */
 
-/** Non-overlapping occurrences of `needle`, left to right. */
-export function countOccurrences(haystack, needle) {
-    if (!needle) return 0;
-    let count = 0;
-    for (let index = haystack.indexOf(needle); index !== -1; index = haystack.indexOf(needle, index + needle.length)) count += 1;
-    return count;
-}
-
 /**
  * Replace exact text. A Document stored with CRLF line endings also matches `oldText`
  * written with LF, and the replacement gets the Document's line endings.
@@ -652,114 +635,6 @@ export function insertContent(content, insertion, position, heading) {
     let joined = '';
     for (let index = 0; index < lines.length; index += 1) joined += lines[index] + endings[index];
     return { content: joined, line: at + (blankBefore ? 1 : 0) + 1 };
-}
-
-/* ------------------------------------------------------------------ *
- * Search
- * ------------------------------------------------------------------ */
-
-/**
- * Search terms: words, and "quoted phrases" kept whole. Stray quotes are dropped, spacing
- * inside a phrase is collapsed, repeats (ignoring case) are dropped.
- * @param {string} query
- * @returns {string[]}
- */
-export function parseSearchTerms(query) {
-    const terms = [];
-    const seen = new Set();
-    for (const match of String(query ?? '').matchAll(/"([^"]*)"|(\S+)/g)) {
-        const term = match[1] !== undefined ? match[1].replace(/\s+/g, ' ').trim() : match[2].replace(/"/g, '');
-        const key = term.toLowerCase();
-        if (!term || seen.has(key)) continue;
-        seen.add(key);
-        terms.push(term);
-    }
-    return terms;
-}
-
-/**
- * How often the terms occur in `text`, and up to `max` snippets: the lines with the most
- * distinct terms (earlier lines first on a tie), returned in Document order, each an
- * excerpt around its first match.
- * @param {string|null|undefined} text
- * @param {string[]} terms
- * @param {number} [max]
- * @returns {{ matchCount: number, snippets: Array<{ line: number, text: string }> }}
- */
-export function termMatches(text, terms, max = MAX_SNIPPETS) {
-    const body = String(text ?? '');
-    const lowerTerms = terms.map((term) => term.toLowerCase());
-    const lowerBody = body.toLowerCase();
-    let matchCount = 0;
-    for (const term of lowerTerms) matchCount += countOccurrences(lowerBody, term);
-    if (matchCount === 0 || max <= 0) return { matchCount, snippets: [] };
-
-    const candidates = [];
-    const lines = splitLines(body);
-    for (let index = 0; index < lines.length; index += 1) {
-        const lower = lines[index].toLowerCase();
-        let distinct = 0;
-        let first = -1;
-        let firstTerm = '';
-        lowerTerms.forEach((term, termIndex) => {
-            const at = lower.indexOf(term);
-            if (at < 0) return;
-            distinct += 1;
-            if (first < 0 || at < first) {
-                first = at;
-                firstTerm = terms[termIndex];
-            }
-        });
-        if (distinct) candidates.push({ index, distinct, firstTerm });
-    }
-    const snippets = candidates
-        .sort((a, b) => b.distinct - a.distinct || a.index - b.index)
-        .slice(0, max)
-        .sort((a, b) => a.index - b.index)
-        .map(({ index, firstTerm }) => ({ line: index + 1, text: makeSnippet(lines[index], firstTerm) }));
-    return { matchCount, snippets };
-}
-
-/**
- * A pattern for `column LIKE ? ESCAPE '\\'` that matches text containing `text`. LIKE folds
- * ASCII letters only (as SQLite's lower() does) and scans far faster than
- * `instr(lower(column), ?)`, which copies every body to lower-case it (65 ms against 8 ms per
- * term on 83 MB of Documents).
- * @param {string} text
- */
-export function likeContains(text) {
-    return `%${String(text ?? '').replace(/[\\%_]/g, '\\$&')}%`;
-}
-
-/** Whether a term has letters outside ASCII that have a case, which LIKE cannot fold. */
-export function hasCasedNonAscii(term) {
-    for (const char of String(term ?? '')) {
-        if (char.charCodeAt(0) > 127 && char.toLowerCase() !== char.toUpperCase()) return true;
-    }
-    return false;
-}
-
-/**
- * A LIKE pattern (ESCAPE '\\') every text containing `term` matches, ignoring case, for a
- * term LIKE cannot fold: the term in lower case with each letter outside ASCII that has a
- * case replaced by `_` (one character, any case). `größe` gives `%gr__e%`. It narrows the
- * rows in SQLite before the full Unicode comparison in JS. (The two letters whose lower
- * case is ASCII, KELVIN SIGN and LATIN CAPITAL I WITH DOT, are not folded to it.)
- * @param {string} term
- */
-export function likeShape(term) {
-    let shape = '';
-    for (const char of String(term ?? '').toLowerCase()) {
-        if (char.charCodeAt(0) > 127 && char.toLowerCase() !== char.toUpperCase()) shape += '_';
-        else shape += char.replace(/[\\%_]/g, '\\$&');
-    }
-    return `%${shape}%`;
-}
-
-/** How many of the terms occur in `text`, ignoring case. */
-export function termsIn(text, terms) {
-    const lower = String(text ?? '').toLowerCase();
-    return terms.filter((term) => lower.includes(term.toLowerCase())).length;
 }
 
 /* ------------------------------------------------------------------ *

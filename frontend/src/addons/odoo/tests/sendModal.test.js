@@ -120,6 +120,8 @@ describe('OdooSendModal', () => {
         expect(sentBody(calls)).toEqual({
             dbKey: 'user:me', noteId: 'note-1', title: 'Quote', pdfRequest: PDF_REQUEST, documents: { folderId: 41 },
         });
+        // Links to other Documents go to Odoo as web-app links (editor-toc-and-internal-links.md N1).
+        expect(buildForSelected).toHaveBeenCalledWith({ documentLinks: 'pdf' });
         expect(wrapper.find('[data-testid="odoo-send-result"]').text()).toContain('Sent to Odoo Documents.');
         const open = wrapper.find('[data-testid="odoo-send-open"]');
         expect(open.attributes()).toMatchObject({ href: 'https://acme.odoo.com/odoo/documents/tok1', target: '_blank', rel: 'noopener noreferrer' });

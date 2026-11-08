@@ -20,7 +20,7 @@ const SITE_ID_LEN = 16;
 // (no partial merge) until this allowlist is deliberately extended with
 // schema tests. `-1` (and any other tombstone-cid spelling) is allowed for
 // every listed table since crsqlite tombstones carry no column name.
-const SPACE_CHANGE_ALLOWLIST = {
+export const SPACE_CHANGE_ALLOWLIST = {
   folders: new Set(["id", "name", "parent_id", "created_at"]),
   notes: new Set([
     "id",
@@ -62,6 +62,14 @@ const SPACE_CHANGE_ALLOWLIST = {
     "target_id",
     "kind",
     "preset_id",
+    "updated_at",
+  ]),
+  // Tag styling (docs/specs/active/tag-system.md §6.1).
+  tags: new Set([
+    "name",
+    "display_name",
+    "color",
+    "created_at",
     "updated_at",
   ]),
 };
@@ -159,8 +167,8 @@ function respondToSpaceMetadataError(res, event, error) {
 /**
  * True only when `pk` decodes (via the same `parsePkId` logic used to drive
  * merge-time note-revision extraction) to a non-empty string id. `folders`,
- * `notes`, `globals`, `templates`, `style_presets`, and `style_assignments`
- * all use a single TEXT PRIMARY KEY
+ * `notes`, `globals`, `templates`, `style_presets`, `style_assignments` and
+ * `tags` all use a single TEXT PRIMARY KEY
  * column, so every allowlisted change — including a delete tombstone, which
  * still carries the pk of the row being deleted — must resolve to one. A
  * missing, empty, or otherwise malformed pk is never permitted for a

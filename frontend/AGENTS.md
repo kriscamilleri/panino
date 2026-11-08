@@ -36,8 +36,11 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `editorStore` | Bridge/proxy to Editor component's exposed methods for toolbar actions | — (independent) |
 | `historyStore` | Per-document undo/redo stack (max 100 entries per document) | — (independent) |
 | `uiStore` | Panel visibility (persisted to DB), menus, modals, toast notifications | syncStore |
+| `typewriterStore` | Typewriter mode settings: its own synced `settings` rows `typewriter.desktop` and `typewriter.phone` (`current` is this form factor's); never inside `uiSettings` | syncStore, authStore |
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
+| `documentIndexStore` | Per-database in-memory Document metadata index (tags and front matter properties from the first 16 KB) shared by tags and search: lazy `ensure(dbKey)`, refreshed through the update hook and `syncStore.onRemoteChangesApplied`, never written or synced (`docs/specs/active/tag-system.md` §7) | syncStore |
+| `tagStore` | Tag styles (`tags` rows: one-column writes, reset), the sidebar tag filter across databases, Tools → Tags manager state, editor suggestions | syncStore, documentIndexStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
 | `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
 | `aiAddonStore` (`addons/ai/store.js`) | The AI agents add-on: API keys (`/addons/ai/keys`; a new key's secret only in `createdSecret` until dismissed or `ApiKeysSection` unmounts), connected apps, MCP setup, OAuth consent; see `src/addons/ai/README.md`. Core never imports it | authStore |
@@ -95,6 +98,10 @@ Keystroke → draftStore.setDraft() (instant)
 ## Component Patterns
 
 - **Editor.vue** — Uses OverType library for the markdown textarea. Exposes methods via `defineExpose()` for `editorStore` bridge. Handles image paste upload to `POST /images`. Intercepts Ctrl+Z/Y for custom undo/redo via `historyStore`. Three-layer update: keystroke → `draftStore` (instant) → debounced DB write.
+- **Typewriter mode** — `composables/useTypewriter.js` plus `TypewriterLayer.vue`, teleported
+  into OverType's wrapper (over the text, under the caret). Never decorate OverType's highlight
+  layer: it is rebuilt with `innerHTML` on every input and selection change. Draw in a separate
+  layer and only measure the line elements. See `docs/architecture/editor.md`.
 - **Preview.vue** — Purely computed-driven. Reads from `draftStore` for instant preview. Sanitizes rendered HTML via DOMPurify. Applies front-matter variable substitution. No watchers or methods — reactive rendering only.
 - **`@` alias** — Vite resolves `@/` to `frontend/src/`.
 
@@ -161,7 +168,7 @@ Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation
 - Phone components live in `components/phone/` and style themselves with the `--ph-*` tokens
   and `.ph-*` classes in `assets/phone.css`, scoped under `.phone-ui` (the `PhoneShell` root)
   with a dark mirror. Avoid Tailwind colour classes there: `main.css` remaps them in dark mode.
-- Sheets and the Drawer are `?sheet=drawer|capture|menu|move|collaborate|export` on the
+- Sheets and the Drawer are `?sheet=drawer|capture|menu|move|collaborate|export|sort|link|toc` on the
   current route (`useSheetRoute`), so back closes a sheet before leaving the screen. Use
   `closeSheetAndGo()` to leave a sheet for another screen in one history step.
 - `PhoneEditor` keeps the Editor mounted in Preview (`hide-text`), because the Editor owns the
@@ -182,6 +189,59 @@ Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation
   chosen from the sort sheet or Settings. `getRecentDocuments` and `getFolderDocuments` take
   `{ sort }` and order in SQL from an allow-list, so the 200-row limit keeps the right notes;
   without `sort` they keep the dashboards' newest-modified query. Pinned notes stay first.
+
+---
+
+## Search
+
+Spec: `docs/specs/active/advanced-search.md`. One engine for the phone Search page and the
+desktop search panel, and the same query language as the AI add-on's `search_documents`.
+
+- `docStore.searchDocuments({ query, limit, cursor })` returns `{ results, nextCursor, notices,
+  terms, cancelled }`. It hands every open database to `searchDatabases` in
+  `@panino/content-merge/document-search` (`shared/documentSearch.js`), which needs only an
+  `execute(sql, params)` per database, so the backend's parity test runs it on better-sqlite3
+  against the API. A newer call cancels an older one.
+- The parser, term helpers and checklist rule are `shared/searchText.js`; `prop:` uses
+  `shared/propertyFilter.js`; Trash and folder paths `shared/trashFolder.js`.
+- `composables/useDocumentSearch.js` holds a search session (150 ms debounce, paging, recent
+  searches) for both screens, and the desktop panel's open state and text for the session.
+  Chips write into the query (`utils/searchQuery.js`: `setTitlesChip`, `setChecklistChip`,
+  `setFolderChip`, `clearChips`, `chipState`).
+- Desktop: `SearchPanel.vue` replaces the tree in `Documents.vue` while open; the toggle and
+  `Ctrl/Cmd+Shift+F` (listened for in `SidebarWithResizer.vue`) open it, Esc closes it.
+- `tag:` and front matter `prop:` parts are answered by the metadata index
+  (`documentIndexStore`: `ensure`, `metadataEntries`, `idsWithTags`), which docStore hands the
+  engine as each database's `index()`; without it the engine reads the bodies' first 16 KB.
+- The property picker: `components/PropertyPicker.vue` (form), `composables/usePropertyPicker.js`
+  (keys and values from the index), `utils/propertyPicker.js` (conditions, the part it writes).
+  Desktop popover in `SearchPanel`, phone bottom sheet in `PhoneSearchPage`. Results show
+  `DocumentTagChips` with `selectable`: a click adds `tag:<name>`.
+- Recent searches (`panino-recent-searches`) are cleared on sign-out (`authStore`).
+- Development builds put `__paninoSearchBench(query, runs)` and `__paninoSearchSeed({ count,
+  confirm })` on `window` (`utils/searchBench.js`) for the browser benchmark.
+
+---
+
+## Links and tables of contents
+
+Spec: `docs/specs/active/editor-toc-and-internal-links.md`. Links to other Documents are
+stored as `[label](panino:doc/<uuid>[#slug])`, headings render `id="pn-<slug>"`, and a table
+of contents is a stored snapshot between `<!-- panino:toc {json} -->` markers (all in
+`shared/`: `documentOutline.js`, `documentLinks.js`, `markerBlocks.js`, `tableOfContents.js`).
+
+- The Preview renders links in `'app'` mode and handles every `#…` link itself
+  (`utils/previewLinks.js`, `composables/useDocumentLinks.js`); a hand-written `#/…` route is
+  inert. Resolution is local: `store/documentLinkStore.js` (through `docStore.resolveDocuments`,
+  `getDocumentOutline`, `findDocumentDbKey`).
+- Writing links: `composables/useEditorLinks.js` on the Editor's textarea (`[[`, Ctrl/Cmd+K,
+  Mod+click, pasted addresses), `LinkPicker.vue` in `LinkPickerPopover.vue` (desktop) or
+  `phone/LinkSheet.vue`, state in `store/linkPickerStore.js`.
+- Tables of contents: `store/tableOfContentsStore.js` (status and actions through
+  `editorStore.transformText`), `TocMenuButton.vue`, `TocOptionsForm.vue`,
+  `TocStaleNotice.vue`, phone rows in `DocumentMenuSheet.vue` and `phone/TocSheet.vue`.
+- PDFs made in the browser render `'pdf'` with only the ids that resolve
+  (`composables/usePdfDocumentLinks.js`); everything else renders `'text'`.
 
 ---
 

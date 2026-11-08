@@ -20,7 +20,10 @@ vi.mock('@/store/docStore', () => ({ useDocStore: () => ({ selectedFile: ref({ i
 vi.mock('@/store/draftStore', () => ({ useDraftStore: () => ({ getDraft: () => undefined }) }));
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => ({ isOnline: true }) }));
 vi.mock('@/store/themeStore', () => ({ useThemeStore: () => ({ theme: 'system', setTheme: vi.fn() }) }));
+vi.mock('@/store/editorStore', () => ({ useEditorStore: () => ({ focus: vi.fn() }) }));
+vi.mock('@/store/typewriterStore', () => ({ useTypewriterStore: () => ({ enabled: false, toggle: vi.fn() }) }));
 vi.mock('@/composables/useSheetRoute', () => ({ useSheetRoute: () => ({ openSheet: vi.fn(), closeSheetAndGo: vi.fn() }) }));
+vi.mock('@/store/tableOfContentsStore', () => ({ useTableOfContentsStore: () => ({ hasToc: false, isStale: false, insert: vi.fn(), refresh: vi.fn() }) }));
 vi.mock('@/composables/usePhoneStatus', () => ({ usePhoneStatus: () => ({ sync: ref({}), liveParticipants: () => [], syncNow: vi.fn() }) }));
 
 const { default: DocumentMenuSheet } = await import('@/components/phone/DocumentMenuSheet.vue');

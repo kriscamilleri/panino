@@ -212,7 +212,7 @@ pastel that disappears in light mode.
 ## 9) Risks
 
 - **Scope creep into a general colour system.** This exception is for people. If a future spec
-  wants colour for tags ([tag-system.md](../proposed/tag-system.md) proposes exactly that, with its own
+  wants colour for tags ([tag-system.md](../active/tag-system.md) proposes exactly that, with its own
   ten-colour palette), the two must be reconciled deliberately — a document tagged "urgent" in rose
   next to a person rendered in rose is a real ambiguity. Flag it when tags are picked up; do not
   pre-emptively merge the palettes here.

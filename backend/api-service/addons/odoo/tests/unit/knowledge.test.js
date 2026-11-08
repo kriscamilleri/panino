@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { IMAGE_PLACEHOLDER, articleBody, bodySignature } from '../../knowledge.js';
+import { renderDocumentHtml } from '@panino/content-merge/markdown-render';
 
 describe('articleBody', () => {
     it('drops a first heading that repeats the title, and only that one', () => {
@@ -87,5 +88,19 @@ describe('bodySignature', () => {
         expect(bodySignature('<p><br></p>')).toBe('');
         expect(bodySignature('<p>\n</p><div></div>')).toBe('');
         expect(bodySignature('<p>x</p>')).not.toBe('');
+    });
+});
+
+describe('links and headings in Knowledge articles (editor-toc-and-internal-links.md §6.7)', () => {
+    it('keeps a Document link as its label only, drops heading ids, and leaves the signature alone', () => {
+        const id = '6f1c2a3b-1d2e-4f5a-8b6c-7d8e9f0a1b2c';
+        const html = renderDocumentHtml(`# Plan\n\n## Budget\n\nSee [the plan](panino:doc/${id}#budget) and [above](#budget).`);
+        const body = articleBody(html, 'Plan');
+        expect(body).toContain('the plan');
+        expect(body).not.toContain('panino:');
+        expect(body).not.toContain('id="pn-');
+        expect(body).not.toContain('data-pn-');
+        // Heading ids are not part of the reconcile signature, so adding them refiles nothing.
+        expect(bodySignature(body)).toBe(bodySignature(articleBody(html.replaceAll(/ id="pn-[^"]*"/g, ''), 'Plan')));
     });
 });

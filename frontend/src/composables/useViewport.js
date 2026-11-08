@@ -12,6 +12,9 @@ const visibleBox = ref(null);
 const keyboardOpen = ref(false);
 let initialized = false;
 let settleTimers = [];
+const settledListeners = new Set();
+/** The last of measureSoon's timers, after which the visible area has settled. */
+const SETTLE_DELAYS = [100, 350, 700];
 
 function measure() {
     const viewport = window.visualViewport;
@@ -35,7 +38,25 @@ function measure() {
 function measureSoon() {
     settleTimers.forEach(clearTimeout);
     requestAnimationFrame(measure);
-    settleTimers = [100, 350, 700].map((delay) => setTimeout(measure, delay));
+    const last = SETTLE_DELAYS[SETTLE_DELAYS.length - 1];
+    settleTimers = SETTLE_DELAYS.map((delay) => setTimeout(() => {
+        measure();
+        if (delay === last) [...settledListeners].forEach((listener) => listener());
+    }, delay));
+}
+
+/**
+ * Call back once the visible area has settled after focus moved (the last
+ * measurement, 700 ms after it): typewriter mode waits for this before
+ * re-centring after the tap that opens the on-screen keyboard. Fires after
+ * every focus change until the returned function is called.
+ *
+ * @param {() => void} callback
+ * @returns {() => void} stops the callbacks
+ */
+export function onViewportSettled(callback) {
+    settledListeners.add(callback);
+    return () => settledListeners.delete(callback);
 }
 
 function initialize() {
@@ -68,12 +89,12 @@ function initialize() {
  * breaks on iOS, which updates the three at different moments while the
  * keyboard opens: a measurement taken in between collapsed the editor.
  *
- * @returns {{ isPhone: import('vue').Ref<boolean>, visibleStyle: import('vue').ComputedRef<object>, keyboardOpen: import('vue').Ref<boolean> }}
+ * @returns {{ isPhone: import('vue').Ref<boolean>, visibleStyle: import('vue').ComputedRef<object>, keyboardOpen: import('vue').Ref<boolean>, onSettled: typeof onViewportSettled }}
  */
 export function useViewport() {
     initialize();
     const visibleStyle = computed(() => (visibleBox.value
         ? { top: `${visibleBox.value.top}px`, height: `${visibleBox.value.height}px` }
         : { top: '0px', height: '100dvh' }));
-    return { isPhone: readonly(isPhone), visibleStyle, keyboardOpen: readonly(keyboardOpen) };
+    return { isPhone: readonly(isPhone), visibleStyle, keyboardOpen: readonly(keyboardOpen), onSettled: onViewportSettled };
 }

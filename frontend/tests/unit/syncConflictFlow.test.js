@@ -733,3 +733,32 @@ describe('after a sync', () => {
     expect(harness.refreshData).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('in-memory views of a database (tag-system.md §7)', () => {
+  it('get the tags CRR from the schema, repaired on open', async () => {
+    const database = localDatabase({ body: BASE, dbVersion: 4, colVersion: 2, own: false });
+    serverReplies({ changes: [], clock: 30 });
+    await startStore(database, { pushCursor: 4, clock: 30 });
+
+    const schema = database.exec.mock.calls.map(([sql]) => sql).find((sql) => sql.includes('CREATE TABLE IF NOT EXISTS notes'));
+    expect(schema).toContain('CREATE TABLE IF NOT EXISTS tags');
+    expect(schema).toContain("SELECT crsql_as_crr('tags')");
+    expect(database.execO.mock.calls.some(([sql]) => sql.includes("PRAGMA table_info('tags')"))).toBe(true);
+  });
+
+  it('are told about each committed remote change set, and not about an empty exchange', async () => {
+    const database = localDatabase({ body: BASE, dbVersion: 4, colVersion: 2, own: false });
+    serverReplies((n) => (n === 1 ? { changes: [remoteBody(REMOTE, 5)], clock: 41 } : { changes: [], clock: 41 }));
+    const store = await startStore(database, { pushCursor: 4, clock: 30 });
+    const seen = [];
+    const stop = store.onRemoteChangesApplied((dbKey, changes) => seen.push([dbKey, changes.map((change) => change.cid)]));
+    store.onRemoteChangesApplied(() => { throw new Error('a broken listener'); });
+
+    await store.sync();
+    await store.sync();
+
+    expect(database.state.bodies.get(NOTE)).toBe(REMOTE);
+    expect(seen).toEqual([[PERSONAL_KEY, ['content']]]);
+    stop();
+  });
+});

@@ -32,10 +32,11 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useUiStore } from '@/store/uiStore'
 import Documents from '@/components/Documents.vue'
 import { PanelLeftClose } from 'lucide-vue-next'
+import { isSearchShortcut, useDesktopSearchState } from '@/composables/useDocumentSearch'
 
 // Desktop only: phones show PhoneHome instead of the sidebar.
 const documentsWidth = ref(300)
@@ -77,10 +78,23 @@ function stopResize() {
     document.body.style.userSelect = ''
 }
 
+// Ctrl+Shift+F / Cmd+Shift+F opens the search panel, showing the sidebar first
+// if it is collapsed. Listened for while capturing, so the editor's own key
+// handling cannot swallow it.
+const desktopSearch = useDesktopSearchState()
+function onSearchShortcut(event) {
+    if (!isSearchShortcut(event)) return
+    event.preventDefault()
+    if (!ui.showDocuments) ui.toggleDocuments()
+    desktopSearch.openSearch()
+}
+onMounted(() => window.addEventListener('keydown', onSearchShortcut, true))
+
 onUnmounted(() => {
     // Clean up any event listeners if user leaves the page mid-resize
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', stopResize)
+    window.removeEventListener('keydown', onSearchShortcut, true)
 })
 
 </script>

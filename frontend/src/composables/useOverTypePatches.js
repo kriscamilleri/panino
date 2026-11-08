@@ -102,5 +102,59 @@ export function useOverTypePatches() {
      }
   };
 
+  // 3. Ctrl/Cmd+K belongs to Panino's link picker
+  //    (docs/specs/active/editor-toc-and-internal-links.md §6.5). OverType's shortcut
+  //    manager would insert `[sel](url)` itself and then never call the `onKeydown`
+  //    option. Report the key unhandled so Panino's handler opens the picker; bold,
+  //    italic and the list shortcuts are unchanged.
+  const Shortcuts = OverType.ShortcutsManager;
+  if (Shortcuts?.prototype?.handleKeydown && !Shortcuts.prototype.handleKeydown.__paninoLinks) {
+    const original = Shortcuts.prototype.handleKeydown;
+    const patched = function handleKeydown(event) {
+      if (event && (event.ctrlKey || event.metaKey) && !event.shiftKey && String(event.key || '').toLowerCase() === 'k') {
+        return false;
+      }
+      return original.call(this, event);
+    };
+    patched.__paninoLinks = true;
+    Shortcuts.prototype.handleKeydown = patched;
+  }
+
   patchesApplied = true;
+}
+
+/**
+ * OverType's link tooltip opens `window.open(url, '_blank')` for any link under the
+ * caret, which for `panino:` or `#…` is an unknown scheme or a broken route in a new
+ * tab. Its click handler is bound when the tooltip is built, so the tooltip element is
+ * swapped for a copy with Panino's handlers: internal links are followed in the app,
+ * web and mail addresses still open in a new tab (without an opener).
+ *
+ * @param {object} editor an OverType instance
+ * @param {(url: string) => void} follow Panino's handler for a link's address
+ * @returns {boolean} whether the tooltip was patched
+ */
+export function patchLinkTooltip(editor, follow) {
+  const tooltip = editor?.linkTooltip;
+  const element = tooltip?.tooltip;
+  if (!tooltip || !element || element.__paninoLinks) return false;
+  const copy = element.cloneNode(true);
+  copy.__paninoLinks = true;
+  copy.addEventListener('mouseenter', () => tooltip.cancelHide?.());
+  copy.addEventListener('mouseleave', () => tooltip.scheduleHide?.());
+  copy.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const url = tooltip.currentLink?.url;
+    if (!url) return;
+    tooltip.hide?.();
+    if (/^(https?:|mailto:)/i.test(url.trim())) {
+      window.open(url.trim(), '_blank', 'noopener,noreferrer');
+      return;
+    }
+    follow(url);
+  });
+  element.replaceWith(copy);
+  tooltip.tooltip = copy;
+  return true;
 }

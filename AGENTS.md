@@ -145,6 +145,7 @@ Read these only when working in the relevant area:
 | Backend routes | `backend/api-service/index.js` and the route module |
 | Styles | `frontend/src/store/markdownStore.js`, `backend/api-service/pdf.js` (`PRINT_STYLE_DEFAULTS`) |
 | Global variables | `frontend/src/store/globalVariablesStore.js` |
+| Tags, Document metadata index | `shared/frontMatter.js` (`readTags`), `frontend/src/store/documentIndexStore.js`, `frontend/src/store/tagStore.js`, `frontend/src/components/tags/` |
 | Images | `backend/api-service/image.js`, `frontend/src/components/Editor.vue` |
 | PDF | `backend/api-service/pdf.js` |
 | Import/export | `frontend/src/store/importExportStore.js` |

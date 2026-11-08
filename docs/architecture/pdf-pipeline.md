@@ -36,6 +36,29 @@ its own container without secrets or data volumes and with its sandbox enabled. 
 renderer exploit is still a container compromise; the controls above remove the known ways to
 reach the renderer with code or requests.
 
+## Links in PDFs
+
+Spec: [`docs/specs/active/editor-toc-and-internal-links.md`](../specs/active/editor-toc-and-internal-links.md) §6.3, §6.8.
+
+- Headings carry `id="pn-<slug>"` from the shared renderer (the prefix keeps DOMPurify's
+  `SANITIZE_DOM` from removing ids such as `images`), and `[x](#slug)` renders
+  `href="#pn-<slug>"`. Chromium turns these same-document anchors into internal PDF links,
+  so a table of contents jumps to its headings.
+- A link to another Document reaches the API as `<a class="pn-doc-link" data-pn-doc="<id>"
+  data-pn-heading="<slug>">` with no href (renderer mode `'pdf'`). An
+  `afterSanitizeAttributes` hook in `sanitizeDocumentHtml` gives it
+  `<FRONTEND_URL>/#/doc/<id>[?heading=<slug>]`, built with `new URL()` from the validated id
+  and slug, only when the `renderPdf` caller passed `appLinks`; any href the element came
+  with is replaced, and without `appLinks` it prints as text. `data-pn-*` is stripped from
+  every element. The address never comes from a request's `Host`, `Origin` or
+  `X-Forwarded-*`: `publicUrls.js` `appBaseUrl()` reads `FRONTEND_URL` (http(s) only;
+  `http://localhost:5173` in development, null in production when unset, with a startup
+  warning).
+- Callers that pass `appLinks`: core `POST /render-pdf`, and the Odoo add-on's send, send
+  updates and sync PDFs. A new caller gets text by default.
+- `TOC_PRINT_CSS` in the fixed base stylesheet hides a numbered table's bullets (its numbers
+  are text) and the nested list margins, and keeps short tables on one page.
+
 ## What users keep
 
 Custom CSS on the Styles and Print Styles pages, `<style>` blocks and `style` attributes in a

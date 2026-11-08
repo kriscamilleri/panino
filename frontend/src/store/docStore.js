@@ -9,10 +9,12 @@ import { useDraftStore } from "./draftStore";
 import { useImportExportStore } from "./importExportStore";
 import { useConflictStore } from "./conflictStore";
 import { useStylePresetStore } from "./stylePresetStore";
+import { useDocumentLinkStore } from "./documentLinkStore";
 import { normalizeRecentDocument } from "../utils/recentDocuments.js";
 import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 import { mergeDashboardRows } from "../utils/syncRegistry.js";
-import { likePattern, hasChecklist } from "../utils/searchQuery.js";
+import { DEFAULT_SEARCH_LIMIT, PERSONAL_LABELS, searchDatabases } from "@panino/content-merge/document-search";
+import { useDocumentIndexStore } from "./documentIndexStore";
 import { normalizeSort, sortDocuments } from "../utils/homeView.js";
 
 export const useDocStore = defineStore("docStore", () => {
@@ -231,67 +233,74 @@ ${DOCUMENT_COLUMNS}
     }
   }
 
+  // A newer search makes the older one stop before its next database query.
+  let searchRun = 0;
+
   /**
-   * Search Documents by title, or title and body, across every open database
-   * or within one folder and its subfolders. Terms are matched literally.
+   * Search every open database, personal and spaces, with the query language
+   * of docs/specs/active/advanced-search.md §4 (words, "phrases", title:, in:,
+   * is:checklist, prop: and -), in the API's order. The engine is
+   * `@panino/content-merge/document-search`, which the API's parity test runs
+   * against the server's search.
    *
    * @param {object} input
    * @param {string} input.query
-   * @param {'everything'|'titles'|'checklists'|'folder'} [input.scope]
-   * @param {string|null} [input.folderId] with scope 'folder'; null or the dbKey means the database root
-   * @param {string} [input.dbKey] with scope 'folder'
-   * @param {number} [input.limit] per database
-   * @returns {Promise<object[]>} normalized Documents, newest first
+   * @param {number} [input.limit] results per page (default 20, at most 100)
+   * @param {object|null} [input.cursor] `nextCursor` of the previous page
+   * @returns {Promise<{ results: object[], nextCursor: object|null, notices: string[],
+   *   terms: string[], cancelled: boolean }>} normalized Documents with `inTrash`
+   *   and `titleScore`; `cancelled` when a newer search started meanwhile
    */
-  async function searchDocuments({ query, scope = 'everything', folderId = null, dbKey = null, limit = 50 } = {}) {
-    const term = String(query ?? '').trim();
-    if (!term) return [];
-    const pattern = likePattern(term);
-    const titlesOnly = scope === 'titles';
-    const inFolder = scope === 'folder' && dbKey;
-    const scopedFolder = inFolder && folderId && folderId !== dbKey ? folderId : null;
-    const sql = `
-            ${FOLDER_PATHS_CTE}${scopedFolder ? `,
-            scope_folders(id) AS (
-                SELECT ?
-                UNION ALL
-                SELECT folders.id FROM folders JOIN scope_folders ON folders.parent_id = scope_folders.id
-            )` : ''}
-            SELECT
-${DOCUMENT_COLUMNS}
-            FROM notes
-            LEFT JOIN folder_paths ON folder_paths.id = notes.folder_id
-            WHERE (notes.title LIKE ? ESCAPE '\\'${titlesOnly ? '' : " OR notes.content LIKE ? ESCAPE '\\'"})
-            ${scope === 'checklists' ? "AND notes.content LIKE '%[%]%'" : ''}
-            ${scopedFolder ? 'AND notes.folder_id IN (SELECT id FROM scope_folders)' : ''}
-            ORDER BY datetime(notes.updated_at) DESC
-            LIMIT ?
-        `;
-    const params = [
-      ...(scopedFolder ? [scopedFolder] : []),
-      pattern,
-      ...(titlesOnly ? [] : [pattern]),
-      limit,
-    ];
-    const entries = inFolder
-      ? [syncStore.databases.get(dbKey)].filter(Boolean)
-      : [...syncStore.databases.values()];
-    const groups = [];
-    for (const entry of entries) {
+  async function searchDocuments({ query, limit = DEFAULT_SEARCH_LIMIT, cursor = null } = {}) {
+    const run = ++searchRun;
+    const documentIndexStore = useDocumentIndexStore();
+    const databases = [];
+    for (const entry of syncStore.databases.values()) {
       if (!entry.db) continue;
-      try {
-        groups.push({
-          dbKey: entry.dbKey,
-          name: entry.kind === 'space' ? entry.name : null,
-          rows: await syncStore.repository(entry.dbKey).execute(sql, params),
-        });
-      } catch (error) {
-        console.error(`Search failed for ${entry.dbKey}:`, error);
-      }
+      const repository = syncStore.repository(entry.dbKey);
+      const isSpace = entry.kind === 'space';
+      const dbKey = entry.dbKey;
+      databases.push({
+        dbKey,
+        name: isSpace ? entry.name : null,
+        labels: isSpace ? [entry.name] : [...PERSONAL_LABELS],
+        execute: (sql, params) => repository.execute(sql, params),
+        // tag: and front matter prop: parts read the metadata index (built on first use)
+        // instead of the bodies; if it cannot be built, the engine reads the bodies' heads.
+        index: async () => {
+          try {
+            await documentIndexStore.ensure(dbKey);
+          } catch (error) {
+            console.warn(`Search could not use the metadata index of ${dbKey}:`, error?.name || error);
+            return null;
+          }
+          // A build that was abandoned (the handle was reopened or dropped meanwhile) resolves
+          // too, with no index: then it must not answer, or every tag: would find nothing.
+          if (!documentIndexStore.isReady(dbKey)) return null;
+          return {
+            entries: () => documentIndexStore.metadataEntries(dbKey),
+            idsWithTags: (names) => documentIndexStore.idsWithTags(dbKey, names),
+          };
+        },
+      });
     }
-    const results = mergeDashboardRows(groups, { limit: limit * Math.max(1, groups.length) })
-      .map(normalizeRecentDocument);
-    return scope === 'checklists' ? results.filter((doc) => hasChecklist(doc.content)) : results;
+    const found = await searchDatabases({
+      databases, query, limit, cursor, isCancelled: () => run !== searchRun,
+    });
+    for (const failure of found.failed || []) {
+      console.error(`Search failed for ${failure.dbKey}:`, failure.error);
+    }
+    return {
+      results: found.results.map((row) => ({
+        ...normalizeRecentDocument({ ...row, folderPath: row.folderPath || null }),
+        inTrash: row.inTrash,
+        titleScore: row.title_score,
+      })),
+      nextCursor: found.nextCursor,
+      notices: found.notices,
+      terms: found.terms,
+      cancelled: Boolean(found.cancelled),
+    };
   }
 
   /**
@@ -432,6 +441,10 @@ ${DOCUMENT_COLUMNS}
     searchDocuments,
     listFolders,
     setDocumentPinned,
+    // Links to other Documents (documentLinkStore.js), created on first use.
+    resolveDocuments: (...args) => useDocumentLinkStore().resolveDocuments(...args),
+    getDocumentOutline: (...args) => useDocumentLinkStore().getDocumentOutline(...args),
+    findDocumentDbKey: (...args) => useDocumentLinkStore().findDocumentDbKey(...args),
     refreshData, // Expose the new function
     recentDocVersion,
     isSaving,
