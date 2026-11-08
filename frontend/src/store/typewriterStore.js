@@ -167,13 +167,12 @@ export const useTypewriterStore = defineStore('typewriterStore', () => {
         { immediate: true },
     );
 
-    // Pick up a change made on another device once a sync round has run.
-    watch(
-        () => syncStore.isSyncing,
-        (syncing, wasSyncing) => {
-            if (wasSyncing && !syncing && loaded.value && !savePending()) void load();
-        },
-    );
+    // Pick up a change made on another device: only when a pulled change set
+    // touched the `settings` table, so a sync round costs nothing otherwise.
+    syncStore.onRemoteChangesApplied?.((dbKey, changes) => {
+        if (!loaded.value || savePending()) return;
+        if ((changes || []).some((change) => change?.table === 'settings')) void load();
+    });
 
     return {
         profiles,

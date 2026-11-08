@@ -17,7 +17,18 @@ const PHONE = 'typewriter.phone';
 /** Store one profile row as the app writes it. */
 const setProfile = (id, settings) => rows.set(id, JSON.stringify({ version: 1, settings }));
 const savedProfile = (id) => JSON.parse(rows.get(id)).settings;
-const sync = reactive({ isInitialized: false, isSyncing: false, personalRepository: () => repo });
+const remoteListeners = new Set();
+const sync = reactive({
+    isInitialized: false,
+    isSyncing: false,
+    personalRepository: () => repo,
+    onRemoteChangesApplied: (listener) => { remoteListeners.add(listener); return () => remoteListeners.delete(listener); },
+});
+/** A pulled change set, as syncStore reports it after applying. */
+const pulled = async (tables) => {
+    for (const listener of remoteListeners) listener('personal', tables.map((table) => ({ table, pk: 'x' })));
+    await Promise.resolve();
+};
 const auth = reactive({ user: { id: 'user-A' } });
 const isPhone = ref(false);
 
@@ -36,6 +47,7 @@ describe('typewriterStore', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         rows.clear();
+        remoteListeners.clear();
         repo.execute.mockClear();
         repo.exec.mockClear();
         sync.isInitialized = false;
@@ -177,24 +189,33 @@ describe('typewriterStore', () => {
         expect(savedProfile(DESKTOP).enabled).toBe(true);
     });
 
-    it('picks up a synced change after a sync round, unless a save is waiting', async () => {
+    it('picks up a synced change to the settings table, unless a save is waiting', async () => {
         sync.isInitialized = true;
         const store = useTypewriterStore();
         await flush();
         setProfile(DESKTOP, { enabled: true });
-        sync.isSyncing = true;
-        await flush();
-        sync.isSyncing = false;
+        await pulled(['settings']);
         await flush();
         expect(store.enabled).toBe(true);
 
         store.update({ dim: 'sentence' });
         setProfile(DESKTOP, { enabled: false });
+        await pulled(['settings']);
+        await flush();
+        expect(store.current).toMatchObject({ enabled: true, dim: 'sentence' });
+    });
+
+    it('does not read its rows after a sync that changed no settings', async () => {
+        sync.isInitialized = true;
+        useTypewriterStore();
+        await flush();
+        const reads = repo.execute.mock.calls.length;
+        await pulled(['notes', 'folders']);
         sync.isSyncing = true;
         await flush();
         sync.isSyncing = false;
         await flush();
-        expect(store.current).toMatchObject({ enabled: true, dim: 'sentence' });
+        expect(repo.execute.mock.calls.length).toBe(reads);
     });
 
     it('keeps a phone change made before a desktop change synced (no lost write)', async () => {
@@ -223,10 +244,8 @@ describe('typewriterStore', () => {
         vi.advanceTimersByTime(500);
         await flush();
         expect(finishWrite).toBeTypeOf('function');
-        // A sync round ends while the write is still in flight.
-        sync.isSyncing = true;
-        await flush();
-        sync.isSyncing = false;
+        // A pulled settings change arrives while the write is still in flight.
+        await pulled(['settings']);
         await flush();
         expect(store.current.dim).toBe('sentence');
         finishWrite();
