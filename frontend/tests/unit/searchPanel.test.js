@@ -16,7 +16,7 @@ const route = reactive({ name: 'search', params: {}, query: {} });
 const syncStore = reactive({
     personalDbKey: PERSONAL,
     isInitialized: true,
-    databases: new Map([[PERSONAL, { dbKey: PERSONAL, kind: 'user' }], [SPACE, { dbKey: SPACE, kind: 'space', name: 'Acme Team' }]]),
+    databases: new Map([[PERSONAL, { dbKey: PERSONAL, kind: 'user', db: {} }], [SPACE, { dbKey: SPACE, kind: 'space', name: 'Acme Team', db: {} }]]),
     bootstrapState: { status: 'ready', completed: 0, total: 0, error: null },
 });
 const structureStore = reactive({ selectedFolderId: null, selectedDbKey: null, selectedFileId: null, moveItem: vi.fn() });
@@ -54,7 +54,24 @@ vi.mock('@/store/spaceTransferStore', () => ({
 vi.mock('@/store/conflictStore', () => ({ useConflictStore: () => ({ hasConflict: () => false }) }));
 // The tag stores (tag-system.md): no tags here, and no Pinia.
 vi.mock('@/store/tagStore', () => ({ useTagStore: () => ({ hasFilters: false, filters: [], styles: {}, loadStyles: async () => {}, styleRow: () => null, addFilter: () => {}, tagLook: (_dbKey, name) => ({ name, label: name, hex: '#78716c', colorKey: 'neutral', styled: false }) }) }));
-vi.mock('@/store/documentIndexStore', () => ({ useDocumentIndexStore: () => ({ version: 0, ensure: async () => {}, entry: () => null, versionOf: () => 0 }) }));
+// One Document (n1) is tagged; the personal database has a `status` key.
+const indexStore = reactive({
+    version: 0,
+    ensure: vi.fn(async () => {}),
+    entry: (_dbKey, id) => (id === 'n1' ? { tags: ['urgent', 'to do'], tagLabels: { urgent: 'Urgent', 'to do': 'To do' }, properties: {} } : null),
+    versionOf: () => 0,
+    propertyKeys: (dbKey) => (dbKey === PERSONAL ? [{ key: 'status', count: 3 }, { key: 'due', count: 2 }, { key: 'when', count: 1 }] : [{ key: 'Status', count: 1 }]),
+    propertyValues: (dbKey, key) => {
+        if (key === 'due') return [{ value: '2026-12-01', count: 2 }];
+        if (key.toLowerCase() === 'status') return [{ value: 'draft', count: 2 }, { value: 'final', count: 1 }];
+        // 60 dates and, least used, one that is not: not a date key, though the 50 most used are dates.
+        if (key === 'when' && dbKey === PERSONAL) {
+            return [...Array.from({ length: 60 }, (_, i) => ({ value: `2026-01-${String(1 + (i % 28)).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00`, count: 2 })), { value: 'someday', count: 1 }];
+        }
+        return [];
+    },
+});
+vi.mock('@/store/documentIndexStore', () => ({ useDocumentIndexStore: () => indexStore }));
 vi.mock('@/composables/useViewport', async () => {
     const { ref } = await import('vue');
     return { useViewport: () => ({ isPhone: ref(true), visibleStyle: ref({}), keyboardOpen: ref(false) }) };
@@ -227,6 +244,46 @@ describe('desktop search panel', () => {
         expect(searchDocuments.mock.calls.length).toBe(settled);
     });
 
+    it('searches a tag: or prop: query again when the metadata index changes, throttled', async () => {
+        useDesktopSearchState().text.value = 'tag:urgent';
+        mountIt(SearchPanel);
+        await settle();
+        const before = searchDocuments.mock.calls.length;
+        for (let i = 0; i < 4; i += 1) {
+            indexStore.version += 1;
+            await flushPromises();
+            vi.advanceTimersByTime(100);
+        }
+        await flushPromises();
+        expect(searchDocuments.mock.calls.length - before).toBe(1);
+        vi.advanceTimersByTime(2100);
+        await flushPromises();
+        expect(searchDocuments.mock.calls.length - before).toBe(2);
+        expect(searchDocuments).toHaveBeenLastCalledWith({ query: 'tag:urgent', limit: 20 });
+    });
+
+    it('does not follow the index for a query that does not read it', async () => {
+        useDesktopSearchState().text.value = 'budget prop:word_count>5';
+        mountIt(SearchPanel);
+        await settle();
+        const before = searchDocuments.mock.calls.length;
+        indexStore.version += 1;
+        vi.advanceTimersByTime(3000);
+        await flushPromises();
+        expect(searchDocuments.mock.calls.length).toBe(before);
+    });
+
+    it('fetches on past empty pages whose cursor says more may follow', async () => {
+        useDesktopSearchState().text.value = 'lorem -is:checklist';
+        searchDocuments.mockImplementation(async ({ cursor }) => (cursor?.id === 'b'
+            ? { results: [doc('late1')], nextCursor: null, notices: ['Only the first 5000 Documents that could match in a database were checked; add words or in: to narrow the search.'], terms: ['lorem'], cancelled: false }
+            : { results: [], nextCursor: { score: 1, updatedAt: '2026-01-01', id: 'b' }, notices: ['Only the first 5000 Documents that could match in a database were checked; add words or in: to narrow the search.'], terms: ['lorem'], cancelled: false }));
+        const wrapper = mountIt(SearchPanel);
+        await settle();
+        expect(wrapper.findAll('a[data-testid^="documents-search-result-"]')).toHaveLength(1);
+        expect(wrapper.findAll('[data-testid="documents-search-notices"] li')).toHaveLength(1);
+    });
+
     it('does not search again after a sync while the field is empty', async () => {
         mountIt(SearchPanel);
         await settle();
@@ -242,6 +299,121 @@ describe('desktop search panel', () => {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F', ctrlKey: true, shiftKey: true }));
         expect(ui.toggleDocuments).toHaveBeenCalled();
         expect(useDesktopSearchState().open.value).toBe(true);
+    });
+});
+
+describe('property picker and tag chips', () => {
+    it('opens under its chip, takes focus, writes a prop: part, and gives focus back', async () => {
+        const wrapper = mountIt(SearchPanel);
+        await wrapper.get('[data-testid="documents-search-input"]').setValue('budget');
+        const chip = wrapper.get('[data-testid="documents-search-chip-property"]');
+        chip.element.focus();
+        await chip.trigger('click');
+        await flushPromises();
+        const picker = wrapper.get('[data-testid="documents-search-property-picker"]');
+        expect(chip.attributes('aria-expanded')).toBe('true');
+        expect(document.activeElement?.dataset.testid).toBe('property-picker-key');
+        const options = wrapper.findAll('[data-testid="property-picker-key"] option').map((option) => option.element.value);
+        expect(options).toEqual(['', 'status', 'due', 'when', 'word_count', 'created_on', 'modified_on']);
+        await wrapper.get('[data-testid="property-picker-key"]').setValue('status');
+        await wrapper.get('[data-testid="property-picker-condition"]').setValue('is');
+        const suggestions = wrapper.findAll('#property-picker-values option').map((option) => option.element.value);
+        expect(suggestions).toEqual(['draft', 'final']);
+        await wrapper.get('[data-testid="property-picker-value"]').setValue('in progress');
+        expect(wrapper.get('[data-testid="property-picker-preview"]').text()).toBe('Adds prop:status="in progress"');
+        await picker.find('form').trigger('submit');
+        await flushPromises();
+        expect(wrapper.get('[data-testid="documents-search-input"]').element.value).toBe('budget prop:status="in progress"');
+        expect(searchDocuments).toHaveBeenLastCalledWith({ query: 'budget prop:status="in progress"', limit: 20 });
+        expect(wrapper.find('[data-testid="documents-search-property-picker"]').exists()).toBe(false);
+        expect(document.activeElement?.dataset.testid).toBe('documents-search-chip-property');
+        // Not remembered: the page wrote it, not the person.
+        vi.advanceTimersByTime(2500);
+        expect(localStorage.getItem('panino-recent-searches')).toBeNull();
+    });
+
+    it('uses a date field for date keys, hides the value for is set, and Esc closes the picker only', async () => {
+        useDesktopSearchState().openSearch();
+        const wrapper = mountIt(SearchPanel);
+        await wrapper.get('[data-testid="documents-search-chip-property"]').trigger('click');
+        await flushPromises();
+        await wrapper.get('[data-testid="property-picker-key"]').setValue('due');
+        expect(wrapper.get('[data-testid="property-picker-value"]').attributes('type')).toBe('date');
+        // Every value decides, not only the 50 suggestions.
+        await wrapper.get('[data-testid="property-picker-key"]').setValue('when');
+        expect(wrapper.get('[data-testid="property-picker-value"]').attributes('type')).toBe('text');
+        await wrapper.get('[data-testid="property-picker-key"]').setValue('modified_on');
+        expect(wrapper.get('[data-testid="property-picker-value"]').attributes('type')).toBe('date');
+        await wrapper.get('[data-testid="property-picker-condition"]').setValue('set');
+        expect(wrapper.find('[data-testid="property-picker-value"]').exists()).toBe(false);
+        await wrapper.get('[data-testid="property-picker-condition"]').setValue('is');
+        await wrapper.get('[data-testid="documents-search-property-picker"] form').trigger('submit');
+        expect(wrapper.get('[data-testid="property-picker-error"]').text()).toBe('Enter a value.');
+        await wrapper.get('[data-testid="documents-search-property-picker"]').trigger('keydown', { key: 'Escape' });
+        await flushPromises();
+        expect(wrapper.find('[data-testid="documents-search-property-picker"]').exists()).toBe(false);
+        expect(useDesktopSearchState().open.value).toBe(true);
+    });
+
+    it('keeps both popovers inside the panel: positioned against it, full width, no wider', async () => {
+        const wrapper = mountIt(SearchPanel);
+        const root = wrapper.get('[data-testid="documents-search-panel"]').element;
+        const check = async (testid) => {
+        expect(root.classList.contains('relative')).toBe(true);
+            const popover = wrapper.get(`[data-testid="${testid}"]`).element;
+            for (const name of ['absolute', 'inset-x-0', 'max-w-full']) expect(popover.classList.contains(name), `${testid} ${name}`).toBe(true);
+            expect([...popover.classList].some((name) => /^(w-\d|right-|left-\d)/.test(name)), testid).toBe(false);
+            // No positioned element between the popover and the panel, so it spans the panel.
+            for (let node = popover.parentElement; node !== root; node = node.parentElement) {
+                expect(['relative', 'absolute', 'fixed'].some((name) => node.classList.contains(name)), `${testid} ancestor`).toBe(false);
+            }
+        };
+        // One at a time: opening one closes the other.
+        await wrapper.get('[data-testid="documents-search-syntax-toggle"]').trigger('click');
+        await flushPromises();
+        await check('documents-search-syntax');
+        await wrapper.get('[data-testid="documents-search-chip-property"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="documents-search-syntax"]').exists()).toBe(false);
+        await check('documents-search-property-picker');
+        await wrapper.get('[data-testid="documents-search-syntax-toggle"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="documents-search-property-picker"]').exists()).toBe(false);
+        expect(document.activeElement?.dataset.testid).toBe('documents-search-syntax');
+    });
+
+    it('adds tag: from a tag chip on a result, once', async () => {
+        useDesktopSearchState().text.value = 'budget';
+        const wrapper = mountIt(SearchPanel);
+        await settle();
+        const chips = wrapper.findAll('[data-testid^="document-tag-n1-"]');
+        // The chips' look comes from tagStore.tagLook (mocked: the canonical name).
+        expect(chips.map((chip) => chip.text())).toEqual(['#urgent', '#to do']);
+        await chips[1].trigger('click');
+        await flushPromises();
+        expect(wrapper.get('[data-testid="documents-search-input"]').element.value).toBe('budget tag:"to do"');
+        expect(router.push).not.toHaveBeenCalled();
+        await wrapper.findAll('[data-testid^="document-tag-n1-"]')[1].trigger('click');
+        expect(wrapper.get('[data-testid="documents-search-input"]').element.value).toBe('budget tag:"to do"');
+        expect(searchDocuments).toHaveBeenLastCalledWith({ query: 'budget tag:"to do"', limit: 20 });
+    });
+
+    it('opens the picker in a bottom sheet on the phone', async () => {
+        route.query = { q: 'budget' };
+        const wrapper = mountIt(PhoneSearchPage);
+        await flushPromises();
+        await wrapper.get('[data-testid="phone-search-scope-property"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.find('[data-testid="phone-search-property-sheet"]').exists()).toBe(true);
+        await wrapper.get('[data-testid="property-picker-key"]').setValue('word_count');
+        await wrapper.get('[data-testid="property-picker-condition"]').setValue('more-than');
+        await wrapper.get('[data-testid="property-picker-value"]').setValue('500');
+        await wrapper.get('[data-testid="property-picker"]').trigger('submit');
+        await flushPromises();
+        expect(wrapper.get('[data-testid="phone-search-input"]').element.value).toBe('budget prop:word_count>500');
+        const tag = wrapper.findAll('[data-testid^="document-tag-n1-"]')[0];
+        await tag.trigger('click');
+        expect(wrapper.get('[data-testid="phone-search-input"]').element.value).toBe('budget prop:word_count>500 tag:urgent');
     });
 });
 

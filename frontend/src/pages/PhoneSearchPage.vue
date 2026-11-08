@@ -62,6 +62,14 @@
                         :data-testid="`phone-search-scope-${chip.value}`"
                         @click="toggleChip(chip.value)"
                     >{{ chip.label }}</button>
+                    <button
+                        type="button"
+                        class="ph-chip"
+                        aria-haspopup="dialog"
+                        :aria-expanded="picker.open.value"
+                        data-testid="phone-search-scope-property"
+                        @click="picker.openPicker()"
+                    >Property…</button>
                 </div>
             </header>
 
@@ -120,6 +128,7 @@
                         <li
                             v-for="doc in results"
                             :key="`${doc.dbKey}:${doc.id}`"
+                            class="ph-result-item"
                         >
                             <a
                                 :href="`#/doc/${encodeURIComponent(doc.id)}?dbKey=${encodeURIComponent(doc.dbKey)}`"
@@ -157,6 +166,14 @@
                                     </template>
                                 </span>
                             </a>
+                            <DocumentTagChips
+                                class="ph-result-tags"
+                                :db-key="doc.dbKey"
+                                :note-id="doc.id"
+                                :filterable="false"
+                                selectable
+                                @select="addTag"
+                            />
                         </li>
                     </ul>
                     <p
@@ -179,6 +196,25 @@
                 </template>
             </main>
         </div>
+        <BottomSheet
+            :open="picker.open.value"
+            label="Filter by property"
+            testid="phone-search-property-sheet"
+            @close="picker.closePicker()"
+        >
+            <template #header>
+                <h2 class="ph-sheet-title">Filter by property</h2>
+            </template>
+            <PropertyPicker
+                v-if="picker.open.value"
+                layout="phone"
+                :keys="picker.keys.value"
+                :loading="picker.loading.value"
+                :values-for="picker.valuesFor"
+                @add="addPropertyPart"
+                @close="picker.closePicker()"
+            />
+        </BottomSheet>
     </PhoneShell>
 </template>
 
@@ -187,11 +223,17 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, X, History } from 'lucide-vue-next'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
+import BottomSheet from '@/components/phone/BottomSheet.vue'
+import PropertyPicker from '@/components/PropertyPicker.vue'
+import DocumentTagChips from '@/components/tags/DocumentTagChips.vue'
+import { usePropertyPicker } from '@/composables/usePropertyPicker'
+import { appendPart } from '@/utils/propertyPicker'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useViewport } from '@/composables/useViewport'
 import { resultCountLabel, useDocumentSearch } from '@/composables/useDocumentSearch'
 import {
+    addTagPart,
     chipState,
     clearChips,
     folderSearchPath,
@@ -269,6 +311,19 @@ function toggleChip(value) {
     else if (value === 'titles') setText(setTitlesChip(text.value, !on.titles))
     else if (value === 'checklists') setText(setChecklistChip(text.value, !on.checklists))
     else if (value === 'folder') setText(setFolderChip(text.value, folderPath.value, !on.folder))
+    flush()
+}
+
+const picker = usePropertyPicker()
+
+function addPropertyPart(part) {
+    setText(appendPart(text.value, part))
+    picker.closePicker()
+    flush()
+}
+
+function addTag(name) {
+    setText(addTagPart(text.value, name))
     flush()
 }
 
@@ -376,7 +431,6 @@ function goBack() {
     flex-direction: column;
     gap: 2px;
     padding: 12px 20px;
-    border-bottom: 1px solid var(--ph-line);
     color: var(--ph-ink);
     text-decoration: none;
 }
@@ -423,6 +477,23 @@ function goBack() {
     border: 1px solid var(--ph-line);
     font-size: 12px;
     font-weight: 600;
+}
+
+.ph-result-item {
+    border-bottom: 1px solid var(--ph-line);
+}
+
+.ph-sheet-title {
+    margin: 0;
+    padding: 4px 20px 0;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.ph-result-tags {
+    display: flex;
+    padding: 0 20px 10px;
+    margin-top: -6px;
 }
 
 .ph-search-more {

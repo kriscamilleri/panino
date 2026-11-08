@@ -12,10 +12,10 @@
             :hex="tag.hex"
             :color-key="tag.colorKey"
             size="xs"
-            :clickable="filterable"
-            :title="filterable ? `Show Documents tagged ${tag.label}` : tag.label"
+            :clickable="filterable || selectable"
+            :title="selectable ? `Search for tag:${tag.label}` : filterable ? `Show Documents tagged ${tag.label}` : tag.label"
             :data-testid="`document-tag-${noteId}-${tag.name}`"
-            @click.stop="filterable && tagStore.addFilter(tag.name)"
+            @click.stop.prevent="choose(tag.name)"
         />
         <span
             v-if="overflow > 0"
@@ -42,7 +42,16 @@ const props = defineProps({
     /** Clicking a chip filters the sidebar by that tag. */
     filterable: { type: Boolean, default: true },
     max: { type: Number, default: 3 },
+    /** Clicking a chip emits `select` with the tag's name instead (search results add `tag:`). */
+    selectable: { type: Boolean, default: false },
 })
+
+const emit = defineEmits(['select'])
+
+function choose(name) {
+    if (props.selectable) emit('select', name)
+    else if (props.filterable) tagStore.addFilter(name)
+}
 
 const index = useDocumentIndexStore()
 const tagStore = useTagStore()

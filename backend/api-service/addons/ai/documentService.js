@@ -287,7 +287,12 @@ export function searchDocuments(ctx, {
     const textParts = parts.filter((part) => part.type === 'text');
     const conditions = textParts.map((part) => (part.negated ? negate(textPartCondition(part)) : textPartCondition(part)));
     for (const part of parts.filter((item) => item.type === 'is')) {
-        const has = { sql: `(CASE WHEN ${BODY_COLUMN} LIKE '%[%]%' THEN ${HAS_CHECKLIST}(${BODY_COLUMN}) ELSE 0 END)`, params: [] };
+        // A checklist item has a box, `[ ]` or `[x]` (LIKE folds the X): the function runs only
+        // on bodies that have one, not on every body with a bracket (links).
+        const has = {
+            sql: `(CASE WHEN ${BODY_COLUMN} LIKE '%[ ]%' OR ${BODY_COLUMN} LIKE '%[x]%' THEN ${HAS_CHECKLIST}(${BODY_COLUMN}) ELSE 0 END)`,
+            params: [],
+        };
         conditions.push(part.negated ? negate(has) : has);
     }
     const scored = textParts.filter((part) => !part.negated && part.field !== 'content')
@@ -298,6 +303,7 @@ export function searchDocuments(ctx, {
     const checklist = parts.some((part) => part.type === 'is');
     const inParts = parts.filter((part) => part.type === 'in');
     const propParts = parts.filter((part) => part.type === 'prop');
+    const tagParts = parts.filter((part) => part.type === 'tag');
     const named = inParts.map(() => false);
 
     const hits = [];
@@ -326,10 +332,11 @@ export function searchDocuments(ctx, {
             ...(after ? [{ sql: 'updated_at > ?', params: [after] }] : []),
         ];
 
-        if (propParts.length) {
-            // A property condition reads front matter: the property scan, capped, decides.
+        if (propParts.length || tagParts.length) {
+            // A property or tag condition reads front matter: the property scan, capped, decides.
             const found = searchByProperties(ctx, { ...target, db }, {
                 parts: propParts,
+                tagParts,
                 includeTrash: true,
                 folderId: folder,
                 filters: [...conditions, ...scopeConditions],
@@ -399,7 +406,7 @@ export function searchDocuments(ctx, {
         results,
         nextOffset: hits.length > skip + max ? skip + max : null,
         notices,
-        ...(propParts.length ? { truncated, scanned } : {}),
+        ...(propParts.length || tagParts.length ? { truncated, scanned } : {}),
     };
 }
 

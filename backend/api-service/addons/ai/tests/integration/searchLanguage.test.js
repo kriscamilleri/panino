@@ -65,15 +65,15 @@ describe('AI agents add-on: search query language', () => {
         folder(mine, 'f-archive', 'Archive');
         folder(mine, 'f-trash', 'Trash');
         folder(mine, 'f-old', 'Old', 'f-trash');
-        note(mine, 'p1', 'Budget plan', '---\nstatus: draft\n---\nThe budget for next year.', { folderId: 'f-2026', updatedAt: day(1) });
+        note(mine, 'p1', 'Budget plan', '---\nstatus: draft\ntags: [Urgent, work]\n---\nThe budget for next year.', { folderId: 'f-2026', updatedAt: day(1) });
         note(mine, 'p2', 'Notes', 'budget talk, draft\n- [ ] call the bank', { folderId: 'f-projects', updatedAt: day(5) });
-        note(mine, 'p3', 'Old budget', 'budget gone', { folderId: 'f-old', updatedAt: day(9) });
+        note(mine, 'p3', 'Old budget', '---\ntags: urgent\n---\nbudget gone', { folderId: 'f-old', updatedAt: day(9) });
         note(mine, 'p4', 'Archive budget', '---\nstatus: final\n---\nbudget kept', { folderId: 'f-archive', updatedAt: day(2) });
         note(mine, 'p5', 'Über uns', 'Wir sind ÜBERALL. budget', { updatedAt: day(3) });
 
         folder(spaceDb, 's-contracts', 'Contracts');
         folder(spaceDb, 's-trash', 'trash ');
-        note(spaceDb, 's1', 'Budget review', 'team budget\n1. [x] signed', { folderId: 's-contracts', updatedAt: day(4) });
+        note(spaceDb, 's1', 'Budget review', '---\ntags:\n  - urgent\n---\nteam budget\n1. [x] signed', { folderId: 's-contracts', updatedAt: day(4) });
         note(spaceDb, 's2', 'Kickoff', 'mentions the budget, a draft', { updatedAt: day(6) });
         note(spaceDb, 's3', 'Binned', 'budget in the bin', { folderId: 's-trash', updatedAt: day(7) });
         note(spaceDb, 's4', 'Uber eats', 'über alles budget', { updatedAt: day(8) });
@@ -145,12 +145,12 @@ describe('AI agents add-on: search query language', () => {
 
     it('explains parts it cannot read and searches the rest', async () => {
         const res = await q('budget prop:status tag:urgent is:archived');
-        expect(ids(res)).toHaveLength(7);
+        expect(ids(res)).toEqual(['s1', 'p1']);
         expect(res.body.notices).toEqual([
             expect.stringMatching(/^prop:status: "status" has no operator/),
-            'Tags are not available yet',
             'is:archived is not known; use is:checklist',
         ]);
+        expect((await q(`tag:${'x'.repeat(51)}`)).status).toBe(400);
         const bad = await q('-budget');
         expect(bad.status).toBe(400);
         expect(bad.body.error).toMatch(/only exclusions/);
@@ -168,13 +168,22 @@ describe('AI agents add-on: search query language', () => {
         expect(ids(await q('"-5"'))).toEqual(['p6']);
     });
 
-    it('answers a search for tags alone with no results and the notice, not an error', async () => {
+    it('finds Documents by tag through the property scan, Trash left out', async () => {
         const res = await q('tag:urgent');
         expect(res.status).toBe(200);
-        expect(res.body).toMatchObject({ results: [], nextOffset: null, terms: [], notices: ['Tags are not available yet'] });
-        const mcpRes = await mcp('search_documents', { query: 'tag:urgent' });
-        expect(mcpRes.body.result.isError).toBeFalsy();
-        expect(mcpRes.body.result.content[0].text).toBe('No Documents match tag:urgent.\nNote: Tags are not available yet');
+        expect(ids(res)).toEqual(['s1', 'p1']);
+        expect(res.body).toMatchObject({ terms: [], notices: [], truncated: false, scanned: 'front_matter' });
+        expect(ids(await q('tag:URGENT tag:" Work "'))).toEqual(['p1']);
+        const without = await q('budget -tag:urgent');
+        expect(ids(without)).toEqual(['p4', 's4', 's2', 'p2', 'p5']);
+        expect(without.body.scanned).toBe('all');
+        const trash = await q('tag:urgent in:Trash');
+        expect(ids(trash)).toEqual(['p3']);
+        expect(trash.body.results[0].inTrash).toBe(true);
+        expect(ids(await q('tag:urgent prop:status=draft'))).toEqual(['p1']);
+        const mcpRes = await mcp('search_documents', { query: 'tag:urgent in:"Acme Team"' });
+        expect(mcpRes.body.result.content[0].text).toMatch(/^1\. Budget review/);
+        expect(mcpRes.body.result.structuredContent).toMatchObject({ truncated: false, scanned: 'front_matter' });
     });
 
     it('reads a quoted value inside a prop: part', async () => {
@@ -186,11 +195,11 @@ describe('AI agents add-on: search query language', () => {
     });
 
     it('works through MCP, with the notices in the text', async () => {
-        const res = await mcp('search_documents', { query: 'budget in:"Acme Team/Contracts" tag:x' });
+        const res = await mcp('search_documents', { query: 'budget in:"Acme Team/Contracts" is:nothing' });
         const { text } = res.body.result.content[0];
         expect(text).toMatch(/^1\. Budget review/);
-        expect(text).toContain('Note: Tags are not available yet');
-        expect(res.body.result.structuredContent.notices).toEqual(['Tags are not available yet']);
+        expect(text).toContain('Note: is:nothing is not known; use is:checklist');
+        expect(res.body.result.structuredContent.notices).toEqual(['is:nothing is not known; use is:checklist']);
         const none = await mcp('search_documents', { query: 'prop:status=gone' });
         expect(none.body.result.content[0].text).toBe('No Documents match prop:status=gone.');
     });
@@ -218,6 +227,11 @@ describe('AI agents add-on: search query language', () => {
             'prop:status=draft',
             'budget prop:"status != draft"',
             'budget -in:Projects',
+            'tag:urgent',
+            'tag:urgent tag:work',
+            'budget -tag:urgent',
+            'tag:urgent in:Trash',
+            'budget tag:urgent prop:"owner missing"',
         ];
 
         for (const query of QUERIES) {
@@ -230,6 +244,18 @@ describe('AI agents add-on: search query language', () => {
                 expect(found.terms).toEqual(api.body.terms);
             });
         }
+
+        it('reads front matter after a BOM, a no-break space or a form feed, as the app does', async () => {
+            note(db(), 'w1', 'Bom', '\uFEFF---\ntags: bom\n---\nbudget bom', { updatedAt: day(4) });
+            note(db(), 'w2', 'Nbsp', '\u00A0\n---\nkind: nbsp\n---\nbudget nbsp', { updatedAt: day(4) });
+            note(spaceDb, 'w3', 'Formfeed', '\f---\ntags: [ff]\n---\nbudget ff', { updatedAt: day(4) });
+            for (const [query, id] of [['tag:bom', 'w1'], ['prop:kind=nbsp', 'w2'], ['tag:ff', 'w3'], ['budget tag:ff', 'w3']]) {
+                const api = await q(query, '&limit=100');
+                expect(ids(api), query).toEqual([id]);
+                const found = await searchDatabases({ databases: appDatabases(), query, limit: 100 });
+                expect(found.results.map((row) => row.id), query).toEqual([id]);
+            }
+        });
 
         it('pages the same way', async () => {
             const api = [...ids(await q('budget', '&limit=3')), ...ids(await q('budget', '&limit=3&offset=3'))];

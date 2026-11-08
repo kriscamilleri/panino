@@ -64,7 +64,7 @@ describe('search chips', () => {
     });
 
     it('lists every part of the language in the syntax help', () => {
-        expect(SEARCH_SYNTAX.map((row) => row.part)).toEqual(['word', '"a phrase"', 'title:', 'in:', 'is:checklist', 'prop:', '-', 'in:Trash']);
+        expect(SEARCH_SYNTAX.map((row) => row.part)).toEqual(['word', '"a phrase"', 'title:', 'in:', 'is:checklist', 'tag:', 'prop:', '-', 'in:Trash']);
         for (const row of SEARCH_SYNTAX) expect(parseSearchQuery(`x ${row.example}`).notices).toEqual([]);
     });
 });

@@ -2,16 +2,21 @@
 
 > Find Documents by their text, title, folder, front matter properties and tags, in personal
 > Documents and every space at once, on desktop and phone, with one search engine behind both.
-> Status: active — phases 1–2 on `feature/advanced-search`
+> Status: active — phases 1–2 merged on `feature/pending-specs`; phases 3–4 on
+> `feature/advanced-search-3-4`
 > Created: 2026-03-21
 > Last updated: 2026-11-08 — rewritten for what shipped since March: shared spaces, the phone
 > Search page, the shared front matter parser, the AI agents add-on's search and property
-> filters, and the forthcoming [tag system](../proposed/tag-system.md); then Kris decided Q1–Q4 (§12)
+> filters, and the forthcoming [tag system](tag-system.md); then Kris decided Q1–Q4 (§12)
 > Implementation (phases 1–2): `shared/searchText.js`, `shared/propertyFilter.js`,
 > `shared/trashFolder.js`, `shared/documentSearch.js` (the app's engine), `docStore.searchDocuments`,
 > `composables/useDocumentSearch.js`, `pages/PhoneSearchPage.vue`, `components/SearchPanel.vue`,
 > the AI add-on's `documentService.searchDocuments` and `propertyService.searchByProperties`.
-> Build notes in §13. Remaining: phase 0 (browser benchmark), phases 3–4
+> Implementation (phases 3–4): `metadataRestrictions` in `shared/documentSearch.js` (the metadata
+> index answers `tag:` and front matter `prop:`), `documentIndexStore.metadataEntries`,
+> `utils/propertyPicker.js`, `components/PropertyPicker.vue`, `composables/usePropertyPicker.js`,
+> tag chips on results (`DocumentTagChips` with `selectable`), the API's `tag:` through
+> `searchByProperties`. Build notes in §13. Remaining: the phase 0 decision (FTS5 or not, §8)
 
 ---
 
@@ -84,7 +89,7 @@ A query is a list of parts separated by spaces. Every part must match (AND).
 | `"a phrase"` | the title or body contains the exact phrase | `"quarterly review"` |
 | `title:` word or phrase | the title only | `title:kickoff`, `title:"team sync"` |
 | `in:` folder path | Documents in that folder and below; a space name may lead | `in:Projects/2026`, `in:"Acme Team/Contracts"` |
-| `tag:` name | Documents carrying the tag ([tag system](../proposed/tag-system.md) §3) | `tag:urgent` |
+| `tag:` name | Documents carrying the tag ([tag system](tag-system.md) §3), case and spacing ignored | `tag:urgent`, `tag:"to do"` |
 | `is:checklist` | Documents with at least one checklist item (the phone's Checklists chip) | `is:checklist` |
 | `prop:` condition | one condition of the property filter language, quoted when it has spaces | `prop:status=draft`, `prop:"due <= 2026-12-01"`, `prop:"owner missing"` |
 | `-` before any part | must **not** match | `-tag:archived`, `-"draft"` |
@@ -281,9 +286,9 @@ parser, so every part in §4 works there too:
 
 ## 7) Tags dependency
 
-`tag:` and the tag chips need the [tag system](../proposed/tag-system.md). Search ships without them
-(§10), and `tag:` shows "Tags are not available yet" until then. When the tag spec is revised,
-align it with this spec:
+`tag:` and the tag chips need the [tag system](tag-system.md). Phases 1–2 shipped without them
+and `tag:` showed "Tags are not available yet"; phase 4 (built on the merged tag system)
+removed that notice. The alignment points below were all taken up by the tag spec:
 
 - Its §7 reads tags with "the front-matter parser in `markdownStore.js`". The parser is now
   `shared/frontMatter.js`, and it does not read list items, so tags need `readTags` (§6.1).
@@ -327,6 +332,15 @@ Other limits:
 - A query is abandoned when a newer one starts. Each database query checks a version counter,
   as the sidebar search does today.
 
+Load note (review of phases 3–4): in `notes`, `content` comes before `created_at` and
+`updated_at`, so even a metadata-only read (the one-pass candidate list, the index's id lookups,
+`ORDER BY updated_at`) walks each row's overflow pages to reach the later columns. That is why a
+search answered by id lists still costs about 0.23 ms per Document in the browser, and why
+`title:` alone costs ~180 ms at 5000 Documents. A local covering index on
+`(updated_at, id, title, folder_id, created_at, pinned)` (not a CRR, not synced) or a column
+order with `content` last would make those reads cheap; either is the follow-up, and both need
+measuring against CR-SQLite's merge path first.
+
 ---
 
 ## 9) Security and privacy
@@ -344,6 +358,14 @@ Other limits:
 ---
 
 ## 10) Phases
+
+| Phase | Contents | Size |
+|---|---|---|
+| Phase | Status |
+|---|---|
+| 0 | A first rough run is in the agent log (§13); the decision is open |
+| 1–2 | Built and reviewed; merged on `feature/pending-specs` |
+| 3–4 | Built on `feature/advanced-search-3-4` (§13, "Phases 3–4") |
 
 | Phase | Contents | Size |
 |---|---|---|
@@ -425,8 +447,8 @@ Where the build differs from the text above, or settles something it left open:
 - **Terms with cased non-ASCII letters** (über) cannot be scored exactly by `LIKE`, so for such a
   query the app reads every candidate's metadata (no bodies), scores titles in JS and sorts; the
   ASCII path keeps SQL's `ORDER BY … LIMIT`. Both page with the same cursor.
-- **Refill** reads more candidates in growing batches (the page size, then doubling, at most
-  500), so a rare `is:checklist` or `prop:` does not cost one query per page-sized slice. Bodies
+- **Refill** reads the candidates' bodies in growing batches (the page size, then doubling, at
+  most 500), by id after one scan (since phases 3–4: "One scan per database" below). Bodies
   read to confirm a batch are kept only for the rows that match, so memory stays bounded by
   the page; a check on the title alone reads no body.
 - **Checklists** skip front matter by the shared `findFrontMatterBlock` rule. An empty box
@@ -447,3 +469,77 @@ Where the build differs from the text above, or settles something it left open:
   connection made the next query fail with "database disk image is malformed". Numbers and
   method: `docs/agent-logs/2026/11/2026-11-08_18-30_advanced-search-phases-1-2.md`. The phase 0
   decision (§8) is still to be made on the dev stack.
+
+### Phases 3–4 (2026-11-08)
+
+Review fixes (2026-11-08, after an independent review):
+- **A cut database never loses its unchecked candidates.** When a database's one pass is cut
+  at 5000 before the page fills, the merged page stops at that database's last checked
+  candidate (the earliest such boundary among databases), and the cursor resumes from the last
+  row shown, or from the boundary when nothing came before it. The notice stays while a database
+  is cut. The search screens fetch on past an empty page whose cursor says more may follow (up to
+  five pages).
+- **`tag:`/front matter `prop:` results follow the index**: shown results are searched again
+  when the metadata index changes (it lags a sync by ~100 ms and changes on every local save),
+  with the same 2 s throttle, only while such a query is shown.
+- **An index that is not ready never answers**: a build abandoned because the database was
+  reopened resolves `ensure` without an index; search then reads the heads.
+- **One white-space rule for front matter in SQL**: the index's page query and the API's
+  property scan share `FRONT_MATTER_PREFILTER_SQL` (`shared/propertyFilter.js`), which skips
+  what `String.trim` does (BOM, no-break space, form feed …), as `findFrontMatterBlock` does.
+- **The picker explains** values with repeated spaces or tabs (the search collapses them: use
+  "contains" with part of the value) and property names with `= < > ! ~ ^`; whether a key is a
+  date key is decided from every value seen, not the 50 suggestions. It does not switch the
+  condition by itself, which would quietly change what is searched.
+- **One popover at a time** in the desktop panel.
+
+- **The index decides, per database.** When a query has `tag:` or a front matter `prop:`, the
+  engine asks each database for its metadata index (`database.index()`, which
+  `docStore.searchDocuments` wires to `documentIndexStore.ensure`, `metadataEntries` and
+  `idsWithTags`). `metadataRestrictions` turns those parts into id lists bound as
+  `notes.id IN (SELECT value FROM json_each(?))` (or `NOT IN`), and the SQL prefilter and the JS
+  check for those parts are dropped, so no body is read for them. A database whose index cannot
+  be built falls back to reading the first 16 KB of the candidates, which gives the same
+  Documents (a test compares both ways on 13 queries).
+- **Documents without front matter** are not in the index's entries. A condition they pass
+  (`owner missing`, `status != draft`, `-prop:status=draft`) becomes an exclusion of the indexed
+  Documents that fail it; any other condition a list of those that pass.
+- **Built-ins stay off the index:** `created_on` and `modified_on` are checked on the row,
+  `word_count` still reads the body (it is not in the index).
+- **`tag:`** uses `canonicalTagName` (the tag system's rule: case and spacing ignored, at most 50
+  characters; a longer name is a notice). Several `tag:` parts must all hold, as the sidebar's
+  filter bar requires every chosen tag; a test checks both give the same Documents. Trash is left
+  out unless `in:Trash`.
+- **The API's `tag:`** goes through `searchByProperties` (the `scanTarget` path) with `readTags`
+  on the 16 KB head, a `tags` key prefilter for a positive tag, and the same cap, `truncated` and
+  `scanned` as `prop:`. `-tag:` reads every Document (`scanned: all`). The "Tags are not
+  available yet" notice is gone (the parser keeps a `tags: false` option).
+- **Tag chips on results** reuse `DocumentTagChips` (up to three, `+N`, the database's colours);
+  with `selectable` a click emits `select` instead of filtering the sidebar, and the result adds
+  `tag:<name>` (once). The chips sit below the result link, not inside it, so no button is nested
+  in a link.
+- **The property picker** (§5.4): a "Property…" chip on both screens. Keys from every open
+  database's index (grouped ignoring case, counts added up, most used first), then the
+  built-ins; `tags` is left out (tags have `tag:`), and so is a front matter key named like a
+  built-in. Ten conditions in words map to `parseFilter`'s operators. Value suggestions are a
+  `<datalist>` of the values seen; the value is a date field for `created_on`, `modified_on`
+  and keys whose values all read as ISO dates, a number field for `word_count`, and hidden for
+  "is set" / "is not set". The part is written in the plainest form the parser reads back as the
+  same condition (`prop:status=draft`, `prop:status="in progress"`, `prop:"due date"<="…"`,
+  `prop:"owner missing"`); a value with a double quote is refused. Desktop: a popover under the
+  chip (focus moves in, Tab stays inside, Esc closes it alone and focus returns to the chip).
+  Phone: a bottom sheet. Text the picker writes is not remembered as a recent search.
+- **One scan per database** (the coordinator's phase 0 run found `lorem is:checklist` at 16.7 s:
+  every refill re-ran the full scan). A query with checks in JS now runs one pass for every
+  candidate's metadata in order (capped at 5000, with a notice when that cut a page short), then
+  reads the bodies the checks need in batches by id; only confirmed bodies are kept. The
+  checklist prefilter looks for a box (`[ ]`, `[x]`) rather than any bracket, in the app and the
+  API. `lorem is:checklist` now costs 1.10× `lorem` (1.07× at 4× throttling).
+- **Measured** (headless Chrome, 5000 seeded Documents, sync off, median of 5): the index's first
+  build 1.1 s; `prop:status=draft` 191 ms (2193 ms reading heads in phase 1); `tag:alpha` (about
+  330 Documents) 80 ms; `tag:report` (every Document with front matter, about 1650) 378 ms; the
+  cost grows with the number of ids, each a row read through the WASM storage. Conditions that
+  Documents without front matter pass (`prop:"owner missing"` 885 ms) and any body search
+  (`lorem -tag:report` 1018 ms) still read every page, as in phase 0's run. API on the 87 MB
+  account: `tag:report` 47 ms, `tag:alpha` 45 ms, `lorem tag:report` 46 ms, `lorem -tag:report`
+  81 ms. Details: the agent log.

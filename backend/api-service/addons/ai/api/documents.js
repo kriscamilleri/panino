@@ -129,7 +129,7 @@ export const tools = [
     {
         name: 'search_documents',
         title: 'Search Documents',
-        description: 'Find Documents across every reachable database, with the same query language as the app\'s search. Every part must match (case-insensitive for every letter): words, "quoted phrases", title:word (title only), in:Folder/Sub (that folder and below; a space name may lead, e.g. in:"Acme Team/Contracts"), is:checklist, prop:condition (one property filter condition, e.g. prop:status=draft or prop:"due <= 2026-12-01"; also word_count, created_on, modified_on, created_by, modified_by), and - before any part to exclude it (-"old draft", -in:Archive; a dash excludes only before a letter or a quote, so -5 and -- stay words; put anything in "double quotes" to search it literally, e.g. "title:" or "-draft"). The Trash folder is left out unless the query has in:Trash or include_trash is true. Documents with the words in the title come first, then the most recently updated. Each result has an id, a match count and up to 3 snippets with line numbers (read around them with get_document start_line/end_line). Parts that cannot be read come back in notices and the rest is searched. Use this before reading or editing a Document.',
+        description: 'Find Documents across every reachable database, with the same query language as the app\'s search. Every part must match (case-insensitive for every letter): words, "quoted phrases", title:word (title only), in:Folder/Sub (that folder and below; a space name may lead, e.g. in:"Acme Team/Contracts"), is:checklist, tag:name (Documents whose front matter tags hold it, ignoring case, e.g. tag:urgent or tag:"to do"), prop:condition (one property filter condition, e.g. prop:status=draft or prop:"due <= 2026-12-01"; also word_count, created_on, modified_on, created_by, modified_by), and - before any part to exclude it (-"old draft", -in:Archive; a dash excludes only before a letter or a quote, so -5 and -- stay words; put anything in "double quotes" to search it literally, e.g. "title:" or "-draft"). The Trash folder is left out unless the query has in:Trash or include_trash is true. Documents with the words in the title come first, then the most recently updated. Each result has an id, a match count and up to 3 snippets with line numbers (read around them with get_document start_line/end_line). Parts that cannot be read come back in notices and the rest is searched. Use this before reading or editing a Document.',
         access: 'read',
         annotations: READ,
         inputSchema: object({
@@ -171,7 +171,7 @@ export const tools = [
             }
             const notes = [
                 ...result.notices.map((notice) => `Note: ${notice}`),
-                ...(result.truncated ? ['Note: only the 5000 most recently updated Documents per database were checked for the property condition; narrow the search (in:, more words) to reach older ones.'] : []),
+                ...(result.truncated ? ['Note: only the 5000 most recently updated Documents per database were checked for the property or tag condition; narrow the search (in:, more words) to reach older ones.'] : []),
             ];
             if (notes.length) text = [text, ...notes].join('\n');
             return { text, structured: result };
@@ -704,15 +704,16 @@ export const paths = {
             description: 'Parts of `q`, separated by spaces, all of which must match: words and "quoted phrases" '
                 + '(`budget "quarterly review"`), `title:` a word or phrase (`title:"team sync"`), `in:` a folder path, '
                 + 'that folder and below, a space name may lead (`in:Projects/2026`, `in:"Acme Team/Contracts"`), '
-                + '`is:checklist`, `prop:` one property filter condition (`prop:status=draft`, `prop:"due <= 2026-12-01"`, '
+                + '`is:checklist`, `tag:` a tag of the front matter `tags` list, ignoring case (`tag:urgent`, `tag:"to do"`), '
+                + '`prop:` one property filter condition (`prop:status=draft`, `prop:"due <= 2026-12-01"`, '
                 + '`prop:"owner missing"`, built-ins `word_count`, `created_on`, `modified_on`, `created_by`, `modified_by`), and '
                 + '`-` before any part to exclude it (`-"old draft"`, `-in:Archive`); a dash excludes only before a letter or a quote, '
                 + 'so `-5` and `--` stay words, and anything in "double quotes" is searched literally (`"title:"`, `"-draft"`). '
                 + 'A prefixed value runs to the next space outside quotes (`prop:status="in progress"`). '
                 + 'Trash is left out unless `q` has `in:Trash`, '
                 + '`includeTrash` is true or `folderId` is inside Trash. A part that cannot be read is skipped and explained in '
-                + '`notices`; a query whose only part is `tag:` (not available yet) returns no results with that notice. '
-                + 'With a `prop:` part the property scan reads at most 5000 Documents per database (`truncated`).',
+                + '`notices`. With a `prop:` or `tag:` part the property scan reads at most 5000 Documents per database '
+                + '(`truncated`), the first 16 KB of each.',
             parameters: [
                 { name: 'q', in: 'query', required: true, schema: { type: 'string', minLength: 2, maxLength: 200 }, description: 'The query, at most 20 parts' },
                 { ...spaceQuery, description: 'Space id, "personal", or "all" (default)' },
@@ -730,8 +731,8 @@ export const paths = {
                         query: { type: 'string' },
                         terms: { type: 'array', items: { type: 'string' }, description: 'The words and phrases looked for (not excluded ones)' },
                         notices: { type: 'array', items: { type: 'string' }, description: 'Parts that were skipped or matched no folder, as sentences' },
-                        truncated: { type: 'boolean', description: 'With a prop: part: the property scan stopped at 5000 Documents in some database' },
-                        scanned: { type: 'string', enum: ['all', 'front_matter'], description: 'With a prop: part: whether every Document or only those with front matter were read' },
+                        truncated: { type: 'boolean', description: 'With a prop: or tag: part: the property scan stopped at 5000 Documents in some database' },
+                        scanned: { type: 'string', enum: ['all', 'front_matter'], description: 'With a prop: or tag: part: whether every Document or only those with front matter were read' },
                         in: { type: 'string' },
                         offset: { type: 'integer' },
                         nextOffset: { type: ['integer', 'null'] },

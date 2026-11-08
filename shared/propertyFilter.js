@@ -11,6 +11,27 @@
  */
 import { parseFrontMatter, unquoteValue } from './frontMatter.js';
 
+/**
+ * The characters `String.prototype.trim` removes, as a SQLite `char(…)` list for `ltrim`, so a
+ * SQL prefilter skips the same leading white space as `findFrontMatterBlock` (which trims each
+ * line): space, tab, line breaks, \v, \f, NBSP, U+1680, U+2000–U+200A, the line and paragraph
+ * separators, U+202F, U+205F, U+3000 and the BOM.
+ */
+export const TRIM_CHARS_SQL = 'char(9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, '
+    + '8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279)';
+
+/**
+ * "This body may open with front matter", in SQL over a `content` column: its first
+ * non-blank text is `---`. Only the first KB is trimmed for that; a body that starts with more
+ * blank space than that falls back to looking for `---` anywhere in the part that is parsed.
+ * The API's property scan and the app's metadata index use this one expression.
+ */
+export const FRONT_MATTER_PREFILTER_SQL = `(CASE
+    WHEN ltrim(substr(coalesce(content, ''), 1, 1024), ${TRIM_CHARS_SQL}) = ''
+        THEN instr(substr(coalesce(content, ''), 1, ${16 * 1024}), '---') > 0
+    ELSE ltrim(substr(coalesce(content, ''), 1, 1024), ${TRIM_CHARS_SQL}) LIKE '---%'
+END)`;
+
 /** Most conditions one filter may hold. */
 export const MAX_FILTER_CONDITIONS = 5;
 /** Front matter is at the top; this much of a body is enough to read it. */
