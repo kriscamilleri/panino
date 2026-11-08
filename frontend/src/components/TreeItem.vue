@@ -188,6 +188,11 @@
                 :data-testid="`tree-item-file-name-${item.id}`"
             >{{ item.name }}</span>
 
+            <DocumentTagChips
+                :db-key="item.dbKey"
+                :note-id="item.id"
+            />
+
             <span
                 v-if="hasConflict"
                 class="h-2 w-2 flex-shrink-0 rounded-full bg-amber-500"
@@ -311,6 +316,7 @@ import PromptModal from '@/components/PromptModal.vue'
 import AvatarStack from '@/components/AvatarStack.vue'
 import FolderStylesModal from '@/components/FolderStylesModal.vue'
 import DocumentStylesModal from '@/components/DocumentStylesModal.vue'
+import DocumentTagChips from '@/components/tags/DocumentTagChips.vue'
 
 import {
     Trash2, FilePlus, FolderPlus, MoreHorizontal,

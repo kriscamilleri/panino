@@ -342,6 +342,7 @@
                 :show="ui.showVariablesModal"
                 @close="ui.closeVariablesModal()"
             />
+            <TagManagerModal />
         </div>
     </PhoneShell>
 </template>
@@ -361,6 +362,9 @@ import UserAvatar from '@/components/UserAvatar.vue'
 import ImportModal from '@/components/ImportModal.vue'
 import ExportModal from '@/components/ExportModal.vue'
 import VariablesModal from '@/components/VariablesModal.vue'
+import TagManagerModal from '@/components/tags/TagManagerModal.vue'
+import { useTagStore } from '@/store/tagStore'
+import { Tags } from 'lucide-vue-next'
 import AddonCard from '@/components/addons/AddonCard.vue'
 import { useAddonReturn } from '@/composables/useAddonReturn'
 import { useAuthStore } from '@/store/authStore'
@@ -411,6 +415,7 @@ const tools = computed(() => [
         ? [{ key: 'spaces', label: 'Shared spaces', icon: Users, run: () => router.push('/spaces') }]
         : []),
     { key: 'variables', label: 'Variables', icon: Braces, run: () => ui.openVariablesModal() },
+    { key: 'tags', label: 'Tags', icon: Tags, run: () => useTagStore().openManager() },
     { key: 'import', label: 'Import', icon: Upload, run: () => ui.openImportModal() },
     { key: 'export', label: 'Export all', icon: Download, run: () => ui.openExportModal() },
 ])

@@ -249,6 +249,10 @@
           <TypewriterLayer v-if="typewriterActive" :ref="typewriterLayerRef" />
         </Transition>
       </Teleport>
+      <TagAutocomplete
+        :textarea="liveTextarea"
+        :db-key="file.dbKey"
+      />
     </div>
   </div>
 
@@ -319,6 +323,7 @@ import RemoteCarets from '@/components/phone/RemoteCarets.vue';
 import TypewriterLayer from '@/components/TypewriterLayer.vue';
 import { useTypewriter } from '@/composables/useTypewriter';
 import { useTypewriterStore } from '@/store/typewriterStore';
+import TagAutocomplete from '@/components/tags/TagAutocomplete.vue';
 import { YTextareaBinding } from '@/utils/yTextareaBinding';
 import { buildConflictResolutionPlan } from '@panino/content-merge';
 import OverType from 'overtype';

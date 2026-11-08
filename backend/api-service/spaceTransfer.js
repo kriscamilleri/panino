@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { v4 as uuidv4, validate as validateUuid } from "uuid";
 import { contentHash } from "@panino/content-merge";
+import { readTags } from "@panino/content-merge/front-matter";
 import { getHealthyDb, getSpacesDb, parseDbKey } from "./db.js";
 import { imageStorageUsage } from "./image.js";
 import { rewriteCanonicalImageDestinations } from "./markdownImageRewriter.js";
@@ -375,6 +376,42 @@ function copyDocument(row, source, destination, imageMap) {
 }
 
 /**
+ * Give the destination the styles of the moved Document's tags that it does
+ * not style yet (docs/specs/active/tag-system.md §6.3). A row the destination
+ * already has is never touched: a space's colors belong to its members. What
+ * was copied is recorded on the transfer, and a transfer that has recorded it
+ * does not run the step again, so a resume cannot bring back a style a
+ * destination member reset in the meantime.
+ */
+function copyTagStyles(row, source, destination) {
+  if (row.copied_tags_json != null) return;
+  const copied = [];
+  const names = readTags(source.note.content || "");
+  if (names.length) {
+    const readStyle = source.db.prepare(
+      "SELECT display_name, color, created_at FROM tags WHERE name = ?",
+    );
+    const styled = destination.db.prepare("SELECT 1 FROM tags WHERE name = ?");
+    const insert = destination.db.prepare(
+      `INSERT INTO tags (name, display_name, color, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(name) DO NOTHING`,
+    );
+    destination.db.transaction(() => {
+      for (const name of names) {
+        const style = readStyle.get(name);
+        if (!style || (!style.color && !style.display_name)) continue;
+        if (styled.get(name)) continue;
+        const timestamp = now();
+        insert.run(name, style.display_name, style.color, style.created_at || timestamp, timestamp);
+        copied.push(name);
+      }
+    })();
+  }
+  updateTransfer(row.id, { copied_tags_json: JSON.stringify(copied) });
+}
+
+/**
  * The destination Document exists and every copied image is intact.
  *
  * Each copied image row was written with the hash and size its source had and
@@ -454,6 +491,10 @@ export async function resumeSpaceTransfer(req, initialRow, { deleteSource = true
     await copyImages(row, source, destination, plan.imageMap);
     copyDocument(row, source, destination, plan.imageMap);
     if (!await verifyDestination(row, destination, plan.imageMap)) throw new Error("Destination verification failed");
+    // Styles only for a verified copy, so a transfer that is given up never
+    // leaves the person's tag styles in the destination. Still before the
+    // status changes, so a crash here repeats the step on resume.
+    copyTagStyles(row, source, destination);
     updateTransfer(row.id, {
       status: "destination_confirmed",
       destination_confirmed_at: now(),

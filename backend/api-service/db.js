@@ -9,9 +9,11 @@ import { randomUUID } from "node:crypto";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_DIR = path.join(__dirname, "data");
 const SPACES_DB_DIR = path.join(DB_DIR, "spaces");
-export const CONTENT_SCHEMA_VERSION = 2;
+export const CONTENT_SCHEMA_VERSION = 3;
 // Browser CRR schema compatibility remains v1: content schema v2 adds only
-// backend-local live-session recovery tables.
+// backend-local live-session recovery tables, and v3 adds the `tags` CRR, which
+// an older client never writes. Raise this only once the frontend that knows
+// `tags` is released (docs/specs/active/tag-system.md §6.2).
 export const MINIMUM_CLIENT_SCHEMA_VERSION = 1;
 export const SPACES_SCHEMA_VERSION = 3;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -127,6 +129,19 @@ export function openContentDbCount() {
   for (const key of dbConnections.keys()) if (isContentKey(key)) open += 1;
   return open;
 }
+
+/** The `tags` columns, in order, after `name`. Every one needs a default (CR-SQLite). */
+export const TAGS_COLUMNS = Object.freeze({
+  display_name: "TEXT NOT NULL DEFAULT ''",
+  color: "TEXT NOT NULL DEFAULT ''",
+  created_at: "TEXT NOT NULL DEFAULT ''",
+  updated_at: "TEXT NOT NULL DEFAULT ''",
+});
+
+const TAGS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS tags (
+    name TEXT PRIMARY KEY NOT NULL,
+    ${Object.entries(TAGS_COLUMNS).map(([column, type]) => `${column} ${type}`).join(",\n    ")}
+  );`;
 
 const BASE_SCHEMA = `
   PRAGMA foreign_keys = ON;
@@ -247,6 +262,11 @@ const BASE_SCHEMA = `
     preset_id TEXT,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- Tag styling (docs/specs/active/tag-system.md §4). The canonical tag name
+  -- is the key, so two members styling the same new tag write one row. Which
+  -- tags a Document has lives in its front matter, never here.
+  ${TAGS_TABLE_SQL}
 `;
 
 const USER_LOCAL_SCHEMA = `
@@ -351,6 +371,7 @@ const CRR_TABLES = [
   "templates",
   "style_presets",
   "style_assignments",
+  "tags",
 ];
 
 export function parseDbKey(dbKey) {
@@ -489,6 +510,48 @@ export function ensureImagesSchema(db) {
     if (!isCrr) db.exec("SELECT crsql_as_crr('images')");
   } catch (err) {
     console.error("[db] Failed to ensure images schema:", err);
+    throw err;
+  }
+}
+
+/**
+ * Repairs the `tags` CRR (docs/specs/active/tag-system.md §6.2). `BASE_SCHEMA`
+ * creates the table on every database that lacks it and `ensureCrr` registers
+ * it; this adds a column a table created by an earlier build does not have,
+ * through `crsql_begin_alter` / `crsql_commit_alter` when the table is already
+ * a CRR, and rebuilds triggers left stale by a bare `ALTER` or an interrupted
+ * run. Column names come from {@link TAGS_COLUMNS}, never from input.
+ * @param {import('better-sqlite3').Database} db
+ */
+export function ensureTagsSchema(db) {
+  try {
+    const columns = db.prepare("PRAGMA table_info('tags')").all();
+    if (!columns || columns.length === 0) return;
+
+    const names = new Set(columns.map((column) => column.name));
+    const triggerSql = crrUpdateTriggerSql(db, "tags");
+    const isCrr = Boolean(triggerSql);
+    const required = Object.keys(TAGS_COLUMNS);
+    const missing = required.filter((column) => !names.has(column));
+
+    if (missing.length) {
+      if (isCrr) db.prepare("SELECT crsql_begin_alter('tags')").get();
+      try {
+        for (const column of missing) {
+          db.exec(`ALTER TABLE tags ADD COLUMN ${column} ${TAGS_COLUMNS[column]}`);
+        }
+      } finally {
+        if (isCrr) db.prepare("SELECT crsql_commit_alter('tags')").get();
+      }
+      return;
+    }
+
+    if (isCrr && !required.every((column) => triggerSql.includes(column))) {
+      db.prepare("SELECT crsql_begin_alter('tags')").get();
+      db.prepare("SELECT crsql_commit_alter('tags')").get();
+    }
+  } catch (err) {
+    console.error("[db] Failed to ensure tags schema:", err?.code || err?.message);
     throw err;
   }
 }
@@ -851,6 +914,7 @@ export function initializeContentDb(db, kind) {
   ensureGlobalsSchema(db);
   ensureTemplatesSchema(db);
   ensureNoteRevisionsSchema(db);
+  ensureTagsSchema(db);
   ensureCrr(db);
 
   db.prepare(
@@ -1246,6 +1310,10 @@ export function initializeSpacesDb(db) {
   // database, and every row it writes gets the default, a move, which is what
   // it does. A version bump would make that build refuse to start.
   addColumnIfMissing(db, "space_transfers", "keep_source", "INTEGER NOT NULL DEFAULT 0");
+  // The tag styles a transfer copied to its destination, as a JSON array of
+  // names; NULL until that step has run (docs/specs/active/tag-system.md §6.3).
+  // Added the same way: a build without it ignores the column.
+  addColumnIfMissing(db, "space_transfers", "copied_tags_json", "TEXT");
 }
 
 export function getSpacesDb() {

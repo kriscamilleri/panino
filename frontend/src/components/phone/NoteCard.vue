@@ -74,14 +74,37 @@
                 />
                 {{ folderLabel }}
             </span>
+            <span
+                v-if="tags.length"
+                class="ph-note-tags"
+                :data-testid="`phone-note-tags-${doc.id}`"
+            >
+                <TagChip
+                    v-for="tag in tags.slice(0, 3)"
+                    :key="tag.name"
+                    :name="tag.name"
+                    :label="tag.label"
+                    :hex="tag.hex"
+                    :color-key="tag.colorKey"
+                    size="xs"
+                />
+                <span
+                    v-if="tags.length > 3"
+                    class="ph-note-tags-more"
+                >+{{ tags.length - 3 }}</span>
+            </span>
         </div>
     </a>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { Pin, Check, CheckCircle2, Users } from 'lucide-vue-next'
 import { toSnippetLines, toSummary } from '@/utils/markdownSnippet'
+import { readTagEntries } from '@panino/content-merge/front-matter'
+import TagChip from '@/components/tags/TagChip.vue'
+import { useTagStore } from '@/store/tagStore'
+import { FRONT_MATTER_SCAN_CHARS } from '@/utils/documentMetadataIndex'
 
 const props = defineProps({
     /** A normalized dashboard Document (recentDocuments.normalizeRecentDocument). */
@@ -92,6 +115,23 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['open', 'select'])
+
+/**
+ * The card's tags, read from its text, coloured from its database
+ * (tag-system.md §5.5). The tag store is reached only for a card that has
+ * tags, so a card without any needs no store.
+ */
+let tagStore = null
+const tagStoreFor = () => (tagStore ||= useTagStore())
+// The first 16 KB, as the sidebar, filter and manager read it (the metadata
+// index), so a card never shows tags the rest of the app does not know.
+const tagEntries = computed(() => (props.doc.dbKey
+    ? readTagEntries(String(props.doc.content || '').slice(0, FRONT_MATTER_SCAN_CHARS))
+    : []))
+const tags = computed(() => tagEntries.value.map(({ name, label }) => tagStoreFor().tagLook(props.doc.dbKey, name, label)))
+watch(() => tagEntries.value.length > 0 && props.doc.dbKey, (dbKey) => {
+    if (dbKey) void tagStoreFor().loadStyles(dbKey)
+}, { immediate: true })
 
 const LONG_PRESS_MS = 450
 
@@ -261,6 +301,23 @@ function handleClick(event) {
 .ph-note-foot {
     margin-top: 10px;
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
     min-width: 0;
+}
+
+.ph-note-tags {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    color: var(--ph-ink-2);
+}
+
+.ph-note-tags-more {
+    font-size: 11px;
+    color: var(--ph-muted);
 }
 </style>

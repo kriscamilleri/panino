@@ -45,6 +45,7 @@ import {
   parseDatabaseKey,
 } from "@/utils/databaseKey";
 import { createScopedRepository, runExclusive } from "@/utils/scopedRepository";
+import { TAGS_SCHEMA_SQL, ensureTagsSchema } from "@/utils/tagsSchema";
 
 const isProd = import.meta.env.PROD;
 const API_URL = isProd
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS style_assignments (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 SELECT crsql_as_crr('style_assignments');
+${TAGS_SCHEMA_SQL}
 
 -- Local-only (non-CRR) client state for content merge (COLLAB-02). Deliberately
 -- not replicated: note_sync_base tracks the last value this client and the
@@ -200,6 +202,30 @@ export const useSyncStore = defineStore("syncStore", () => {
     const requestId = uuidv4();
     ws.value.send(JSON.stringify({ v: 1, type, requestId, payload }));
     return requestId;
+  }
+
+  // Told about every committed remote change set, for in-memory views of a
+  // database (the Document metadata index, tag colours) that refresh only what
+  // changed. A listener never writes; a failing one does not stop sync.
+  const remoteChangeListeners = new Set();
+
+  /**
+   * @param {(dbKey: string, changes: object[]) => void} listener
+   * @returns {() => void} unsubscribe
+   */
+  function onRemoteChangesApplied(listener) {
+    remoteChangeListeners.add(listener);
+    return () => remoteChangeListeners.delete(listener);
+  }
+
+  function notifyRemoteChangesApplied(dbKey, changes) {
+    for (const listener of remoteChangeListeners) {
+      try {
+        listener(dbKey, changes);
+      } catch (error) {
+        console.warn("[syncStore] A remote change listener failed", error?.name || error);
+      }
+    }
   }
 
   function setCollabRemoteGuard(guard) {
@@ -311,6 +337,7 @@ export const useSyncStore = defineStore("syncStore", () => {
     await ensureImagesSchema(database);
     await ensureGlobalsSchema(database);
     await ensureTemplatesSchema(database);
+    await ensureTagsSchema(database);
 
     const rows = await database.execO(`SELECT lower(hex(crsql_site_id())) AS id`);
     const siteId = rows[0]?.id;
@@ -1716,6 +1743,7 @@ tags:
           pendingAfter,
         });
         if (didLocalWrite) entry.syncPending = true;
+        notifyRemoteChangesApplied(entry.dbKey, data.changes);
       }
       await settleAcknowledgedUploads(entry.dbKey, entry.db, sentContent, remoteNoteIds, outgoing.uploadedVersion);
 
@@ -2041,6 +2069,8 @@ tags:
     ensureNotesSchema,
     ensureImagesSchema,
     ensureTemplatesSchema,
+    ensureTagsSchema,
+    onRemoteChangesApplied,
     connectWebSocket,
     disconnectWebSocket,
     addWebSocketListener,

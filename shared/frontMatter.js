@@ -4,7 +4,7 @@
  * read; nested values (indented lines), list items and comments may sit in the
  * block and are skipped. Shared by the frontend (Preview, templates) and the
  * API (server-side rendering, Document properties), so both read a Document
- * the same way.
+ * the same way. `readTags` reads the one list the parser skips, `tags`.
  *
  * Every line is read in time linear in its length: a Document can be 2 MiB,
  * and the API reads the front matter of thousands of Documents per query.
@@ -170,4 +170,249 @@ export function removeFrontMatterKeys(markdown, keys) {
         return [...lines.slice(0, start), ...lines.slice(after)].join(newline);
     }
     return [...lines.slice(0, start + 1), ...inside, ...lines.slice(end)].join(newline);
+}
+
+/** Longest tag name, in characters, after trimming. Longer names are ignored, never cut. */
+export const MAX_TAG_LENGTH = 50;
+/** Most tags read from one Document. */
+export const MAX_TAGS_PER_DOCUMENT = 100;
+
+const WHITESPACE = new Set([' ', '\t', '\n', '\r', '\f', '\v', ' ']);
+
+/** Collapse runs of white space to one space and trim, without a regular expression. */
+function collapseWhitespace(text) {
+    let out = '';
+    let pendingSpace = false;
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = text[i];
+        if (WHITESPACE.has(ch)) {
+            pendingSpace = out.length > 0;
+            continue;
+        }
+        if (pendingSpace) out += ' ';
+        pendingSpace = false;
+        out += ch;
+    }
+    return out;
+}
+
+/**
+ * A tag name as written, trimmed and with white space collapsed, or null when
+ * it is empty or longer than {@link MAX_TAG_LENGTH}.
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+export function tagDisplayName(value) {
+    if (typeof value !== 'string') return null;
+    // Only a short value can be a name; checking first keeps the work small
+    // however long a hostile line is.
+    let text = value;
+    if (text.length > MAX_TAG_LENGTH * 4) {
+        text = text.trim();
+        if (text.length > MAX_TAG_LENGTH * 4) return null;
+    }
+    const label = collapseWhitespace(text);
+    if (!label || label.length > MAX_TAG_LENGTH) return null;
+    return label;
+}
+
+/**
+ * The canonical form of a tag name: trimmed, white space runs collapsed to one
+ * space, letters lower-cased. The key of a `tags` row, of a tag filter and of
+ * a `tag:` search part.
+ * @param {unknown} value
+ * @returns {string|null} null for an empty name or one over {@link MAX_TAG_LENGTH}
+ */
+export function canonicalTagName(value) {
+    const label = tagDisplayName(value);
+    return label === null ? null : label.toLowerCase();
+}
+
+/**
+ * The end of a quoted scalar that opens at `from` (`text[from]` is the
+ * quote): the index just past its closing quote, or -1 when it never closes.
+ * Single quotes escape as `''`; double quotes escape with a backslash.
+ * @param {string} text
+ * @param {number} from
+ * @returns {number}
+ */
+export function quotedScalarEnd(text, from) {
+    const quote = text[from];
+    for (let i = from + 1; i < text.length; i += 1) {
+        const ch = text[i];
+        if (quote === '"' && ch === '\\') {
+            i += 1;
+        } else if (ch === quote) {
+            if (quote === "'" && text[i + 1] === "'") {
+                i += 1;
+                continue;
+            }
+            return i + 1;
+        }
+    }
+    return -1;
+}
+
+/**
+ * A value without a trailing YAML comment (` # …` or tab `#`), trimmed. A
+ * `#` inside a quoted scalar is text, as in YAML: a quote opens a scalar only
+ * at its start (the start of the value, or after `[` or `,`), so an
+ * apostrophe inside a plain word is just a letter. Linear in the length.
+ * @param {string} value
+ * @returns {string}
+ */
+export function stripYamlComment(value) {
+    const text = String(value ?? '');
+    let scalarStart = true;
+    for (let i = 0; i < text.length; i += 1) {
+        const ch = text[i];
+        if (scalarStart && (ch === '"' || ch === "'")) {
+            const end = quotedScalarEnd(text, i);
+            if (end === -1) break; // an unclosed quote runs to the end: no comment
+            i = end - 1;
+            scalarStart = false;
+            continue;
+        }
+        if (ch === '#' && i > 0 && (text[i - 1] === ' ' || text[i - 1] === '\t')) return text.slice(0, i).trim();
+        if (ch === '[' || ch === ',') scalarStart = true;
+        else if (ch !== ' ' && ch !== '\t') scalarStart = false;
+    }
+    return text.trim();
+}
+
+const stripComment = stripYamlComment;
+
+/** One scalar: the text between matching quotes (with YAML's escapes undone), or the trimmed text itself. */
+function scalarValue(value) {
+    const text = value.trim();
+    if (text.length >= 2) {
+        const quote = text[0];
+        if ((quote === '"' || quote === "'") && quotedScalarEnd(text, 0) === text.length) {
+            const inner = text.slice(1, -1);
+            if (quote === "'") return inner.split("''").join("'");
+            let out = '';
+            for (let i = 0; i < inner.length; i += 1) {
+                if (inner[i] === '\\' && i + 1 < inner.length) {
+                    i += 1;
+                    out += inner[i] === 'n' ? '\n' : inner[i] === 't' ? '\t' : inner[i];
+                } else {
+                    out += inner[i];
+                }
+            }
+            return out;
+        }
+    }
+    return text;
+}
+
+/**
+ * The items of an inline list's inner text (`a, "b, c", 'd'`), split on commas
+ * outside quotes. Stops after {@link MAX_TAGS_PER_DOCUMENT} items.
+ * @param {string} inner
+ * @returns {string[]}
+ */
+function inlineItems(inner) {
+    const items = [];
+    let from = 0;
+    let itemStart = true;
+    for (let i = 0; i < inner.length && items.length <= MAX_TAGS_PER_DOCUMENT; i += 1) {
+        const ch = inner[i];
+        if (itemStart && (ch === '"' || ch === "'")) {
+            const end = quotedScalarEnd(inner, i);
+            if (end === -1) break;
+            i = end - 1;
+            itemStart = false;
+        } else if (ch === ',') {
+            items.push(inner.slice(from, i));
+            from = i + 1;
+            itemStart = true;
+        } else if (ch !== ' ' && ch !== '\t') {
+            itemStart = false;
+        }
+    }
+    if (items.length <= MAX_TAGS_PER_DOCUMENT) items.push(inner.slice(from));
+    return items;
+}
+
+/** A line of the block that holds a key at the top level (not indented, not a list item or comment). */
+function isTopLevelKeyLine(line) {
+    if (!line || line[0] === ' ' || line[0] === '\t' || line[0] === '-' || line[0] === '#') return false;
+    return lineKey(line) !== null;
+}
+
+/**
+ * The raw values a Document's front matter declares under `tags`, in order.
+ * @param {string} markdown
+ * @returns {string[]}
+ */
+function rawTagValues(markdown) {
+    if (!markdown || typeof markdown !== 'string') return [];
+    const lines = markdown.split(/\r?\n/);
+    const { start, end } = findFrontMatterBlock(lines);
+    if (start === -1) return [];
+
+    for (let idx = start + 1; idx < end; idx += 1) {
+        const line = lines[idx];
+        if (!isTopLevelKeyLine(line) || lineKey(line).toLowerCase() !== 'tags') continue;
+        const value = stripComment(line.slice(line.indexOf(':') + 1));
+        if (value) {
+            if (value === '~' || value === 'null') return [];
+            if (value[0] === '[') {
+                // An unclosed inline list is a typo, not a tag named "[a, b".
+                if (value[value.length - 1] !== ']') return [];
+                return inlineItems(value.slice(1, -1)).map(scalarValue);
+            }
+            // `tags: - work` was meant as a list item.
+            if (value.startsWith('- ')) return [scalarValue(value.slice(2))];
+            return [scalarValue(value)];
+        }
+        // A block list on the following lines, up to the next key.
+        const values = [];
+        for (let item = idx + 1; item < end && values.length <= MAX_TAGS_PER_DOCUMENT * 2; item += 1) {
+            const trimmed = lines[item].trim();
+            if (!trimmed || trimmed[0] === '#' || trimmed === '-') continue;
+            if (!trimmed.startsWith('- ')) break;
+            values.push(scalarValue(stripComment(trimmed.slice(2))));
+        }
+        return values;
+    }
+    return [];
+}
+
+/**
+ * The tags a Document declares in its front matter, as `{ name, label }`:
+ * `name` is the canonical name ({@link canonicalTagName}), `label` the first
+ * spelling found. `tags` may be a list on the following lines, a single
+ * string or an inline `[a, b]` list; items may be quoted, and a ` # comment`
+ * is ignored. Duplicates are dropped, names that are empty or longer than
+ * {@link MAX_TAG_LENGTH} are ignored, and at most
+ * {@link MAX_TAGS_PER_DOCUMENT} are read. The block rules are
+ * {@link findFrontMatterBlock}'s: an unclosed block has no tags. Linear in the
+ * length of the text.
+ * @param {string} markdown
+ * @returns {{ name: string, label: string }[]}
+ */
+export function readTagEntries(markdown) {
+    const seen = new Set();
+    const entries = [];
+    for (const raw of rawTagValues(markdown)) {
+        const label = tagDisplayName(raw);
+        if (label === null) continue;
+        const name = label.toLowerCase();
+        if (seen.has(name)) continue;
+        seen.add(name);
+        entries.push({ name, label });
+        if (entries.length >= MAX_TAGS_PER_DOCUMENT) break;
+    }
+    return entries;
+}
+
+/**
+ * The canonical names of the tags a Document declares, in order, without
+ * duplicates (see {@link readTagEntries}).
+ * @param {string} markdown
+ * @returns {string[]}
+ */
+export function readTags(markdown) {
+    return readTagEntries(markdown).map((entry) => entry.name);
 }
