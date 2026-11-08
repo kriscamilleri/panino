@@ -145,6 +145,8 @@
                     <span class="button-text">Page&nbsp;Break</span>
                 </button>
 
+                <TocMenuButton />
+
                 <div class="separator"></div>
 
                 <button
@@ -495,6 +497,7 @@ import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useAddonsStore } from '@/store/addonsStore'
 import AddonActions from '@/components/addons/AddonActions.vue'
+import TocMenuButton from '@/components/TocMenuButton.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import {
     Folder,

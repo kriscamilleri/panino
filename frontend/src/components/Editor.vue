@@ -303,6 +303,7 @@ import { useConflictStore } from '@/store/conflictStore';
 import { useSyncStore } from '@/store/syncStore';
 import { useCollabSessionStore } from '@/store/collabSessionStore';
 import { useOverTypePatches } from '@/composables/useOverTypePatches';
+import { useEditorLinks } from '@/composables/useEditorLinks';
 import { hasDocumentContentChanged, classifyEditorConflict } from '@/utils/documentPersistence';
 import BaseButton from '@/components/BaseButton.vue';
 import BaseModal from '@/components/BaseModal.vue';
@@ -354,6 +355,8 @@ const syncStore = useSyncStore();
 const collabStore = useCollabSessionStore();
 const editorContainerRef = ref(null);
 const editorInstance = ref(null);
+// `[[`, Ctrl/Cmd+K, Mod+click, pasted addresses and the link tooltip (TOC and links spec §6.4).
+const editorLinks = useEditorLinks({ phone: props.phone, getFile: () => file.value });
 
 const { selectedFile: file, isSaving, isDirty } = storeToRefs(docStore);
 const {
@@ -660,6 +663,7 @@ function initEditor() {
     if (textarea) {
       textarea.addEventListener('paste', handlePaste);
       textarea.addEventListener('input', handleNativeInput);
+      editorLinks.attach(textarea, editorInstance.value);
       applyEditingPaused();
       // Keydown is handled by OverType config, or add manually if OverType consumes it:
       // textarea.addEventListener('keydown', handleKeydown);
@@ -719,6 +723,7 @@ function destroyEditor() {
   collabBinding.value?.destroy();
   collabBinding.value = null;
   // Remove paste event listener
+  editorLinks.detach();
   const textarea = getTextareaElement();
   if (textarea) {
     textarea.removeEventListener('paste', handlePaste);
@@ -1307,8 +1312,10 @@ function insertList(prefix) {
   insertAtCursor(prefix);
 }
 
+// The toolbar Link button opens the link picker (a Document, a heading or a web address).
 function insertLink() {
-  insertAtCursor('[Link text](url)');
+  if (!file.value || editingBlocked()) return;
+  editorLinks.openPicker();
 }
 
 function insertTable() {
@@ -1507,6 +1514,7 @@ const exposedMethods = {
   insertText: insertTextWrapped,
   transformText: transformTextWrapped,
   focus: focusEditor,
+  openLinkPicker: () => { if (file.value && !editingBlocked()) editorLinks.openPicker(); },
   refreshLayout,
   startCollaboration,
   leaveCollaboration,

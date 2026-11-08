@@ -5,9 +5,14 @@
  * checklist items keep their state so a card can draw a tick.
  */
 
+import { parseMarkerLine } from '@panino/content-merge/marker-blocks';
+
 /**
  * @typedef {{ kind: 'text'|'bullet'|'task', text: string, checked?: boolean }} SnippetLine
  */
+
+/** A table of contents (TOC and links spec §4.7): its list would start every card. */
+const TOC_MARKER = 'panino:toc';
 
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const TASK = /^\s*(?:[-*+]|\d{1,9}[.)])\s+\[([ xX])\]\s+(.*)$/;
@@ -62,6 +67,7 @@ export function toSnippetLines(markdown, { title = '', maxLines = 8 } = {}) {
     }
 
     let titleChecked = false;
+    let inToc = false;
     for (; index < lines.length && result.length < maxLines; index += 1) {
         const raw = lines[index];
         const fenceMatch = raw.match(FENCE);
@@ -73,6 +79,12 @@ export function toSnippetLines(markdown, { title = '', maxLines = 8 } = {}) {
             fence = fenceMatch[1];
             continue;
         }
+        const marker = raw[0] === '<' ? parseMarkerLine(raw) : null;
+        if (marker?.name === TOC_MARKER) {
+            inToc = marker.kind === 'open';
+            continue;
+        }
+        if (inToc) continue;
         let line = raw.replace(/^\s*(>\s*)+/, '');
         if (!line.trim()) continue;
         if (/^\s*(\\pagebreak|<!--.*-->|---\s*pagebreak\s*---|[-*_]{3,})\s*$/i.test(line)) continue;

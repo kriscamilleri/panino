@@ -191,6 +191,14 @@
             :open="activeSheet === 'export'"
             @close="closeSheet"
         />
+        <LinkSheet
+            :open="activeSheet === 'link'"
+            @close="closeSheet"
+        />
+        <TocSheet
+            :open="activeSheet === 'toc'"
+            @close="closeSheet"
+        />
     </div>
 </template>
 
@@ -207,6 +215,8 @@ import KeyRow from '@/components/phone/KeyRow.vue'
 import DocumentMenuSheet from '@/components/phone/DocumentMenuSheet.vue'
 import CollaborateSheet from '@/components/phone/CollaborateSheet.vue'
 import ExportSheet from '@/components/phone/ExportSheet.vue'
+import LinkSheet from '@/components/phone/LinkSheet.vue'
+import TocSheet from '@/components/phone/TocSheet.vue'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
 import { useEditorStore } from '@/store/editorStore'
@@ -264,7 +274,8 @@ const statusLine = computed(() => editorStatusLine({
 watch(() => file.value?.id, (id) => {
     if (!id) return
     mode.value = resolveInitialMode({
-        requested: route.query.mode,
+        // A link to a heading opens where the heading can be seen.
+        requested: route.query.heading ? MODE_PREVIEW : route.query.mode,
         preference: ui.openNotesIn,
         content: file.value.content,
     })
@@ -295,6 +306,11 @@ function startWriting() {
 }
 
 function pressKey(id) {
+    // The Link key opens the link picker sheet (a Document, a heading or a web address).
+    if (id === 'link') {
+        editorStore.openLinkPicker()
+        return
+    }
     editorStore.transformText((state) => applyKey(id, state))
 }
 

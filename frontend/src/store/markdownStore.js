@@ -110,7 +110,9 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
   }
 
   // The shared MarkdownIt setup (shared/markdownRender.js); the styles below are layered on.
-  const baseMd = () => createDocumentRenderer();
+  // `documentLinks` is how links to other Documents render: 'app' in the Preview, 'pdf' in
+  // a PDF export, 'text' anywhere else (docs/specs/active/editor-toc-and-internal-links.md §6.3).
+  const baseMd = (documentLinks = 'text') => createDocumentRenderer({ documentLinks });
 
   // Inject CSS into document head
   function addCustomCSSToDocument(cssContent, targetDoc = document) {
@@ -174,22 +176,26 @@ export const useMarkdownStore = defineStore('markdownStore', () => {
 
   /**
    * A renderer for the on-screen preview. Pass a named style's values to render
-   * with them instead of the library Default.
+   * with them instead of the library Default. Links to other Documents render as
+   * in-app links.
    * @param {object} [styleMap]
    */
   function getMarkdownIt(styleMap = styles.value) {
-    const md = baseMd();
+    const md = baseMd('app');
     configureRenderer(md, styleMap, { injectGlobalStyles: true });
     return md;
   }
 
   /**
    * A renderer for print. Pass a named style's values to render with them
-   * instead of the library Default.
+   * instead of the library Default. The export screens pass
+   * `{ documentLinks: 'pdf' }`, with the ids that resolved in the render env, so
+   * the API can link other Documents to the web app; the default prints them as text.
    * @param {object} [styleMap]
+   * @param {{ documentLinks?: 'pdf'|'text' }} [options]
    */
-  async function getPrintMarkdownIt(styleMap = printStyles.value) {
-    const md = baseMd();
+  async function getPrintMarkdownIt(styleMap = printStyles.value, { documentLinks = 'text' } = {}) {
+    const md = baseMd(documentLinks === 'pdf' ? 'pdf' : 'text');
     configureRenderer(md, styleMap, { injectGlobalStyles: false });
     return md;
   }
