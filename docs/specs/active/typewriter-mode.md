@@ -3,7 +3,7 @@
 > A focused writing mode for the markdown editor: the line being written stays at a fixed height
 > on screen, that line is highlighted, a set number of lines stays visible around the cursor,
 > and the text outside the current paragraph or sentence is dimmed.
-> Status: proposed
+> Status: active — in progress on branch `feature/typewriter-mode`
 > Created: 2026-11-07
 > Last updated: 2026-11-07 (Kris answered Q1–Q6)
 

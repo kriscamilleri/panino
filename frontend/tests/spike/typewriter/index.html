@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Typewriter mode spike (Phase 0)</title>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: sans-serif; }
+    #pane { height: 600px; width: 640px; overflow-y: auto; border: 1px solid #ccc; }
+    #host { background: white; }
+  </style>
+</head>
+<body>
+  <!-- Throwaway prototype for typewriter-mode §12 (P1, P2, P4, P6, P8, P10).
+       Mirrors the desktop editor's DOM: a scrolling pane, a container, OverType
+       with autoResize. Driven by a Puppeteer script; results land on window.spike. -->
+  <div id="pane"><div id="host"></div></div>
+  <script type="module" src="./spike.js"></script>
+</body>
+</html>
