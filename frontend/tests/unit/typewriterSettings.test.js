@@ -6,7 +6,16 @@ import {
     nearestAnchorPreset,
     normalizeTypewriterRow,
     normalizeTypewriterSettings,
+    visibleTypewriterControls,
 } from '@/utils/typewriterSettings';
+
+describe('visibleTypewriterControls (§9.6)', () => {
+    it('shows the line position only for typewriter scrolling, lines unless off, strength unless dim is off', () => {
+        expect(visibleTypewriterControls({ scrolling: 'typewriter', dim: 'paragraph' })).toEqual({ linePosition: true, contextLines: true, dimStrength: true });
+        expect(visibleTypewriterControls({ scrolling: 'margin', dim: 'off' })).toEqual({ linePosition: false, contextLines: true, dimStrength: false });
+        expect(visibleTypewriterControls({ scrolling: 'off', dim: 'sentence' })).toEqual({ linePosition: false, contextLines: false, dimStrength: true });
+    });
+});
 
 describe('typewriter settings defaults (§9.2)', () => {
     it('gives the desktop defaults', () => {

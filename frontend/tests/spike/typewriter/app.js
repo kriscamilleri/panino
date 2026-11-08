@@ -51,8 +51,12 @@ const router = createRouter({
     routes: [{ path: '/:rest(.*)*', component: { render: () => null } }],
 });
 
+const settingsPage = params.get('page') === 'settings'
+    ? (await import('@/pages/PhoneSettingsPage.vue')).default
+    : null;
+
 const app = createApp({
-    render: () => (phone
+    render: () => (settingsPage ? h(settingsPage) : phone
         ? h('div', { class: 'phone-ui', style: 'position:fixed;inset:0;display:flex;flex-direction:column' }, [
             h('div', { style: 'flex:1;min-height:0;position:relative' }, [h(PhoneEditor)]),
             h(ToastContainer),

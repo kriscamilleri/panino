@@ -150,6 +150,18 @@
                     @update:model-value="themeStore.setPreference"
                 />
             </div>
+            <div class="ph-menu-typewriter">
+                <p id="ph-menu-typewriter-label">Typewriter mode</p>
+                <button
+                    type="button"
+                    role="switch"
+                    class="ph-switch"
+                    :aria-checked="typewriterStore.enabled"
+                    aria-labelledby="ph-menu-typewriter-label"
+                    data-testid="phone-menu-typewriter"
+                    @click="toggleTypewriter"
+                ><span aria-hidden="true"></span></button>
+            </div>
             <hr class="ph-menu-divider">
             <button
                 type="button"
@@ -198,7 +210,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon } from 'lucide-vue-next'
@@ -215,6 +227,8 @@ import { useAddonsStore } from '@/store/addonsStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useThemeStore } from '@/store/themeStore'
 import { useUiStore } from '@/store/uiStore'
+import { useEditorStore } from '@/store/editorStore'
+import { useTypewriterStore } from '@/store/typewriterStore'
 import { useSheetRoute } from '@/composables/useSheetRoute'
 import { usePhoneStatus } from '@/composables/usePhoneStatus'
 import { normalizePinned } from '@/utils/recentDocuments'
@@ -229,7 +243,7 @@ const props = defineProps({
     open: { type: Boolean, default: false },
     folderLabel: { type: String, default: '' },
 })
-defineEmits(['close'])
+const emit = defineEmits(['close'])
 
 const router = useRouter()
 const docStore = useDocStore()
@@ -237,6 +251,8 @@ const draftStore = useDraftStore()
 const syncStore = useSyncStore()
 const themeStore = useThemeStore()
 const ui = useUiStore()
+const editorStore = useEditorStore()
+const typewriterStore = useTypewriterStore()
 const { openSheet, closeSheetAndGo } = useSheetRoute()
 const { sync, liveParticipants, syncNow } = usePhoneStatus()
 const { selectedFile: file } = storeToRefs(docStore)
@@ -244,13 +260,28 @@ const { selectedFile: file } = storeToRefs(docStore)
 const confirmingDelete = ref(false)
 const editingStyles = ref(false)
 const addonsStore = useAddonsStore()
+// Set by the typewriter switch: focus the editor once the sheet has closed.
+let focusEditorOnClose = false
 
 watch(() => props.open, (isOpen) => {
     if (isOpen) void addonsStore.fetchAddons()
     // The add-on modal lives in this sheet: closing the sheet (the back gesture
     // too) closes it, and reopening the sheet must not bring it back.
     else ui.closeAddonModal()
+    // After the sheet has handed focus back to its opener: the editor, in Edit
+    // mode (in Preview the textarea is hidden and does not take focus).
+    if (!isOpen && focusEditorOnClose) {
+        focusEditorOnClose = false
+        void nextTick(() => editorStore.focus())
+    }
 }, { immediate: true })
+
+/** Typewriter mode on or off; the sheet closes so the writer can carry on. */
+function toggleTypewriter() {
+    typewriterStore.toggle()
+    focusEditorOnClose = true
+    emit('close')
+}
 
 const isSpaceDocument = computed(() => Boolean(file.value?.dbKey?.startsWith('space:')))
 const isPinned = computed(() => normalizePinned(file.value?.pinned))
@@ -349,6 +380,16 @@ async function deleteDocument() {
 
 .ph-menu-appearance .ph-section-label {
     margin-bottom: 8px;
+}
+
+.ph-menu-typewriter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 52px;
+    padding: 4px 20px;
+    font-size: 16px;
 }
 
 .ph-menu-divider {

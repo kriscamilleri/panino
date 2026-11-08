@@ -132,3 +132,49 @@ export function nearestAnchorPreset(percent) {
     }
     return best;
 }
+
+/** Copy for the options (§9.6), shared by the desktop popover and phone Settings. */
+export const TYPEWRITER_COPY = Object.freeze({
+    mode: 'Typewriter mode',
+    modeHelp: 'Keep the line you are writing in one place and fade the rest.',
+    scrolling: 'Scrolling',
+    linePosition: 'Line position',
+    contextLines: 'Lines kept above and below the cursor',
+    highlightLine: 'Highlight current line',
+    dim: 'Dim',
+    dimStrength: 'Dim strength',
+});
+
+export const SCROLLING_OPTIONS = Object.freeze([
+    { value: 'typewriter', label: 'Typewriter' },
+    { value: 'margin', label: 'Keep lines visible' },
+    { value: 'off', label: 'Off' },
+]);
+
+export const DIM_OPTIONS = Object.freeze([
+    { value: 'off', label: 'Off' },
+    { value: 'paragraph', label: 'Paragraph' },
+    { value: 'sentence', label: 'Sentence' },
+]);
+
+export const DIM_STRENGTH_OPTIONS = Object.freeze([
+    { value: 'subtle', label: 'Subtle' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'strong', label: 'Strong' },
+]);
+
+/**
+ * Which dependent controls show (§9.6): the line position only for
+ * typewriter scrolling, the context lines unless scrolling is off, the dim
+ * strength unless dimming is off.
+ *
+ * @param {{ scrolling: string, dim: string }} settings
+ * @returns {{ linePosition: boolean, contextLines: boolean, dimStrength: boolean }}
+ */
+export function visibleTypewriterControls(settings) {
+    return {
+        linePosition: settings?.scrolling === 'typewriter',
+        contextLines: settings?.scrolling !== 'off',
+        dimStrength: settings?.dim !== 'off',
+    };
+}
