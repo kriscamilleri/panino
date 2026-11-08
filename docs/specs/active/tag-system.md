@@ -7,6 +7,15 @@
 > Revised 2026-11-08 — aligned with [advanced search](../proposed/advanced-search.md) §6.3 and §7:
 > tags are read by `readTags` in `shared/frontMatter.js`, and one per-database in-memory
 > Document metadata index (§7) serves the tag system and search alike
+> Implementation: `shared/frontMatter.js` (`readTags`, `canonicalTagName`);
+> `backend/api-service/db.js` (`tags`, `ensureTagsSchema`), `sync.js` (allowlist),
+> `spaceTransfer.js` (`copyTagStyles`); `frontend/src/store/documentIndexStore.js`,
+> `frontend/src/utils/documentMetadataIndex.js`, `frontend/src/store/tagStore.js`,
+> `frontend/src/utils/{tagPalette,tagPaletteVerify,tagAutocomplete,tagFilter,tagsSchema}.js`,
+> `frontend/src/components/tags/`, `scripts/verify-tag-palette.cjs`
+> Remaining: search's `tag:` part and result chips (advanced search, phase 4), which read this
+> spec's index; swapping `utils/tagFilter.js`'s Trash rule for `shared/trashFolder.js` once search
+> adds it; browser checks listed in `docs/agent-logs/2026/11/2026-11-08_19-10_tag-system.md`
 
 ---
 
@@ -262,7 +271,9 @@ A space's `/sync` rejects any table or column not on `SPACE_CHANGE_ALLOWLIST`
 | `tags` | `name`, `display_name`, `color`, `created_at`, `updated_at`, `-1` |
 
 Update the table in [COLLAB-04 §4.2](../shipped/collab-04-shared-spaces.md) in the same change, with schema
-tests that fail if `tags` gains a column the allowlist does not name.
+tests that fail if `tags` gains a column the allowlist does not name. The client keeps the same
+list (`SPACE_OUTGOING_COLUMNS` in `frontend/src/utils/syncRegistry.js`) and drops anything else
+before upload; a table missing there is never sent from a space.
 
 ### 6.2 Schema rollout
 

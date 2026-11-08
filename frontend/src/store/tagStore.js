@@ -287,6 +287,12 @@ export const useTagStore = defineStore('tagStore', () => {
         }
     });
 
+    // Another account on this device starts without the last one's filters.
+    watch(() => syncStore.personalDbKey, () => {
+        filters.value = [];
+        managerOpen.value = false;
+    });
+
     watch(
         () => [...syncStore.databases.entries()].map(([dbKey, entry]) => [dbKey, entry.db]),
         (current) => {

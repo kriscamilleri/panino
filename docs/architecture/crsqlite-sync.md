@@ -217,6 +217,11 @@ check. A fresh connection must report a zero sync bit before ordinary deletes or
 - Any local table with an FK to a CRR parent must use `ON DELETE CASCADE`.
 - Schema changes belong in both `syncStore.js` (`DB_SCHEMA`) and `db.js` (`BASE_SCHEMA`).
 - New CRR tables must also be added to `CRR_TABLES` in `db.js`.
+- A CRR table a space may write needs **two** allowlists: `SPACE_CHANGE_ALLOWLIST` in `sync.js`
+  (the server refuses anything else) and `SPACE_OUTGOING_COLUMNS` in
+  `frontend/src/utils/syncRegistry.js` (the client drops anything else before upload). A table
+  missing from the client list is never uploaded from a space, and the push cursor moves past its
+  changes, so they are stranded. The tag system's first browser run found exactly this.
 - **Adding a column to an existing CRR must go through `crsql_begin_alter` /
   `crsql_commit_alter`.** See [Altering a CRR table](#altering-a-crr-table).
 - NOT NULL CRR columns need defaults for CR-SQLite compatibility.

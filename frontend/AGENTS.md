@@ -38,6 +38,8 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `uiStore` | Panel visibility (persisted to DB), menus, modals, toast notifications | syncStore |
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
+| `documentIndexStore` | Per-database in-memory Document metadata index (tags and front matter properties from the first 16 KB) shared by tags and search: lazy `ensure(dbKey)`, refreshed through the update hook and `syncStore.onRemoteChangesApplied`, never written or synced (`docs/specs/active/tag-system.md` §7) | syncStore |
+| `tagStore` | Tag styles (`tags` rows: one-column writes, reset), the sidebar tag filter across databases, Tools → Tags manager state, editor suggestions | syncStore, documentIndexStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |
 | `addonsStore` | The add-ons the server offers and which the user switched on (`GET /addons`, `PUT /addons/:id/enabled`); every add-on entry point renders only when `isActive(id)` | authStore |
 | `aiAddonStore` (`addons/ai/store.js`) | The AI agents add-on: API keys (`/addons/ai/keys`; a new key's secret only in `createdSecret` until dismissed or `ApiKeysSection` unmounts), connected apps, MCP setup, OAuth consent; see `src/addons/ai/README.md`. Core never imports it | authStore |

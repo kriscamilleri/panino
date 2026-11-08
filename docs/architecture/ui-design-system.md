@@ -151,7 +151,14 @@ Accent contract in §1, carved out by [COLLAB-03](../specs/shipped/collab-03-ide
    `node scripts/verify-identity-palette.cjs` to verify.
 
 The palette lives in `frontend/src/utils/identityColor.js`; the avatar primitives are
-`UserAvatar.vue` and `AvatarStack.vue`. Presence status (online/idle/offline) uses gray tones,
+`UserAvatar.vue` and `AvatarStack.vue`.
+
+**Tags** have their own palette (`frontend/src/utils/tagPalette.js`, checked by
+`node scripts/verify-tag-palette.cjs`: 3:1 on both surfaces, ΔE ≥ 12 from primary, accent and
+each other, no blue). Tags and people are told apart by shape: a tag is a `rounded-md` chip
+(`components/tags/TagChip.vue`) with a coloured border, tint and `#` glyph and the name in the
+normal text colour; never a filled circle. Stored colours are palette keys, and anything else
+renders as `neutral`. Presence status (online/idle/offline) uses gray tones,
 not the identity palette.
 
 ## 7) Phone layout

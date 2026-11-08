@@ -4,7 +4,7 @@
 // across databases with Trash left out and sorting after the merge, and suggestions.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { markRaw, reactive } from 'vue';
+import { markRaw, nextTick, reactive } from 'vue';
 
 const PERSONAL = 'user:11111111-1111-4111-8111-111111111111';
 const SPACE = 'space:22222222-2222-4222-8222-222222222222';
@@ -228,5 +228,14 @@ describe('tag filter', () => {
         expect(store.managerDbKey).toBe(PERSONAL);
         store.closeManager();
         expect(store.managerOpen).toBe(false);
+    });
+
+    it('forgets the filters when another account signs in', async () => {
+        setup([[PERSONAL, fakeDatabase()]]);
+        const store = useTagStore();
+        store.addFilter('work');
+        harness.syncStore.personalDbKey = 'user:33333333-3333-4333-8333-333333333333';
+        await nextTick();
+        expect(store.filters).toEqual([]);
     });
 });
