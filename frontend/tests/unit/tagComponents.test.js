@@ -86,8 +86,8 @@ const tagged = (...tags) => `---\ntags:\n${tags.map((tag) => `  - ${tag}`).join(
 describe('DocumentTagChips', () => {
     it('shows the first three tags and +N, coloured from the Document\'s own database', async () => {
         setup([
-            [PERSONAL, fakeDatabase({ notes: [{ id: 'p', content: tagged('Work') }], tags: [{ name: 'work', color: 'red' }] })],
-            [SPACE, fakeDatabase({ notes: [{ id: 's', content: tagged('Work', 'b', 'c', 'd', 'e') }], tags: [{ name: 'work', color: 'teal', display_name: 'WORK' }] }), 'Team'],
+            [PERSONAL, fakeDatabase({ notes: [{ id: 'p', content: tagged('Work') }], tags: [{ name: 'work', color: 'coral' }] })],
+            [SPACE, fakeDatabase({ notes: [{ id: 's', content: tagged('Work', 'b', 'c', 'd', 'e') }], tags: [{ name: 'work', color: 'seafoam', display_name: 'WORK' }] }), 'Team'],
         ]);
         const personal = track(mount(DocumentTagChips, { props: { dbKey: PERSONAL, noteId: 'p' } }));
         const space = track(mount(DocumentTagChips, { props: { dbKey: SPACE, noteId: 's' } }));
@@ -95,10 +95,10 @@ describe('DocumentTagChips', () => {
 
         const personalChip = personal.find('[data-tag="work"]');
         expect(personalChip.text()).toBe('#Work');
-        expect(personalChip.attributes('data-tag-color')).toBe('red');
+        expect(personalChip.attributes('data-tag-color')).toBe('coral');
         const spaceChips = space.findAll('[data-tag]');
         expect(spaceChips.map((chip) => chip.text())).toEqual(['#WORK', '#b', '#c']);
-        expect(spaceChips[0].attributes('data-tag-color')).toBe('teal');
+        expect(spaceChips[0].attributes('data-tag-color')).toBe('seafoam');
         expect(space.find(`[data-testid="document-tags-more-s"]`).text()).toBe('+2');
     });
 
@@ -151,10 +151,10 @@ describe('TagManagerModal', () => {
         expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual(['tag-manager-row-urgent', 'tag-manager-row-work']);
         expect(rows[1].textContent).toContain('2 Documents');
 
-        document.body.querySelector('[data-testid="tag-manager-color-work-green"]').click();
+        document.body.querySelector('[data-testid="tag-manager-color-work-mint"]').click();
         await settle();
-        expect(spaceDb.state.writes[0].params.slice(0, 2)).toEqual(['work', 'green']);
-        expect(store.tagLook(SPACE, 'work').colorKey).toBe('green');
+        expect(spaceDb.state.writes[0].params.slice(0, 2)).toEqual(['work', 'mint']);
+        expect(store.tagLook(SPACE, 'work').colorKey).toBe('mint');
         void wrapper;
     });
 });

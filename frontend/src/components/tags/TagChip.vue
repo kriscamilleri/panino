@@ -4,7 +4,7 @@
         :type="clickable ? 'button' : undefined"
         class="pn-tag-chip"
         :class="[`pn-tag-chip-${size}`, { 'pn-tag-chip-button': clickable }]"
-        :style="{ '--tag-color': hex }"
+        :style="colors"
         :title="title || undefined"
         :data-tag="name"
         :data-tag-color="colorKey"
@@ -20,20 +20,26 @@
 
 <script setup>
 /**
- * One tag: a rounded rectangle (never a circle — people are circles), a 1 px
- * border and a faint tint in the tag's colour, a `#` glyph in that colour and
- * the name in the normal text colour, as text only. `hex` must come from the
- * palette (`tagColorHex`), never from stored data.
+ * One tag: a rounded rectangle (never a circle — people are circles) with a
+ * pastel fill, a soft border and a `#` glyph in the tag's ink, and the name in
+ * the normal text colour, as text only. Colours come from the palette by
+ * `colorKey` (`tagColorStyle`, unknown keys draw neutral), in both themes.
  */
-defineProps({
+import { computed } from 'vue'
+import { tagColorStyle } from '@/utils/tagPalette'
+
+const props = defineProps({
     name: { type: String, required: true },
     label: { type: String, required: true },
-    hex: { type: String, required: true },
+    // Kept for callers that pass it; the colours come from colorKey.
+    hex: { type: String, default: '' },
     colorKey: { type: String, default: 'neutral' },
     size: { type: String, default: 'sm', validator: (value) => ['xs', 'sm'].includes(value) },
     clickable: { type: Boolean, default: false },
     title: { type: String, default: '' },
 })
+
+const colors = computed(() => tagColorStyle(props.colorKey))
 </script>
 
 <style scoped>
@@ -43,9 +49,11 @@ defineProps({
     gap: 1px;
     min-width: 0;
     max-width: 8rem;
-    border: 1px solid var(--tag-color);
+    --chip-fill: var(--tag-fill);
+    --chip-ink: var(--tag-ink);
+    border: 1px solid color-mix(in srgb, var(--chip-ink) 55%, var(--chip-fill));
     border-radius: 0.375rem;
-    background: color-mix(in srgb, var(--tag-color) 12%, transparent);
+    background: var(--chip-fill);
     color: inherit;
     line-height: 1.2;
     white-space: nowrap;
@@ -63,7 +71,7 @@ defineProps({
 }
 
 .pn-tag-chip-glyph {
-    color: var(--tag-color);
+    color: var(--chip-ink);
     font-weight: 700;
 }
 
@@ -77,11 +85,14 @@ defineProps({
 }
 
 .pn-tag-chip-button:hover {
-    background: color-mix(in srgb, var(--tag-color) 22%, transparent);
+    background: color-mix(in srgb, var(--chip-ink) 18%, var(--chip-fill));
 }
 
 .pn-tag-chip-button:focus-visible {
     outline: 2px solid #6b7280;
     outline-offset: 1px;
 }
+
+/* Dark mode: the rule lives in main.css (`html[data-theme='dark'] .pn-tag-chip`);
+   Vue's scoped :global() would drop the `.pn-tag-chip` part of the selector. */
 </style>

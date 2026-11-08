@@ -214,7 +214,7 @@ export const useTagStore = defineStore('tagStore', () => {
             .sort((a, b) => rank(a) - rank(b) || (counts.get(b.name) || 0) - (counts.get(a.name) || 0)
                 || a.name.localeCompare(b.name))
             .slice(0, limit)
-            .map(({ name, label, hex }) => ({ name, label, hex }));
+            .map(({ name, label, hex, colorKey }) => ({ name, label, hex, colorKey }));
     }
 
     /** @param {string} name */

@@ -141,32 +141,45 @@ and tags found in the database's Documents.
 
 ### 4.2 Palette
 
-Store a palette **key**, not a hex value, so colors can be retuned for contrast without a data
-migration. The palette (`frontend/src/utils/tagPalette.js`):
+Store a palette **key**, not a hex value, so colors can be retuned without a data migration.
 
-| Key | Hex |
-|---|---|
-| `neutral` | `#78716c` |
-| `red` | `#dc2626` |
-| `orange` | `#c2410c` |
-| `amber` | `#a16207` |
-| `green` | `#15803d` |
-| `teal` | `#0f766e` |
-| `violet` | `#7c3aed` |
-| `pink` | `#db2777` |
+**Pastel, playful and consistent** (Kris, 2026-11-08). A chip is a soft pastel **fill** with a
+border and `#` glyph in a deeper **ink** of the same hue; the name stays in the normal text color.
+Dark mode has its own pair (a deep, muted fill and a pastel ink), so chips do not glare. Every hue
+uses the same OKLCH lightness and chroma, so no tag shouts louder than another:
 
-Every entry must:
+| Role | Light | Dark |
+|---|---|---|
+| fill | L 0.935, C 0.055 | L 0.33, C 0.055 |
+| ink | L 0.60, C 0.13 | L 0.84, C 0.10 |
 
-- pass at least 3:1 contrast against both `#ffffff` and `--pn-surface: #151515`, the same rule as
-  the identity palette in [COLLAB-03 §3](../shipped/collab-03-identity-palette.md) (the earlier list's yellow
-  `#f1c40f` and gray `#95a5a6` fail on white);
-- stay perceptually distinct from `--pn-primary` and `--pn-accent` (CIEDE2000 ΔE ≥ 12);
-- stay distinct from every other entry (ΔE ≥ 12);
-- keep its hue outside 200–260° (blue is reserved for links, `ui-design-system.md` §1).
+The palette (`frontend/src/utils/tagPalette.js`):
 
-`neutral` is used when `color` is empty or not a palette key.
+| Key | Hue | Fill | Ink | Dark fill | Dark ink |
+|---|---|---|---|---|---|
+| `neutral` | — | `#ebe9e7` | `#7a736d` | `#363431` | `#cbc6c1` |
+| `rose` | 2° | `#ffdbe6` | `#be5b7a` | `#4d2933` | `#ffafc5` |
+| `coral` | 33° | `#ffddd2` | `#c15f4b` | `#4e2a23` | `#ffb3a1` |
+| `apricot` | 63° | `#ffe2c4` | `#b56c15` | `#492f15` | `#f9bc85` |
+| `butter` | 97° | `#f4eac1` | `#967f00` | `#3d3510` | `#ddcb7d` |
+| `pistachio` | 125° | `#e1f1c9` | `#6f8d2a` | `#2f3a19` | `#bcd68e` |
+| `mint` | 158° | `#ccf5dc` | `#219761` | `#193e2a` | `#91dfb2` |
+| `seafoam` | 195° | `#bff6f5` | `#009798` | `#033e3e` | `#73dfdf` |
 
-No free-form color picker in v1: it cannot be held to the contrast rule.
+Every entry must (`scripts/verify-tag-palette.cjs`):
+
+- ink: at least 3:1 against the page surface (`#ffffff`, `--pn-surface: #151515`) and against
+  its own fill, in both themes (the glyph and border are graphical objects);
+- text: the normal text color at least 4.5:1 on the fill, in both themes;
+- ink: perceptually distinct from `--pn-primary` and `--pn-accent` and from every other ink
+  (CIEDE2000 ΔE ≥ 12); fills at least ΔE 5 apart;
+- a hue outside 200–260° (blue is reserved for links, `ui-design-system.md` §1).
+
+Seven hues is the most that clear these rules at one lightness and chroma: everything from about
+240° to 360° is either the reserved blue or too close to the purple `--pn-accent`, so there is no
+lavender. `neutral` is used when `color` is empty or not a palette key.
+
+No free-form color picker in v1: it cannot be held to these rules.
 
 ### 4.3 Tags and people's colors
 

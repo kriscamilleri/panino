@@ -64,8 +64,8 @@
             >
                 <div class="flex flex-wrap items-center gap-3">
                     <span
-                        class="h-3.5 w-3.5 flex-shrink-0 rounded-sm"
-                        :style="{ background: tag.hex }"
+                        class="pn-tag-swatch h-3.5 w-3.5 flex-shrink-0 rounded-sm"
+                        :style="tagColorStyle(tag.colorKey)"
                         aria-hidden="true"
                     />
                     <TagChip
@@ -108,9 +108,9 @@
                         :key="color.key"
                         type="button"
                         role="radio"
-                        class="h-6 w-6 rounded-md border-2 focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-1"
-                        :class="isChosen(tag, color.key) ? 'border-gray-900' : 'border-transparent'"
-                        :style="{ background: color.hex }"
+                        class="pn-tag-swatch h-6 w-6 rounded-md border-2 focus-visible:ring-2 focus-visible:ring-gray-500 focus-visible:ring-offset-1"
+                        :class="isChosen(tag, color.key) ? 'border-gray-900 pn-tag-swatch-chosen' : 'border-transparent'"
+                        :style="tagColorStyle(color.key)"
                         :aria-checked="isChosen(tag, color.key)"
                         :aria-label="color.label"
                         :title="color.label"
@@ -171,7 +171,7 @@ import { Pencil, RotateCcw } from 'lucide-vue-next'
 import BaseModal from '@/components/BaseModal.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import TagChip from './TagChip.vue'
-import { TAG_PALETTE, NEUTRAL_TAG_COLOR } from '@/utils/tagPalette'
+import { TAG_PALETTE, NEUTRAL_TAG_COLOR, tagColorStyle } from '@/utils/tagPalette'
 import { useTagStore } from '@/store/tagStore'
 import { useDocumentIndexStore } from '@/store/documentIndexStore'
 import { useSyncStore } from '@/store/syncStore'

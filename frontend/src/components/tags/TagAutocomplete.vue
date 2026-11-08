@@ -21,8 +21,8 @@
             @click="accept(i)"
         >
             <span
-                class="pn-tag-suggest-swatch"
-                :style="{ background: item.hex }"
+                class="pn-tag-suggest-swatch pn-tag-swatch"
+                :style="tagColorStyle(item.colorKey)"
                 aria-hidden="true"
             />
             <span class="truncate">{{ item.label }}</span>
@@ -31,6 +31,7 @@
 </template>
 
 <script setup>
+import { tagColorStyle } from '@/utils/tagPalette'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { caretPosition } from '@/utils/caretPosition'
 import { applyTagCompletion, tagCompletionContext } from '@/utils/tagAutocomplete'

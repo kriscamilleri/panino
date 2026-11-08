@@ -80,28 +80,28 @@ describe('tag styles', () => {
         const db = fakeDatabase();
         setup([[PERSONAL, db]]);
         const store = useTagStore();
-        await store.setColor(PERSONAL, ' Work ', 'red');
+        await store.setColor(PERSONAL, ' Work ', 'coral');
         await store.setDisplayName(PERSONAL, 'work', 'WORK');
 
         expect(db.state.writes[0].sql).toContain('DO UPDATE SET color = excluded.color, updated_at');
         expect(db.state.writes[0].sql).not.toContain('display_name');
-        expect(db.state.writes[0].params.slice(0, 2)).toEqual(['work', 'red']);
+        expect(db.state.writes[0].params.slice(0, 2)).toEqual(['work', 'coral']);
         expect(db.state.writes[1].sql).toContain('DO UPDATE SET display_name = excluded.display_name, updated_at');
         expect(db.state.writes[1].sql).not.toMatch(/SET .*color/);
-        expect(store.tagLook(PERSONAL, 'work')).toMatchObject({ label: 'WORK', colorKey: 'red', hex: '#dc2626', styled: true });
+        expect(store.tagLook(PERSONAL, 'work')).toMatchObject({ label: 'WORK', colorKey: 'coral', hex: '#c15f4b', styled: true });
     });
 
     it('refuses an unknown colour, an empty name and a display name of another tag', async () => {
         setup([[PERSONAL, fakeDatabase()]]);
         const store = useTagStore();
         await expect(store.setColor(PERSONAL, 'work', '#ff0000')).rejects.toThrow();
-        await expect(store.setColor(PERSONAL, '  ', 'red')).rejects.toThrow();
+        await expect(store.setColor(PERSONAL, '  ', 'coral')).rejects.toThrow();
         await expect(store.setDisplayName(PERSONAL, 'work', 'Job')).rejects.toThrow(/capitals/);
         await expect(store.setDisplayName(PERSONAL, 'work', 'x'.repeat(60))).rejects.toThrow();
     });
 
     it('resets a tag by deleting its row; Documents are not written', async () => {
-        const db = fakeDatabase({ tags: [{ name: 'work', color: 'red' }] });
+        const db = fakeDatabase({ tags: [{ name: 'work', color: 'coral' }] });
         setup([[PERSONAL, db]]);
         const store = useTagStore();
         await store.loadStyles(PERSONAL);
@@ -114,12 +114,12 @@ describe('tag styles', () => {
     it('draws another client\'s unknown colour as neutral and ignores a display name of another tag', async () => {
         const db = fakeDatabase({ tags: [
             { name: 'work', color: 'javascript:alert(1)', display_name: 'Job' },
-            { name: 'Bad Key', color: 'red' },
+            { name: 'Bad Key', color: 'coral' },
         ] });
         setup([[PERSONAL, db]]);
         const store = useTagStore();
         await store.loadStyles(PERSONAL);
-        expect(store.tagLook(PERSONAL, 'work', 'Work')).toMatchObject({ label: 'Work', colorKey: 'neutral', hex: '#78716c' });
+        expect(store.tagLook(PERSONAL, 'work', 'Work')).toMatchObject({ label: 'Work', colorKey: 'neutral', hex: '#7a736d' });
         expect(store.styleRow(PERSONAL, 'Bad Key')).toBeNull();
         expect(store.tagLook(PERSONAL, 'q3 plan').label).toBe('Q3 Plan');
         expect(store.tagLook(PERSONAL, 'other').label).toBe('other');
@@ -127,30 +127,30 @@ describe('tag styles', () => {
 
     it('keeps each database\'s colours: a space styles a tag differently from personal', async () => {
         setup([
-            [PERSONAL, fakeDatabase({ tags: [{ name: 'work', color: 'red' }] })],
-            [SPACE, fakeDatabase({ tags: [{ name: 'work', color: 'teal' }] }), 'Team'],
+            [PERSONAL, fakeDatabase({ tags: [{ name: 'work', color: 'coral' }] })],
+            [SPACE, fakeDatabase({ tags: [{ name: 'work', color: 'seafoam' }] }), 'Team'],
         ]);
         const store = useTagStore();
         await Promise.all([store.loadStyles(PERSONAL), store.loadStyles(SPACE)]);
-        expect(store.tagLook(PERSONAL, 'work').colorKey).toBe('red');
-        expect(store.tagLook(SPACE, 'work').colorKey).toBe('teal');
+        expect(store.tagLook(PERSONAL, 'work').colorKey).toBe('coral');
+        expect(store.tagLook(SPACE, 'work').colorKey).toBe('seafoam');
     });
 
     it('reloads a database\'s styles after a sync that changed them', async () => {
-        const db = fakeDatabase({ tags: [{ name: 'work', color: 'red' }] });
+        const db = fakeDatabase({ tags: [{ name: 'work', color: 'coral' }] });
         setup([[SPACE, db, 'Team']]);
         const store = useTagStore();
         await store.loadStyles(SPACE);
-        db.state.tags.set('work', { name: 'work', color: 'green', display_name: '' });
+        db.state.tags.set('work', { name: 'work', color: 'mint', display_name: '' });
         harness.listeners[0](SPACE, [{ table: 'notes' }]);
         await Promise.resolve();
-        expect(store.tagLook(SPACE, 'work').colorKey).toBe('red');
+        expect(store.tagLook(SPACE, 'work').colorKey).toBe('coral');
         harness.listeners[0](SPACE, [{ table: 'tags', cid: 'color' }]);
-        await vi.waitFor(() => expect(store.tagLook(SPACE, 'work').colorKey).toBe('green'));
+        await vi.waitFor(() => expect(store.tagLook(SPACE, 'work').colorKey).toBe('mint'));
     });
 
     it('lists styled and found tags with counts, and ranks suggestions', async () => {
-        setup([[PERSONAL, fakeDatabase({ tags: [{ name: 'urgent', color: 'red' }, { name: 'unused', color: 'teal' }] })]], {
+        setup([[PERSONAL, fakeDatabase({ tags: [{ name: 'urgent', color: 'coral' }, { name: 'unused', color: 'seafoam' }] })]], {
             [PERSONAL]: { a: ['work', 'urgent'], b: ['work'], c: ['wonder'] },
         });
         const store = useTagStore();
@@ -240,7 +240,7 @@ describe('tag filter', () => {
     });
 
     it('removes the row when Neutral is chosen for a tag with no display name', async () => {
-        const db = fakeDatabase({ tags: [{ name: 'work', color: 'red' }] });
+        const db = fakeDatabase({ tags: [{ name: 'work', color: 'coral' }] });
         setup([[PERSONAL, db]]);
         const store = useTagStore();
         await store.loadStyles(PERSONAL, { force: true });
