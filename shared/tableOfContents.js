@@ -17,6 +17,7 @@
  * handles them.
  */
 
+import MarkdownIt from 'markdown-it';
 import { applyDocumentVariables, createDocumentRenderer } from './markdownRender.js';
 import { findFrontMatterBlock } from './frontMatter.js';
 import {
@@ -27,7 +28,7 @@ import {
     removeMarkerBlock,
     replaceMarkerBlocks,
 } from './markerBlocks.js';
-import { DEFAULT_TOC_TITLE, TOC_MARKER_NAME, parseTocConfig } from './tocMarker.js';
+import { DEFAULT_TOC_TITLE, MAX_TOC_TITLE_LENGTH, TOC_MARKER_NAME, parseTocConfig } from './tocMarker.js';
 
 export { DEFAULT_TOC_TITLE, MAX_TOC_TITLE_LENGTH, TOC_MARKER_NAME, parseTocConfig, tocWrapper } from './tocMarker.js';
 
@@ -115,7 +116,8 @@ export function buildTocMarkdown(outline, config) {
 export function tocMarkerLine({ min, max, numbered = true, title = DEFAULT_TOC_TITLE }) {
     const config = { v: 1, min, max };
     if (numbered === false) config.numbered = false;
-    if (title !== DEFAULT_TOC_TITLE) config.title = String(title ?? '');
+    // Capped as the reader caps it, so a written marker never reads back as damaged.
+    if (title !== DEFAULT_TOC_TITLE) config.title = [...String(title ?? '')].slice(0, MAX_TOC_TITLE_LENGTH).join('').slice(0, MAX_TOC_TITLE_LENGTH);
     return `${OPEN_PREFIX} ${markerJson(config)} -->`;
 }
 
@@ -140,10 +142,47 @@ function comparable(text) {
  * @param {string} text
  * @returns {TocBlock[]}
  */
+let blockParser = null;
+
+/**
+ * The offsets of the marker blocks markdown-it reads as HTML at the top level,
+ * which is what the Preview and PDF render as a table. The line scan in
+ * markerBlocks.js approximates CommonMark (lists, lazy lines, indented
+ * fences); this makes sure a table is only listed, refreshed or rewritten when
+ * the renderer agrees it is one, so an edit never lands in what renders as
+ * code. Only Documents with a marker pay for the parse.
+ * @param {string} value
+ * @param {Array<{ start: number }>} blocks
+ * @returns {Set<number>}
+ */
+function renderedBlockStarts(value, blocks) {
+    if (!blocks.length) return new Set();
+    if (!blockParser) blockParser = new MarkdownIt({ html: true });
+    const lines = new Set();
+    for (const token of blockParser.parse(value, {})) {
+        if (token.type === 'html_block' && token.level === 0 && token.map && token.content.startsWith(OPEN_PREFIX)) {
+            lines.add(token.map[0]);
+        }
+    }
+    const starts = new Set();
+    let line = 0;
+    let at = 0;
+    for (const block of [...blocks].sort((a, b) => a.start - b.start)) {
+        for (let i = value.indexOf('\n', at); i !== -1 && i < block.start; i = value.indexOf('\n', i + 1)) {
+            line += 1;
+            at = i + 1;
+        }
+        if (lines.has(line)) starts.add(block.start);
+    }
+    return starts;
+}
+
 export function findTocs(text) {
     const value = String(text ?? '');
     if (value.indexOf(OPEN_PREFIX) === -1) return [];
-    return findMarkerBlocks(value, TOC_MARKER_NAME).map((block) => {
+    const blocks = findMarkerBlocks(value, TOC_MARKER_NAME);
+    const rendered = renderedBlockStarts(value, blocks);
+    return blocks.filter((block) => rendered.has(block.start)).map((block) => {
         const config = block.json === undefined ? null : parseTocConfig(block.json);
         const problem = !block.closed ? 'unclosed' : config ? null : 'damaged';
         return { block, config, problem };
@@ -267,7 +306,9 @@ export function refreshTocs(state, { variables = {} } = {}) {
     const damaged = tocs.filter((toc) => toc.problem);
     if (!tocs.length) return { state: { ...state, value }, changed: false, count: 0, damaged };
     const outline = documentOutline(value, variables);
+    const listed = new Set(tocs.map((toc) => toc.block.start));
     const result = replaceMarkerBlocks({ ...state, value }, TOC_MARKER_NAME, (block) => {
+        if (!listed.has(block.start)) return null; // not a table where it renders
         const config = parseTocConfig(block.json);
         if (!config) return null;
         const body = buildTocMarkdown(outline, config);
@@ -307,7 +348,7 @@ export function applyTocOptions(state, index, options, { variables = {} } = {}) 
     const target = findTocs(rewritten.value)[index];
     if (!target?.config) return rewritten;
     const body = buildTocMarkdown(outline, target.config);
-    return replaceMarkerBlocks(rewritten, TOC_MARKER_NAME, (block, blockIndex) => (blockIndex === index ? body : null)).state;
+    return replaceMarkerBlocks(rewritten, TOC_MARKER_NAME, (block) => (block.start === target.block.start ? body : null)).state;
 }
 
 /**

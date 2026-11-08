@@ -3,7 +3,7 @@
  * Read from sanitized DOM only; nothing here builds HTML.
  */
 import { HEADING_ID_PREFIX, decodeFragment } from '@panino/content-merge/document-outline'
-import { isDocumentId } from '@panino/content-merge/document-links'
+import { isAppRouteHref, isDocumentId } from '@panino/content-merge/document-links'
 import { scrollElementToTop } from '@/utils/caretRect'
 
 /**
@@ -28,8 +28,9 @@ export function classifyPreviewLink(target, root) {
     }
     const href = element.getAttribute('href')
     if (href === null) return { kind: 'inert', element }
+    // An app route written by hand (`/#/settings`) is inert even if it got past the renderer.
+    if (isAppRouteHref(href)) return { kind: 'inert', element }
     if (!href.startsWith('#')) return { kind: 'external', element }
-    if (href.startsWith('#/')) return { kind: 'inert', element }
     const heading = element.getAttribute('data-pn-heading')
     if (heading) return { kind: 'heading', slug: heading, element }
     const fragment = decodeFragment(href.slice(1))

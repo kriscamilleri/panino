@@ -100,13 +100,20 @@ export function useDocumentLinks() {
             heading.setAttribute('tabindex', '-1')
         }
         // A fragment that matches nothing in the content goes nowhere.
-        for (const anchor of root.querySelectorAll('a[href^="#"]:not([data-pn-doc])')) {
-            const href = anchor.getAttribute('href')
-            if (href === '#' || href.startsWith('#/')) continue
-            const id = decodeFragment(href.slice(1))
-            const found = id !== null && (root.querySelector(`[id="${attributeSelectorValue(id)}"]`)
-                || root.querySelector(`[id="${attributeSelectorValue(`pn-${id}`)}"]`))
-            if (!found) anchor.classList.add('pn-link-broken')
+        // One pass over the ids, then a lookup per anchor: a large table of
+        // contents is thousands of anchors, and a DOM query each was
+        // anchors × nodes on every render.
+        const fragmentAnchors = root.querySelectorAll('a[href^="#"]:not([data-pn-doc])')
+        if (fragmentAnchors.length) {
+            const ids = new Set()
+            for (const element of root.querySelectorAll('[id]')) ids.add(element.id)
+            for (const anchor of fragmentAnchors) {
+                const href = anchor.getAttribute('href')
+                if (href === '#' || href.startsWith('#/')) continue
+                const id = decodeFragment(href.slice(1))
+                const found = id !== null && (ids.has(id) || ids.has(`pn-${id}`))
+                if (!found) anchor.classList.add('pn-link-broken')
+            }
         }
         const anchors = [...root.querySelectorAll('a[data-pn-doc]')]
         if (!anchors.length) return

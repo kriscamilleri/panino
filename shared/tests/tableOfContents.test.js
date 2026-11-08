@@ -12,6 +12,7 @@ import {
     refreshTocs,
     removeToc,
     tocOptions,
+    tocMarkerLine,
     tocStatus,
 } from '../tableOfContents.js';
 import { renderDocumentHtml } from '../markdownRender.js';
@@ -258,5 +259,28 @@ describe('rendering a table', () => {
         expect(html).toContain('<a href="#pn-été-2026" data-pn-heading="été-2026">');
         expect(html).toContain('<h2 id="pn-été-2026">');
         expect(html).toContain('<h2 id="pn-été-2026-1">');
+    });
+});
+
+describe('tables near code (review, 2026-11-08)', () => {
+    const toc = '<!-- panino:toc {"v":1} -->\n- 1 [x](#x)\n<!-- /panino:toc -->';
+
+    it('finds a table after a fence that opened inside a list item and ended with it', () => {
+        expect(findTocs(`- item\n  \`\`\`\n  code\n${toc}`)).toHaveLength(1);
+        expect(findTocs(`1. item\n   ~~~\n   x\nafter\n${toc}`)).toHaveLength(1);
+    });
+
+    it('never lists or rewrites a marker that renders inside code', () => {
+        const inCode = `  \`\`\`\ncode\n${toc}\n\`\`\``;
+        expect(findTocs(inCode)).toHaveLength(0);
+        const state = { value: `# A\n\n${inCode}`, selectionStart: 0, selectionEnd: 0 };
+        expect(refreshTocs(state).state.value).toBe(state.value);
+    });
+
+    it('caps a title written from code, so the marker reads back undamaged', () => {
+        const line = tocMarkerLine({ min: 2, max: 3, title: 'x'.repeat(200) });
+        const config = parseTocConfig(JSON.parse(line.slice(line.indexOf('{'), line.lastIndexOf('}') + 1)));
+        expect(config).not.toBeNull();
+        expect(config.title).toHaveLength(80);
     });
 });

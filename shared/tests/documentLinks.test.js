@@ -3,6 +3,7 @@ import {
     APP_ROUTE_LINK_TITLE,
     findDocumentLinkIds,
     formatDocumentHref,
+    isAppRouteHref,
     isDocumentId,
     parseDocumentHref,
 } from '../documentLinks.js';
@@ -102,5 +103,22 @@ describe('rendering Document links', () => {
         const html = renderDocumentHtml(`**[a *b*](panino:doc/nope)** [![i](x.png)](#/x)`);
         expect(html).toContain('<strong><span class="pn-link-broken">a <em>b</em></span></strong>');
         expect(html).toContain('<img src="x.png" alt="i"></span>');
+    });
+});
+
+describe('hand-written app routes (review, 2026-11-08)', () => {
+    it('treats any relative link whose fragment starts with #/ as an app route', () => {
+        for (const href of ['#/settings', '/#/settings', './#/addons/ai/authorize?x=1', '?a#/settings', 'index.html#/x']) {
+            expect(isAppRouteHref(href)).toBe(true);
+        }
+        for (const href of ['https://panino.sh/#/settings', '//host/#/x', 'mailto:a@b.c#/x', '#heading', '/page', 'panino:doc/x']) {
+            expect(isAppRouteHref(href)).toBe(false);
+        }
+    });
+
+    it('renders them inert, never as a live link', () => {
+        const html = renderDocumentHtml('[a](/#/settings) [b](./#/addons/ai/authorize?x=1) [c](?a#/settings)');
+        expect(html).not.toMatch(/<a /);
+        expect(html.match(/pn-link-broken/g)).toHaveLength(3);
     });
 });

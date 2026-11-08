@@ -108,20 +108,83 @@ export function scanLines(text) {
         for (let i = front.start; i <= front.end; i += 1) lines[i].markable = false;
     }
     let fence = null;
+    // The content column of the list item the scan is in (0: none). A fence
+    // opened inside a list item also ends when the item does, at the first
+    // non-blank line indented less than the item's content, as markdown-it
+    // reads it. A top-level indented fence ends only at its closing fence.
+    let listContent = 0;
+    let prevBlank = true;
+    let prevOpenedFence = false;
     for (let i = front.end + 1; i < lines.length; i += 1) {
         const line = lines[i];
+        const indent = leadingSpaces(line.text);
+        const blank = indent === line.text.length || line.text.trim() === '';
+        const wasBlank = prevBlank;
+        prevBlank = blank;
+        const fenceBefore = prevOpenedFence;
+        prevOpenedFence = false;
         if (fence) {
-            line.markable = false;
-            if (closesFence(line.text, fence)) fence = null;
-            continue;
+            if (fence.container && !blank && indent < fence.container) {
+                fence = null; // the list item ended; read this line normally below
+            } else {
+                line.markable = false;
+                if (closesFence(line.text, fence)) {
+                    fence = null;
+                    prevOpenedFence = true; // a closed code block is not a paragraph
+                }
+                continue;
+            }
         }
-        const opening = fenceOpening(line.text);
+        if (!blank) {
+            const item = listItemContent(line.text);
+            if (item) {
+                listContent = item;
+            } else if (indent < listContent) {
+                // A less-indented line right after text is a lazy continuation of
+                // the item's paragraph; after a blank line, or when it starts a
+                // block of its own, the item has ended.
+                const head = line.text.trimStart()[0];
+                if (wasBlank || fenceBefore || head === '>' || head === '#' || fenceOpening(line.text)) listContent = 0;
+            }
+        }
+        const opening = fenceOpening(line.text.slice(listContent && indent >= listContent ? listContent : 0));
         if (opening) {
-            fence = opening;
+            fence = { ...opening, container: listContent && indent >= listContent ? listContent : 0 };
             line.markable = false;
         }
     }
     return lines;
+}
+
+/** Spaces at the start of a line. */
+function leadingSpaces(line) {
+    let i = 0;
+    while (i < line.length && line[i] === ' ') i += 1;
+    return i;
+}
+
+/**
+ * The content column of a list item line (`- x`, `* x`, `1. x`, `2) x`,
+ * after up to three spaces), or 0. Linear, no backtracking.
+ * @param {string} line
+ * @returns {number}
+ */
+function listItemContent(line) {
+    let i = 0;
+    while (i < 3 && line[i] === ' ') i += 1;
+    const marker = i;
+    if (line[i] === '-' || line[i] === '*' || line[i] === '+') {
+        i += 1;
+    } else {
+        while (i - marker < 9 && line[i] >= '0' && line[i] <= '9') i += 1;
+        if (i === marker || (line[i] !== '.' && line[i] !== ')')) return 0;
+        i += 1;
+    }
+    if (line[i] !== ' ' && line[i] !== '\t') return 0;
+    let spaces = 0;
+    while (line[i + spaces] === ' ' && spaces < 5) spaces += 1;
+    // Five or more spaces start indented code: the content column is one past the marker.
+    return i + (spaces >= 1 && spaces <= 4 ? spaces : 1);
 }
 
 /**

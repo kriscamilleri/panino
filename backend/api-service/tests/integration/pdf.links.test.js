@@ -96,6 +96,12 @@ describe('the app origin', () => {
         expect(withEnv({ FRONTEND_URL: undefined, NODE_ENV: 'test' }, appBaseUrl)).toBe('http://localhost:5173');
     });
 
+    it('treats a FRONTEND_URL with a query or fragment as unset (it would break every link)', () => {
+        expect(withEnv({ FRONTEND_URL: 'https://host/app?x', NODE_ENV: 'production' }, appBaseUrl)).toBeNull();
+        expect(withEnv({ FRONTEND_URL: 'https://host/app#y', NODE_ENV: 'production' }, appBaseUrl)).toBeNull();
+        expect(withEnv({ FRONTEND_URL: 'https://host/app', NODE_ENV: 'production' }, appBaseUrl)).toBe('https://host/app');
+    });
+
     it('is null in production when unset or not http(s), and warns once at startup', () => {
         expect(withEnv({ FRONTEND_URL: undefined, NODE_ENV: 'production' }, appBaseUrl)).toBeNull();
         expect(withEnv({ FRONTEND_URL: 'javascript:alert(1)', NODE_ENV: 'production' }, appBaseUrl)).toBeNull();

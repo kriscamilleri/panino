@@ -25,6 +25,8 @@ import { useEditorStore } from './editorStore'
 import { useUiStore } from './uiStore'
 import { useGlobalVariablesStore } from './globalVariablesStore'
 import { useConflictStore } from './conflictStore'
+import { useHistoryStore } from './historyStore'
+import { useCollabSessionStore } from './collabSessionStore'
 import { useLinkPickerStore } from './linkPickerStore'
 
 /** Stale checks wait this long after typing; longer for very large Documents. */
@@ -103,9 +105,20 @@ export const useTableOfContentsStore = defineStore('tableOfContentsStore', () =>
             ui.addToast('Resolve the document changes before editing this Document.', 'info')
             return false
         }
+        // A live session's text goes through the editor's binding only; writing
+        // the saved text here would be overwritten by the session's commit.
+        const collab = useCollabSessionStore()
+        if (collab.isActive && collab.noteId === file.id) {
+            ui.addToast('Open the editor to change the table of contents during a live session.', 'info')
+            return false
+        }
         const value = text.value
         const next = fn({ value, selectionStart: 0, selectionEnd: 0 })
         if (!next || next.value === value) return false
+        // Undo works for this edit as for one made in the editor.
+        const history = useHistoryStore()
+        history.initialize(file.id, value)
+        history.record(file.id, next.value)
         draftStore.setDraft(file.id, next.value)
         await docStore.updateFileContent(file.id, next.value, file.dbKey)
         return true

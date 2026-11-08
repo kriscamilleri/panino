@@ -138,6 +138,25 @@ function toSpan(tokens, openIndex, attrs) {
  * @param {string} mode
  * @returns {(state: object) => void}
  */
+const URL_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+
+/**
+ * Whether a link destination is a hand-written route to an app screen: a
+ * relative link (no scheme, not `//host`) whose fragment starts with `#/`, as
+ * in `#/settings`, `/#/settings`, `./#/addons/…` or `?a#/x`. Followed in the
+ * Preview it would move the app to that screen in the same tab, so it is
+ * rendered inert. An absolute URL is an ordinary external link.
+ * @param {string} href
+ * @returns {boolean}
+ */
+export function isAppRouteHref(href) {
+    const text = String(href ?? '').trim();
+    const hash = text.indexOf('#');
+    if (hash === -1 || text[hash + 1] !== '/') return false;
+    const before = text.slice(0, hash);
+    return !URL_SCHEME.test(before) && !before.startsWith('//');
+}
+
 function documentLinksRule(mode) {
     return (state) => {
         const env = state.env && typeof state.env === 'object' ? state.env : {};
@@ -152,8 +171,8 @@ function documentLinksRule(mode) {
                 if (token.type !== 'link_open') continue;
                 const href = token.attrGet('href') || '';
 
-                // A hand-written link to an app screen (`#/settings`, `#/addons/…`).
-                if (href.startsWith('#/')) {
+                // A hand-written link to an app screen (`#/settings`, `/#/addons/…`).
+                if (isAppRouteHref(href)) {
                     toSpan(children, i, [['class', 'pn-link-broken'], ['title', APP_ROUTE_LINK_TITLE]]);
                     continue;
                 }

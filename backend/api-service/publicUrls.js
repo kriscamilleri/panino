@@ -10,7 +10,7 @@
 
 /**
  * @returns {string|null} the app's origin and path without a trailing slash. A value
- *   that is not an absolute http(s) URL counts as unset; unset is
+ *   that is not an absolute http(s) URL, or that has a query or fragment, counts as unset; unset is
  *   `http://localhost:5173` in development and null in production
  */
 export function appBaseUrl() {
@@ -18,7 +18,9 @@ export function appBaseUrl() {
     if (configured) {
         try {
             const url = new URL(configured);
-            if ((url.protocol === 'http:' || url.protocol === 'https:') && url.hostname && !url.username && !url.password) {
+            // A query or fragment would end up in front of `#/doc/…` and break every link.
+            if ((url.protocol === 'http:' || url.protocol === 'https:') && url.hostname && !url.username && !url.password
+                && !url.search && !url.hash) {
                 return configured;
             }
         } catch {

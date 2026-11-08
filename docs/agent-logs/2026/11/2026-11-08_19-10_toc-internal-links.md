@@ -171,3 +171,46 @@ PDF and export:
 - Merge notes: `useSheetRoute.js` SHEETS, `PhoneEditor.vue`, `DocumentMenuSheet.vue`,
   `SubMenuBar.vue` and `frontend/AGENTS.md` are likely to need trivial conflict resolution with
   the typewriter and tags branches.
+
+## Review fixes (orchestrator, 2026-11-08)
+
+An independent Fable 5.1 review found two medium and several low issues, and no high ones.
+Changes on this branch:
+
+- **Hand-written app routes (medium).** Only `#/…` was inert. `/#/settings`, `./#/addons/ai/authorize`
+  and `?a#/x` were live same-tab links that could move the app to any screen, the OAuth consent page
+  included.
+  - New shared `isAppRouteHref`: a relative link (no scheme, not `//`) whose fragment starts with
+    `#/`.
+  - The renderer makes these inert, and the Preview's click classifier refuses them too.
+  - Tests cover both.
+- **Link decoration speed (medium).** The broken-fragment pass ran two DOM queries per anchor on
+  every render. It now builds one set of ids per render.
+- **Tables near code (low → data safety).** Two changes:
+  - The line scan now follows list items: a fence opened inside an item ends with the item, and
+    lazy continuation lines are handled.
+  - `findTocs`, and with it Refresh, Options and Remove, keeps only marker blocks that markdown-it
+    parses as top-level HTML.
+
+  Fuzzing 20,000 random documents against markdown-it:
+
+  | Case | Original | Now |
+  |---|---|---|
+  | A block the menu could change that renders as code | 352 | 0 |
+  | A rendered table the menu misses | 1332 | 117 |
+
+  The remaining misses are harmless: the menu offers Insert instead of Refresh.
+- **Hidden-editor edits (low).** These are refused during a live session on the Document, and
+  recorded in undo history.
+- **Title cap (low).** `tocMarkerLine` caps the title at 80, so a marker written from code reads
+  back undamaged.
+- **`FRONTEND_URL` (low).** A query or fragment counts as unset, since it would break every PDF
+  link.
+- **Rendering changes (low).** Spec §4.7 now records that Knowledge articles with headings are
+  rewritten once, and the AI add-on's HTML output carries heading ids.
+- **Not changed:**
+  - A paste is refused while editing is paused. Every input is refused then, with the same toast,
+    so it behaves like any paste.
+  - The stale check's second parse is debounced (300 ms, or 1.5 s above 1 MiB).
+  - The source-grep test in `pdfExportLinks.test.js` stays until the export pages get a mount
+    test.
