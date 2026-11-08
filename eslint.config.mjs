@@ -15,7 +15,7 @@ import globals from "globals";
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 
-/** The two folders add-ons live in, one per layer (docs/specs/active/addon-folders.md). */
+/** The two folders add-ons live in, one per layer (docs/specs/shipped/addon-folders.md). */
 const ADDON_ROOTS = ["backend/api-service/addons", "frontend/src/addons"].map((dir) => path.join(repoRoot, dir));
 
 /**

@@ -1,4 +1,4 @@
-// Document properties in the v1 API (docs/specs/proposed/ai-api-expansion.md §4.6):
+// Document properties in the v1 API (docs/specs/shipped/ai-api-expansion.md §4.6):
 // built-in ones every Document has (title, folder, word count, created and modified
 // on and by, pinned) and the front matter `key: value` pairs at the top of its text.
 // Read one Document's properties, list the keys in use, query Documents by property

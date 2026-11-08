@@ -2,9 +2,14 @@
 
 > External service integrations are **add-ons**: the operator offers one, each user switches it
 > on, and it is off by default. One registry, one gate on the server, one Settings section.
-> Odoo (`../active/odoo-integration.md`) is the first add-on; later integrations follow the same
+> Odoo (`odoo-integration.md`) is the first add-on; later integrations follow the same
 > shape.
-> Status: active (framework and Odoo adoption implemented 2026-10-27 on `feature/odoo-integration`)
+> Status: shipped
+> Shipped: 2026-11-05, in release #18 (`d5c008c`); see `docs/agent-logs/2026/10/2026-10-27_11-00_addons-framework.md`
+> and `docs/agent-logs/2026/11/2026-11-05_07-30_release-addons-and-odoo-to-production.md`
+> Implementation: `backend/api-service/addons/registry.js`, `addons/index.js`;
+> `frontend/src/addons/registry.js`, `frontend/src/store/addonsStore.js`,
+> `frontend/src/components/AddonsSection.vue`
 > Created: 2026-10-27
 > Last updated: 2026-10-29 — add-ons live in their own folders and plug into core through the
 > manifest ([`addon-folders.md`](addon-folders.md))
@@ -34,7 +39,7 @@ back on is instant. Removing credentials is the add-on's own **Disconnect**, as 
 | Default | Off for every user. An operator offering an add-on does not switch it on for anyone. |
 | Off versus disconnected | Two switches. Off keeps the add-on's data and credentials and pauses its jobs. Disconnect removes credentials. |
 | Who can switch | Each user, for their own account only. There is no space-level switch. |
-| GitHub backup | Converted to an add-on on 2026-10-29 (`docs/specs/active/github-integration.md`). Principle: every integration with an outside service is an add-on. |
+| GitHub backup | Converted to an add-on on 2026-10-29 (`docs/specs/shipped/github-integration.md`). Principle: every integration with an outside service is an add-on. |
 | Naming | **Add-ons** in the product. `addons` in code, tables and routes. |
 
 ## 3) Goals
@@ -186,7 +191,7 @@ The switch is idempotent: switching on an add-on that is on does nothing and ret
 
 ## 8) Adopting Odoo
 
-The Odoo integration (`../active/odoo-integration.md`) is built through Phase 2 with its own
+The Odoo integration (`odoo-integration.md`) is built through Phase 2 with its own
 availability check: the routes answer 404 when the operator flag is off, and the client treats a
 404 from the status route as "unavailable". Moving it onto the framework is that spec's Phase 3:
 

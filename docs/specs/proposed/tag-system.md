@@ -12,7 +12,7 @@
 Add a tagging system where tags are declared as values in a Document's YAML front-matter. Tags are displayed as color-coded badges in the sidebar next to each Document. Users can give a tag a display name and color from a dedicated management UI. Tag colors are stored per database, synced via CR-SQLite, and usable as search/filter criteria.
 
 Tags work the same way in a personal database and in a shared space
-([COLLAB-04](collab-04-shared-spaces.md)). A space has its own shared set of tag colors, exactly as
+([COLLAB-04](../shipped/collab-04-shared-spaces.md)). A space has its own shared set of tag colors, exactly as
 it has its own shared globals and templates.
 
 ---
@@ -51,7 +51,7 @@ tags:
   lowercased value; the original casing is kept for display.
 - Front-matter is the only source of truth for *which* tags a Document has. Because it is part of
   the Document's content, assignments travel with the Document: they sync, merge
-  ([COLLAB-02](collab-02-content-merge.md)), appear in revision history and move with the Document
+  ([COLLAB-02](../shipped/collab-02-content-merge.md)), appear in revision history and move with the Document
   between databases with no extra work.
 - A tag with no color row (§4) renders in the neutral style. Nothing is written to the database
   when a Document mentions a new tag.
@@ -97,7 +97,7 @@ Store a palette **key**, not a hex value, so colors can be retuned for contrast 
 migration. The palette must:
 
 - pass at least 3:1 contrast against both `#ffffff` and `--pn-surface: #151515`, the same rule as
-  the identity palette in [COLLAB-03 §3](collab-03-identity-palette.md) (the earlier list's yellow
+  the identity palette in [COLLAB-03 §3](../shipped/collab-03-identity-palette.md) (the earlier list's yellow
   `#f1c40f` and gray `#95a5a6` fail on white);
 - stay perceptually distinct from `--pn-primary` and `--pn-accent`;
 - include a `neutral` entry, used when `color` is empty or unknown.
@@ -137,7 +137,7 @@ above.
 - Multiple tags can be selected (AND logic — a Document must have all selected tags).
 - Clear button removes all tag filters.
 - The sidebar tree already merges per-database results in JavaScript
-  ([COLLAB-04 §5.3](collab-04-shared-spaces.md)); tag filtering runs per database and merges the same
+  ([COLLAB-04 §5.3](../shipped/collab-04-shared-spaces.md)); tag filtering runs per database and merges the same
   way. Sorting and any limit are applied after merging, never per database.
 
 ### 5.3 Tag Management
@@ -157,7 +157,7 @@ above.
 **Tag management never edits Documents.** The earlier design removed a deleted tag from every
 Document's front-matter. In a space that is one person silently rewriting many shared Documents,
 possibly while another member has one open in a live session
-([COLLAB-05](collab-05-live-sessions.md)); it would also flood revision history. Resetting a tag
+([COLLAB-05](../shipped/collab-05-live-sessions.md)); it would also flood revision history. Resetting a tag
 only removes its styling. Renaming a tag across Documents is out of scope for v1; a later bulk
 rename must be an explicit, previewed, per-Document edit with revisions, and is its own spec.
 
@@ -181,7 +181,7 @@ A space's `/sync` rejects any table or column not on `SPACE_CHANGE_ALLOWLIST`
 |---|---|
 | `tags` | `name`, `display_name`, `color`, `created_at`, `updated_at`, `-1` |
 
-Update the table in [COLLAB-04 §4.2](collab-04-shared-spaces.md) in the same change, with schema
+Update the table in [COLLAB-04 §4.2](../shipped/collab-04-shared-spaces.md) in the same change, with schema
 tests that fail if `tags` gains a column the allowlist does not name.
 
 ### 6.2 Schema rollout
@@ -197,7 +197,7 @@ tests that fail if `tags` gains a column the allowlist does not name.
 ### 6.3 Moving a Document between databases
 
 Front-matter tags move with the Document. Colors live in the source database and do not move on
-their own. The cross-database transfer ([COLLAB-04 §5.4](collab-04-shared-spaces.md)) gains one
+their own. The cross-database transfer ([COLLAB-04 §5.4](../shipped/collab-04-shared-spaces.md)) gains one
 step: for each tag in the moved Documents' front-matter that has a row in the source and **no row
 in the destination**, copy the row to the destination. Never overwrite an existing destination row
 — the space's colors belong to its members. Record copied tags on the transfer record so a resumed

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The phone Document menu hosts add-on actions and modals
-// (docs/specs/active/addon-folders.md §6.2.1). Closing the sheet, the back
+// (docs/specs/shipped/addon-folders.md §6.2.1). Closing the sheet, the back
 // gesture included, closes the add-on modal so reopening the sheet does not
 // bring it back.
 import { describe, it, expect, vi } from 'vitest';

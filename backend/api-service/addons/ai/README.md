@@ -5,9 +5,9 @@ REST API, an MCP server, and OAuth 2.1 sign-in for MCP clients ("connected apps"
 `AI_ADDON_ENABLED=true`; each user switches it on. While a user's switch is off, every key and
 connected app of theirs is refused (403 `ADDON_DISABLED`) and nothing is deleted.
 
-- Spec: [`docs/specs/active/ai-integration.md`](../../../../docs/specs/active/ai-integration.md)
-  (keys and v1 rules: [`llm-api.md`](../../../../docs/specs/active/llm-api.md); properties, folders,
-  Trash, revisions, images, templates and PDF: [`ai-api-expansion.md`](../../../../docs/specs/proposed/ai-api-expansion.md))
+- Spec: [`docs/specs/shipped/ai-integration.md`](../../../../docs/specs/shipped/ai-integration.md)
+  (keys and v1 rules: [`llm-api.md`](../../../../docs/specs/shipped/llm-api.md); properties, folders,
+  Trash, revisions, images, templates and PDF: [`ai-api-expansion.md`](../../../../docs/specs/shipped/ai-api-expansion.md))
 - How it works: [`docs/architecture/public-api.md`](../../../../docs/architecture/public-api.md)
 
 ## Manifest fields used

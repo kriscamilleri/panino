@@ -1,4 +1,4 @@
-// Pure helpers for API keys and the v1 API (docs/specs/active/llm-api.md,
+// Pure helpers for API keys and the v1 API (docs/specs/shipped/llm-api.md,
 // ai-integration.md).
 // No database or Express access here, so every rule can be unit tested.
 import crypto from 'crypto';

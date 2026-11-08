@@ -23,7 +23,7 @@ services:
       LIVE_SESSIONS_ENABLED: ${LIVE_SESSIONS_ENABLED:-false}
       # Odoo integration. The dev defaults reach the local Odoo containers
       # (scripts/odoo-dev.sh); the key below is for development only.
-      # AI agents add-on (API keys, REST, MCP, OAuth): docs/specs/active/ai-integration.md
+      # AI agents add-on (API keys, REST, MCP, OAuth): docs/specs/shipped/ai-integration.md
       AI_ADDON_ENABLED: ${AI_ADDON_ENABLED:-true}
       API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-120}
       ODOO_INTEGRATION_ENABLED: ${ODOO_INTEGRATION_ENABLED:-true}

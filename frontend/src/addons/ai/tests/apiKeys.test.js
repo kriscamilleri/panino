@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The AI agents add-on's API keys (docs/specs/active/llm-api.md §5.4): helpers, store and section.
+// The AI agents add-on's API keys (docs/specs/shipped/llm-api.md §5.4): helpers, store and section.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { mount, flushPromises } from '@vue/test-utils';

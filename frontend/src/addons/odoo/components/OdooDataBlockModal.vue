@@ -458,7 +458,7 @@ import { BUILT_IN_LAYOUTS, layoutFields, parseLayout, tableLayout } from '@/addo
 
 /**
  * Sales orders from Odoo in the current Document
- * (docs/specs/active/odoo-sales-order-blocks.md): list, refresh and edit the
+ * (docs/specs/shipped/odoo-sales-order-blocks.md): list, refresh and edit the
  * blocks it holds, or insert a new one. Every change goes through the editor,
  * so it is undoable and saved like typing. A block is either a table of chosen
  * values and columns, or drawn from a Markdown layout (a starter, one of the

@@ -137,7 +137,7 @@ Editor toolbar: `pn-toolbar-button` (+ `pn-toolbar-button-tight`), `pn-toolbar-i
 ## 6) Identity palette
 
 Colour is also used for **people**. That is a deliberate, documented exception to the
-Accent contract in §1, carved out by [COLLAB-03](../../specs/proposed/collab-03-identity-palette.md).
+Accent contract in §1, carved out by [COLLAB-03](../specs/shipped/collab-03-identity-palette.md).
 
 1. Identity colours identify **people only** — avatars, presence dots, attribution marks,
    remote selection tints.

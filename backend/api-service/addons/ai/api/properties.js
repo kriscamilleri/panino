@@ -1,4 +1,4 @@
-// Document properties in the v1 API (docs/specs/proposed/ai-api-expansion.md §4.6), as
+// Document properties in the v1 API (docs/specs/shipped/ai-api-expansion.md §4.6), as
 // MCP tools, REST routes and OpenAPI paths. The rules are in propertyService.js.
 import {
     getDocumentProperties,

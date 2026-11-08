@@ -1,7 +1,14 @@
 # COLLAB-00 — Collaboration: Overview & Sequencing
 
 > Index for the collaboration spec set. Read this before picking up any individual COLLAB spec.
-> Status: proposed
+> Status: shipped — every spec in the set is live
+> Shipped: 2026-10-11, in the release merge `d2f5ed5`; `SHARED_SPACES_ENABLED` and
+> `LIVE_SESSIONS_ENABLED` turned on in production the same day (see
+> `docs/agent-logs/2026/10/2026-10-11_18-40_collab-merge-and-deploy.md` and
+> `docs/agent-logs/2026/10/2026-10-11_18-55_collab-flags-enabled-in-production.md`)
+> Implementation: each COLLAB spec's header; how it works now:
+> [`crsqlite-sync.md`](../../architecture/crsqlite-sync.md),
+> [`live-sessions.md`](../../architecture/live-sessions.md)
 > Created: 2026-08-16
 > Last updated: 2026-08-16 (final review)
 > Source: architecture analysis of `sync.js`, `db.js`, `syncStore.js`, `Editor.vue`, 2026-08-16

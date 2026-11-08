@@ -3,11 +3,17 @@
 > One place to see and update everything a person has sent to Odoo or keeps in sync with it,
 > across their own Documents and their spaces. Plus two smaller changes that make repeat sends
 > cheaper: an **Update** mode for the Send dialog and **Refresh all** for sales order blocks.
-> Builds on [`odoo-integration.md`](../active/odoo-integration.md) and
-> [`odoo-sales-order-blocks.md`](../active/odoo-sales-order-blocks.md).
-> Status: proposed. Phase 2 (Update mode) implemented on `feature/addons-menu`, 2026-11-01;
-> Phases 0 and 1 (add-on pages, the overview, Send updates) on the same branch, 2026-11-02;
-> Phase 3 (Refresh all) not started.
+> Builds on [`odoo-integration.md`](odoo-integration.md) and
+> [`odoo-sales-order-blocks.md`](odoo-sales-order-blocks.md).
+> Status: shipped. Phase 3 (Refresh all) was already in the sales orders dialog from
+> [`odoo-sales-order-blocks.md`](odoo-sales-order-blocks.md): it shows when the Document has a
+> block it can refresh, and reports only the blocks that failed.
+> Shipped: 2026-11-05, in release #18 (`d5c008c`); see
+> `docs/agent-logs/2026/11/2026-11-02_09-00_addon-pages-and-odoo-overview.md` and
+> `docs/agent-logs/2026/11/2026-11-05_07-30_release-addons-and-odoo-to-production.md`
+> Implementation: `backend/api-service/addons/odoo/overview.js`, `routes.js`;
+> `frontend/src/addons/odoo/components/OdooOverviewPage.vue`, `OdooSendModal.vue`,
+> `OdooDataBlockModal.vue`; core `frontend/src/pages/AddonPage.vue`
 > Created: 2026-11-01
 > Last updated: 2026-11-01
 
@@ -37,7 +43,7 @@ Nothing here adds a destination, a setting or a new kind of record in Odoo.
 |---|---|
 | Should the overview include space Documents that other members sent? | Yes. A space shares its `odoo_links`, so the overview shows them, with who sent them last. |
 | Spec first? | Yes. This spec covers Phase 1; Phase 2 starts while it is reviewed. |
-| A page or a wide dialog? (2026-11-02) | A page. Add-ons gain a `pages` contribution point for it ([`addon-folders.md`](../active/addon-folders.md) §6.2.5). |
+| A page or a wide dialog? (2026-11-02) | A page. Add-ons gain a `pages` contribution point for it ([`addon-folders.md`](addon-folders.md) §6.2.5). |
 
 ## 3) Goals
 

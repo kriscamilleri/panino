@@ -1,4 +1,4 @@
-// MCP tools of the AI agents add-on (docs/specs/active/ai-integration.md §5.3): the
+// MCP tools of the AI agents add-on (docs/specs/shipped/ai-integration.md §5.3): the
 // v1 operations as tools, with input schemas from the subset every
 // function-calling model accepts, and results written for a model to read.
 // Each area in api/ defines its tools; this file lists and runs them.

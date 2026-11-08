@@ -4,7 +4,7 @@
 - **Started:** 2026-10-27 11:00
 - **Status:** Done; tests and browser checks below
 - **Branch:** `feature/odoo-integration`
-- **Specs:** `docs/specs/active/addons.md` (new), `docs/specs/active/odoo-integration.md` (§2, §5, §6, §8–§13)
+- **Specs:** `docs/specs/shipped/addons.md` (new), `docs/specs/shipped/odoo-integration.md` (§2, §5, §6, §8–§13)
 
 ## Objective
 
@@ -44,7 +44,7 @@ as its new Phase 3), then Kris asked for it to be implemented and tested.
   `pages/HomePage.vue`, `components/SubMenuBar.vue`, `components/phone/DocumentMenuSheet.vue`;
   tests `addonsStore.test.js`, `addonsSection.test.js` (new), `odooConnection.test.js`,
   `odooSendModal.test.js`; `frontend/AGENTS.md`.
-- `docs/specs/active/addons.md`, `docs/specs/active/odoo-integration.md`,
+- `docs/specs/shipped/addons.md`, `docs/specs/shipped/odoo-integration.md`,
   `docs/runbooks/deployment.md`, this log.
 
 ## Tests

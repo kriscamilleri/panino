@@ -1,5 +1,5 @@
 /**
- * Images inside a Knowledge article (docs/specs/active/odoo-integration.md §7, Phase 6).
+ * Images inside a Knowledge article (docs/specs/shipped/odoo-integration.md §7, Phase 6).
  * Panino image URLs need a Panino session, so they would break in Odoo. Each of this
  * installation's own images is uploaded as an `ir.attachment` on the article and the
  * `<img src>` rewritten to Odoo's `/web/image/<id>`, which the article's readers may

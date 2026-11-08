@@ -6,7 +6,7 @@
 
 ## Objective
 
-Implement Phase 4 of [`docs/specs/active/odoo-integration.md`](../../../specs/active/odoo-integration.md):
+Implement Phase 4 of [`docs/specs/shipped/odoo-integration.md`](../../../specs/shipped/odoo-integration.md):
 send a Document's PDF to the chatter of a CRM opportunity or a sales order as an internal note,
 with a record picker, overwrite on resend plus a "replaced" note, and the ownership rules of §6.
 

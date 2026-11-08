@@ -21,7 +21,7 @@ already on `develop`. Real-client testing approved for Claude Code and Gemini CL
   OAuth: Client ID Metadata Documents preferred, DCR as fallback, PKCE S256, `iss` in responses,
   `resource` audience. The official SDK was not used (it brings Express 5, Hono and a dozen
   packages into an Express 4 backend); the stateless JSON subset is small and pinned by tests.
-- Spec `docs/specs/active/ai-integration.md` written, approved ("Build it as specced").
+- Spec `docs/specs/shipped/ai-integration.md` written, approved ("Build it as specced").
 - Built: core extension points `schema.auth` and `wellKnown`; the move into `addons/ai/` with
   the v1 logic extracted into `documentService.js` (REST and MCP are thin adapters; the 46 moved
   REST tests passed unchanged apart from URLs); MCP; OAuth; the settings card and consent page.

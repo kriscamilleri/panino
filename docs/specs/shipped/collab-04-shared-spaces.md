@@ -1,7 +1,15 @@
 # COLLAB-04 — Shared Spaces
 
 > A shared folder tree is its own CR-SQLite database, replicated in full to every member.
-> Status: proposed
+> Status: shipped
+> Shipped: 2026-10-11, in the release merge `d2f5ed5`; `SHARED_SPACES_ENABLED` and
+> `LIVE_SESSIONS_ENABLED` turned on in production the same day (see
+> `docs/agent-logs/2026/10/2026-10-11_18-40_collab-merge-and-deploy.md` and
+> `docs/agent-logs/2026/10/2026-10-11_18-55_collab-flags-enabled-in-production.md`)
+> Implementation: `backend/api-service/spaces.js`, `spaceStorage.js`, `spaceTransfer.js`,
+> `sync.js`; `frontend/src/store/spacesStore.js`, `spaceTransferStore.js`,
+> `frontend/src/utils/spaceLifecycle.js`, `frontend/src/pages/SpacesPage.vue`,
+> `AcceptSpaceInvitePage.vue`
 > Created: 2026-08-16
 > Last updated: 2026-08-20
 > Part of [COLLAB-00](collab-00-overview.md) · Soft-depends on [COLLAB-02](collab-02-content-merge.md), [COLLAB-03](collab-03-identity-palette.md)
@@ -330,7 +338,7 @@ is the point — and backend revision actor metadata supplies the author.
 so it needs no membership check of its own. Confirm this when implementing; if any code path there
 resolves a note id server-side, it needs the same treatment as §4.5. The SSRF checks for external
 images were tightened afterwards (DNS pinning, redirect re-checks, `ipaddr.js` ranges) by
-`pdf-render-hardening.md`; they are independent of Space membership.
+`../deprecated/pdf-render-hardening.md`; they are independent of Space membership.
 
 **GitHub backup is per-user and stays per-user.** `backup_config` is a local, non-CRR table, and
 backing up a shared space to one member's personal repository is a data-governance decision nobody

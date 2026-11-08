@@ -6,7 +6,7 @@
 
 ## Objective
 
-Phase 10 of [`docs/specs/active/odoo-integration.md`](../../../specs/active/odoo-integration.md):
+Phase 10 of [`docs/specs/shipped/odoo-integration.md`](../../../specs/shipped/odoo-integration.md):
 whole-space syncs and syncs of space folders and Documents, space settings, owner/editor
 rules, pause and take-over.
 

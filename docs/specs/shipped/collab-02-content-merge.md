@@ -1,7 +1,14 @@
 # COLLAB-02 — Content Merge
 
 > Three-way merge document bodies at sync boundaries instead of losing one side.
-> Status: proposed
+> Status: shipped
+> Shipped: 2026-10-11, in the release merge `d2f5ed5`; `SHARED_SPACES_ENABLED` and
+> `LIVE_SESSIONS_ENABLED` turned on in production the same day (see
+> `docs/agent-logs/2026/10/2026-10-11_18-40_collab-merge-and-deploy.md` and
+> `docs/agent-logs/2026/10/2026-10-11_18-55_collab-flags-enabled-in-production.md`); built in `docs/agent-logs/2026/08/2026-08-16_22-35_collab-02-content-merge.md`
+> Implementation: `shared/contentMerge.js` (`@panino/content-merge`),
+> `frontend/src/utils/syncMerge.js`, `frontend/src/store/syncStore.js`,
+> `backend/api-service/sync.js`
 > Created: 2026-08-16
 > Last updated: 2026-10-10 (amended after two-device verification; see §10)
 > Part of [COLLAB-00](collab-00-overview.md) · Depends on [COLLAB-01](collab-01-editor-conflict-safety.md)

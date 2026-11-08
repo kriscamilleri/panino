@@ -1,5 +1,5 @@
 // The MCP endpoint end to end, in both protocol eras
-// (docs/specs/active/ai-integration.md §5).
+// (docs/specs/shipped/ai-integration.md §5).
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { getUserDb } from '../../../../db.js';

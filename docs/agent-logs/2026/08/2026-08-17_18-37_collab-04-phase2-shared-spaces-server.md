@@ -16,9 +16,9 @@ unchanged. Explicitly out of scope: public space membership routes, frontend reg
 images/revisions routes, invites/transfers/ownership lifecycle, and backup producer changes.
 
 Required reading before implementation: `AGENTS.md`, `backend/api-service/AGENTS.md`,
-`docs/specs/proposed/collab-00-overview.md` §4 (WebSocket contract),
-`docs/specs/proposed/collab-04-shared-spaces.md` §3-4/§7-8, and
-`docs/specs/proposed/collab-04-phase-0-design-artifacts.md` §1-2.
+`docs/specs/shipped/collab-00-overview.md` §4 (WebSocket contract),
+`docs/specs/shipped/collab-04-shared-spaces.md` §3-4/§7-8, and
+`docs/specs/shipped/collab-04-phase-0-design-artifacts.md` §1-2.
 
 ## User journeys covered
 

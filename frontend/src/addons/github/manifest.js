@@ -1,5 +1,5 @@
 /**
- * How the GitHub backup add-on appears in the app (docs/specs/active/addon-folders.md §6).
+ * How the GitHub backup add-on appears in the app (docs/specs/shipped/addon-folders.md §6).
  * Components load only through `() => import(…)`; keep it that way, so the
  * main bundle carries nothing of GitHub backup's but this file.
  */

@@ -1,11 +1,13 @@
 # GitHub Backup Add-on — Spec
 
 > GitHub backup, moved from core into an add-on under the add-on framework.
-> Status: active — implemented 2026-10-29, not yet deployed
+> Status: shipped
+> Shipped: 2026-11-05, in release #18 (`d5c008c`); see `docs/agent-logs/2026/10/2026-10-29_22-30_github-backup-addon.md`
+> Implementation: `backend/api-service/addons/github/`, `frontend/src/addons/github/`
 > Created: 2026-10-29
 > Principle (Kris, 2026-10-29): every integration with an outside service is an add-on.
 > What the backup does is unchanged and is specified in
-> [`../shipped/github-backup.md`](../shipped/github-backup.md). This spec covers only what the move
+> [`github-backup.md`](github-backup.md). This spec covers only what the move
 > changes.
 > Framework: [`addons.md`](addons.md), [`addon-folders.md`](addon-folders.md).
 

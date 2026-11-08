@@ -2,7 +2,12 @@
 
 > Authorization matrix, `_spaces.db` invariants, transfer state, migration/compatibility,
 > and backup/restore contracts. These five artifacts gate COLLAB-04 Phases 2–6.
-> Status: approved
+> Status: shipped — the design artifacts COLLAB-04 was built to
+> Shipped: 2026-10-11, in the release merge `d2f5ed5`; `SHARED_SPACES_ENABLED` and
+> `LIVE_SESSIONS_ENABLED` turned on in production the same day (see
+> `docs/agent-logs/2026/10/2026-10-11_18-40_collab-merge-and-deploy.md` and
+> `docs/agent-logs/2026/10/2026-10-11_18-55_collab-flags-enabled-in-production.md`); written in `docs/agent-logs/2026/08/2026-08-17_06-16_collab-04-phase-0-artifacts.md`
+> Implementation: see [COLLAB-04](collab-04-shared-spaces.md)
 > Created: 2026-08-17
 > Last updated: 2026-08-17
 > Part of [COLLAB-04](collab-04-shared-spaces.md) · Gate 6 of [COLLAB-00](collab-00-overview.md)

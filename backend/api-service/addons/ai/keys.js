@@ -1,4 +1,4 @@
-// Personal API keys (docs/specs/active/llm-api.md §5, ai-integration.md §4): the
+// Personal API keys (docs/specs/shipped/llm-api.md §5, ai-integration.md §4): the
 // management routes (session, behind the add-on gate) and the key lookup that
 // agentAuth.js uses for REST and MCP requests.
 import express from 'express';

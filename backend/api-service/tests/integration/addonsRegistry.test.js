@@ -1,4 +1,4 @@
-// The add-on extension points (docs/specs/active/addon-folders.md), exercised
+// The add-on extension points (docs/specs/shipped/addon-folders.md), exercised
 // with a throwaway add-on so the test depends on no real one. Vitest isolates
 // modules per file, so the registration does not leak into other files.
 import express from 'express';

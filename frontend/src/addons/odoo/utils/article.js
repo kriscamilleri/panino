@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify'
 import { renderDocumentHtml } from '@panino/content-merge/markdown-render'
 
 /**
- * Render a Document for Odoo Knowledge (docs/specs/active/odoo-integration.md §7):
+ * Render a Document for Odoo Knowledge (docs/specs/shipped/odoo-integration.md §7):
  * the shared renderer the Preview and the API use, without Panino's print
  * styling, then sanitized. The server sanitizes again, turns task lists into
  * Knowledge checklists and uploads the images.

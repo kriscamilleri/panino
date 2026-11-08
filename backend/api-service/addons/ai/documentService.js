@@ -1,5 +1,5 @@
-// The v1 Document operations, without HTTP (docs/specs/active/ai-integration.md §7,
-// docs/specs/proposed/ai-api-expansion.md §4.1): account, spaces, tree, search, list,
+// The v1 Document operations, without HTTP (docs/specs/shipped/ai-integration.md §7,
+// docs/specs/shipped/ai-api-expansion.md §4.1): account, spaces, tree, search, list,
 // read (whole, by lines or by section), outline, create, update, exact edits, insertion
 // and append. REST and MCP (api/documents.js) are two adapters over these functions, so
 // every rule has one implementation; the shared rules are in serviceCore.js and the pure

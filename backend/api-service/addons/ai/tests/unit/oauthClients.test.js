@@ -1,4 +1,4 @@
-// The real Client ID Metadata Document fetcher (docs/specs/active/ai-integration.md §6.2, §11):
+// The real Client ID Metadata Document fetcher (docs/specs/shipped/ai-integration.md §6.2, §11):
 // the client_id URL comes from whoever starts a sign-in, so it must never reach
 // a private address. The integration tests replace the fetcher; these do not.
 import { describe, expect, it } from 'vitest';

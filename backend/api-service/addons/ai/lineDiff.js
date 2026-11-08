@@ -1,4 +1,4 @@
-// A unified line diff for the v1 revision tools (docs/specs/proposed/ai-api-expansion.md
+// A unified line diff for the v1 revision tools (docs/specs/shipped/ai-api-expansion.md
 // §4.4). Pure: no database, no I/O. Myers' O(ND) algorithm after trimming the common
 // prefix and suffix, with caps so a request cannot make the server do unbounded work:
 // too many lines, or too many changed lines, is refused (DiffTooLargeError); a long

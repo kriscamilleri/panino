@@ -3,7 +3,9 @@
 > Make everything that lets an outside AI agent read and write a user's Documents one optional
 > add-on, `ai`, and add a Model Context Protocol server with OAuth sign-in so any MCP client
 > (Claude, ChatGPT, Gemini, Cursor, local models, …) can connect.
-> Status: active (implementation started 2026-11-06 on `feature/ai-addon`)
+> Status: shipped
+> Shipped: 2026-11-07, in release #19 (`c83d304`); see
+> `docs/agent-logs/2026/11/2026-11-07_16-00_release-ai-addon-to-production.md`
 > Created: 2026-11-06
 > Last updated: 2026-11-07 — fixes from the pre-merge review (writes through a health-checked
 > connection, invalid-key limit per address, code exchange, app limit, client pruning). Implemented
@@ -11,8 +13,8 @@
 > and `docs/agent-logs/2026/11/2026-11-07_14-25_ai-addon-review-fixes.md`
 > Implementation: `backend/api-service/addons/ai/`, `frontend/src/addons/ai/`; maintainer notes in
 > [`docs/architecture/public-api.md`](../../architecture/public-api.md)
-> Builds on: [`docs/specs/active/llm-api.md`](../active/llm-api.md) (keys and v1 rules, unchanged
-> unless stated here), [`addons.md`](../active/addons.md), [`addon-folders.md`](../active/addon-folders.md)
+> Builds on: [`docs/specs/shipped/llm-api.md`](llm-api.md) (keys and v1 rules, unchanged
+> unless stated here), [`addons.md`](addons.md), [`addon-folders.md`](addon-folders.md)
 
 ---
 

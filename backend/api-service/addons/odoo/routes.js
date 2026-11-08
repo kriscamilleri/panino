@@ -1,6 +1,6 @@
 /**
  * The user's Odoo connection (save after verifying, status, re-check, remove) and
- * sending a Document to Odoo. Spec: docs/specs/active/odoo-integration.md.
+ * sending a Document to Odoo. Spec: docs/specs/shipped/odoo-integration.md.
  *
  * Mounted at /addons/odoo by the add-on registry (index.js registers the
  * manifest), so paths here are relative to that prefix and every route sits
@@ -659,7 +659,7 @@ odooRoutes.post('/send', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Send updates (docs/specs/proposed/odoo-overview.md §5, §7)
+// Send updates (docs/specs/shipped/odoo-overview.md §5, §7)
 // ---------------------------------------------------------------------------
 
 const MAX_RESEND = 25;
@@ -981,7 +981,7 @@ odooRoutes.post('/syncs/:id/take-over', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Overview (docs/specs/proposed/odoo-overview.md)
+// Overview (docs/specs/shipped/odoo-overview.md)
 // ---------------------------------------------------------------------------
 
 const OVERVIEW_LIMIT = 500;

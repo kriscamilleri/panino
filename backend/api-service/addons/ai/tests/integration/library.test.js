@@ -1,5 +1,5 @@
 // Templates, global variables and PDF export in the v1 API, on REST and MCP
-// (docs/specs/proposed/ai-api-expansion.md §4.3).
+// (docs/specs/shipped/ai-api-expansion.md §4.3).
 //
 // renderPdf is wrapped in a spy that calls the real renderer (Chromium is in the
 // test image), so the happy path makes a real PDF; failure cases replace one call

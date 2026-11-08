@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The AI agents add-on beyond keys (docs/specs/active/ai-integration.md §6.4, §9):
+// The AI agents add-on beyond keys (docs/specs/shipped/ai-integration.md §6.4, §9):
 // MCP setup snippets, connected apps, the consent page and the manifest.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';

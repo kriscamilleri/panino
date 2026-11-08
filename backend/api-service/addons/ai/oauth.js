@@ -1,4 +1,4 @@
-// OAuth 2.1 for MCP clients (docs/specs/active/ai-integration.md §6). Panino is
+// OAuth 2.1 for MCP clients (docs/specs/shipped/ai-integration.md §6). Panino is
 // both the authorization server (issuer: the site origin) and the resource
 // server (the MCP endpoint). Tokens are random, stored as SHA-256 only, and
 // accepted only on the MCP endpoint.

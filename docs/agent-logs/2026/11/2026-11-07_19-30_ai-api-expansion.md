@@ -16,7 +16,7 @@ REST API and fill them. The gaps were:
 - templates, variables and PDF.
 
 Mid-way Kris added Document properties: word count, created on and by, modified on and by. Spec,
-with Kris's decisions E1–E5: [`ai-api-expansion.md`](../../../specs/proposed/ai-api-expansion.md).
+with Kris's decisions E1–E5: [`ai-api-expansion.md`](../../../specs/shipped/ai-api-expansion.md).
 
 ## Progress
 

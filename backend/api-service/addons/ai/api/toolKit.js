@@ -1,4 +1,4 @@
-// Building blocks for MCP tools (docs/specs/active/ai-integration.md §5.3): portable
+// Building blocks for MCP tools (docs/specs/shipped/ai-integration.md §5.3): portable
 // input schemas, annotations, argument reading and result text. Each area file in
 // this folder uses them; mcpTools.js collects the areas.
 /* ------------------------------------------------------------------ *

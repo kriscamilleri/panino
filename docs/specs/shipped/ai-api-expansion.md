@@ -1,9 +1,16 @@
 # AI agents add-on — expanding the v1 API and MCP tools — Spec
 
-- Status: implemented on `feature/ai-api-expansion`, not yet released
+- Status: shipped
+- Shipped: 2026-11-08, in PR #20 (`bf81579`); see
+  `docs/agent-logs/2026/11/2026-11-07_19-30_ai-api-expansion.md` and
+  `docs/agent-logs/2026/11/2026-11-08_12-30_ai-api-review-fixes-and-load.md`
+- Implementation: `backend/api-service/addons/ai/` (`*Service.js`, `api/<area>.js`,
+  `documentText.js`, `propertyText.js`, `authorship.js`, `lineDiff.js`), core `image.js`,
+  `revision.js`, `documentPdf.js`, `shared/frontMatter.js`, `shared/templateVariables.js`;
+  maintainer notes in [`public-api.md`](../../architecture/public-api.md)
 - Last updated: 2026-11-07
-- Extends: [`ai-integration.md`](../active/ai-integration.md) (MCP, OAuth) and
-  [`llm-api.md`](../active/llm-api.md) (keys, v1 REST)
+- Extends: [`ai-integration.md`](ai-integration.md) (MCP, OAuth) and
+  [`llm-api.md`](llm-api.md) (keys, v1 REST)
 - Owner: Kris
 
 ## 1) Summary

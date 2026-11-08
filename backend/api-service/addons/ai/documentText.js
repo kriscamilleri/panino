@@ -1,4 +1,4 @@
-// Pure text helpers for the Documents area of the v1 API (docs/specs/proposed/ai-api-expansion.md
+// Pure text helpers for the Documents area of the v1 API (docs/specs/shipped/ai-api-expansion.md
 // §4.1): statistics, referenced images, headings and sections, line ranges, exact edits,
 // insertion with blank-line spacing, search terms and snippets, and list cursors.
 // No database, no HTTP: documentService.js applies the rules around them.

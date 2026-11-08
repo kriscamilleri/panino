@@ -1,7 +1,8 @@
 # GitLab Backup Support — Spec
 
 > Add GitLab as a second backup provider while preserving the existing GitHub backup behavior.
-> Status: proposed
+> Status: deprecated 2026-11-08 by Kris — not implemented and not planned. GitHub backup remains,
+> as an add-on ([`github-integration.md`](../shipped/github-integration.md)).
 > Created: 2026-03-22
 > Last updated: 2026-08-08
 

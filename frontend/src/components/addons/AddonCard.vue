@@ -14,7 +14,7 @@
 
 <script setup>
 /**
- * One add-on's card at a contribution point (docs/specs/active/addon-folders.md
+ * One add-on's card at a contribution point (docs/specs/shipped/addon-folders.md
  * §6.2): `settingsCard` under its switch in Settings, `spaceCard` on the Spaces
  * page. Renders the card while the add-on is on; while it is offered but off,
  * the manifest's `whenOff` line if it has one; otherwise nothing.

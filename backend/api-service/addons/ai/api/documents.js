@@ -1,6 +1,6 @@
 // Documents in the v1 API: account, spaces, tree, search, list, read, outline, create
-// and edit, as MCP tools, REST routes and OpenAPI paths (docs/specs/active/ai-integration.md
-// §5.3, docs/specs/proposed/ai-api-expansion.md §4.1). The rules are in documentService.js;
+// and edit, as MCP tools, REST routes and OpenAPI paths (docs/specs/shipped/ai-integration.md
+// §5.3, docs/specs/shipped/ai-api-expansion.md §4.1). The rules are in documentService.js;
 // this file only adapts.
 import {
     ApiError,

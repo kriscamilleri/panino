@@ -1,6 +1,9 @@
 # Local Document Folder Image Import
 
-> Status: active
+> Status: shipped
+> Shipped: 2026-10-10, merged to main in `a26a051`; see `docs/agent-logs/2026/08/2026-08-25_07-50_document-folder-image-import.md`
+> Implementation: `frontend/src/components/ImportModal.vue`, `frontend/src/store/importExportStore.js`,
+> `frontend/src/utils/importUtils.js`
 > Created: 2026-08-25
 > Last updated: 2026-08-25
 

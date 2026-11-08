@@ -6,7 +6,7 @@
 
 ## Objective
 
-Phases 7 and 8 of [`docs/specs/active/odoo-integration.md`](../../../specs/active/odoo-integration.md):
+Phases 7 and 8 of [`docs/specs/shipped/odoo-integration.md`](../../../specs/shipped/odoo-integration.md):
 key expiry and rejection notices everywhere (with rotation if Odoo allows it), and one Markdown
 renderer shared by the frontend and the API with fixtures proving parity.
 

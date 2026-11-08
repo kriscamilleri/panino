@@ -1,4 +1,4 @@
-// OAuth clients of the AI agents add-on (docs/specs/active/ai-integration.md §6.2):
+// OAuth clients of the AI agents add-on (docs/specs/shipped/ai-integration.md §6.2):
 // Client ID Metadata Documents, fetched through safeFetch.js, and clients that
 // registered themselves (RFC 7591), stored in ai_oauth_clients. Public clients only.
 import { v4 as uuidv4 } from 'uuid';

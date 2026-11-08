@@ -1,5 +1,5 @@
 /**
- * The Odoo add-on (docs/specs/active/odoo-integration.md): its manifest, which
+ * The Odoo add-on (docs/specs/shipped/odoo-integration.md): its manifest, which
  * is everything core knows about it. Registered when addons/index.js loads.
  */
 

@@ -100,7 +100,7 @@ Recovery rows are never deleted just because the flag is off.
 
 ## Odoo integration
 
-Off by default in Compose (`docs/specs/active/odoo-integration.md`):
+Off by default in Compose (`docs/specs/shipped/odoo-integration.md`):
 
 ```text
 ODOO_INTEGRATION_ENABLED=false
@@ -108,7 +108,7 @@ ODOO_CREDENTIAL_ENCRYPTION_KEY=
 ODOO_ALLOWED_PRIVATE_HOSTS=
 ```
 
-Odoo is an add-on (`docs/specs/active/addons.md`): with the flag on it is *offered*, and each
+Odoo is an add-on (`docs/specs/shipped/addons.md`): with the flag on it is *offered*, and each
 user still has to switch it on under Settings → Add-ons before any of it appears for them.
 The routes answer 404 unless the flag is `true` **and** `ODOO_CREDENTIAL_ENCRYPTION_KEY` is at
 least 32 characters; with the flag on and the key missing, the API logs a warning at start and
@@ -233,7 +233,7 @@ Because SQLite online backup is per database, the archive is a bounded sequence 
 cross-file filesystem snapshot. Traffic gating makes restore admission all-or-nothing;
 membership versions force client refresh, and CR-SQLite converges slightly stale complete
 content after service resumes. See the fixed contract in
-[`docs/specs/proposed/collab-04-phase-0-design-artifacts.md`](../specs/proposed/collab-04-phase-0-design-artifacts.md) §5.
+[`docs/specs/shipped/collab-04-phase-0-design-artifacts.md`](../specs/shipped/collab-04-phase-0-design-artifacts.md) §5.
 
 ## Rehearse a release on a copy of production
 

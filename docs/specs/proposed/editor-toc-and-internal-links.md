@@ -113,7 +113,7 @@ an id (`shared/markdownRender.js:72-74`).
 
 | Question | Options considered | Decision | Why |
 |---|---|---|---|
-| Stored or rendered live | (a) a `[TOC]` placeholder expanded at render time; (b) a stored snapshot between markers; (c) a snapshot that the Preview and PDF ignore, rendering live instead | **(b) Stored snapshot** (Kris, 2026-11-07) | This is the Odoo sales order block pattern Kris pointed to (`docs/specs/active/odoo-sales-order-blocks.md` §2). The Markdown is the output, so GitHub, Obsidian, exports, Knowledge and the AI agents API all see a real list. (a) leaves a literal `[TOC]` everywhere the renderer is not Panino's. (c) makes the Markdown and the Preview disagree. |
+| Stored or rendered live | (a) a `[TOC]` placeholder expanded at render time; (b) a stored snapshot between markers; (c) a snapshot that the Preview and PDF ignore, rendering live instead | **(b) Stored snapshot** (Kris, 2026-11-07) | This is the Odoo sales order block pattern Kris pointed to (`docs/specs/shipped/odoo-sales-order-blocks.md` §2). The Markdown is the output, so GitHub, Obsidian, exports, Knowledge and the AI agents API all see a real list. (a) leaves a literal `[TOC]` everywhere the renderer is not Panino's. (c) makes the Markdown and the Preview disagree. |
 | Refresh | automatic on every edit; on save; manual with a stale notice | **Manual, with a stale notice** in the Preview, on the toolbar button, in the phone menu and in PDF export (Kris, 2026-11-07) | Automatic rewrites add undo entries and revisions the person did not make. When two offline devices both rewrite the same region, the sync merge conflicts. When two people in a live session both refresh, the Yjs merge can duplicate inserted lines (§8). A stale notice gives the same correctness and keeps the person in control. |
 | Delimiting | `<!-- toc -->`…`<!-- tocstop -->` (markdown-toc convention); `[[_TOC_]]` (GitLab); namespaced comments | **`<!-- panino:toc {json} -->` … `<!-- /panino:toc -->`** | This matches the add-on convention `<!-- odoo:sale.order {json} -->`. The namespace avoids capturing another tool's markers in imported Markdown. Comments render as nothing in every Markdown renderer, and DOMPurify drops them, so the settings never reach HTML. |
 | Ownership | Panino owns the text between the markers | Same rule as Odoo blocks: edits inside are lost on the next Refresh | A simple rule that people can learn. |
@@ -333,7 +333,7 @@ damaged block) and the user-facing wording ("Refresh", "Refresh all").
 The TOC uses it from day one.
 
 **The Odoo code does not move to core.** It is about sales orders, its refresh needs the Odoo
-API, and core must never import an add-on (`docs/specs/active/addon-folders.md` §3, goal 1, and §2 "Dependency direction").
+API, and core must never import an add-on (`docs/specs/shipped/addon-folders.md` §3, goal 1, and §2 "Dependency direction").
 Add-ons may import core, so `addons/odoo/utils/saleOrderBlock.js` can later swap its own
 `findBlocks`/`insertBlock`/`replaceBlock`/`escapeCell` for the shared helpers. That gives it the
 fence-awareness fix. It is a separate, optional change in the add-on (§15, F4). Nothing in this

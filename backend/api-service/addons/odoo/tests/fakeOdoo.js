@@ -1,6 +1,6 @@
 /**
  * A stand-in Odoo for the integration tests, behaving as Odoo 19 and 20 did in
- * Phase 0 (docs/specs/active/odoo-integration.md §4):
+ * Phase 0 (docs/specs/shipped/odoo-integration.md §4):
  * - v19 takes base64 in `datas`; v20 has no `datas` and takes base64 in `raw`;
  *   the wrong field is accepted and stores nothing (Odoo 20) or the base64 text (Odoo 19);
  * - `read` of a missing id answers `[]`;

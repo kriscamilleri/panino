@@ -70,7 +70,7 @@
 </template>
 
 <script setup>
-/** Apps connected through OAuth (docs/specs/active/ai-integration.md §6.6). */
+/** Apps connected through OAuth (docs/specs/shipped/ai-integration.md §6.6). */
 import { onMounted, ref } from 'vue';
 import { Unplug } from 'lucide-vue-next';
 import BaseButton from '@/components/BaseButton.vue';

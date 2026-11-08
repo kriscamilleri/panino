@@ -1,5 +1,5 @@
 // Templates, global variables and PDF export in the v1 API
-// (docs/specs/proposed/ai-api-expansion.md §4.3), as MCP tools, REST routes and
+// (docs/specs/shipped/ai-api-expansion.md §4.3), as MCP tools, REST routes and
 // OpenAPI paths. The rules are in libraryService.js; this file only adapts.
 import { PDF_RUNTIME } from '../../../pdf.js';
 import {

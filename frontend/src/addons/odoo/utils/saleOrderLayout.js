@@ -1,5 +1,5 @@
 /**
- * Layouts for sales order blocks (docs/specs/active/odoo-sales-order-blocks.md
+ * Layouts for sales order blocks (docs/specs/shipped/odoo-sales-order-blocks.md
  * §4a): Markdown with placeholders for the order's values and a section
  * repeated for each order line. Pure functions: no stores, no network.
  *

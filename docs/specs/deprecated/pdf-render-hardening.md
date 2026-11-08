@@ -3,9 +3,10 @@
 > Contain the server-side Chromium used by `POST /render-pdf`, so user styling cannot run code,
 > reach the server's network, or read secrets, without removing any styling capability users have
 > today.
-> Status: active — Phases 1–3 shipped 2026-10-25 (see
-> `docs/agent-logs/2026/10/2026-10-25_18-10_pdf-render-hardening.md`); Phase 4 (renderer in its
-> own container) not started.
+> Status: deprecated 2026-11-08 by Kris. Phases 1–3 shipped on 2026-10-25 and are live (see
+> `docs/agent-logs/2026/10/2026-10-25_18-10_pdf-render-hardening.md`); how they work now is in
+> [`pdf-pipeline.md`](../../architecture/pdf-pipeline.md). Phase 4 (renderer in its own
+> container) will not be built.
 > Created: 2026-10-24
 > Last updated: 2026-10-25
 > Implementation: `backend/api-service/pdf.js`, `backend/api-service/pdfSanitize.js`,
@@ -271,7 +272,7 @@ Phases 1–3 can ship as one PR or three. Phase 4 is its own PR and deploy.
 On completion, update [pdf-pipeline.md](../../architecture/pdf-pipeline.md) with the threat model
 and the request allow-list, update the PDF section of
 [backend/api-service/AGENTS.md](../../../backend/api-service/AGENTS.md), and correct
-[collab-04-shared-spaces.md §4.6](../proposed/collab-04-shared-spaces.md), which says the SSRF checks "stay
+[collab-04-shared-spaces.md §4.6](../shipped/collab-04-shared-spaces.md), which says the SSRF checks "stay
 exactly as they are".
 
 ---

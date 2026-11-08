@@ -1,5 +1,5 @@
 /**
- * How the AI agents add-on appears in the app (docs/specs/active/ai-integration.md §9).
+ * How the AI agents add-on appears in the app (docs/specs/shipped/ai-integration.md §9).
  * Components load only through `() => import(…)`, so the main bundle carries
  * nothing of the add-on's but this file.
  */

@@ -3,8 +3,8 @@
 Outside agents (LLM assistants, scripts) read and write a user's Documents through the **AI
 agents** add-on (`id: ai`, `backend/api-service/addons/ai/`, `frontend/src/addons/ai/`). The
 operator offers it with `AI_ADDON_ENABLED=true`; each user switches it on in Settings →
-Add-ons. Intent and decisions: [`docs/specs/active/ai-integration.md`](../specs/active/ai-integration.md)
-and, for the v1 rules, [`docs/specs/active/llm-api.md`](../specs/active/llm-api.md).
+Add-ons. Intent and decisions: [`docs/specs/shipped/ai-integration.md`](../specs/shipped/ai-integration.md)
+and, for the v1 rules, [`docs/specs/shipped/llm-api.md`](../specs/shipped/llm-api.md).
 
 | Surface | URL (production) | Credential |
 |---|---|---|

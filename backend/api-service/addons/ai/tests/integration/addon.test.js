@@ -1,5 +1,5 @@
 // The AI agents add-on on the add-ons framework: offered, switched, gated
-// (docs/specs/active/ai-integration.md §4.4, §11).
+// (docs/specs/shipped/ai-integration.md §4.4, §11).
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { setAddonEnabled } from '../../../registry.js';

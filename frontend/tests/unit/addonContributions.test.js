@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The add-on contribution points (docs/specs/active/addon-folders.md §6.2),
+// The add-on contribution points (docs/specs/shipped/addon-folders.md §6.2),
 // exercised with a throwaway manifest so the tests depend on no real add-on.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';

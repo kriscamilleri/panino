@@ -1,5 +1,5 @@
 /**
- * The GitHub add-on (docs/specs/active/github-integration.md): its manifest,
+ * The GitHub add-on (docs/specs/shipped/github-integration.md): its manifest,
  * which is everything core knows about it. Registered when addons/index.js loads.
  */
 

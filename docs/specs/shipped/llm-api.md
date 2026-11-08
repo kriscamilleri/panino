@@ -2,8 +2,9 @@
 
 > Let a user create API keys that an LLM (or any script) uses to read and write their Documents
 > and the spaces they belong to, through a small, purpose-built REST API.
-> Status: active (implemented 2026-11-06 on `feature/llm-api-keys`; moved into the AI agents
-> add-on on `feature/ai-addon`)
+> Status: shipped, as part of the AI agents add-on
+> Shipped: 2026-11-07, in release #19 (`c83d304`); see `docs/agent-logs/2026/11/2026-11-06_10-44_llm-api-keys.md`
+> and `docs/agent-logs/2026/11/2026-11-07_16-00_release-ai-addon-to-production.md`
 > Created: 2026-11-06
 > Last updated: 2026-11-06 — the whole feature is now the optional AI agents add-on
 > ([`ai-integration.md`](ai-integration.md)). The rules below are unchanged; the URLs moved:

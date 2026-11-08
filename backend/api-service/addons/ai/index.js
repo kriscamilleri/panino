@@ -1,5 +1,5 @@
 /**
- * The AI agents add-on (docs/specs/active/ai-integration.md): API keys, the v1
+ * The AI agents add-on (docs/specs/shipped/ai-integration.md): API keys, the v1
  * REST API, the MCP server and OAuth connected apps, so outside AI agents can
  * read and write the user's Documents. Its manifest is everything core knows
  * about it. Registered when addons/index.js loads.

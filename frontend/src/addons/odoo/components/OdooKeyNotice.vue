@@ -24,7 +24,7 @@ import { keyExpiryMessage } from '@/addons/odoo/utils/connection'
 /**
  * One line about the Odoo API key when something needs doing: Odoo rejected it,
  * the address stopped answering, or the key expires within 14 days
- * (docs/specs/active/odoo-integration.md §5, "Key expiry"). Silent otherwise.
+ * (docs/specs/shipped/odoo-integration.md §5, "Key expiry"). Silent otherwise.
  */
 const props = defineProps({
     /** Offer an "Open Settings" link (for places outside Settings). */

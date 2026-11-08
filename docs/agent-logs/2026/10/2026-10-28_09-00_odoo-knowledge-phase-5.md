@@ -6,7 +6,7 @@
 
 ## Objective
 
-Implement Phase 5 of [`docs/specs/active/odoo-integration.md`](../../../specs/active/odoo-integration.md):
+Implement Phase 5 of [`docs/specs/shipped/odoo-integration.md`](../../../specs/shipped/odoo-integration.md):
 send a Document to Odoo Knowledge as an article, with the HTML conversion of §7, a parent
 picker, and overwrite on resend under the ownership rules of §6.
 

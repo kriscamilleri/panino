@@ -31,7 +31,7 @@ database. The renderer is therefore treated as hostile input processing:
 | One request stalling export for everyone | Queue cap (`PDF_QUEUE_LIMIT`, default 20 waiting jobs) answers `503` with `Retry-After`; each job has a deadline (`PDF_JOB_TIMEOUT_MS`, default 45 s, under the frontend's 90 s) after which the client gets a fixed `504`, the job is marked aborted so it stops at its next checkpoint, and its browser context, if it has one yet, is closed. The external image fetch has its own absolute 10 s cap covering the header phase |
 | Internal detail in responses | Fixed messages: `PDF generation failed`, `PDF generation timed out`, `PDF service busy, try again shortly`; detail is logged server-side |
 
-Not yet done (Phase 4 of `docs/specs/active/pdf-render-hardening.md`): moving Chromium into
+Not yet done (Phase 4 of `docs/specs/deprecated/pdf-render-hardening.md`): moving Chromium into
 its own container without secrets or data volumes and with its sandbox enabled. Until then a
 renderer exploit is still a container compromise; the controls above remove the known ways to
 reach the renderer with code or requests.

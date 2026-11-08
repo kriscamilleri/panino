@@ -1,5 +1,5 @@
 /**
- * Display helpers for the Odoo connection (docs/specs/active/odoo-integration.md).
+ * Display helpers for the Odoo connection (docs/specs/shipped/odoo-integration.md).
  * Pure functions: no stores, no network.
  */
 

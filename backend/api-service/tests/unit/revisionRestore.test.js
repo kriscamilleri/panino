@@ -1,5 +1,5 @@
 // restoreNoteRevision: the restore shared by the app's restore route and the AI
-// agents add-on (docs/specs/proposed/ai-api-expansion.md §4.4).
+// agents add-on (docs/specs/shipped/ai-api-expansion.md §4.4).
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeAllConnections, getTestDb } from '../../db.js';
 import { createRevisionSnapshot, restoreNoteRevision, RevisionRestoreError } from '../../revision.js';

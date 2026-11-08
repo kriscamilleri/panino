@@ -1,4 +1,4 @@
-// Pure helpers for Document properties (docs/specs/proposed/ai-api-expansion.md §4.6):
+// Pure helpers for Document properties (docs/specs/shipped/ai-api-expansion.md §4.6):
 // the front matter `key: value` pairs at the top of a Document, read with the
 // shared parser so the API and the app agree, and a small filter language for
 // querying them.

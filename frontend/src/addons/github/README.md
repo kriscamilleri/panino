@@ -2,8 +2,8 @@
 
 The app side of GitHub backup: the Backup action, the backup dialog, and its card in Settings.
 
-- Spec: [`docs/specs/active/github-integration.md`](../../../../docs/specs/active/github-integration.md).
-- How add-ons plug into core: [`docs/specs/active/addon-folders.md`](../../../../docs/specs/active/addon-folders.md).
+- Spec: [`docs/specs/shipped/github-integration.md`](../../../../docs/specs/shipped/github-integration.md).
+- How add-ons plug into core: [`docs/specs/shipped/addon-folders.md`](../../../../docs/specs/shipped/addon-folders.md).
 - The API side lives in [`backend/api-service/addons/github/`](../../../../backend/api-service/addons/github/).
 
 ## Manifest (`manifest.js`)

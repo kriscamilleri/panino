@@ -107,7 +107,7 @@ To add or extend an add-on, load the `add-on-development` skill
 
 Add-ons live in `src/addons/<id>/` (store, components, utils, tests and a `README.md`);
 `src/addons/registry.js` lists their manifests, one import each
-(`docs/specs/active/addon-folders.md`). **Core never imports an add-on**, only the registry, and
+(`docs/specs/shipped/addon-folders.md`). **Core never imports an add-on**, only the registry, and
 add-ons never import each other: ESLint `panino/addon-boundaries` enforces both.
 
 A manifest declares where the add-on appears. Core renders the contribution points with three

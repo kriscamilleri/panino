@@ -6,7 +6,7 @@
 
 ## Objective
 
-Phase 12 of [`docs/specs/active/odoo-integration.md`](../../../specs/active/odoo-integration.md):
+Phase 12 of [`docs/specs/shipped/odoo-integration.md`](../../../specs/shipped/odoo-integration.md):
 a sync may also file a PDF of each Document in an Odoo Documents folder, opt-in, rendered on
 the server at lower priority than interactive exports, built the way the browser's Export
 builds it.

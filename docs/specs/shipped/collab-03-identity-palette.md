@@ -1,7 +1,14 @@
 # COLLAB-03 — Identity Palette
 
 > A colour vocabulary for *people*, carved out of a design system that reserves colour for nothing.
-> Status: proposed
+> Status: shipped
+> Shipped: 2026-10-11, in the release merge `d2f5ed5`; `SHARED_SPACES_ENABLED` and
+> `LIVE_SESSIONS_ENABLED` turned on in production the same day (see
+> `docs/agent-logs/2026/10/2026-10-11_18-40_collab-merge-and-deploy.md` and
+> `docs/agent-logs/2026/10/2026-10-11_18-55_collab-flags-enabled-in-production.md`); built in `docs/agent-logs/2026/08/2026-08-16_22-20_collab-03-identity-palette.md`
+> Implementation: `frontend/src/utils/identityColor.js`, `frontend/src/utils/identityPaletteVerify.js`,
+> `frontend/src/assets/main.css`, `scripts/verify-identity-palette.cjs`; rules in
+> [`ui-design-system.md`](../../architecture/ui-design-system.md)
 > Created: 2026-08-16
 > Last updated: 2026-08-16 (final review)
 > Part of [COLLAB-00](collab-00-overview.md)
@@ -205,7 +212,7 @@ pastel that disappears in light mode.
 ## 9) Risks
 
 - **Scope creep into a general colour system.** This exception is for people. If a future spec
-  wants colour for tags ([tag-system.md](tag-system.md) proposes exactly that, with its own
+  wants colour for tags ([tag-system.md](../proposed/tag-system.md) proposes exactly that, with its own
   ten-colour palette), the two must be reconciled deliberately — a document tagged "urgent" in rose
   next to a person rendered in rose is a real ambiguity. Flag it when tags are picked up; do not
   pre-emptively merge the palettes here.

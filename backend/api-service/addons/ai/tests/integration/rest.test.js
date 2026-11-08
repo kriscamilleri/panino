@@ -1,4 +1,4 @@
-// API keys and the v1 API (docs/specs/active/llm-api.md).
+// API keys and the v1 API (docs/specs/shipped/llm-api.md).
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { cleanupTestUser, createTestApp, getTestToken, setupTestUser } from '../../../../tests/testHelpers.js';

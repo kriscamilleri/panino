@@ -24,7 +24,7 @@ members sent, and writing the spec first.
   - The browser builders render only the selected Document; sync already renders on the server,
     so bulk resend renders there, after `syncStore.sync(dbKey)`.
   - Add-ons cannot add routes, so the overview is a wide add-on modal, not a page.
-- Wrote `docs/specs/proposed/odoo-overview.md`.
+- Wrote `docs/specs/shipped/odoo-overview.md`.
 - Implemented Phase 2 while the spec is reviewed.
 
 ## Changes Made
@@ -38,7 +38,7 @@ members sent, and writing the spec first.
 - `frontend/src/addons/odoo/tests/sendModal.test.js`: the two "updates … sent before" tests
   rewritten for the summary; new tests for Change where it goes (and reopening), chatter-only
   links, a synced article with a PDF, and staying on the form after a first send.
-- `docs/specs/proposed/odoo-overview.md`: new.
+- `docs/specs/shipped/odoo-overview.md`: new.
 
 ## Tests
 

@@ -1,11 +1,11 @@
 /**
  * Add-ons: external service integrations the operator offers and each user
  * switches on for their own account, off by default. Spec:
- * docs/specs/active/addons.md.
+ * docs/specs/shipped/addons.md.
  *
  * Each add-on lives in its own folder (addons/<id>/) and registers a manifest
  * when its index.js loads; addons/index.js lists them. Core never imports an
- * add-on: it reaches them through this registry (docs/specs/active/addon-folders.md).
+ * add-on: it reaches them through this registry (docs/specs/shipped/addon-folders.md).
  * Three states, in order:
  *   offered   the manifest's isOffered() (its own env flag and secrets)
  *   enabled   the user's row in the `addons` table (no row: off)

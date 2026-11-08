@@ -5,6 +5,7 @@
 | `proposed/` | Designed, not started. Do not assume any of it exists |
 | `active/` | Being implemented; check the header for the remaining delta |
 | `shipped/` | Live in production; `Implementation:` maps intent to code |
+| `deprecated/` | Will not be built (or not finished); the header records the decision and anything that did ship |
 | `dx/` | Developer-experience specs about this repository, not the product |
 
 DX specs follow the same lifecycle as product specs and move into `shipped/` when done —
@@ -20,6 +21,9 @@ A spec describes what we intend to build. For how the system currently works, re
 ## Lifecycle
 
 `proposed/` → `active/` when implementation starts → `shipped/` when it is live.
+
+A product spec that will not be built, or whose remaining phases are dropped, moves to
+`deprecated/` instead. Its header says who decided and when, and what of it (if anything) is live.
 
 Move the file with `git mv` and update its header in the same commit. Shipped specs must
 include `Shipped:` and `Implementation:` lines. The visible path is the authoritative status;

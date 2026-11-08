@@ -3,11 +3,11 @@
 Sends Documents to Odoo (Documents, Knowledge, CRM and Sales chatter), keeps folders, Documents
 and spaces in sync with Knowledge, and reads sales orders into Documents.
 
-- Spec: [`docs/specs/active/odoo-integration.md`](../../../../docs/specs/active/odoo-integration.md),
+- Spec: [`docs/specs/shipped/odoo-integration.md`](../../../../docs/specs/shipped/odoo-integration.md),
   sales order blocks in
-  [`docs/specs/active/odoo-sales-order-blocks.md`](../../../../docs/specs/active/odoo-sales-order-blocks.md).
+  [`docs/specs/shipped/odoo-sales-order-blocks.md`](../../../../docs/specs/shipped/odoo-sales-order-blocks.md).
 - How add-ons plug into core:
-  [`docs/specs/active/addon-folders.md`](../../../../docs/specs/active/addon-folders.md).
+  [`docs/specs/shipped/addon-folders.md`](../../../../docs/specs/shipped/addon-folders.md).
 - The app side lives in [`frontend/src/addons/odoo/`](../../../../frontend/src/addons/odoo/).
 
 ## Manifest (`index.js`)

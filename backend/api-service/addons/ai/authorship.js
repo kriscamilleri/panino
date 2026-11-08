@@ -1,4 +1,4 @@
-// Who created and who last changed a Document (docs/specs/proposed/ai-api-expansion.md
+// Who created and who last changed a Document (docs/specs/shipped/ai-api-expansion.md
 // §4.6). Documents have no author columns; revision history records who made each
 // revision (actor_user_id, actor_kind, actor_label), so the oldest revision names the
 // creator and the newest attributed one the last editor, in the wording of the app's

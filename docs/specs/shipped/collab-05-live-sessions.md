@@ -1,7 +1,14 @@
 # COLLAB-05 — Live Sessions
 
 > Per-keystroke co-editing inside an explicit, online-only session that commits a plain text result.
-> Status: proposed
+> Status: shipped
+> Shipped: 2026-10-11, in the release merge `d2f5ed5`; `SHARED_SPACES_ENABLED` and
+> `LIVE_SESSIONS_ENABLED` turned on in production the same day (see
+> `docs/agent-logs/2026/10/2026-10-11_18-40_collab-merge-and-deploy.md` and
+> `docs/agent-logs/2026/10/2026-10-11_18-55_collab-flags-enabled-in-production.md`); built in `docs/agent-logs/2026/08/2026-08-18_23-15_collab-05-live-sessions.md`
+> Implementation: `backend/api-service/collab.js`, `collabLimits.js`, `websocket.js`;
+> `frontend/src/store/collabSessionStore.js`, `frontend/src/components/phone/RemoteCarets.vue`;
+> maintainer notes in [`live-sessions.md`](../../architecture/live-sessions.md)
 > Created: 2026-08-16
 > Last updated: 2026-08-16 (final review)
 > Part of [COLLAB-00](collab-00-overview.md) · Depends on [COLLAB-02](collab-02-content-merge.md), [COLLAB-03](collab-03-identity-palette.md), [COLLAB-04](collab-04-shared-spaces.md)

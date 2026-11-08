@@ -11,7 +11,7 @@
 <script setup>
 /**
  * Mounts the modals of every add-on that is on, and shows the one
- * ui.addonModal names (docs/specs/active/addon-folders.md §6.2.1). Modals stay
+ * ui.addonModal names (docs/specs/shipped/addon-folders.md §6.2.1). Modals stay
  * mounted while their add-on is on, so they keep state between openings; their
  * code loads only once the add-on is on. Mounted in two places that are never
  * on screen together: HomePage's desktop layout and the phone Document menu.

@@ -5,10 +5,12 @@
 > sales order. And keep a space, a folder or a single Document mirrored into Knowledge, the way
 > GitHub backup mirrors an account into a repository. Talks to Odoo's external JSON-2 API directly; nothing is
 > installed in Odoo.
-> Odoo is an **add-on** ([`addons.md`](../active/addons.md)): the operator offers it, each
+> Odoo is an **add-on** ([`addons.md`](addons.md)): the operator offers it, each
 > user switches it on in Settings → Add-ons, and it is off by default.
-> Status: active — every phase (0–12) implemented on `feature/odoo-integration` by 2026-10-28;
-> moves to `shipped/` with the pull request
+> Status: shipped — every phase (0–12)
+> Shipped: 2026-11-05, in release #18 (`d5c008c`); see
+> `docs/agent-logs/2026/11/2026-11-05_07-30_release-addons-and-odoo-to-production.md`
+> Implementation: `backend/api-service/addons/odoo/`, `frontend/src/addons/odoo/`
 > Files: since 2026-10-29 the add-on lives in `backend/api-service/addons/odoo/` and
 > `frontend/src/addons/odoo/`, with the `odoo` prefix dropped from file names (`odooClient.js` is
 > now `addons/odoo/client.js`; [`addon-folders.md`](addon-folders.md)). The phase notes below keep
@@ -60,7 +62,7 @@ order; it never changes their fields. Panino never deletes in Odoo; sync archive
 | Editing in Odoo | Synced articles are read-only in Odoo for everyone but the syncing user |
 | PDFs in sync | Yes, opt-in per sync, into a Documents folder, in a later phase |
 | Build order | Manual send first; sync builds on it |
-| Optional add-on (2026-10-26) | Odoo is an add-on ([`addons.md`](../active/addons.md)): offered by the operator, switched on per user, **off by default**. Nothing Odoo adds is visible until the user switches it on. |
+| Optional add-on (2026-10-26) | Odoo is an add-on ([`addons.md`](addons.md)): offered by the operator, switched on per user, **off by default**. Nothing Odoo adds is visible until the user switches it on. |
 | Switching it off (2026-10-26) | Keeps the connection, links and syncs; hides every entry point; pauses the user's syncs. **Disconnect**, which removes the key, stays a separate action. |
 
 ## 3) Goals
@@ -658,7 +660,7 @@ A manual Knowledge send of a Document under a sync answers `knowledge: {ok: fals
 3. **Add-on framework.** ✅ Done 2026-10-27. `addons.js` registry and `requireAddon`, the `addons`
    table, `GET /addons` and `PUT /addons/:id/enabled`, routes renamed to `/addons/odoo`,
    `addonsStore`, `AddonsSection` on desktop and the phone Add-ons section replacing the Tools →
-   Odoo button, lazy-loaded Odoo modals, and the gate tests (table-driven over the router). Spec: [`addons.md`](../active/addons.md). Ships before any further
+   Odoo button, lazy-loaded Odoo modals, and the gate tests (table-driven over the router). Spec: [`addons.md`](addons.md). Ships before any further
    destination so every later entry point is born behind the gate.
 4. **PDF to an opportunity or sales order.** ✅ Done 2026-10-28. `odooChatter.js`: record picker
    over `crm.lead` opportunities and `sale.order` (`GET /addons/odoo/records`, the records this

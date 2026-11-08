@@ -6,7 +6,11 @@
 > shows it with no change to any renderer, and a button pulls it again.
 > Part of the Odoo add-on ([`odoo-integration.md`](odoo-integration.md),
 > [`addons.md`](addons.md)): invisible until the person switches Odoo on.
-> Status: active — implemented on `feature/odoo-sale-order-blocks` 2026-10-29
+> Status: shipped
+> Shipped: 2026-11-05, in release #18 (`d5c008c`); see `docs/agent-logs/2026/10/2026-10-29_09-00_odoo-sales-order-blocks.md`
+> Implementation: `backend/api-service/addons/odoo/saleOrderBlocks.js`,
+> `frontend/src/addons/odoo/components/OdooDataBlockModal.vue`,
+> `frontend/src/addons/odoo/utils/saleOrderBlock.js`, `saleOrderLayout.js`
 > Created: 2026-10-29
 > Last updated: 2026-10-29 — files moved into the add-on folders ([`addon-folders.md`](addon-folders.md))
 

@@ -1,7 +1,8 @@
 # AI Editor Pane — Spec
 
 > Panino-native AI assistance for the active note, backed by a constrained tool-calling harness and pluggable inference providers.
-> Status: proposed
+> Status: deprecated 2026-11-08 by Kris — not implemented and not planned. Outside agents reach
+> Documents through the AI agents add-on instead ([`ai-integration.md`](../shipped/ai-integration.md)).
 > Created: 2026-03-28
 > Last updated: 2026-08-08
 

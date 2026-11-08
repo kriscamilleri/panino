@@ -1,6 +1,6 @@
 /**
  * An add-on's return from an outside service, such as an OAuth callback, lands on
- * Settings as `?addon=<id>&addonResult=…&addonMessage=…` (docs/specs/active/addon-folders.md
+ * Settings as `?addon=<id>&addonResult=…&addonMessage=…` (docs/specs/shipped/addon-folders.md
  * §6.2). While the add-on is on, its settings card reads that and finishes the job. While
  * it is off the card is absent, so Settings shows the message itself and clears the
  * query, rather than leaving it unexplained in the address bar.

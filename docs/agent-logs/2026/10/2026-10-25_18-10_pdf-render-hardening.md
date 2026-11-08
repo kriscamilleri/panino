@@ -7,7 +7,7 @@
 
 ## Objective
 
-Implement `docs/specs/active/pdf-render-hardening.md` phases 1–3: contain the server-side
+Implement `docs/specs/deprecated/pdf-render-hardening.md` phases 1–3: contain the server-side
 Chromium used by `POST /render-pdf` (no script, no network beyond Google Fonts), remove the CSS
 and attribute injection points, harden the server-side image fetch, bound the queue, and keep
 every styling capability users have today. Phase 4 (renderer in its own container) is a

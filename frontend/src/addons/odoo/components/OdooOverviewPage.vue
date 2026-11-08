@@ -229,7 +229,7 @@
 
 <script setup>
 /**
- * The Odoo overview page (docs/specs/proposed/odoo-overview.md): every Document with
+ * The Odoo overview page (docs/specs/shipped/odoo-overview.md): every Document with
  * a record in Odoo, across My Notes and the caller's spaces, opened on what needs
  * attention; Send updates for several at once; and every sync. Rendered by core's
  * AddonPage at #/addons/odoo/overview, which passes the route query.

@@ -2,7 +2,11 @@
 
 > Add a persisted navy dark appearance to Panino, controlled by an accessible navbar
 > toggle.
-> Status: active
+> Status: shipped
+> Shipped: 2026-08-16, merged to main in `4d9a05a`; see `docs/agent-logs/2026/08/2026-08-16_18-10_dark-mode.md` and
+> `docs/agent-logs/2026/08/2026-08-16_20-05_dark-mode-merge.md`
+> Implementation: `frontend/src/store/themeStore.js`, `frontend/src/utils/themePreference.js`,
+> `frontend/src/assets/main.css`, `frontend/src/components/Navbar.vue`
 > Created: 2026-08-16
 > Last updated: 2026-08-16
 

@@ -1,5 +1,5 @@
 // Revision history in the v1 API, over REST and MCP
-// (docs/specs/proposed/ai-api-expansion.md §4.4).
+// (docs/specs/shipped/ai-api-expansion.md §4.4).
 import request from 'supertest';
 import { createHash } from 'crypto';
 import { gzipSync } from 'zlib';

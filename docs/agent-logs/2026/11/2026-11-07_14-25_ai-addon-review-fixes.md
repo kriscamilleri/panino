@@ -49,7 +49,7 @@ server-only tables outside its tests, so nothing changed there.
   `tests/integration/oauth.test.js` (retry after a bad exchange, omitted `redirect_uri`, app
   limit, pruning, real fetcher), `tests/unit/keyUtils.test.js` (`check`, `clientAddress`), new
   `tests/unit/oauthClients.test.js` (private literals, private DNS answers, http, credentials).
-- Docs: `docs/architecture/public-api.md`, `docs/specs/active/ai-integration.md`.
+- Docs: `docs/architecture/public-api.md`, `docs/specs/shipped/ai-integration.md`.
 
 ## Tests
 

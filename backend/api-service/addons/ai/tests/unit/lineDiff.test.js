@@ -1,4 +1,4 @@
-// The unified line diff behind compare_revisions (docs/specs/proposed/ai-api-expansion.md §4.4).
+// The unified line diff behind compare_revisions (docs/specs/shipped/ai-api-expansion.md §4.4).
 import { describe, expect, it } from 'vitest';
 import { DiffTooLargeError, MAX_DIFF_LINES, splitLines, unifiedLineDiff } from '../../lineDiff.js';
 

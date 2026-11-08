@@ -1,5 +1,5 @@
 /**
- * When Odoo Knowledge syncs run (docs/specs/active/odoo-integration.md §11, "When
+ * When Odoo Knowledge syncs run (docs/specs/shipped/odoo-integration.md §11, "When
  * it runs"): three minutes after the last change in a synced database, on "Sync
  * now", and once a day as a full reconcile. One run per sync at a time, in a job
  * map like `backupJobs`; calls to one Odoo target are capped at 60 a minute so a

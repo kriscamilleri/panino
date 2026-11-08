@@ -3,9 +3,13 @@
 > Each add-on lives in one folder per layer (`backend/api-service/addons/<id>/` and
 > `frontend/src/addons/<id>/`), and core code never names an add-on. Core gains a small set of
 > extension points (routes, schema, hooks, UI contribution points) that add-ons plug into
-> through their manifest. Builds on the add-ons framework (`../active/addons.md`); Odoo
-> (`../active/odoo-integration.md`) is the add-on that moves.
-> Status: active — implemented on `feature/odoo-sale-order-blocks` 2026-10-29 (§11)
+> through their manifest. Builds on the add-ons framework (`addons.md`); Odoo
+> (`odoo-integration.md`) is the add-on that moves.
+> Status: shipped (§11)
+> Shipped: 2026-11-05, in release #18 (`d5c008c`); see `docs/agent-logs/2026/10/2026-10-29_21-00_addon-folders.md`
+> Implementation: `backend/api-service/addons/`, `frontend/src/addons/`,
+> `frontend/src/components/addons/`, `frontend/src/pages/AddonPage.vue`, ESLint
+> `panino/addon-boundaries` in `eslint.config.mjs`; how-to in the `add-on-development` skill
 > Created: 2026-10-29
 > Last updated: 2026-10-29
 
@@ -146,7 +150,7 @@ registerAddon({
 
 Every new field is optional, so a minimal add-on is still just the original six fields.
 Added later: `publicRoutes` (§5.2), `wellKnown` (§5.2) and `schema.auth` (§5.3), for the AI
-agents add-on (`docs/specs/active/ai-integration.md`, 2026-11-06).
+agents add-on (`docs/specs/shipped/ai-integration.md`, 2026-11-06).
 
 ### 5.2 Routes
 
@@ -387,7 +391,7 @@ sheet but leave the modal open over the editor, which is a behaviour change.
 
 ### 6.2.5 Pages
 
-Added 2026-11-02 for the Odoo overview ([`odoo-overview.md`](../proposed/odoo-overview.md)).
+Added 2026-11-02 for the Odoo overview ([`odoo-overview.md`](odoo-overview.md)).
 A manifest may list full pages:
 
 ```js
@@ -536,7 +540,7 @@ leaves the suite green and changes no behaviour.
    (§6.2.1); the seven core files switched to contribution points; test id renames; `git mv` of
    the Odoo components, store, utils, composable and tests. Verify: `npm run test:fe`,
    `npm run lint`, `vite build` bundle check, browser on desktop and phone (§8).
-3. **Enforcement and docs.** ✅ Done 2026-10-29. ESLint boundary rule (§7); update `../active/addons.md` (§5 says
+3. **Enforcement and docs.** ✅ Done 2026-10-29. ESLint boundary rule (§7); update `addons.md` (§5 says
    "the manifest is what makes something an add-on, not a folder", which this replaces with
    the folder layout and extension points), `backend/api-service/AGENTS.md`,
    `frontend/AGENTS.md` and the `AGENTS.md` file-routing table; per-add-on `README.md`; agent

@@ -13,7 +13,7 @@ An independent review of `feature/ai-api-expansion` against `develop` found:
 
 Kris asked to fix all of them ("let's do this right") and to spend extra time on the
 performance findings, to keep load low. Spec section:
-[`ai-api-expansion.md` §4.8](../../../specs/proposed/ai-api-expansion.md).
+[`ai-api-expansion.md` §4.8](../../../specs/shipped/ai-api-expansion.md).
 
 ## Progress
 

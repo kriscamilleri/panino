@@ -1,7 +1,7 @@
 # Calendar Synchronization — Spec
 
 > Auto-create calendar events from date/time metadata in note front-matter.
-> Status: proposed
+> Status: deprecated 2026-11-08 by Kris — not implemented and not planned.
 > Created: 2026-03-21
 > Last updated: 2026-08-08
 

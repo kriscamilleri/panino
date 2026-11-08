@@ -1,5 +1,5 @@
 /**
- * Send a Document's PDF to Odoo Documents (docs/specs/active/odoo-integration.md
+ * Send a Document's PDF to Odoo Documents (docs/specs/shipped/odoo-integration.md
  * §5, §6). The first send creates a document in the chosen folder; later sends
  * overwrite that same document, and only after checking it is still the record
  * Panino created. Every upload is checked against Odoo's checksum.
