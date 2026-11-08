@@ -162,6 +162,8 @@ export function buildFolderTree(entries) {
             title,
             content: entry.content || '',
             folderPath: currentPath,  // null if file is at root
+            // Where the file sat in the import, for rewriting links between its files.
+            sourcePath: segments.join('/'),
         });
     }
 

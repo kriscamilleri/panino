@@ -69,14 +69,47 @@
 
 <script setup>
 import { ref, onUnmounted, watch, nextTick, provide } from 'vue'
+import { useRoute } from 'vue-router'
 import { useDocStore } from '@/store/docStore'
 import { useUiStore } from '@/store/uiStore'
+import { useEditorStore } from '@/store/editorStore'
+import { useDraftStore } from '@/store/draftStore'
+import { useGlobalVariablesStore } from '@/store/globalVariablesStore'
+import { headingOffset } from '@/utils/editorLinks'
 import FolderPreview from '@/components/FolderPreview.vue'
 import Editor from '@/components/Editor.vue'
 import Preview from '@/components/Preview.vue'
 
 const docStore = useDocStore()
 const ui = useUiStore()
+const route = useRoute()
+const editorStore = useEditorStore()
+const draftStore = useDraftStore()
+const globalVariablesStore = useGlobalVariablesStore()
+
+// Arriving at a heading with the Preview hidden: put the editor's caret on the
+// heading's line instead (the Preview scrolls itself when it shows).
+let arrivalHandled = ''
+watch(
+    () => [route.query.heading, docStore.selectedFileId, ui.showPreview, ui.showEditor],
+    ([heading, fileId]) => {
+        if (typeof heading !== 'string' || !heading || ui.showPreview || !ui.showEditor) return
+        if (!fileId || fileId !== route.params.fileId) return
+        const key = `${fileId}|${heading}`
+        if (arrivalHandled === key) return
+        arrivalHandled = key
+        nextTick(() => {
+            const text = draftStore.getDraft(fileId) ?? docStore.selectedFile?.content ?? ''
+            const offset = headingOffset(text, heading, { globals: globalVariablesStore.globalsMap })
+            if (offset === null) {
+                ui.addToast('Heading not found', 'info')
+                return
+            }
+            editorStore.transformText((state) => ({ value: state.value, selectionStart: offset, selectionEnd: offset }))
+        })
+    },
+    { immediate: true },
+)
 
 // Editor resizing
 const editorWidth = ref(500)

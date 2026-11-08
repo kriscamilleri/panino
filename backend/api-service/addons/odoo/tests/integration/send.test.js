@@ -7,6 +7,7 @@ import { resetOdooRateLimits } from '../../routes.js';
 import { resetFileFieldCache } from '../../client.js';
 import { addEditorMember, createSpace } from '../../../../spaces.js';
 import { API_KEY, resetFakeOdoo, startFakeOdoo } from '../fakeOdoo.js';
+import { LINKED_DOCUMENT, pdfLinkUris, withEnv } from '../pdfLinks.js';
 
 const PDF_REQUEST = { htmlContent: '<h1>Quote</h1><p>Hello Odoo</p>', cssStyles: '', printStyles: {} };
 
@@ -91,6 +92,28 @@ describe('Sending a Document to Odoo Documents', () => {
         const defaults = getUserDb(user.userId).prepare('SELECT folder_id FROM odoo_defaults').get();
         expect(defaults.folder_id).toBe(41);
     });
+
+    it('links other Documents in the PDF to the Panino web app, from FRONTEND_URL only', async () => {
+        await connect();
+        const pdfRequest = {
+            htmlContent: `<p><a href="https://evil.example" class="pn-doc-link" data-pn-doc="${LINKED_DOCUMENT}" data-pn-heading="budget">Plan</a></p>`,
+            cssStyles: '',
+            printStyles: {},
+        };
+        const response = await withEnv({ FRONTEND_URL: 'https://app.example.test' }, () => send({ documents: { folderId: 41 }, pdfRequest }));
+        expect(response.status).toBe(200);
+        const [doc] = [...odoo.state.docs.values()];
+        expect(await pdfLinkUris(storedPdf(doc.id))).toEqual([`https://app.example.test/#/doc/${LINKED_DOCUMENT}?heading=budget`]);
+    }, 60000);
+
+    it('prints Document links as text when production has no FRONTEND_URL', async () => {
+        await connect();
+        const pdfRequest = { htmlContent: `<p><a class="pn-doc-link" data-pn-doc="${LINKED_DOCUMENT}">Plan</a></p>`, cssStyles: '', printStyles: {} };
+        const response = await withEnv({ FRONTEND_URL: undefined, NODE_ENV: 'production' }, () => send({ documents: { folderId: 41 }, pdfRequest }));
+        expect(response.status).toBe(200);
+        const [doc] = [...odoo.state.docs.values()];
+        expect(await pdfLinkUris(storedPdf(doc.id))).toEqual([]);
+    }, 60000);
 
     it('uses datas on Odoo 19', async () => {
         odoo.state.version = 19;

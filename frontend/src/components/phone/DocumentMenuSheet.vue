@@ -113,6 +113,39 @@
             <button
                 type="button"
                 class="ph-row"
+                :disabled="!file"
+                data-testid="phone-menu-toc"
+                @click="runToc"
+            >
+                <ListTree
+                    class="h-5 w-5"
+                    aria-hidden="true"
+                />
+                <span class="ph-menu-toc-text">
+                    <span>{{ tocStore.hasToc ? 'Refresh table of contents' : 'Insert table of contents' }}</span>
+                    <span
+                        v-if="tocStore.isStale"
+                        class="ph-muted ph-menu-toc-stale"
+                        data-testid="phone-menu-toc-stale"
+                    >Out of date</span>
+                </span>
+            </button>
+            <button
+                type="button"
+                class="ph-row"
+                :disabled="!file"
+                data-testid="phone-menu-toc-options"
+                @click="openSheet('toc')"
+            >
+                <SlidersHorizontal
+                    class="h-5 w-5"
+                    aria-hidden="true"
+                />
+                Contents options
+            </button>
+            <button
+                type="button"
+                class="ph-row"
                 :disabled="!syncStore.isOnline"
                 data-testid="phone-menu-export"
                 @click="openSheet('export')"
@@ -213,7 +246,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon } from 'lucide-vue-next'
+import { Pin, FolderInput, Palette, FileDown, History, Trash2, Users, Monitor, Sun, Moon, ListTree, SlidersHorizontal } from 'lucide-vue-next'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
 import BaseModal from '@/components/BaseModal.vue'
@@ -229,6 +262,7 @@ import { useThemeStore } from '@/store/themeStore'
 import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
 import { useTypewriterStore } from '@/store/typewriterStore'
+import { useTableOfContentsStore } from '@/store/tableOfContentsStore'
 import { useSheetRoute } from '@/composables/useSheetRoute'
 import { usePhoneStatus } from '@/composables/usePhoneStatus'
 import { normalizePinned } from '@/utils/recentDocuments'
@@ -257,6 +291,7 @@ const { openSheet, closeSheetAndGo } = useSheetRoute()
 const { sync, liveParticipants, syncNow } = usePhoneStatus()
 const { selectedFile: file } = storeToRefs(docStore)
 
+const tocStore = useTableOfContentsStore()
 const confirmingDelete = ref(false)
 const editingStyles = ref(false)
 const addonsStore = useAddonsStore()
@@ -304,6 +339,15 @@ async function togglePin() {
         console.error('[DocumentMenuSheet] Pin failed:', error)
         ui.addToast('The pin could not be changed. Try again.', 'error')
     }
+}
+
+/** Insert or refresh the table of contents, then close the menu (TOC and links spec §4.5). */
+async function runToc() {
+    if (!file.value) return
+    const refreshing = tocStore.hasToc
+    emit('close')
+    if (refreshing) await tocStore.refresh()
+    else await tocStore.insert({ phone: true })
 }
 
 /** Leave the sheet for a full screen in one history step. */
@@ -390,6 +434,16 @@ async function deleteDocument() {
     min-height: 52px;
     padding: 4px 20px;
     font-size: 16px;
+}
+
+.ph-menu-toc-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.ph-menu-toc-stale {
+    font-size: 13px;
 }
 
 .ph-menu-divider {

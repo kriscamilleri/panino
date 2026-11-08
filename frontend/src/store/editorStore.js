@@ -175,6 +175,8 @@ export const useEditorStore = defineStore('editorStore', () => {
         isHoldingChanges,
         transformText,
         focus: () => callEditor('focus'),
+        // The link picker, with the selection as label (TOC and links spec §6.4).
+        openLinkPicker: () => callEditor('openLinkPicker'),
         refreshLayout: () => callEditor('refreshLayout'),
         startCollaboration: () => callEditor('startCollaboration'),
         leaveCollaboration: () => callEditor('leaveCollaboration'),

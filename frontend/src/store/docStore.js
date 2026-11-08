@@ -9,6 +9,7 @@ import { useDraftStore } from "./draftStore";
 import { useImportExportStore } from "./importExportStore";
 import { useConflictStore } from "./conflictStore";
 import { useStylePresetStore } from "./stylePresetStore";
+import { useDocumentLinkStore } from "./documentLinkStore";
 import { normalizeRecentDocument } from "../utils/recentDocuments.js";
 import { hasDocumentContentChanged } from "../utils/documentPersistence.js";
 import { mergeDashboardRows } from "../utils/syncRegistry.js";
@@ -420,6 +421,10 @@ ${DOCUMENT_COLUMNS}
     searchDocuments,
     listFolders,
     setDocumentPinned,
+    // Links to other Documents (documentLinkStore.js), created on first use.
+    resolveDocuments: (...args) => useDocumentLinkStore().resolveDocuments(...args),
+    getDocumentOutline: (...args) => useDocumentLinkStore().getDocumentOutline(...args),
+    findDocumentDbKey: (...args) => useDocumentLinkStore().findDocumentDbKey(...args),
     refreshData, // Expose the new function
     recentDocVersion,
     isSaving,

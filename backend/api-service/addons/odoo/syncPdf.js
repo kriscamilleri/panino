@@ -6,5 +6,19 @@
  * sync and its tests use.
  */
 
+import { buildDocumentPdfRequest } from '../../documentPdf.js';
+
 export { accountPrintStyles, folderTrail, styleLibrary } from '../../documentPdf.js';
-export { buildDocumentPdfRequest as buildSyncPdfRequest } from '../../documentPdf.js';
+
+/**
+ * The core builder with links to other Documents marked for the PDF
+ * (docs/specs/active/editor-toc-and-internal-links.md §6.8, N1): the renderPdf calls in
+ * this add-on pass `appLinks`, so those links open the Document in the Panino web app.
+ * The sync hash covers the Markdown, CSS and print styles, so this refiles nothing.
+ *
+ * @param {Parameters<typeof buildDocumentPdfRequest>[0]} input
+ * @returns {ReturnType<typeof buildDocumentPdfRequest>}
+ */
+export function buildSyncPdfRequest(input) {
+    return buildDocumentPdfRequest({ ...input, documentLinks: 'pdf' });
+}

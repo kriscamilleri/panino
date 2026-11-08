@@ -4,7 +4,7 @@
 > to a heading in the same Document, to another Document, or to a heading in another Document.
 > Everything is stored as ordinary Markdown, so the Preview, the PDF, the phone, sync, shared
 > spaces, backups and other Markdown tools all read it without a new storage format.
-> Status: proposed
+> Status: active — all five phases of §11 built on `feature/toc-internal-links` (2026-11-08); remaining: the browser checks listed in `docs/agent-logs/2026/11/2026-11-08_19-10_toc-internal-links.md`, review, merge
 > Created: 2026-11-07
 > Last updated: 2026-11-07 — Kris answered Q1–Q6, then N1–N3
 > Requested by: Kris ("Insertable table of contents, which can be refreshed, similar to the Odoo
@@ -308,6 +308,17 @@ They are off with no Document selected.
   list items would not be.
 - **Templates and Duplicate** copy the block. It refreshes against the new Document.
 - **Revision history** shows a Refresh as an ordinary change.
+- **Rendered HTML changes once for existing Documents** (2026-11-08 review): every heading now
+  carries `id="pn-<slug>"`, `[x](#slug)` renders `href="#pn-slug"`, and a relative `#/…` route
+  (`#/settings`, `/#/settings`, `./#/…`) renders as an inert `pn-link-broken` span. Odoo Knowledge
+  keeps `href`, `class` and `id` in its body signature, so each synced article with headings is
+  rewritten once on its next reconcile. The AI agents add-on's HTML output carries the ids too.
+- **Editing a table while the editor is hidden** (desktop) writes the saved text directly. It is
+  refused during a live session (the session's commit would overwrite it), refused while a
+  conflict holds the Document, and recorded in undo history like an editor edit.
+- **The renderer decides what is a table.** The menu lists, refreshes or rewrites only marker
+  blocks that markdown-it reads as top-level HTML, so an edit never lands in what renders as code.
+  The line scan, which now follows list items and lazy lines, only narrows the search.
 
 ### 4.8 Relation to the Odoo add-on
 

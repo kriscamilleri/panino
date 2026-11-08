@@ -28,6 +28,8 @@ vi.mock('@/store/syncStore', () => ({ useSyncStore: () => ({ isOnline: true }) }
 vi.mock('@/store/themeStore', () => ({ useThemeStore: () => ({ preference: 'system', setPreference: vi.fn() }) }));
 vi.mock('@/store/editorStore', () => ({ useEditorStore: () => editorStore }));
 vi.mock('@/store/typewriterStore', () => ({ useTypewriterStore: () => typewriter }));
+// The table of contents rows (editor-toc-and-internal-links.md): no table here.
+vi.mock('@/store/tableOfContentsStore', () => ({ useTableOfContentsStore: () => ({ hasToc: false, isStale: false, insert: vi.fn(), refresh: vi.fn() }) }));
 vi.mock('@/composables/useSheetRoute', () => ({ useSheetRoute: () => ({ openSheet: vi.fn(), closeSheetAndGo: vi.fn() }) }));
 vi.mock('@/composables/usePhoneStatus', () => ({ usePhoneStatus: () => ({ sync: ref({}), liveParticipants: () => [], syncNow: vi.fn() }) }));
 

@@ -168,7 +168,7 @@ Preview. Spec: `docs/specs/shipped/mobile-ui/` (design spec plus `implementation
 - Phone components live in `components/phone/` and style themselves with the `--ph-*` tokens
   and `.ph-*` classes in `assets/phone.css`, scoped under `.phone-ui` (the `PhoneShell` root)
   with a dark mirror. Avoid Tailwind colour classes there: `main.css` remaps them in dark mode.
-- Sheets and the Drawer are `?sheet=drawer|capture|menu|move|collaborate|export` on the
+- Sheets and the Drawer are `?sheet=drawer|capture|menu|move|collaborate|export|sort|link|toc` on the
   current route (`useSheetRoute`), so back closes a sheet before leaving the screen. Use
   `closeSheetAndGo()` to leave a sheet for another screen in one history step.
 - `PhoneEditor` keeps the Editor mounted in Preview (`hide-text`), because the Editor owns the
@@ -213,6 +213,28 @@ desktop search panel, and the same query language as the AI add-on's `search_doc
 - Recent searches (`panino-recent-searches`) are cleared on sign-out (`authStore`).
 - Development builds put `__paninoSearchBench(query, runs)` and `__paninoSearchSeed({ count,
   confirm })` on `window` (`utils/searchBench.js`) for the browser benchmark.
+
+---
+
+## Links and tables of contents
+
+Spec: `docs/specs/active/editor-toc-and-internal-links.md`. Links to other Documents are
+stored as `[label](panino:doc/<uuid>[#slug])`, headings render `id="pn-<slug>"`, and a table
+of contents is a stored snapshot between `<!-- panino:toc {json} -->` markers (all in
+`shared/`: `documentOutline.js`, `documentLinks.js`, `markerBlocks.js`, `tableOfContents.js`).
+
+- The Preview renders links in `'app'` mode and handles every `#…` link itself
+  (`utils/previewLinks.js`, `composables/useDocumentLinks.js`); a hand-written `#/…` route is
+  inert. Resolution is local: `store/documentLinkStore.js` (through `docStore.resolveDocuments`,
+  `getDocumentOutline`, `findDocumentDbKey`).
+- Writing links: `composables/useEditorLinks.js` on the Editor's textarea (`[[`, Ctrl/Cmd+K,
+  Mod+click, pasted addresses), `LinkPicker.vue` in `LinkPickerPopover.vue` (desktop) or
+  `phone/LinkSheet.vue`, state in `store/linkPickerStore.js`.
+- Tables of contents: `store/tableOfContentsStore.js` (status and actions through
+  `editorStore.transformText`), `TocMenuButton.vue`, `TocOptionsForm.vue`,
+  `TocStaleNotice.vue`, phone rows in `DocumentMenuSheet.vue` and `phone/TocSheet.vue`.
+- PDFs made in the browser render `'pdf'` with only the ids that resolve
+  (`composables/usePdfDocumentLinks.js`); everything else renders `'text'`.
 
 ---
 

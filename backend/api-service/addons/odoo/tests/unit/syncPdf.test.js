@@ -8,8 +8,16 @@ import { accountPrintStyles, buildSyncPdfRequest, folderTrail, styleLibrary } fr
 import { buildDocumentPdfRequest } from '../../../../documentPdf.js';
 
 describe('buildSyncPdfRequest', () => {
-    it('is the core builder (documentPdf.js), shared with other add-ons', () => {
-        expect(buildSyncPdfRequest).toBe(buildDocumentPdfRequest);
+    it('is the core builder (documentPdf.js) with Document links marked for the PDF', () => {
+        const linked = '11111111-2222-4333-8444-555555555555';
+        const note = { id: 'n', title: 'Memo', content: `# Memo\n\nSee [the plan](panino:doc/${linked}#budget).`, folder_id: null };
+        const sync = buildSyncPdfRequest({ db, note, globals: {} });
+        const core = buildDocumentPdfRequest({ db, note, globals: {} });
+        expect(sync.request.htmlContent).toContain(`<a class="pn-doc-link" data-pn-doc="${linked}" data-pn-heading="budget"`);
+        // The core default stays text, for any caller that did not ask.
+        expect(core.request.htmlContent).toContain('<span class="pn-doc-link">the plan</span>');
+        // The "already filed" hash covers Markdown, CSS and print styles, not the mode.
+        expect(sync.hash).toBe(core.hash);
     });
 
     let user;
@@ -40,7 +48,7 @@ describe('buildSyncPdfRequest', () => {
         const note = { id: 'n', title: 'Memo', content: '# Memo\n\nHello {{ who }} on {{ GLOBAL_DATE }}', folder_id: null };
         const { request, hash, styleSource } = buildSyncPdfRequest({ db, note, globals: { who: 'Ada' }, now: new Date('2026-10-28T10:00:00Z') });
         expect(styleSource).toBe('default');
-        expect(request.htmlContent).toContain('<h1 style="color: purple">Memo</h1>');
+        expect(request.htmlContent).toContain('<h1 id="pn-memo" style="color: purple">Memo</h1>');
         expect(request.htmlContent).toContain('Hello Ada on ');
         expect(request.printStyles.pageSize).toBe('Letter');
         expect(request.cssStyles).toContain('h1 { color: purple }');
@@ -63,12 +71,12 @@ describe('buildSyncPdfRequest', () => {
 
         const inherited = buildSyncPdfRequest({ db, note: { id: 'a', title: 'A', content: '# A\n\ntext', folder_id: sub } });
         expect(inherited.styleSource).toBe('folder');
-        expect(inherited.request.htmlContent).toContain('<h1 style="color: green">A</h1>');
+        expect(inherited.request.htmlContent).toContain('<h1 id="pn-a" style="color: green">A</h1>');
         expect(inherited.request.htmlContent).toContain('<p style="margin: 1em">text</p>');
 
         const own = buildSyncPdfRequest({ db, note: { id: 'b', title: 'B', content: '---\nprint-style: Quote\n---\n\n# B', folder_id: sub } });
         expect(own.styleSource).toBe('document');
-        expect(own.request.htmlContent).toContain('<h1 style="color: red">B</h1>');
+        expect(own.request.htmlContent).toContain('<h1 id="pn-b" style="color: red">B</h1>');
         expect(own.request.htmlContent).not.toContain('print-style');
         expect(quote).toBeTruthy();
     });

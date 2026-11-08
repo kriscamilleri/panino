@@ -29,6 +29,7 @@ import { SYNC_SCOPES, createSync, deleteSync, listSyncs, readSync, setSyncStatus
 import { globalsOf, pauseSyncsRunBy, resumeSyncsRunBy, runSyncNow, syncJobStatus } from './syncScheduler.js';
 import { buildSyncPdfRequest } from './syncPdf.js';
 import { readInternalImage, renderPdf } from '../../pdf.js';
+import { appBaseUrl } from '../../publicUrls.js';
 import { listSpacesForUser, resolveSpaceAccess } from '../../spaces.js';
 
 export const odooRoutes = express.Router();
@@ -603,7 +604,7 @@ odooRoutes.post('/send', async (req, res) => {
     try {
         let pdf = null;
         if (wantsPdf) {
-            const rendered = await renderPdf(pdfRequest, { userId });
+            const rendered = await renderPdf(pdfRequest, { userId, appLinks: appBaseUrl() });
             if (!rendered.ok) {
                 if (rendered.retryAfterSeconds) res.setHeader('Retry-After', String(rendered.retryAfterSeconds));
                 const busy = rendered.status === 503;
@@ -691,7 +692,7 @@ async function resendOne({ access, sender, userId, noteId, globals }) {
         }
         if (hasDocuments) {
             const { request } = buildSyncPdfRequest({ db: access.db, note, globals });
-            const rendered = await renderPdf(request, { userId });
+            const rendered = await renderPdf(request, { userId, appLinks: appBaseUrl() });
             if (!rendered.ok) {
                 result.documents = { ok: false, error: 'pdf_failed', message: rendered.status === 503 ? 'PDFs are busy right now. Try again shortly.' : 'The PDF could not be made.' };
             } else if (rendered.pdf.length > MAX_PDF_BYTES) {

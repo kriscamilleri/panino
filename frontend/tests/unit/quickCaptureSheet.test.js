@@ -39,6 +39,8 @@ vi.mock('@/store/draftStore', () => ({ useDraftStore: () => ({ getDraft: () => n
 vi.mock('@/store/markdownStore', () => ({ useMarkdownStore: () => ({ applyMetadataVariables: (text) => text }) }));
 vi.mock('@/store/syncStore', () => ({ useSyncStore: () => ({ personalDbKey: 'personal' }) }));
 vi.mock('@/store/uiStore', () => ({ useUiStore: () => ({ addToast: () => {} }) }));
+vi.mock('@/store/documentLinkStore', () => ({ useDocumentLinkStore: () => ({ version: 0, headingRequest: null, requestHeading: () => {} }) }));
+vi.mock('@/store/tableOfContentsStore', () => ({ useTableOfContentsStore: () => ({ isStale: false, refresh: () => {} }) }));
 
 const { default: QuickCaptureSheet } = await import('@/components/phone/QuickCaptureSheet.vue');
 

@@ -331,7 +331,7 @@ describe('AI agents add-on: templates, variables and PDF export', () => {
             expect(renderPdf).toHaveBeenCalledTimes(1);
             const [payload, options] = renderPdf.mock.calls[0];
             expect(options).toEqual({ userId: user.userId });
-            expect(payload.htmlContent).toContain('<h1 style="color: green">Report for Acme BV</h1>');
+            expect(payload.htmlContent).toContain('<h1 id="pn-report-for-acme-bv" style="color: green">Report for Acme BV</h1>');
             expect(payload.htmlContent).not.toContain('<script');
             expect(payload.htmlContent).not.toContain('onerror');
             expect(payload.htmlContent).toContain(`src="/api/images/${imageId}"`);

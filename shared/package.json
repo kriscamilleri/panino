@@ -17,7 +17,11 @@
         "./search-text": "./searchText.js",
         "./property-filter": "./propertyFilter.js",
         "./trash-folder": "./trashFolder.js",
-        "./document-search": "./documentSearch.js"
+        "./document-search": "./documentSearch.js",
+        "./document-outline": "./documentOutline.js",
+        "./document-links": "./documentLinks.js",
+        "./marker-blocks": "./markerBlocks.js",
+        "./table-of-contents": "./tableOfContents.js"
     },
     "scripts": {
         "test": "vitest run"
