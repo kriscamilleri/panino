@@ -426,3 +426,10 @@ Where the build differs from the text above, or settles something it left open:
   query has a `prop:` part. A `prop:` query uses `searchByProperties` (the `scanTarget` scan,
   extended with the search's SQL filters and title score). Unreadable parts are notices; more
   than 20 parts or over 200 characters stay 400s, as before.
+- **A first, rough phase 0 run** (headless Chrome, 5000 seeded Documents, 84 MB, sync off) found
+  any body search at about 1 s (4 s at 4× throttling), the same as a bare
+  `SELECT sum(length(content)) FROM notes`: the cost is reading pages through the WASM storage
+  layer, not LIKE or the engine. Titles only took 186 ms. Raising `cache_size` on that
+  connection made the next query fail with "database disk image is malformed". Numbers and
+  method: `docs/agent-logs/2026/11/2026-11-08_18-30_advanced-search-phases-1-2.md`. The phase 0
+  decision (§8) is still to be made on the dev stack.
