@@ -121,8 +121,14 @@ function wordCounter(db) {
  * unless asked. Without `anyDocument`, only those whose text opens with a front matter
  * block holding every key in `keys`. With `withProperties`, each comes with its front
  * matter properties.
+ *
+ * Search (`searchDocuments` with a `prop:` part) passes more `filters` (fixed SQL fragments
+ * with bound parameters: its words, folders and Trash) and a `score` (the words found in the
+ * title), which orders first and comes back as each row's `title_score`.
  */
-function scanTarget(target, { includeTrash, folderId, keys = [], anyDocument = false, withProperties = true }) {
+function scanTarget(target, {
+    includeTrash, folderId, keys = [], anyDocument = false, withProperties = true, filters = [], score = null,
+}) {
     const db = target.db;
     const folders = readFolders(db);
     const folderIndex = buildFolderIndex(folders);
@@ -132,21 +138,30 @@ function scanTarget(target, { includeTrash, folderId, keys = [], anyDocument = f
     // Each key must appear in the parsed part; a prefilter, so LIKE's ASCII-only case
     // folding is enough (readProperties decides).
     const keyFilter = keys.map(() => `AND substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS}) LIKE ? ESCAPE '\\'`).join(' ');
-    const ids = db.prepare(`
-        SELECT id FROM notes
+    const extraFilter = filters.map((filter) => `AND ${filter.sql}`).join(' ');
+    const picked = db.prepare(`
+        SELECT id${score ? `, ${score.sql} AS title_score` : ''} FROM notes
          WHERE (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
            AND (? = 0 OR (? = 1 AND folder_id IS NULL) OR (? = 2 AND folder_id IN (SELECT value FROM json_each(?))))
            AND (? OR ${FRONT_MATTER_PREFILTER})
            ${keyFilter}
-         ORDER BY coalesce(updated_at, '') DESC, id DESC
+           ${extraFilter}
+         ORDER BY ${score ? 'title_score DESC, ' : ''}coalesce(updated_at, '') DESC, id DESC
          LIMIT ?
-    `).pluck().all(
+    `);
+    const pickedParams = [
+        ...(score ? score.params : []),
         JSON.stringify(excluded),
         scopeMode, scopeMode, scopeMode, JSON.stringify(scope?.ids ? [...scope.ids] : []),
         anyDocument ? 1 : 0,
         ...keys.map((key) => (hasCasedNonAscii(key) ? likeShape(key) : likeContains(key))),
+        ...filters.flatMap((filter) => filter.params),
         PROPERTY_SCAN_CAP + 1,
-    );
+    ];
+    const scores = new Map();
+    const ids = score
+        ? picked.all(...pickedParams).map((row) => { scores.set(row.id, Number(row.title_score) || 0); return row.id; })
+        : picked.pluck().all(...pickedParams);
     const truncated = ids.length > PROPERTY_SCAN_CAP;
     const capped = ids.slice(0, PROPERTY_SCAN_CAP);
     const order = new Map(capped.map((id, index) => [id, index]));
@@ -159,6 +174,7 @@ function scanTarget(target, { includeTrash, folderId, keys = [], anyDocument = f
     for (const { head: text, ...row } of rows.iterate(JSON.stringify(capped))) {
         const properties = withProperties ? readProperties(text) : null;
         if (!anyDocument && !properties?.length) continue;
+        if (score) row.title_score = scores.get(row.id) ?? 0;
         documents.push({ row, properties });
     }
     documents.sort((a, b) => order.get(a.row.id) - order.get(b.row.id));
@@ -341,6 +357,56 @@ export function queryDocumentsByProperty(ctx, { filter, space, folderId, include
         documents: page.map((match) => documents.get(match)),
         nextOffset: start + max < matches.length ? start + max : null,
         truncated,
+        scanned: anyDocument ? 'all' : 'front_matter',
+    };
+}
+
+/**
+ * The Documents of one database that satisfy search `prop:` parts (docs/specs/active/
+ * advanced-search.md §6.5): the property scan of `queryDocumentsByProperty`, with the same cap
+ * and the same cheapest-first order of conditions, narrowed further by the search's own SQL
+ * `filters` and ordered by its `score`. A negated part keeps the Documents its condition
+ * refuses.
+ *
+ * @param {object} ctx
+ * @param {object} target
+ * @param {{ parts: Array<{ condition: { key: string, operator: string, value?: string }, negated: boolean }>,
+ *   includeTrash: boolean, folderId?: string|null, filters?: Array<{ sql: string, params: unknown[] }>,
+ *   score?: { sql: string, params: unknown[] } | null }} options
+ * @returns {{ rows: object[], folderIndex: object, truncated: boolean, scanned: 'all'|'front_matter' }}
+ *   rows in the scan's order, each with `title_score` when a score was given
+ */
+export function searchByProperties(ctx, target, { parts, includeTrash, folderId = null, filters = [], score = null }) {
+    const isBuiltIn = (part) => part.condition.key.toLowerCase() in BUILT_IN_FILTER_KEYS;
+    const frontMatter = parts.filter((part) => !isBuiltIn(part));
+    const keys = requiredKeys(frontMatter.filter((part) => !part.negated).map((part) => part.condition));
+    const anyDocument = parts.some((part) => part.negated || isBuiltIn(part)
+        || part.condition.operator === 'missing' || part.condition.operator === '!=');
+    const keyOf = (part) => part.condition.key.toLowerCase();
+    const cheap = parts.filter((part) => !isBuiltIn(part) || ['created_on', 'modified_on'].includes(keyOf(part)));
+    const byAuthor = parts.filter((part) => AUTHOR_KEYS.includes(keyOf(part)));
+    const byWords = parts.filter((part) => keyOf(part) === 'word_count');
+    const holds = (entries, group) => group.every((part) => matchesFilter(entries, [part.condition]) !== part.negated);
+
+    const result = scanTarget(target, {
+        includeTrash, folderId, keys, anyDocument, withProperties: frontMatter.length > 0, filters, score,
+    });
+    const builtInOf = (entry, authors) => builtInProperties(entry.row, result.folderIndex, { authors });
+    let candidates = result.documents.filter((entry) => holds(
+        [...builtInEntries(builtInOf(entry)), ...(entry.properties || [])], cheap));
+    if (byAuthor.length && candidates.length) {
+        const authors = documentAuthorship(ctx, target, candidates.map((entry) => entry.row.id));
+        candidates = candidates.filter((entry) => holds(builtInEntries(builtInOf(entry, authors)), byAuthor));
+    }
+    if (byWords.length) {
+        candidates = candidates.filter((entry) => holds(builtInEntries({
+            ...builtInOf(entry), wordCount: result.wordCount(entry.row.id),
+        }), byWords));
+    }
+    return {
+        rows: candidates.map((entry) => entry.row),
+        folderIndex: result.folderIndex,
+        truncated: result.truncated,
         scanned: anyDocument ? 'all' : 'front_matter',
     };
 }

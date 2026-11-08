@@ -230,46 +230,53 @@ describe('docStore.setDocumentPinned', () => {
 });
 
 describe('docStore.searchDocuments', () => {
-    it('matches title and body literally, with LIKE wildcards escaped', async () => {
-        execute.mockResolvedValue([noteRow({ id: 'hit', title: '50% off' })]);
+    /** Answer the engine's folder, candidate and body queries from fixed rows. */
+    function answer({ folders = [], notes = [] } = {}) {
+        execute.mockImplementation(async (sql) => {
+            if (sql.includes('FROM folders')) return folders;
+            if (sql.includes('notes.id IN (SELECT value FROM json_each(?))')) return notes.map(({ id, content }) => ({ id, content }));
+            return notes.map(({ content: _content, ...row }) => ({ ...row, sort_updated: row.updated_at, title_score: 0 }));
+        });
+    }
+
+    it('binds every term as an escaped LIKE parameter, never into the SQL', async () => {
+        answer({ notes: [noteRow({ id: 'hit', title: '50% off' })] });
 
         const result = await store.searchDocuments({ query: ' 50%_off ' });
 
-        const [sql, params] = execute.mock.calls[0];
-        expect(sql).toContain("notes.title LIKE ? ESCAPE '\\'");
-        expect(sql).toContain("notes.content LIKE ? ESCAPE '\\'");
-        expect(params).toEqual(['%50\\%\\_off%', '%50\\%\\_off%', 50]);
+        const candidate = execute.mock.calls.find(([sql]) => sql.includes('ORDER BY title_score DESC'));
+        const [sql, params] = candidate;
+        expect(sql).toContain("coalesce(notes.title, '') LIKE ? ESCAPE '\\'");
+        expect(sql).toContain("coalesce(notes.content, '') LIKE ? ESCAPE '\\'");
         expect(sql).not.toContain('50%');
-        expect(result.map((doc) => doc.id)).toEqual(['hit']);
+        expect(params).toContain('%50\\%\\_off%');
+        expect(result.results.map((doc) => doc.id)).toEqual(['hit']);
+        expect(result).toMatchObject({ nextCursor: null, notices: [], terms: ['50%_off'], cancelled: false });
     });
 
-    it('searches titles only when asked', async () => {
-        await store.searchDocuments({ query: 'plan', scope: 'titles' });
-        const [sql, params] = execute.mock.calls[0];
-        expect(sql).not.toContain('notes.content LIKE');
-        expect(params).toEqual(['%plan%', 50]);
-    });
-
-    it('limits a folder search to that folder and its subfolders', async () => {
-        await store.searchDocuments({ query: 'x', scope: 'folder', folderId: 'folder-1', dbKey: PERSONAL_KEY });
-        const [sql, params] = execute.mock.calls[0];
-        expect(sql).toContain('scope_folders');
-        expect(sql).toContain('notes.folder_id IN (SELECT id FROM scope_folders)');
-        expect(params[0]).toBe('folder-1');
-    });
-
-    it('keeps only Documents with checklist items for the checklist scope', async () => {
-        execute.mockResolvedValue([
-            noteRow({ id: 'tasks', content: '- [ ] milk' }),
-            noteRow({ id: 'brackets', content: 'array[0] only' }),
-        ]);
-        const result = await store.searchDocuments({ query: 'i', scope: 'checklists' });
-        expect(result.map((doc) => doc.id)).toEqual(['tasks']);
+    it('normalizes results and says which are in Trash', async () => {
+        answer({
+            folders: [{ id: 'trash', name: 'Trash', parent_id: null, created_at: '2026-01-01' }],
+            notes: [noteRow({ id: 'gone', title: 'Old plan', folder_id: 'trash', content: 'plan' })],
+        });
+        const { results } = await store.searchDocuments({ query: 'plan in:Trash' });
+        expect(results[0]).toMatchObject({ id: 'gone', name: 'Old plan', folderName: 'Trash', inTrash: true, dbKey: PERSONAL_KEY, titleScore: 0 });
     });
 
     it('returns nothing for an empty query without querying', async () => {
-        expect(await store.searchDocuments({ query: '   ' })).toEqual([]);
+        expect(await store.searchDocuments({ query: '   ' })).toMatchObject({ results: [], nextCursor: null });
         expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('stops an older search when a newer one starts', async () => {
+        let release;
+        execute.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve([]); }));
+        const older = store.searchDocuments({ query: 'first' });
+        answer();
+        const newer = store.searchDocuments({ query: 'second' });
+        release();
+        expect((await older).cancelled).toBe(true);
+        expect((await newer).cancelled).toBe(false);
     });
 });
 

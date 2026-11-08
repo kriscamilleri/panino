@@ -201,5 +201,15 @@ describe.skipIf(!RUN)('v1 API load on a large account', () => {
         await measure('query modified_by = Bench agent', `/properties/query?filter=${q('modified_by = Bench agent')}`, (b) => `${b.total}`);
         await measure('query status = draft AND word_count > 2000', `/properties/query?filter=${q('status = draft AND word_count > 2000')}`, (b) => `${b.total}`);
         await measure('query word_count >= 1000', `/properties/query?filter=${q('word_count >= 1000')}`, (b) => `${b.total}`);
+        // The search query language (docs/specs/active/advanced-search.md §6.5). Last, so the
+        // reads above are measured as they were before it.
+        await measure('search lorem in:"Folder 3"', `/search?q=${q('lorem in:"Folder 3"')}`, (b) => `${b.results.length}`);
+        await measure('search lorem -in:"Folder 3"', `/search?q=${q('lorem -in:"Folder 3"')}`, (b) => `${b.results.length}`);
+        await measure('search lorem in:Trash', `/search?q=${q('lorem in:Trash')}`, (b) => `${b.results.length}`);
+        await measure('search lorem -dolor', `/search?q=${q('lorem -dolor')}`, (b) => `${b.results.length}`);
+        await measure('search lorem is:checklist', `/search?q=${q('lorem is:checklist')}`, (b) => `${b.results.length}`);
+        await measure('search lorem prop:status=draft', `/search?q=${q('lorem prop:status=draft')}`, (b) => `${b.results.length}, ${b.scanned}`);
+        await measure('search prop:status=draft (no word)', `/search?q=${q('prop:status=draft')}`, (b) => `${b.results.length}, truncated ${b.truncated}`);
+        await measure('search lorem prop:word_count>2000', `/search?q=${q('lorem prop:word_count>2000')}`, (b) => `${b.results.length}`);
     }, 600_000);
 });

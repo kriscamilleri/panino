@@ -13,7 +13,11 @@
         "./style-presets": "./stylePresets.js",
         "./pdf-request": "./pdfRequest.js",
         "./styled-renderer": "./styledRenderer.js",
-        "./template-variables": "./templateVariables.js"
+        "./template-variables": "./templateVariables.js",
+        "./search-text": "./searchText.js",
+        "./property-filter": "./propertyFilter.js",
+        "./trash-folder": "./trashFolder.js",
+        "./document-search": "./documentSearch.js"
     },
     "scripts": {
         "test": "vitest run"

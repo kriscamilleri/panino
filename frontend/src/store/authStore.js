@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { useSyncStore } from './syncStore';
 import { useDocStore } from './docStore';
+import { clearRecentSearches } from '../utils/searchQuery';
 
 // The single, unified API URL
 const isProd = import.meta.env.PROD;
@@ -63,6 +64,8 @@ export const useAuthStore = defineStore('authStore', () => {
             }
         } else {
             localStorage.removeItem('jwt_token');
+            // Signed out: the next person on this device must not see these.
+            clearRecentSearches(localStorage);
             user.value = null;
             if (refreshTimer) {
                 clearTimeout(refreshTimer);
