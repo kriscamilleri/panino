@@ -36,7 +36,7 @@ Every store uses `defineStore('name', () => { ... })` setup-style pattern.
 | `editorStore` | Bridge/proxy to Editor component's exposed methods for toolbar actions | — (independent) |
 | `historyStore` | Per-document undo/redo stack (max 100 entries per document) | — (independent) |
 | `uiStore` | Panel visibility (persisted to DB), menus, modals, toast notifications | syncStore |
-| `typewriterStore` | Typewriter mode settings: its own synced `settings` row `typewriter` with a desktop and a phone profile (`current` is this form factor's); never inside `uiSettings` | syncStore, authStore |
+| `typewriterStore` | Typewriter mode settings: its own synced `settings` rows `typewriter.desktop` and `typewriter.phone` (`current` is this form factor's); never inside `uiSettings` | syncStore, authStore |
 | `globalVariablesStore` | Global template variables CRUD, normalized key lookup | syncStore, authStore, uiStore |
 | `importExportStore` | JSON/ZIP/StackEdit/SQLite export, JSON/StackEdit import | syncStore, structureStore, authStore |
 | `spacesStore` | Server-backed lifecycle, member/invitation management, ownership, leave/deletion, and invite acceptance | syncStore, authStore |

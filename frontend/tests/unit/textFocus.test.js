@@ -327,3 +327,29 @@ describe('focusRange', () => {
         expect(focusRange('abc', { start: -5, end: 99 }, 'paragraph')).toEqual({ start: 0, end: 3, empty: false });
     });
 });
+
+describe('tables in linear time', () => {
+    it('handles a long run of `|` lines with no delimiter row without scanning each line\'s neighbours', () => {
+        // A pasted log or CSV: before the fix every paragraph-scan step rescanned up to 1000 lines.
+        const pipes = Array.from({ length: 3000 }, (_, i) => `col ${i} | value ${i}`).join('\n');
+        const text = `${pipes}\n\nplain paragraph line\nanother line`;
+        const index = analyzeText(text);
+        const started = performance.now();
+        for (let i = 0; i < 20; i += 1) {
+            focusRange(text, { start: text.length - 3, end: text.length - 3 }, 'paragraph', { index });
+            focusRange(text, { start: 40000, end: 40000 }, 'paragraph', { index });
+        }
+        expect(performance.now() - started).toBeLessThan(200);
+        // Without a delimiter row the `|` lines are a plain paragraph, not a table.
+        expect(findBlock(text, 40000).kind).toBe('paragraph');
+    });
+
+    it('still finds a table whose delimiter row is far from the caret line', () => {
+        const rows = Array.from({ length: 300 }, (_, i) => `| ${i} | x |`);
+        const text = ['| a | b |', '|---|---|', ...rows].join('\n');
+        const at = text.length - 2;
+        const block = findBlock(text, at);
+        expect(block.kind).toBe('table');
+        expect(block.start).toBe(0);
+    });
+});

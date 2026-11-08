@@ -174,23 +174,56 @@ function inCodeOrFrontMatter(index, i) {
     return (index.frontMatterEnd >= 0 && i <= index.frontMatterEnd) || Boolean(fenceAt(index, i));
 }
 
-/** A table line: it has a `|`, and its run of `|` lines contains a delimiter row. */
+// Per text index, built on first use: the maximal runs of `|` lines and a
+// running count of delimiter rows, so each line is answered in O(1) instead
+// of scanning up to BLOCK_LINE_LIMIT neighbours (which made a long block of
+// `|` lines without a delimiter row quadratic in the paragraph scan).
+const tableRunIndex = new WeakMap();
+
+function tableRunsOf(index) {
+    let runs = tableRunIndex.get(index);
+    if (runs) return runs;
+    const count = index.starts.length;
+    const runStart = new Int32Array(count).fill(-1);
+    const runEnd = new Int32Array(count).fill(-1);
+    const delimitersBefore = new Int32Array(count + 1);
+    let open = -1;
+    for (let j = 0; j < count; j += 1) {
+        const text = lineText(index, j);
+        const pipe = !inCodeOrFrontMatter(index, j) && text.includes('|') && !BLANK.test(text);
+        const delimiter = pipe && text.includes('-') && TABLE_DELIMITER.test(text);
+        delimitersBefore[j + 1] = delimitersBefore[j] + (delimiter ? 1 : 0);
+        if (pipe) {
+            if (open === -1) open = j;
+            runStart[j] = open;
+        } else if (open !== -1) {
+            for (let k = open; k < j; k += 1) runEnd[k] = j - 1;
+            open = -1;
+        }
+    }
+    if (open !== -1) for (let k = open; k < count; k += 1) runEnd[k] = count - 1;
+    runs = { runStart, runEnd, delimitersBefore };
+    tableRunIndex.set(index, runs);
+    return runs;
+}
+
+/**
+ * A table line: it has a `|`, and its run of `|` lines (at most
+ * BLOCK_LINE_LIMIT lines either side) contains a delimiter row. The line
+ * itself only needs a `|`; its neighbours must be non-blank `|` lines outside
+ * code and front matter.
+ */
 function tableRun(index, i) {
     if (!lineText(index, i).includes('|')) return null;
-    const count = index.starts.length;
-    const isPipeLine = (j) => {
-        if (inCodeOrFrontMatter(index, j)) return false;
-        const text = lineText(index, j);
-        return text.includes('|') && !BLANK.test(text);
-    };
-    let start = i;
-    while (start > 0 && i - start < BLOCK_LINE_LIMIT && isPipeLine(start - 1)) start -= 1;
-    let end = i;
-    while (end + 1 < count && end - i < BLOCK_LINE_LIMIT && isPipeLine(end + 1)) end += 1;
-    for (let j = start; j <= end; j += 1) {
-        if (TABLE_DELIMITER.test(lineText(index, j)) && lineText(index, j).includes('-')) return { start, end };
-    }
-    return null;
+    const { runStart, runEnd, delimitersBefore } = tableRunsOf(index);
+    // A `|` line that is itself excluded (blank-looking, in code) still looks at its neighbours.
+    const above = runStart[i] !== -1 ? runStart[i] : (i > 0 && runStart[i - 1] !== -1 ? runStart[i - 1] : i);
+    const below = runEnd[i] !== -1 ? runEnd[i] : (i + 1 < runEnd.length && runEnd[i + 1] !== -1 ? runEnd[i + 1] : i);
+    const start = Math.max(above, i - BLOCK_LINE_LIMIT);
+    const end = Math.min(below, i + BLOCK_LINE_LIMIT);
+    const delimiters = delimitersBefore[end + 1] - delimitersBefore[start]
+        + (runStart[i] === -1 && TABLE_DELIMITER.test(lineText(index, i)) && lineText(index, i).includes('-') ? 1 : 0);
+    return delimiters > 0 ? { start, end } : null;
 }
 
 function startsOtherBlock(index, i) {

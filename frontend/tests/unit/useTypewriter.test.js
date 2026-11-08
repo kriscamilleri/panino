@@ -246,10 +246,73 @@ describe('createTypewriterController', () => {
         window.dispatchEvent(pointer('pointerup'));
         vi.advanceTimersByTime(10);
         const before = layout.scrollTop;
-        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' }));
+        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'a' }));
         vi.advanceTimersByTime(CLICK_SETTLE_MS * 2);
         flushFrames();
         expect(layout.scrollTop).toBe(before);
+    });
+
+    it('keeps the click re-centre when only a modifier key is pressed', () => {
+        create();
+        textarea.dispatchEvent(pointer('pointerdown'));
+        textarea.setSelectionRange(offsetOfLine(30), offsetOfLine(30));
+        window.dispatchEvent(pointer('pointerup'));
+        vi.advanceTimersByTime(10);
+        const before = layout.scrollTop;
+        textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift' }));
+        vi.advanceTimersByTime(CLICK_SETTLE_MS + 20);
+        animate(400);
+        expect(layout.scrollTop).not.toBe(before);
+    });
+
+    describe('a caret the person placed survives a blur', () => {
+        const end = () => LINES.length;
+        function typeAtEnd() {
+            create();
+            textarea.setSelectionRange(end(), end());
+            textarea.dispatchEvent(new Event('input'));
+            flushFrames();
+            animate(400);
+            expect(layout.scrollTop).toBe(layout.maxScroll());
+            return layout.scrollTop;
+        }
+
+        it('does not jump to the top when an option changes after the editor loses focus', () => {
+            const atEnd = typeAtEnd();
+            textarea.blur();
+            current.settingsChanged();
+            flushFrames();
+            animate(400);
+            expect(layout.scrollTop).toBe(atEnd);
+            expect(render.mock.lastCall?.[0]?.band?.y).not.toBe(PAD);
+        });
+
+        it('does not jump to the top on a remote edit or a resize while blurred', () => {
+            const atEnd = typeAtEnd();
+            textarea.blur();
+            applyingRemote = true;
+            textarea.value = `${LINES}\nA line from someone else.`;
+            current.notifyPreview();
+            applyingRemote = false;
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+            flushFrames();
+            animate(400);
+            expect(layout.scrollTop).toBeGreaterThanOrEqual(atEnd);
+            // The band stays on the person's line, not on the first row.
+            const band = render.mock.lastCall?.[0]?.band;
+            expect(band).toBeTruthy();
+            expect(band.y).toBeGreaterThan(PAD + RH);
+        });
+
+        it('still treats an untouched caret at the end of an unfocused editor as the start', () => {
+            textarea.blur();
+            textarea.setSelectionRange(end(), end());
+            create();
+            current.settingsChanged();
+            flushFrames();
+            animate(400);
+            expect(layout.scrollTop).toBe(0);
+        });
     });
 
     it('re-centres a focusing tap after the viewport settles, not on the click timer', () => {

@@ -617,8 +617,11 @@ rounds integers, and falls back to the defaults per field. It never throws.
 
 ### 9.3 Storage and sync (decision)
 
-- Settings are stored in a **new row** of the synced `settings` table:
-  `id = 'typewriter'`, value `{"version":1,"desktop":{…},"phone":{…}}`.
+- Settings are stored in **two new rows** of the synced `settings` table, one per form factor:
+  `id = 'typewriter.desktop'` and `id = 'typewriter.phone'`, each with value
+  `{"version":1,"settings":{…}}`. A device writes only the row of the profiles it changed.
+  (Revised 2026-11-08 after review: one row holding both profiles let a desktop save overwrite a
+  phone change it had not yet received, because CR-SQLite keeps the last write per column.)
   **Not inside `uiSettings`:** `uiStore.saveSettingsToDB` rewrites `uiSettings` from a fixed list
   of fields. An older cached PWA on another device would therefore erase a new nested key the next
   time it saved a panel toggle. A separate row is never touched by older clients.
@@ -630,7 +633,8 @@ rounds integers, and falls back to the defaults per field. It never throws.
   `syncStore.personalRepository()`, and exposes `current` (the active form factor's normalised
   settings) and `update(patch)`.
 - **No schema change.** The `settings` table and its CRR registration already exist. As with
-  `uiSettings`, concurrent edits on two devices are last-writer-wins on the row.
+  `uiSettings`, concurrent edits on two devices of the same form factor are last-writer-wins on
+  that form factor's row; a phone and a desktop never overwrite each other.
 
 ### 9.4 Desktop entry points
 
@@ -707,7 +711,7 @@ How the design meets these budgets:
 | `frontend/src/utils/textFocus.js` | pure | `lineStarts`, `lineIndexAt`, `findBlock`, `findSentence`, `focusRange(text, selection, granularity)` |
 | `frontend/src/utils/typewriterScroll.js` | pure | `effectiveAnchor`, `typewriterPadding`, `scrollTargetFor({ style, rowTop, rh, H, scrollTop, anchorY, nEff })`, `isAttached`, `classifyCaretChange`, `pointerRecentreDecision(gesture, state)` returning `none`, `schedule`, `afterViewportSettle` or `cancel`, the constants `CLICK_SETTLE_MS = 350`, `TAP_SLOP_PX = 10`, `CLICK_SLOP_PX = 4`, `TAP_MAX_MS = 500`, and `tweenStep(t)` |
 | `frontend/src/utils/focusGeometry.js` | pure | `scrimRects({ focusStart, focusEnd, contentBox, totalHeight, rh })` returning ≤ 4 rectangles; `bandRect` |
-| `frontend/src/store/typewriterStore.js` | store | load, normalise and save the `typewriter` settings row; `current`, `update`, `toggle` |
+| `frontend/src/store/typewriterStore.js` | store | load, normalise and save the `typewriter.desktop` / `typewriter.phone` settings rows; `current`, `update`, `toggle` |
 | `frontend/src/composables/useTypewriter.js` | controller | attach and detach listeners, the per-frame measure/compute/apply loop, mirror probe, padding, scroll tween, composition tracking, pointer-gesture tracking and the click-settle timer (cleared on unmount, disable and Document switch), and a hook for `useViewport`'s settle for the keyboard-opening tap. Takes `{ editor, textarea, wrapper, scrollContainer, bottomInset, settings }` plus an injectable `layout` adapter for tests. |
 | `frontend/src/components/TypewriterLayer.vue` | UI | teleported band and scrim; reads the geometry the controller provides |
 | `frontend/src/components/TypewriterOptions.vue` | UI | desktop options popover |
@@ -921,7 +925,7 @@ log.
 | D11 | Motion | 100 ms / 180 ms rAF tween; instant for open, resize, remote edits and IME; reduced motion turns it off | Native smooth scroll (uncontrollable, stutters under rapid calls); always instant (jarring line jumps) |
 | D12 | Top and end | Symmetric padding so both ends reach the anchor | No top padding (the line is not fixed near the start) |
 | D13 | Sentence detection | `Intl.Segmenter` on an offset-preserving masked string, with a regex fallback | A hand-written regex alone (worse with abbreviations and CJK) |
-| D14 | Storage (Kris, 2026-11-07: former Q3) | A new synced `settings` row `typewriter`, with desktop and phone profiles | Inside `uiSettings` (older clients erase unknown keys); `localStorage` (no sync between a writer's desktops) |
+| D14 | Storage (Kris, 2026-11-07: former Q3) | New synced `settings` rows, one per form factor (`typewriter.desktop`, `typewriter.phone`; split after review, 2026-11-08) | Inside `uiSettings` (older clients erase unknown keys); `localStorage` (no sync between a writer's desktops) |
 | D15 | Shortcut (Kris, 2026-11-07: former Q5) | Ctrl/Cmd+Shift+Enter, scoped to the editor (P10 still checks browsers) | Mod+Shift+T (reopen tab), Mod+D (bookmark), Ctrl+Alt+T (Linux terminal) |
 | D16 | Defaults (dim strength: Kris, 2026-11-07: former Q4) | Off; when on: Typewriter at Middle, N = 3 (phone 2), highlight on, Paragraph at **Medium** | Subtle by default (Kris chose Medium) |
 | D17 | Click-settle delay (Kris, 2026-11-07: former Q6) | Start at 350 ms; prototype check P11 sets the final value within 300–500 ms. A constant, not a user setting. | No delay (breaks double-click); a user setting (a knob nobody should need) |

@@ -409,4 +409,14 @@ html[data-theme='dark'] {
     .pn-typewriter-layer {
         display: none !important;
     }
+
+    /* Forced colours drop the backgrounds that show a switch or choice is on. */
+    .tw-switch[aria-checked='true'],
+    .ph-switch[aria-checked='true'],
+    .tw-options [aria-pressed='true'],
+    .ph-tw [aria-pressed='true'],
+    .ph-tw [aria-checked='true'] {
+        outline: 2px solid Highlight;
+        outline-offset: 2px;
+    }
 }

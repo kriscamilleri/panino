@@ -46,7 +46,7 @@ div.overtype-container
 
 | Piece | Role |
 |---|---|
-| `store/typewriterStore.js` | The `settings` row `typewriter` (`{ version, desktop, phone }`), not `uiSettings`, which older clients rewrite from a fixed field list. `current` is this form factor's profile. Reloads after each sync round. |
+| `store/typewriterStore.js` | The `settings` rows `typewriter.desktop` and `typewriter.phone` (`{ version, settings }` each; a device writes only the profiles it changed, so a phone and a desktop never overwrite each other), not `uiSettings`, which older clients rewrite from a fixed field list. `current` is this form factor's profile. Reloads after each sync round. |
 | `utils/typewriterSettings.js` | Defaults, normalisation (never throws), option copy |
 | `utils/textFocus.js` | Markdown blocks and sentences (`Intl.Segmenter` on an offset-preserving masked string, regex fallback) |
 | `utils/typewriterScroll.js` | Anchor, padding, scroll targets, click and tap re-centre decisions, tween |

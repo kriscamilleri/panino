@@ -319,6 +319,8 @@ export function createDomLayout({ textarea, wrapper, preview, scrollContainer, c
  *   setTimer?: (fn: Function, ms: number) => unknown, clearTimer?: (id: unknown) => void,
  * }} options
  */
+const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsLock', 'Fn', 'OS']);
+
 export function createTypewriterController(options) {
     const {
         textarea,
@@ -352,6 +354,10 @@ export function createTypewriterController(options) {
         text: null,
         index: null,
         documentKey: undefined,
+        // The Document whose caret the person has placed (focus, a key, a
+        // pointer press, typing). Until then an unfocused caret at the very
+        // end is where setting the value left it, not a choice.
+        placedKey: undefined,
         composing: false,
         lastHeadTop: null,
         lastScrims: [],
@@ -452,9 +458,12 @@ export function createTypewriterController(options) {
         let selectionStart = textarea.selectionStart ?? 0;
         let selectionEnd = textarea.selectionEnd ?? selectionStart;
         // Setting the value of an unfocused textarea leaves its caret at the
-        // end, which is not a place anyone chose. Until the editor has focus
-        // the caret is taken to be at the start, as when a Document opens.
-        if (doc.activeElement !== textarea && selectionStart === selectionEnd && selectionEnd === text.length) {
+        // end, which is not a place anyone chose. Until the caret has been
+        // placed in this Document it is taken to be at the start, as when a
+        // Document opens. Once placed, a blur (the options popover, a click
+        // elsewhere) keeps the real caret, so the view does not jump.
+        if (state.placedKey !== key && doc.activeElement !== textarea
+            && selectionStart === selectionEnd && selectionEnd === text.length) {
             selectionStart = 0;
             selectionEnd = 0;
         }
@@ -626,6 +635,7 @@ export function createTypewriterController(options) {
             pointerRecentreDecision({ phase: 'down', pending: true }, { style: settings().scrolling });
             clearRecentre();
         }
+        markPlaced();
         state.gesture = {
             pointerId: event.pointerId,
             pointerType: event.pointerType || 'mouse',
@@ -699,12 +709,20 @@ export function createTypewriterController(options) {
     }
 
     /* ───── other events ───── */
-    function onKeydown() {
+    function markPlaced() {
+        state.placedKey = documentKey();
+    }
+
+    function onKeydown(event) {
+        markPlaced();
+        // A modifier on its own (the start of a shortcut) moves nothing.
+        if (MODIFIER_KEYS.has(event?.key)) return;
         state.lastKeyAt = now();
         if (recentrePending()) clearRecentre();
     }
 
     function onInput() {
+        markPlaced();
         state.contentUntil = -Infinity;
         state.origins.add(state.composing ? 'composition' : 'input');
         // P4: when the view was scrolled away, scroll before the browser
@@ -771,8 +789,10 @@ export function createTypewriterController(options) {
         if (state.attached) return;
         state.attached = true;
         state.documentKey = documentKey();
+        if (doc.activeElement === textarea) markPlaced();
         state.text = textarea.value;
         state.index = analyzeText(state.text);
+        listen(textarea, 'focus', markPlaced);
         listen(textarea, 'input', onInput);
         listen(textarea, 'keydown', onKeydown);
         listen(textarea, 'pointerdown', onPointerDown);

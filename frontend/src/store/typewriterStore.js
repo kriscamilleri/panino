@@ -5,18 +5,21 @@ import { useSyncStore } from './syncStore';
 import { useAuthStore } from './authStore';
 import { useViewport } from '@/composables/useViewport';
 import {
-    TYPEWRITER_SETTINGS_ID,
+    FORM_FACTORS,
     TYPEWRITER_SETTINGS_VERSION,
     defaultTypewriterSettings,
-    normalizeTypewriterRow,
+    normalizeTypewriterProfileRow,
     normalizeTypewriterSettings,
+    typewriterSettingsId,
 } from '@/utils/typewriterSettings';
 
 /**
  * Typewriter mode settings (docs/specs/active/typewriter-mode.md §9.3).
  *
- * One row of the synced `settings` table, id `typewriter`, with a desktop and
- * a phone profile. Not inside `uiSettings`: uiStore rewrites that row from a
+ * Two rows of the synced `settings` table, `typewriter.desktop` and
+ * `typewriter.phone`. A save writes only the profiles changed here, so a
+ * phone change and a desktop change made before they sync both survive
+ * (CR-SQLite keeps the last write per column). Not inside `uiSettings`: uiStore rewrites that row from a
  * fixed list of fields, so an older cached app on another device would erase
  * anything new in it. Older clients never touch this row.
  *
@@ -39,32 +42,47 @@ export const useTypewriterStore = defineStore('typewriterStore', () => {
     const enabled = computed(() => current.value.enabled);
 
     let saveTimer = null;
+    // A save between leaving the timer and the write finishing: a reload in
+    // that window would read the old rows and undo what was just changed.
+    let saving = null;
     let loadRun = 0;
-    // Changes made before the row was read: applied on top of it once it is.
+    // Changes made before the rows were read: applied on top of them once they are.
     let earlyPatches = [];
+    // The profiles changed on this device since the last save.
+    const dirty = new Set();
 
-    async function writeRow() {
+    const savePending = () => saveTimer !== null || saving !== null || dirty.size > 0;
+
+    async function writeRows() {
         saveTimer = null;
-        if (!loaded.value || !syncStore.isInitialized) return;
-        const row = {
-            version: TYPEWRITER_SETTINGS_VERSION,
-            desktop: profiles.value.desktop,
-            phone: profiles.value.phone,
-        };
+        if (!loaded.value || !syncStore.isInitialized || dirty.size === 0) return;
+        const keys = [...dirty];
+        dirty.clear();
+        const run = (async () => {
+            for (const key of keys) {
+                const value = { version: TYPEWRITER_SETTINGS_VERSION, settings: profiles.value[key] };
+                try {
+                    await syncStore.personalRepository().exec(
+                        'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
+                        [typewriterSettingsId(key), JSON.stringify(value)],
+                    );
+                } catch (error) {
+                    console.error('[typewriterStore] Saving typewriter settings failed:', error);
+                }
+            }
+        })();
+        saving = run;
         try {
-            await syncStore.personalRepository().exec(
-                'INSERT OR REPLACE INTO settings (id, value) VALUES (?, ?)',
-                [TYPEWRITER_SETTINGS_ID, JSON.stringify(row)],
-            );
-        } catch (error) {
-            console.error('[typewriterStore] Saving typewriter settings failed:', error);
+            await run;
+        } finally {
+            if (saving === run) saving = null;
         }
     }
 
     /** Save after 500 ms without further changes, like the other settings. */
     function scheduleSave() {
         clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => { void writeRow(); }, 500);
+        saveTimer = setTimeout(() => { void writeRows(); }, 500);
     }
 
     /**
@@ -75,16 +93,17 @@ export const useTypewriterStore = defineStore('typewriterStore', () => {
     async function load() {
         if (!syncStore.isInitialized) return;
         const run = ++loadRun;
-        let next;
+        const next = {};
         try {
             const rows = await syncStore.personalRepository().execute(
-                'SELECT value FROM settings WHERE id = ?',
-                [TYPEWRITER_SETTINGS_ID],
+                'SELECT id, value FROM settings WHERE id IN (?, ?)',
+                FORM_FACTORS.map(typewriterSettingsId),
             );
-            next = normalizeTypewriterRow(rows?.[0]?.value ?? null);
+            const byId = new Map((rows || []).map((row) => [row.id, row.value]));
+            for (const key of FORM_FACTORS) next[key] = normalizeTypewriterProfileRow(byId.get(typewriterSettingsId(key)) ?? null, key);
         } catch (error) {
             console.error('[typewriterStore] Loading typewriter settings failed:', error);
-            next = normalizeTypewriterRow(null);
+            for (const key of FORM_FACTORS) next[key] = normalizeTypewriterProfileRow(null, key);
         }
         if (run !== loadRun) return;
         if (!loaded.value) {
@@ -99,7 +118,7 @@ export const useTypewriterStore = defineStore('typewriterStore', () => {
             if (patches.length) scheduleSave();
             return;
         }
-        if (!saveTimer) profiles.value = { desktop: next.desktop, phone: next.phone };
+        if (!savePending()) profiles.value = { desktop: next.desktop, phone: next.phone };
     }
 
     /**
@@ -112,6 +131,7 @@ export const useTypewriterStore = defineStore('typewriterStore', () => {
     function update(patch, target = formFactor.value) {
         const key = target === 'phone' ? 'phone' : 'desktop';
         if (!loaded.value) earlyPatches.push({ key, patch: { ...patch } });
+        dirty.add(key);
         profiles.value = {
             ...profiles.value,
             [key]: normalizeTypewriterSettings({ ...profiles.value[key], ...patch }, key),
@@ -138,6 +158,7 @@ export const useTypewriterStore = defineStore('typewriterStore', () => {
             if (previous && previous[1] !== authStore.user?.id) {
                 clearTimeout(saveTimer);
                 saveTimer = null;
+                dirty.clear();
                 earlyPatches = [];
                 loaded.value = false;
             }
@@ -150,7 +171,7 @@ export const useTypewriterStore = defineStore('typewriterStore', () => {
     watch(
         () => syncStore.isSyncing,
         (syncing, wasSyncing) => {
-            if (wasSyncing && !syncing && loaded.value && !saveTimer) void load();
+            if (wasSyncing && !syncing && loaded.value && !savePending()) void load();
         },
     );
 

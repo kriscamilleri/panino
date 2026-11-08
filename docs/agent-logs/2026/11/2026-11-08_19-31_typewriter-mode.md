@@ -185,3 +185,35 @@ Phone 375 px (real iOS Safari and Android Chrome):
       candidate window with the text, nothing lost (P7, U13).
 - [ ] Settings → Writing: Higher + Subtle apply on return to the Document; desktop unchanged.
 - [ ] Preview and back to Edit: no errors, band on the anchor.
+
+## Review fixes (orchestrator, 2026-11-08)
+
+An independent Fable 5.1 review found one high, one medium and several low issues. I fixed them on
+this branch:
+
+- **High: the view jumped to the top after a blur.** The "caret nobody placed" rule ran on every
+  frame. So with the caret at the end of a Document and focus elsewhere, any of these moved the
+  view to the first line: changing an option, a live-session edit, or a resize.
+  - The controller now records the Document whose caret the person placed (focus at attach, a
+    key, a pointer press, typing). The rule applies only until then.
+  - Three controller tests fail on the old code and pass now.
+- **Medium: one settings row held both profiles.** A desktop save could overwrite a phone change it
+  had not yet received (CR-SQLite keeps the last write per column).
+  - Now there are two rows, `typewriter.desktop` and `typewriter.phone`. A device writes only the
+    profiles it changed.
+  - The spec §9.3/D14, `docs/architecture/editor.md` and `frontend/AGENTS.md` are updated.
+  - The feature is unreleased, so no migration is needed.
+- **Low: a sync reload during a save in flight** could overwrite the new values. Reloads now wait
+  while a save is pending or being written. A test covers it.
+- **Low: table detection was quadratic** on a long run of `|` lines without a delimiter row. One
+  linear pass per text now precomputes the runs and delimiter counts.
+  - On 72,000 random cases it gives the same results as before.
+  - A 3,000-line case went from 23.7 to 0.2 ms per frame.
+- **Low: the options popover stayed put on scroll.** It now follows its button.
+- **Low: modifier-only keys** (Shift, Ctrl) no longer cancel a pending click re-centre.
+- **Low: forced colours.** Switches and pressed choices show an outline.
+- **Not changed, to revisit at integration:**
+  - The per-frame `textarea.value` comparison, which is within budget.
+  - The reload query after every sync round. The tag branch adds `syncStore.onRemoteChangesApplied`,
+    which can limit the reload to changes in the `settings` table once both are merged.
+- **Tests:** frontend 98 files, 1242 passed. Lint clean.

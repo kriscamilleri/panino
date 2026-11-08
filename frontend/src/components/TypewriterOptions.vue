@@ -227,15 +227,19 @@ watch(() => props.open, (open) => {
         place()
         document.addEventListener('pointerdown', onPointerDown, true)
         window.addEventListener('resize', place)
+        // The menu bar scrolls sideways and the page can scroll: follow the button.
+        window.addEventListener('scroll', place, { capture: true, passive: true })
     } else {
         document.removeEventListener('pointerdown', onPointerDown, true)
         window.removeEventListener('resize', place)
+        window.removeEventListener('scroll', place, { capture: true })
     }
 }, { immediate: true })
 
 onBeforeUnmount(() => {
     document.removeEventListener('pointerdown', onPointerDown, true)
     window.removeEventListener('resize', place)
+    window.removeEventListener('scroll', place, { capture: true })
 })
 </script>
 

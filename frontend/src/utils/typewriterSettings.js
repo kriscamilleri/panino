@@ -10,6 +10,19 @@
 
 /** The id of the `settings` row. */
 export const TYPEWRITER_SETTINGS_ID = 'typewriter';
+
+/**
+ * The synced `settings` row of one form factor. Each profile has its own row,
+ * written only by devices of that form factor, so a phone change and a
+ * desktop change made before they sync cannot overwrite each other
+ * (CR-SQLite keeps the last write per column).
+ *
+ * @param {'desktop'|'phone'} formFactor
+ * @returns {string}
+ */
+export function typewriterSettingsId(formFactor) {
+    return `${TYPEWRITER_SETTINGS_ID}.${formFactor === 'phone' ? 'phone' : 'desktop'}`;
+}
 export const TYPEWRITER_SETTINGS_VERSION = 1;
 
 export const FORM_FACTORS = ['desktop', 'phone'];
@@ -115,6 +128,26 @@ export function normalizeTypewriterRow(raw) {
         desktop: normalizeTypewriterSettings(source.desktop, 'desktop'),
         phone: normalizeTypewriterSettings(source.phone, 'phone'),
     };
+}
+
+/**
+ * One form factor's row value (`{ version, settings }`, as text or parsed),
+ * normalised. Missing or broken values give the defaults; never throws.
+ *
+ * @param {unknown} raw
+ * @param {'desktop'|'phone'} formFactor
+ */
+export function normalizeTypewriterProfileRow(raw, formFactor) {
+    let value = raw;
+    if (typeof raw === 'string') {
+        try {
+            value = JSON.parse(raw);
+        } catch {
+            value = null;
+        }
+    }
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    return normalizeTypewriterSettings(source.settings, formFactor);
 }
 
 /**
