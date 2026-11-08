@@ -137,8 +137,13 @@ export function scrollMotionFor(origin, { distance, rh, reducedMotion = false, c
  * `gesture.phase`:
  * - `'down'` or `'key'` while a re-centre waits: `'cancel'`.
  * - `'up'`: `'none'`, `'schedule'` (wait CLICK_SETTLE_MS), or
- *   `'afterViewportSettle'` (a tap that opens the on-screen keyboard).
- * - `'timer'`: the wait is over; `'recentre'`, `'none'` or `'cancel'`.
+ *   `'afterViewportSettle'` (a tap that opens the on-screen keyboard). Only
+ *   the gesture decides here: a touch browser places the caret after
+ *   pointerup, so the selection and the row are checked when the wait ends.
+ *   A mouse or pen has set its selection by pointerup, so a selection left
+ *   by a drag or Shift+click already rules it out.
+ * - `'timer'`: the wait is over; `'recentre'`, `'none'` (the row is already
+ *   where the style wants it) or `'cancel'`.
  *
  * @param {{ phase: 'down'|'key'|'up'|'timer', pointerType?: string, button?: number, downAt?: number, upAt?: number,
  *   moved?: number, cancelled?: boolean, detail?: number, selectionCollapsed?: boolean, composing?: boolean,
@@ -158,7 +163,7 @@ export function pointerRecentreDecision(gesture, state) {
     }
     if (phase !== 'up') return 'none';
 
-    if (gesture.composing || !gesture.selectionCollapsed) return 'none';
+    if (gesture.composing) return 'none';
     if (gesture.pointerType === 'touch') {
         if (gesture.cancelled) return 'none';
         if ((gesture.moved ?? 0) > TAP_SLOP_PX) return 'none';
@@ -166,11 +171,12 @@ export function pointerRecentreDecision(gesture, state) {
         if (!gesture.hadFocus) return 'afterViewportSettle';
     } else {
         if ((gesture.button ?? 0) !== 0) return 'none';
+        if (!gesture.selectionCollapsed) return 'none';
         if (gesture.cancelled) return 'none';
         if ((gesture.moved ?? 0) > CLICK_SLOP_PX) return 'none';
         if ((gesture.detail ?? 1) >= 2) return 'none';
     }
-    return rowNeedsMove(state) ? 'schedule' : 'none';
+    return 'schedule';
 }
 
 function rowNeedsMove({ style, rowOnScreen, anchorY, rh, H, nEff }) {

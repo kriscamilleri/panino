@@ -185,22 +185,31 @@ describe('pointerRecentreDecision (§5.4.1)', () => {
         expect(pointerRecentreDecision({ ...tap, hadFocus: false }, state)).toBe('afterViewportSettle');
     });
 
-    it('does nothing for a swipe, a long-press, a cancelled touch or a touch selection', () => {
+    it('does nothing for a swipe, a long-press or a cancelled touch', () => {
         expect(pointerRecentreDecision({ ...tap, moved: TAP_SLOP_PX + 1 }, state)).toBe('none');
         expect(pointerRecentreDecision({ ...tap, upAt: TAP_MAX_MS + 1 }, state)).toBe('none');
         expect(pointerRecentreDecision({ ...tap, cancelled: true }, state)).toBe('none');
-        expect(pointerRecentreDecision({ ...tap, selectionCollapsed: false }, state)).toBe('none');
     });
 
-    it('in margin style, moves only a row within N rows of an edge', () => {
+    it('leaves a touch selection to the timer check: the caret is placed after pointerup', () => {
+        // At pointerup the old selection may still show; the wait re-reads it.
+        expect(pointerRecentreDecision({ ...tap, selectionCollapsed: false }, state)).toBe('schedule');
+        const timer = { phase: 'timer', selectionCollapsed: false, composing: false, pointerDown: false };
+        expect(pointerRecentreDecision(timer, state)).toBe('cancel');
+    });
+
+    it('in margin style, moves only a row within N rows of an edge (checked when the wait ends)', () => {
         const margin = { ...state, style: 'margin' };
-        expect(pointerRecentreDecision(click, { ...margin, rowOnScreen: 300 })).toBe('none');
-        expect(pointerRecentreDecision(click, { ...margin, rowOnScreen: 20 })).toBe('schedule');
-        expect(pointerRecentreDecision(click, { ...margin, rowOnScreen: 580 })).toBe('schedule');
+        const timer = { phase: 'timer', selectionCollapsed: true, composing: false, pointerDown: false };
+        expect(pointerRecentreDecision(click, { ...margin, rowOnScreen: 300 })).toBe('schedule');
+        expect(pointerRecentreDecision(timer, { ...margin, rowOnScreen: 300 })).toBe('none');
+        expect(pointerRecentreDecision(timer, { ...margin, rowOnScreen: 20 })).toBe('recentre');
+        expect(pointerRecentreDecision(timer, { ...margin, rowOnScreen: 580 })).toBe('recentre');
     });
 
     it('does nothing for a row already at the anchor', () => {
-        expect(pointerRecentreDecision(click, { ...state, rowOnScreen: 290.5 })).toBe('none');
+        const timer = { phase: 'timer', selectionCollapsed: true, composing: false, pointerDown: false };
+        expect(pointerRecentreDecision(timer, { ...state, rowOnScreen: 290.5 })).toBe('none');
     });
 
     it('cancels on a pointerdown or a key before the timer', () => {
