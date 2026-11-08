@@ -17,6 +17,7 @@ import { OdooError } from './client.js';
 import { rememberConnectionError, senderConnection } from './connection.js';
 import { listSyncs, readSync, runSync, saveSyncRun, setSyncStatus } from './sync.js';
 import { parseInternalImageSource, readInternalImage, renderPdf } from '../../pdf.js';
+import { appBaseUrl } from '../../publicUrls.js';
 
 export const SYNC_DEBOUNCE_MS = 3 * 60 * 1000;
 export const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -252,7 +253,7 @@ async function runOne(dbKey, syncId, { reconcile }) {
             renderPdf: sync.documents_folder_id
                 ? (request) => renderPdf(
                     parsed.kind === 'space' ? { ...request, htmlContent: withoutPersonalImages(request.htmlContent) } : request,
-                    { userId: sync.run_as, priority: 'low' },
+                    { userId: sync.run_as, priority: 'low', appLinks: appBaseUrl() },
                 )
                 : null,
         });
