@@ -10,9 +10,43 @@
 import MarkdownIt from 'markdown-it';
 import markdownItTaskLists from 'markdown-it-task-lists';
 import { parseFrontMatter } from './frontMatter.js';
+import { headingAnchors } from './documentOutline.js';
+import { documentLinks as documentLinksPlugin } from './documentLinks.js';
+import { tocWrapper } from './tocMarker.js';
 
-/** `{{ name }}` placeholders, matched the way the Preview always has. */
-const VARIABLE_PATTERN = /\{\{\s*([^}]+?)\s*\}\}/g;
+/**
+ * Replace every `{{ name }}` placeholder: `{{`, at least one character that is not `}`,
+ * then `}}`, the name trimmed. This is what `/\{\{\s*([^}]+?)\s*\}\}/g` matched, as a
+ * single pass: that expression is quadratic on text with many `{{` and no `}}`, and
+ * a Document can be 2 MiB.
+ *
+ * @param {string} text
+ * @param {(match: string, name: string) => string} replace
+ * @returns {string}
+ */
+function replaceVariables(text, replace) {
+    let out = '';
+    let copied = 0;
+    let from = 0;
+    while (from < text.length) {
+        const open = text.indexOf('{{', from);
+        if (open === -1) break;
+        const close = text.indexOf('}', open + 2);
+        if (close === -1) break;
+        // Every `{{` before this `}` meets the same `}` first, so all of them fail
+        // together when it is not `}}`.
+        if (text[close + 1] !== '}' || close === open + 2) {
+            from = close === open + 2 ? open + 1 : close;
+            continue;
+        }
+        const content = text.slice(open + 2, close);
+        const name = content.trim() || content;
+        out += text.slice(copied, open) + replace(text.slice(open, close + 2), name);
+        copied = close + 2;
+        from = close + 2;
+    }
+    return copied === 0 ? text : out + text.slice(copied);
+}
 
 /**
  * Variable names are compared trimmed, single-spaced and lower-cased.
@@ -55,7 +89,7 @@ export function applyDocumentVariables(markdown, { globals, now = new Date(), fo
         if (name) variables.set(name, value);
     }
 
-    return body.replace(VARIABLE_PATTERN, (match, name) => {
+    return replaceVariables(body, (match, name) => {
         const normalized = normalizeVariableName(name);
         if (!normalized) return match;
         const value = variables.get(normalized);
@@ -67,18 +101,31 @@ export function applyDocumentVariables(markdown, { globals, now = new Date(), fo
  * A fresh MarkdownIt the way Panino configures it. Callers may add renderer
  * rules (the Preview adds its inline styles) without affecting anyone else.
  *
+ * Every renderer gives headings `id="pn-<slug>"` and points `[x](#slug)` at them,
+ * wraps a table of contents in `<nav class="pn-toc">`, and renders links to other
+ * Documents (`panino:doc/<id>`) for one output
+ * (docs/specs/active/editor-toc-and-internal-links.md §5, §6.3):
+ * `'app'` for the Preview, `'pdf'` for PDFs, `'text'` (the default) for anything
+ * else. Pass `{ documentId, resolvedDocumentIds }` in the render env where it matters.
+ *
+ * @param {{ documentLinks?: 'app'|'pdf'|'text' }} [options]
  * @returns {MarkdownIt}
  */
-export function createDocumentRenderer() {
-    return new MarkdownIt({ html: true, linkify: true, typographer: true }).use(markdownItTaskLists);
+export function createDocumentRenderer({ documentLinks = 'text' } = {}) {
+    return new MarkdownIt({ html: true, linkify: true, typographer: true })
+        .use(markdownItTaskLists)
+        .use(tocWrapper)
+        .use(headingAnchors)
+        .use(documentLinksPlugin, { mode: documentLinks });
 }
 
 /**
  * Render Markdown (variables already applied) to unstyled, unsanitized HTML.
  *
  * @param {string} markdown
+ * @param {{ documentLinks?: 'app'|'pdf'|'text', env?: object }} [options]
  * @returns {string}
  */
-export function renderDocumentHtml(markdown) {
-    return createDocumentRenderer().render(String(markdown ?? ''));
+export function renderDocumentHtml(markdown, { documentLinks = 'text', env = {} } = {}) {
+    return createDocumentRenderer({ documentLinks }).render(String(markdown ?? ''), env);
 }

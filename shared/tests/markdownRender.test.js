@@ -35,6 +35,28 @@ describe('the shared Document renderer', () => {
         expect(applyDocumentVariables('plain', {})).toBe('plain');
     });
 
+    it('matches placeholders exactly as the old pattern did, in linear time', () => {
+        const OLD = /\{\{\s*([^}]+?)\s*\}\}/g;
+        const globals = { a: 'A', 'a b': 'AB', '{': 'BRACE', x: 'X' };
+        const old = (text) => text.replace(OLD, (match, name) => {
+            const value = globals[normalizeVariableName(name)];
+            return value !== undefined ? value : match;
+        });
+        const alphabet = ['{', '}', ' ', 'a', 'b', 'x', '\n'];
+        let seed = 7;
+        const next = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed; };
+        for (let round = 0; round < 3000; round += 1) {
+            let text = '';
+            const length = next() % 24;
+            for (let i = 0; i < length; i += 1) text += alphabet[next() % alphabet.length];
+            expect(applyDocumentVariables(text, { globals })).toBe(old(text));
+        }
+        const started = Date.now();
+        applyDocumentVariables('{{ a '.repeat(500000), { globals });
+        applyDocumentVariables('{{a}'.repeat(500000), { globals });
+        expect(Date.now() - started).toBeLessThan(2000);
+    });
+
     it('uses the locale date and time by default', () => {
         const now = new Date('2026-05-06T07:08:09');
         expect(applyDocumentVariables('{{GLOBAL_DATE}}|{{GLOBAL_TIME}}', { now })).toBe(`${now.toLocaleDateString()}|${now.toLocaleTimeString()}`);
@@ -69,14 +91,14 @@ describe('the shared styled renderer and PDF request', () => {
             rewriteImageSrc: (src) => `${src}?token=x`,
         });
         const html = md.render('# T\n\nHi [in](/doc) [out](https://x.y)\n\n![a](/images/1)\n\n| c |\n|---|\n| 1 |');
-        expect(html).toContain('<h1 style="color: red">T</h1>');
+        expect(html).toContain('<h1 id="pn-t" style="color: red">T</h1>');
         expect(html).toContain('<p style="margin: 0">');
         expect(html).toContain('<a href="/doc" style="color: blue">in</a>');
         expect(html).toContain('<a href="https://x.y" style="color: blue" target="_blank" rel="noopener noreferrer">out</a>');
         expect(html).toContain('<img src="/images/1?token=x" alt="a" style="width: 50%">');
         expect(html).toContain('<table style="width: 100%">');
         // Another renderer stays plain.
-        expect(createDocumentRenderer().render('# T')).toBe('<h1>T</h1>\n');
+        expect(createDocumentRenderer().render('# T')).toBe('<h1 id="pn-t">T</h1>\n');
     });
 
     it('builds the PDF request with sanitized fragments and a normalized paper size', async () => {

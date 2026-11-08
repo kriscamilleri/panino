@@ -13,7 +13,11 @@
         "./style-presets": "./stylePresets.js",
         "./pdf-request": "./pdfRequest.js",
         "./styled-renderer": "./styledRenderer.js",
-        "./template-variables": "./templateVariables.js"
+        "./template-variables": "./templateVariables.js",
+        "./document-outline": "./documentOutline.js",
+        "./document-links": "./documentLinks.js",
+        "./marker-blocks": "./markerBlocks.js",
+        "./table-of-contents": "./tableOfContents.js"
     },
     "scripts": {
         "test": "vitest run"

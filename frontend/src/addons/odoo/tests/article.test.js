@@ -5,7 +5,7 @@ import { renderArticleHtml } from '@/addons/odoo/utils/article';
 describe('renderArticleHtml', () => {
     it('renders headings, task lists, tables and links without print styling', () => {
         const html = renderArticleHtml('# Title\n\n- [ ] open\n- [x] done\n\n[Odoo](https://odoo.com)\n\n| a |\n|---|\n| 1 |');
-        expect(html).toContain('<h1>Title</h1>');
+        expect(html).toContain('<h1 id="pn-title">Title</h1>');
         expect(html).toContain('<ul class="contains-task-list">');
         expect(html).toContain('checked="" disabled="" type="checkbox"> done');
         expect(html).toContain('<a href="https://odoo.com">Odoo</a>');
