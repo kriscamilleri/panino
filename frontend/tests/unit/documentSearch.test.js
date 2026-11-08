@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PERSONAL_LABELS, metadataRestrictions, searchDatabases } from '@panino/content-merge/document-search';
 import { parseSearchQuery } from '@panino/content-merge/search-text';
 import { DocumentMetadataIndex } from '@/utils/documentMetadataIndex';
+import { PAGE_SQL } from '@/store/documentIndexStore';
 
 const PERSONAL = 'user:11111111-1111-4111-8111-111111111111';
 const SPACE = 'space:22222222-2222-4222-8222-222222222222';
@@ -274,6 +275,39 @@ describe('searchDatabases', () => {
         expect(none.notices).toEqual(['Only the first 5000 Documents that could match in a database were checked; add words or in: to narrow the search.']);
     }, 20000);
 
+    it('does not skip the unchecked candidates of a database whose pass was cut (two databases)', async () => {
+        // A: 6000 checklist Documents titled "lorem …", then 10 that are not checklists and sort
+        // after them; B: 30 plain Documents with "lorem" in the body (title score 0, so they sort
+        // after all of A). `lorem -is:checklist`: A's pass is cut at 5000 with nothing found.
+        const a = [];
+        for (let i = 0; i < 6000; i += 1) {
+            a.push({ id: `a${String(i).padStart(5, '0')}`, title: `lorem ${i}`, content: '- [x] lorem done', updated: `2026-10-${String(1 + (i % 28)).padStart(2, '0')}T10:00:00.000Z` });
+        }
+        for (let i = 0; i < 10; i += 1) {
+            a.push({ id: `late${i}`, title: 'lorem late', content: 'lorem plain text', updated: '2026-09-01T10:00:00.000Z' });
+        }
+        const b = Array.from({ length: 30 }, (_, i) => ({ id: `b${String(i).padStart(2, '0')}`, title: `Note ${i}`, content: 'lorem in the body', updated: day(1 + (i % 20)) }));
+        const databases = [database(PERSONAL, null, { notes: a }), database(SPACE, 'Acme Team', { notes: b })];
+
+        const seen = [];
+        const notices = [];
+        let cursor = null;
+        for (let page = 0; page < 10; page += 1) {
+            const result = await searchDatabases({ databases, query: 'lorem -is:checklist', limit: 20, cursor });
+            seen.push(...ids(result));
+            notices.push(result.notices);
+            cursor = result.nextCursor;
+            if (!cursor) break;
+        }
+        expect(new Set(seen).size).toBe(seen.length);
+        expect(seen).toHaveLength(40);
+        // A's ten come first (title score 1), then B's thirty.
+        expect(seen.slice(0, 10).every((id) => id.startsWith('late'))).toBe(true);
+        expect(seen.slice(10).every((id) => id.startsWith('b'))).toBe(true);
+        // The first page stopped at A's boundary and said so.
+        expect(notices[0][0]).toMatch(/^Only the first 5000 Documents/);
+    }, 60000);
+
     it('reads no bodies to confirm a title-only check', async () => {
         const { databases } = fixture();
         const title = await searchDatabases({ databases, query: 'title:über' });
@@ -297,10 +331,13 @@ describe('searchDatabases', () => {
     });
 });
 
-/** The database with a metadata index built from its rows, as the app's index store builds it. */
+/**
+ * The database with a metadata index built from its rows as the app's index store builds it:
+ * its page query (with the shared front matter prefilter) on this SQLite, then the pure index.
+ */
 function withIndex(db) {
     const index = new DocumentMetadataIndex();
-    for (const row of db.execute('SELECT id, content FROM notes')) index.set(row.id, row.content);
+    for (const row of db.execute(PAGE_SQL, [-1, 100000])) index.set(row.id, row.head || '');
     return {
         ...db,
         execute: db.execute,
@@ -319,6 +356,10 @@ function taggedFixture() {
             { id: 't3', title: 'Old', content: fm(['tags: urgent', 'status: draft'], 'budget old'), folder: 'f-trash', updated: day(3) },
             { id: 't4', title: 'Plain', content: 'budget with no front matter', updated: day(4) },
             { id: 't5', title: 'Due', content: fm(['due: 2026-12-01', 'status: "in progress"'], 'budget due'), updated: day(5) },
+            // Front matter after white space String.trim removes but a plain ltrim would not.
+            { id: 't6', title: 'Bom', content: `\uFEFF${fm(['tags: bom'], 'budget bom')}`, updated: day(8) },
+            { id: 't7', title: 'Nbsp', content: `\u00A0\n${fm(['kind: nbsp'], 'budget nbsp')}`, updated: day(9) },
+            { id: 't8', title: 'Formfeed', content: `\f${fm(['tags: [ff]'], 'budget ff')}`, updated: day(10) },
         ],
     });
     const space = database(SPACE, 'Acme Team', {
@@ -345,6 +386,9 @@ describe('searchDatabases with the metadata index (phases 3 and 4)', () => {
         'prop:status="in progress"',
         'prop:status~dr tag:urgent',
         'budget prop:"tags exists"',
+        'tag:bom',
+        'prop:kind=nbsp',
+        'tag:ff',
     ];
 
     for (const query of QUERIES) {
@@ -359,6 +403,14 @@ describe('searchDatabases with the metadata index (phases 3 and 4)', () => {
             expect(fromIndex.stats.indexed).toBeGreaterThan(0);
         });
     }
+
+    it('reads front matter after a BOM, a no-break space or a form feed, with and without the index', async () => {
+        const { plain, indexed } = taggedFixture();
+        for (const [query, id] of [['tag:bom', 't6'], ['prop:kind=nbsp', 't7'], ['tag:ff', 't8']]) {
+            expect(ids(await searchDatabases({ databases: indexed, query })), query).toEqual([id]);
+            expect(ids(await searchDatabases({ databases: plain, query })), query).toEqual([id]);
+        }
+    });
 
     it('finds tags across databases, leaves Trash out and needs every tag', async () => {
         const { indexed } = taggedFixture();

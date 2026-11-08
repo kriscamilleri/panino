@@ -16,6 +16,18 @@ const repository = vi.fn(() => ({
     transaction: async (work) => work({ execute, exec: dbExec }),
 }));
 
+// The metadata index, as search sees it: ensure() resolves, but it may not be ready (a build
+// abandoned when the handle was reopened).
+const indexState = { ready: true };
+vi.mock('@/store/documentIndexStore', () => ({
+    useDocumentIndexStore: () => ({
+        ensure: async () => {},
+        isReady: () => indexState.ready,
+        metadataEntries: () => [],
+        idsWithTags: () => new Set(['tagged']),
+    }),
+}));
+
 vi.mock('@/store/stylePresetStore', () => ({
   useStylePresetStore: () => ({ reloadLoaded: async () => {}, reset: () => {} }),
 }));
@@ -261,6 +273,23 @@ describe('docStore.searchDocuments', () => {
         });
         const { results } = await store.searchDocuments({ query: 'plan in:Trash' });
         expect(results[0]).toMatchObject({ id: 'gone', name: 'Old plan', folderName: 'Trash', inTrash: true, dbKey: PERSONAL_KEY, titleScore: 0 });
+    });
+
+    it('uses the metadata index for tag: only when it is ready, and reads heads otherwise', async () => {
+        answer({ notes: [noteRow({ id: 'tagged', content: '---\ntags: urgent\n---\n' })] });
+        indexState.ready = true;
+        await store.searchDocuments({ query: 'tag:urgent' });
+        let scan = execute.mock.calls.find(([sql]) => sql.includes('ORDER BY title_score DESC'))[0];
+        expect(scan).toContain('notes.id IN (SELECT value FROM json_each(?))');
+        expect(scan).not.toContain('LIKE');
+
+        execute.mockClear();
+        indexState.ready = false;
+        await store.searchDocuments({ query: 'tag:urgent' });
+        scan = execute.mock.calls.find(([sql]) => sql.includes('ORDER BY title_score DESC'))[0];
+        expect(scan).not.toContain('notes.id IN (SELECT value FROM json_each(?))');
+        expect(scan).toContain("substr(coalesce(notes.content, ''), 1, 16384) LIKE ?");
+        indexState.ready = true;
     });
 
     it('returns nothing for an empty query without querying', async () => {

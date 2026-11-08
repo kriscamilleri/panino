@@ -88,6 +88,11 @@ describe('property picker', () => {
         expect(buildPropertyPart({ key: 'status', condition: 'is', value: 'say "hi"' }).ok).toBe(false);
         expect(buildPropertyPart({ key: 'a:b', condition: 'is', value: 'x' }).ok).toBe(false);
         expect(buildPropertyPart({ key: 'status', condition: 'nope', value: 'x' })).toEqual({ ok: false, error: 'Choose a condition.' });
+        // Specific reasons instead of "This condition cannot be searched."
+        expect(buildPropertyPart({ key: 'title', condition: 'is', value: 'a  b' }).error).toMatch(/^Values with repeated spaces or tabs can't be searched exactly/);
+        expect(buildPropertyPart({ key: 'title', condition: 'is', value: 'a\tb' }).error).toMatch(/^Values with repeated spaces or tabs/);
+        expect(buildPropertyPart({ key: 'a=b', condition: 'is', value: 'x' }).error).toBe("Property names with =, <, >, !, ~ or ^ can't be searched.");
+        expect(buildPropertyPart({ key: 'title', condition: 'contains', value: 'a b' })).toEqual({ ok: true, part: 'prop:title~"a b"' });
     });
 
     it('adds the part to the end of the query', () => {

@@ -332,6 +332,15 @@ Other limits:
 - A query is abandoned when a newer one starts. Each database query checks a version counter,
   as the sidebar search does today.
 
+Load note (review of phases 3–4): in `notes`, `content` comes before `created_at` and
+`updated_at`, so even a metadata-only read (the one-pass candidate list, the index's id lookups,
+`ORDER BY updated_at`) walks each row's overflow pages to reach the later columns. That is why a
+search answered by id lists still costs about 0.23 ms per Document in the browser, and why
+`title:` alone costs ~180 ms at 5000 Documents. A local covering index on
+`(updated_at, id, title, folder_id, created_at, pinned)` (not a CRR, not synced) or a column
+order with `content` last would make those reads cheap; either is the follow-up, and both need
+measuring against CR-SQLite's merge path first.
+
 ---
 
 ## 9) Security and privacy
@@ -462,6 +471,27 @@ Where the build differs from the text above, or settles something it left open:
   decision (§8) is still to be made on the dev stack.
 
 ### Phases 3–4 (2026-11-08)
+
+Review fixes (2026-11-08, after an independent review):
+- **A cut database never loses its unchecked candidates.** When a database's one pass is cut
+  at 5000 before the page fills, the merged page stops at that database's last checked
+  candidate (the earliest such boundary among databases), and the cursor resumes from the last
+  row shown, or from the boundary when nothing came before it. The notice stays while a database
+  is cut. The search screens fetch on past an empty page whose cursor says more may follow (up to
+  five pages).
+- **`tag:`/front matter `prop:` results follow the index**: shown results are searched again
+  when the metadata index changes (it lags a sync by ~100 ms and changes on every local save),
+  with the same 2 s throttle, only while such a query is shown.
+- **An index that is not ready never answers**: a build abandoned because the database was
+  reopened resolves `ensure` without an index; search then reads the heads.
+- **One white-space rule for front matter in SQL**: the index's page query and the API's
+  property scan share `FRONT_MATTER_PREFILTER_SQL` (`shared/propertyFilter.js`), which skips
+  what `String.trim` does (BOM, no-break space, form feed …), as `findFrontMatterBlock` does.
+- **The picker explains** values with repeated spaces or tabs (the search collapses them: use
+  "contains" with part of the value) and property names with `= < > ! ~ ^`; whether a key is a
+  date key is decided from every value seen, not the 50 suggestions. It does not switch the
+  condition by itself, which would quietly change what is searched.
+- **One popover at a time** in the desktop panel.
 
 - **The index decides, per database.** When a query has `tag:` or a front matter `prop:`, the
   engine asks each database for its metadata index (`database.index()`, which

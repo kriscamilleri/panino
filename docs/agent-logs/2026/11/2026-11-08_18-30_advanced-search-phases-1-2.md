@@ -284,6 +284,21 @@ closes only the picker; a typed `prop:"due <= 2026-11-30"`. Phone 375: the sheet
 `prop:status!=draft`; a tag chip adds `tag:urgent`. Screenshots: `search-assets/*tag*`,
 `*property*`, `desktop-1280-prop-results.png`.
 
+### Review fixes for phases 3–4 (Fable review; the coordinator chose eight)
+
+| # | Fix | Test (fails before / passes after) |
+|---|---|---|
+| 1 | Cursor past a cut database: the page stops at the earliest boundary (last checked candidate of a database cut before its page filled); the cursor resumes from the last row shown, or the boundary; the notice stays. The screens fetch on past an empty page (up to five) | `documentSearch.test.js`, the reviewer's case (A: 6000 checklists + 10 "lorem late"; B: 30 plain): 40 unique across pages, A's 10 first. Checked against the previous engine: 30 found, A's 10 lost. `searchPanel.test.js`: an empty page with a cursor is followed |
+| 2 | Re-run on `documentIndexStore.version` for `tag:` / front matter `prop:` queries (2 s throttle, only while shown) | `searchPanel.test.js`: four bumps → one re-run, then one more at the end of the window; no re-run for `budget prop:word_count>5` |
+| 3 | `index()` returns null unless `isReady` after `ensure` | `documentIndexStore.test.js` (handle replaced mid-build: ensure resolves, not ready); `docStoreDocuments.test.js` (not ready → the heads are read, ready → id lists) |
+| 4 | `FRONT_MATTER_PREFILTER_SQL` shared by the index's page query and the API's scan (String.trim's white space) | BOM / NBSP / form feed fixtures in the with/without-index parity tests (which now build the index through the store's real page SQL on SQLite; the old SQL fails `tag:bom`) and an API + app parity test |
+| 5 | Picker messages for repeated white space and operator characters in a key (no silent switch to "contains") | `propertyPicker.test.js` |
+| 6 | One popover at a time | `searchPanel.test.js` (the popover test opens them in turn) |
+| 7 | `isDateKey` over every value | `searchPanel.test.js`: 60 dates and one "someday" → text field |
+| 8 | Spec §8 load note (content before the time columns); the filter-bar parity test now calls the real `tagStore.findTaggedDocuments`, with a Trash subfolder | `tagSearchParity.test.js` |
+
+Results after these fixes: frontend 1384 passed (110 files), shared 113, backend (Docker, full suite) 1242 passed + 1 skipped (78 files), lint clean.
+
 ## Open Items / Notes
 
 - **Browser checks not done here** (for the orchestrator, on the dev stack with a space):

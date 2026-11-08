@@ -220,6 +220,18 @@ describe('documentIndexStore', () => {
         expect(index.propertyValues(PERSONAL, 'status')).toEqual([{ value: 'draft', count: 2 }]);
     });
 
+    it('resolves ensure without being ready when the handle is replaced mid-build', async () => {
+        registry([[PERSONAL, fakeDatabase([{ id: 'a', content: tagged('work') }])]]);
+        const index = useDocumentIndexStore();
+        const building = index.ensure(PERSONAL);
+        // The database is reopened before the build reads its first page.
+        harness.syncStore.databases.set(PERSONAL, { dbKey: PERSONAL, kind: 'user', db: fakeDatabase([]) });
+        await nextTick();
+        await building;
+        expect(index.isReady(PERSONAL)).toBe(false);
+        expect(index.idsWithTags(PERSONAL, ['work'])).toEqual(new Set());
+    });
+
     it('lists the Documents with metadata for search, and nothing before the build', async () => {
         registry([[PERSONAL, fakeDatabase([
             { id: 'a', content: '---\nstatus: draft\n---\n' },

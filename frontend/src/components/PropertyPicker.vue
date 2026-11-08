@@ -130,7 +130,7 @@ const props = defineProps({
     layout: { type: String, default: 'desktop', validator: (value) => ['desktop', 'phone'].includes(value) },
     keys: { type: Array, required: true },
     loading: { type: Boolean, default: false },
-    /** @type {(key: string) => Array<{ value: string, count: number }>} */
+    /** @type {(key: string, options?: { limit?: number }) => Array<{ value: string, count: number }>} */
     valuesFor: { type: Function, required: true },
 })
 const emit = defineEmits(['add', 'close'])
@@ -144,7 +144,8 @@ const frontMatterKeys = computed(() => props.keys.filter((entry) => !entry.built
 const builtInKeys = computed(() => props.keys.filter((entry) => entry.builtIn))
 const needsValue = computed(() => conditionNeedsValue(condition.value))
 const suggestions = computed(() => (key.value ? props.valuesFor(key.value).slice(0, 20) : []))
-const dateField = computed(() => Boolean(key.value) && isDateKey(key.value, props.valuesFor(key.value)))
+// Date-ness from every value seen for the key, not only the suggestions.
+const dateField = computed(() => Boolean(key.value) && isDateKey(key.value, props.valuesFor(key.value, { limit: Infinity })))
 const isNumber = computed(() => key.value === 'word_count')
 const fieldClass = computed(() => (props.layout === 'phone'
     ? 'ph-input'

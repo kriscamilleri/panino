@@ -273,6 +273,9 @@ ${DOCUMENT_COLUMNS}
             console.warn(`Search could not use the metadata index of ${dbKey}:`, error?.name || error);
             return null;
           }
+          // A build that was abandoned (the handle was reopened or dropped meanwhile) resolves
+          // too, with no index: then it must not answer, or every tag: would find nothing.
+          if (!documentIndexStore.isReady(dbKey)) return null;
           return {
             entries: () => documentIndexStore.metadataEntries(dbKey),
             idsWithTags: (names) => documentIndexStore.idsWithTags(dbKey, names),

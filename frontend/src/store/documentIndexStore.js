@@ -36,6 +36,7 @@ import { reactive, ref, watch } from 'vue';
 import { parsePkId } from '@/utils/crsqlitePk';
 import { runExclusive } from '@/utils/scopedRepository';
 import { DocumentMetadataIndex, FRONT_MATTER_SCAN_CHARS } from '@/utils/documentMetadataIndex';
+import { FRONT_MATTER_PREFILTER_SQL } from '@panino/content-merge/property-filter';
 import { useSyncStore } from './syncStore';
 
 /** Rows read per page while building. */
@@ -45,10 +46,13 @@ export const INDEX_FLUSH_DELAY_MS = 100;
 
 // Only a body that opens with `---` (after blank lines) can have front matter,
 // so only those send their first 16 KB into JS; every other row sends its id.
-// The same 1 KB prefilter the API's property scan uses.
-const HEAD_SQL = `CASE WHEN ltrim(substr(COALESCE(content, ''), 1, 1024), ' ' || char(9, 13, 10)) LIKE '---%'
+// The API's property scan uses the same prefilter (shared), which skips the
+// white space `String.trim` does (BOM, NBSP, form feed included), as the
+// front matter parser does.
+const HEAD_SQL = `CASE WHEN ${FRONT_MATTER_PREFILTER_SQL}
   THEN substr(content, 1, ${FRONT_MATTER_SCAN_CHARS}) ELSE NULL END`;
-const PAGE_SQL = `SELECT rowid AS rid, id, ${HEAD_SQL} AS head FROM notes WHERE rowid > ? ORDER BY rowid LIMIT ?`;
+/** The build's page query (exported for a test on real SQLite). */
+export const PAGE_SQL = `SELECT rowid AS rid, id, ${HEAD_SQL} AS head FROM notes WHERE rowid > ? ORDER BY rowid LIMIT ?`;
 const CHANGED_SQL = `SELECT rowid AS rid, id, ${HEAD_SQL} AS head FROM notes
   WHERE rowid IN (SELECT value FROM json_each(?)) OR id IN (SELECT value FROM json_each(?))`;
 

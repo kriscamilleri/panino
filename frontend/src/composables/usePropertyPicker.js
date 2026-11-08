@@ -35,11 +35,12 @@ export function usePropertyPicker() {
 
     /**
      * @param {string} key
+     * @param {{ limit?: number }} [options] the 50 most used by default; Infinity for all
      * @returns {Array<{ value: string, count: number }>}
      */
-    function valuesFor(key) {
+    function valuesFor(key, { limit = 50 } = {}) {
         if (!key) return [];
-        return mergePropertyValues(openDatabases().map((dbKey) => index.propertyValues(dbKey, key)));
+        return mergePropertyValues(openDatabases().map((dbKey) => index.propertyValues(dbKey, key)), limit);
     }
 
     return { open, loading, keys, openPicker, closePicker, valuesFor };

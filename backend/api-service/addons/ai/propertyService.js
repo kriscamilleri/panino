@@ -14,6 +14,7 @@
 // - conditions run cheapest first (front matter and dates, then authors, then word
 //   counts), each on the Documents still matching; a word count reads one body at a time.
 import { readTags, removeFrontMatterKeys, setFrontMatterValues } from '@panino/content-merge/front-matter';
+import { FRONT_MATTER_PREFILTER_SQL as SHARED_FRONT_MATTER_PREFILTER } from '@panino/content-merge/property-filter';
 import {
     ApiError,
     announce,
@@ -52,17 +53,9 @@ export const PROPERTY_SCAN_CAP = 5000;
 const MAX_SAMPLE_VALUES = 5;
 const AUTHOR_KEYS = ['created_by', 'modified_by'];
 
-// Whitespace String.prototype.trim removes, for SQLite's ltrim: front matter opens on the
-// first non-blank line, so a body whose first non-whitespace text is not `---` has none.
-const TRIM_CHARS = 'char(9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, '
-    + '8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279)';
-// Only the first KB is read for that; a body that starts with more blank space than that
-// falls back to looking for `---` anywhere in the part that is parsed.
-const FRONT_MATTER_PREFILTER = `(CASE
-    WHEN ltrim(substr(coalesce(content, ''), 1, 1024), ${TRIM_CHARS}) = ''
-        THEN instr(substr(coalesce(content, ''), 1, ${FRONT_MATTER_SCAN_CHARS}), '---') > 0
-    ELSE ltrim(substr(coalesce(content, ''), 1, 1024), ${TRIM_CHARS}) LIKE '---%'
-END)`;
+// Front matter opens on the first non-blank line, so a body whose first non-whitespace text is
+// not `---` has none: the shared prefilter, which the app's metadata index uses too.
+const FRONT_MATTER_PREFILTER = SHARED_FRONT_MATTER_PREFILTER;
 
 /** Built-in properties as filterable entries, ahead of front matter so they win on a clash. */
 function builtInEntries(builtIn) {

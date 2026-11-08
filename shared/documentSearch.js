@@ -442,8 +442,13 @@ async function searchOne(database, plan, scope, cursor, need, isCancelled, stats
         for (let start = 0; start < ordered.length && out.length < need; start += batch, batch = Math.min(MAX_BATCH, batch * 2)) {
             if (!await confirmBatch(database, ordered.slice(start, start + batch), plan, context)) return null;
         }
-        if (cut && out.length < need) stats.truncated = true;
-        return { rows: out, bodies: kept };
+        // Cut short with the page not full: the candidates after the last one checked were not
+        // looked at, so the merged page must stop there (see `boundary` in searchDatabases).
+        if (cut && out.length < need) {
+            stats.truncated = true;
+            return { rows: out, bodies: kept, boundary: ordered[ordered.length - 1] };
+        }
+        return { rows: out, bodies: kept, boundary: null };
     }
 
     const keyset = cursor
@@ -473,9 +478,14 @@ SELECT * FROM (
     for (let start = 0; start < rows.length && out.length < need; start += batch, batch = Math.min(MAX_BATCH, batch * 2)) {
         if (!await confirmBatch(database, rows.slice(start, start + batch), plan, context)) return null;
     }
-    // Cut short only matters when the candidates checked did not fill the page.
-    if (cut && out.length < need) stats.truncated = true;
-    return { rows: out, bodies: kept };
+    // Cut short only matters when the candidates checked did not fill the page; then the merged
+    // page must not go past the last candidate checked (see `boundary` in searchDatabases).
+    if (cut && out.length < need) {
+        stats.truncated = true;
+        const last = rows[rows.length - 1];
+        return { rows: out, bodies: kept, boundary: { ...last, updated_at: last.sort_updated } };
+    }
+    return { rows: out, bodies: kept, boundary: null };
 }
 
 /* ------------------------------------------------------------------ *
@@ -537,6 +547,8 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
     const inParts = parsed.parts.filter((part) => part.type === 'in');
     const named = inParts.map(() => false);
     const found = [];
+    /** The last candidate checked in a database whose one pass was cut before the page filled. */
+    const boundaries = [];
     // How many bodies confirmation read, and how many it kept for the page (at most the page
     // size plus one per database): a check on memory use.
     const stats = { bodiesRead: 0, bodiesKept: 0, indexed: 0, scans: 0, truncated: false };
@@ -571,6 +583,7 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
         }
         if (!one) return { ...empty, cancelled: true };
         stats.bodiesKept += one.bodies.size;
+        if (one.boundary) boundaries.push(one.boundary);
         const folderIndex = buildFolderIndex(folders);
         for (const row of one.rows) found.push({ row, database, folderIndex, bodies: one.bodies });
     }
@@ -583,7 +596,13 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
     if (failed.length) notices.push(failed.length === 1 ? 'One database could not be searched.' : `${failed.length} databases could not be searched.`);
 
     found.sort((a, b) => compareSearchRows(a.row, b.row));
-    const page = found.slice(0, max);
+    // A database cut short has unchecked candidates after its last checked one, and they may
+    // sort before other databases' rows. So the page stops at the earliest such boundary: rows
+    // after it wait for the next page, which starts from the last row shown (or from the
+    // boundary itself when nothing comes before it). One cursor, no row skipped or repeated.
+    const boundary = boundaries.length ? boundaries.reduce((a, b) => (compareSearchRows(a, b) <= 0 ? a : b)) : null;
+    const within = boundary ? found.filter((hit) => compareSearchRows(hit.row, boundary) <= 0) : found;
+    const page = within.slice(0, max);
 
     // Bodies for the page only (confirmation may have read some whole bodies already).
     const byDatabase = new Map();
@@ -616,12 +635,14 @@ export async function searchDatabases({ databases, query, limit = DEFAULT_SEARCH
         created_at: row.created_at ?? null,
         pinned: row.pinned,
     }));
+    const cursorAt = (row) => ({ score: Number(row.title_score) || 0, updatedAt: row.updated_at ?? '', id: row.id });
     const last = page[page.length - 1]?.row;
+    let nextCursor = null;
+    if (within.length > max || (boundary && last)) nextCursor = cursorAt(last);
+    else if (boundary) nextCursor = cursorAt(boundary);
     return {
         results,
-        nextCursor: found.length > max && last
-            ? { score: Number(last.title_score) || 0, updatedAt: last.updated_at ?? '', id: last.id }
-            : null,
+        nextCursor,
         notices,
         terms: parsed.terms,
         failed,

@@ -245,6 +245,18 @@ describe('AI agents add-on: search query language', () => {
             });
         }
 
+        it('reads front matter after a BOM, a no-break space or a form feed, as the app does', async () => {
+            note(db(), 'w1', 'Bom', '\uFEFF---\ntags: bom\n---\nbudget bom', { updatedAt: day(4) });
+            note(db(), 'w2', 'Nbsp', '\u00A0\n---\nkind: nbsp\n---\nbudget nbsp', { updatedAt: day(4) });
+            note(spaceDb, 'w3', 'Formfeed', '\f---\ntags: [ff]\n---\nbudget ff', { updatedAt: day(4) });
+            for (const [query, id] of [['tag:bom', 'w1'], ['prop:kind=nbsp', 'w2'], ['tag:ff', 'w3'], ['budget tag:ff', 'w3']]) {
+                const api = await q(query, '&limit=100');
+                expect(ids(api), query).toEqual([id]);
+                const found = await searchDatabases({ databases: appDatabases(), query, limit: 100 });
+                expect(found.results.map((row) => row.id), query).toEqual([id]);
+            }
+        });
+
         it('pages the same way', async () => {
             const api = [...ids(await q('budget', '&limit=3')), ...ids(await q('budget', '&limit=3&offset=3'))];
             const first = await searchDatabases({ databases: appDatabases(), query: 'budget', limit: 3 });

@@ -71,7 +71,7 @@ export function mergePropertyKeys(perDatabase) {
 /**
  * The values seen for a key across databases, compared ignoring case, most used first.
  * @param {Array<Array<{ value: string, count: number }>>} perDatabase
- * @param {number} [limit]
+ * @param {number} [limit] Infinity for every value (to decide whether a key holds dates)
  * @returns {Array<{ value: string, count: number }>}
  */
 export function mergePropertyValues(perDatabase, limit = 50) {
@@ -124,6 +124,14 @@ export function buildPropertyPart({ key, condition, value = '' }) {
     const text = String(value ?? '').trim();
     if (needsValue && !text) return { ok: false, error: 'Enter a value.' };
     if (text.includes('"')) return { ok: false, error: 'A value cannot hold a double quote.' };
+    // The search reads runs of white space as one space, so such a value cannot be matched
+    // exactly; say how to find it rather than switch the condition silently.
+    if (/\s\s|[\t\r\n]/.test(text)) {
+        return { ok: false, error: "Values with repeated spaces or tabs can't be searched exactly. Choose \u201ccontains\u201d and type part of it instead." };
+    }
+    if (/[=<>!~^]/.test(name)) {
+        return { ok: false, error: "Property names with =, <, >, !, ~ or ^ can't be searched." };
+    }
 
     const forms = needsValue
         ? [

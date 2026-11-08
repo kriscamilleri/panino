@@ -341,8 +341,13 @@ function toggleChip(value) {
 }
 
 function togglePicker() {
-    if (picker.open.value) closePicker()
-    else void picker.openPicker()
+    if (picker.open.value) {
+        closePicker()
+        return
+    }
+    // One popover at a time.
+    showSyntax.value = false
+    void picker.openPicker()
 }
 
 function closePicker() {
@@ -373,6 +378,8 @@ function onEnter() {
 
 // The help moves focus into itself when it opens and back to its button when it closes.
 function openSyntax() {
+    // One popover at a time: the property picker closes (and gives focus back) first.
+    if (picker.open.value) closePicker()
     showSyntax.value = true
     nextTick(() => syntaxRef.value?.focus())
 }
