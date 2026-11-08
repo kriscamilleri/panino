@@ -80,5 +80,5 @@ as its new Phase 3), then Kris asked for it to be implemented and tested.
   (Odoo Phase 9) will pause and resume through them.
 - Users who connected Odoo on a development stack before this change keep their connection; it
   reappears once they switch the add-on on.
-- `docs/specs/proposed/tag-system.md` still carries an unrelated uncommitted rewrite from
+- `docs/specs/active/tag-system.md` still carries an unrelated uncommitted rewrite from
   elsewhere; left untouched, not committed with this work.

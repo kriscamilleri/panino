@@ -4,7 +4,7 @@
 > Status: active (being implemented on `feature/tag-system`)
 > Created: 2026-03-21
 > Last updated: 2026-10-25 — redesigned for shared spaces (COLLAB-04)
-> Revised 2026-11-08 — aligned with [advanced search](../proposed/advanced-search.md) §6.3 and §7:
+> Revised 2026-11-08 — aligned with [advanced search](../active/advanced-search.md) §6.3 and §7:
 > tags are read by `readTags` in `shared/frontMatter.js`, and one per-database in-memory
 > Document metadata index (§7) serves the tag system and search alike
 > Implementation: `shared/frontMatter.js` (`readTags`, `canonicalTagName`);

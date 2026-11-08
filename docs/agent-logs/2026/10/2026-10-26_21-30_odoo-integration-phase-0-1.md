@@ -100,5 +100,5 @@ spec assumed (Phase 0), and let a user connect their account to Odoo 19+ (Phase 
   probe root" articles, probe documents). Local demo data only.
 - The Enterprise `.deb` used to build `panino-odoo-enterprise:20.0` sits in the session scratchpad;
   keep a copy outside the repository to rebuild the image later.
-- `docs/specs/proposed/tag-system.md` has an unrelated uncommitted rewrite from elsewhere; left
+- `docs/specs/active/tag-system.md` has an unrelated uncommitted rewrite from elsewhere; left
   untouched.

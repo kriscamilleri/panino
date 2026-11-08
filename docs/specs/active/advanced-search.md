@@ -325,6 +325,19 @@ of five.
   section). It is not a CRR, not in `DB_SCHEMA` for sync, and can be rebuilt at any time. This
   needs its own decision before building.
 
+**Phase 0 result and decision (Kris, 2026-11-08).**
+- **Measured:** Chrome on the dev stack, with 5000 seeded Documents (86.1 MB), sync off, median
+  of 5 (`docs/agent-logs/2026/11/2026-11-08_20-00_pending-specs-integration.md`).
+  - A query that reads bodies takes about 1.0–1.1 s, and about 4.1–4.3 s at 4× CPU throttling.
+    That misses the budget.
+  - Queries the index answers are fast: `tag:` takes 90–390 ms and `prop:` about 190 ms.
+    `title:lorem` takes 180 ms.
+  - Nearly all the cost is reading pages through the WASM storage: a bare
+    `SELECT sum(length(content))` costs the same.
+- **Decision:** ship LIKE as is. Most accounts are far smaller than this stress fixture.
+- **Follow-up:** measure real account sizes before reconsidering FTS5 or the column-order change
+  described below.
+
 Other limits:
 
 - Each database returns at most `limit + 1` candidates, and the merge keeps `limit` rows.

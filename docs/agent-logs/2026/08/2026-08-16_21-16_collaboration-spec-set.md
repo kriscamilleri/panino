@@ -104,7 +104,7 @@ reproduction in COLLAB-01 §2 is the one to run first.
   must land with the session manager, not after it.
 - **Disk layout.** `data/spaces/` and `uploads/spaces/` must sit inside the existing Docker
   volumes. Check `docs/runbooks/deployment.md` and `docker-compose.yml` before COLLAB-04 Phase 1.
-- **Palette collision with the tag system.** `docs/specs/proposed/tag-system.md` proposes its own
+- **Palette collision with the tag system.** `docs/specs/active/tag-system.md` proposes its own
   ten-colour palette. A document tagged in rose beside a person rendered in rose is ambiguous.
   Flagged in COLLAB-03 §9; reconcile when tags are picked up rather than pre-emptively.
 - Effort estimates for COLLAB-04 (~3 weeks) and COLLAB-05 (~4 weeks) are the least reliable figures

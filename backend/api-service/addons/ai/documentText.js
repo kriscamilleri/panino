@@ -340,7 +340,7 @@ function stripDelimited(text, delim, { flanking = false } = {}) {
 
 /**
  * GitHub-compatible slug of a heading's plain text (the rule in
- * docs/specs/proposed/editor-toc-and-internal-links.md §5.1; the shared renderer has no
+ * docs/specs/active/editor-toc-and-internal-links.md §5.1; the shared renderer has no
  * slug rule yet): lower case; drop everything but letters, marks, numbers, spaces, `-`
  * and `_`; each space becomes `-`; empty becomes `section`; at most 200 characters.
  * @param {string} text plain heading text
