@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { fileURLToPath } from 'url';
 import { createTestApp, setupTestUser, cleanupTestUser, getTestToken } from '../testHelpers.js';
 import { deleteTestDb, getDb, getSpacesDb, getUserDb } from '../../db.js';
-import { pruneOrphanImagesForDb, pruneOrphanImagesForUser, runDailyImageOrphanPrune, startImageOrphanPruneJob } from '../../image.js';
+import { getImageUsage, getImageUsageCounts, pruneOrphanImagesForDb, pruneOrphanImagesForUser, runDailyImageOrphanPrune, startImageOrphanPruneJob } from '../../image.js';
 import { addEditorMember, createSpace } from '../../spaces.js';
 import { deleteSpaceUploads, resolveSpaceUploadRoot } from '../../spaceStorage.js';
 
@@ -401,6 +401,47 @@ describe('Image management API', () => {
         expect(response.status).toBe(200);
         expect(response.body.usage.count).toBe(2);
         expect(response.body.usage.notes.map((note) => note.id)).toEqual(['note-2', 'note-1']);
+    });
+
+    it('counts templates that show an image, and refuses to delete or prune it', async () => {
+        const oldDate = '2026-01-01T00:00:00.000Z';
+        insertImageRecord(user.userId, { id: 'img-template', filename: 'logo.png', mimeType: 'image/png', path: 'logo.png', sizeBytes: 10, createdAt: oldDate });
+        getUserDb(user.userId).prepare(`INSERT INTO templates (id, name, content, title_pattern, created_at, updated_at)
+            VALUES ('t-logo', 'Letterhead', '![logo](/api/images/img-template)', '', ?, ?)`).run(oldDate, oldDate);
+
+        const token = getTestToken(user.userId);
+        const usage = await request(app).get('/images/img-template/usage').set('Authorization', `Bearer ${token}`);
+        expect(usage.body.usage).toMatchObject({ count: 1, documentCount: 0, templateCount: 1, notes: [] });
+        expect(usage.body.usage.templates.map((template) => template.name)).toEqual(['Letterhead']);
+
+        const refused = await request(app).delete('/images/img-template').set('Authorization', `Bearer ${token}`).send({});
+        expect(refused.status).toBe(409);
+        expect(pruneOrphanImagesForUser(user.userId, { olderThanDays: 7 })).toBe(0);
+        expect(getUserDb(user.userId).prepare('SELECT id FROM images WHERE id = ?').get('img-template')).toBeDefined();
+    });
+
+    it('counts usage of many images in one pass, the same as one at a time', () => {
+        const db = getUserDb(user.userId);
+        const ids = Array.from({ length: 6 }, () => uuidv4());
+        const odd = 'not-a-uuid';
+        const bodies = [
+            `![a](/images/${ids[0]}) ![again](/images/${ids[0]}?space=x)`,
+            `![b](/api/images/${ids[1].toUpperCase()}) and https://panino.test/api/images/${ids[2]}`,
+            `/IMAGES/${ids[3]}`,
+            `![odd](/images/${odd})`,
+            `/images/${ids[4]}x and /images//images/${ids[5]}`,
+            'no images here',
+        ];
+        bodies.forEach((content, index) => insertNoteRecord(user.userId, { id: `note-count-${index}`, title: `N${index}`, content }));
+        db.prepare(`INSERT INTO templates (id, name, content, title_pattern, created_at, updated_at)
+            VALUES ('t-count', 'T', ?, '', '2026-01-01', '2026-01-01')`).run(`![t](/images/${ids[0]})`);
+
+        const counts = getImageUsageCounts(db, [...ids, odd, uuidv4()]);
+        for (const id of [...ids, odd]) {
+            expect(counts.get(id), id).toBe(getImageUsage(db, id).count);
+        }
+        expect(counts.get(ids[0])).toBe(2);
+        expect([...counts.values()].slice(1, 6)).toEqual([1, 1, 1, 1, 1]);
     });
 
     it('deletes unused image metadata and disk file', async () => {

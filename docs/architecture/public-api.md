@@ -39,9 +39,17 @@ answer.
 
 ## One implementation of each rule
 
-`documentService.js` holds every v1 operation as a plain function over
-`{ userId, agent, clients }`; `restRoutes.js` and `mcpTools.js` are thin adapters. When adding
-an operation, add it there and expose it in both (and in `openapi.js`).
+Every v1 operation is a plain function over `{ userId, agent, clients }` in a `*Service.js` file,
+one per area. The rules they share are in `serviceCore.js`: which databases an agent reaches, row
+shapes, and the write rules (scope, live sessions, expected versions, size, revisions,
+announcing). Each area has one adapter in `api/<area>.js` that exports its MCP tools, REST routes,
+OpenAPI paths and next-step sentences. `api/index.js` lists the areas, and `mcpTools.js`,
+`restRoutes.js` and `openapi.js` collect them.
+
+To add an operation:
+1. Write it in the area's service.
+2. Expose it in that area's adapter: tool, route and path.
+3. Add the tool to the per-area lists in `tests/unit/mcpTools.test.js`.
 
 ### How a write reaches devices
 
@@ -75,6 +83,125 @@ concurrent remote change; the existing merge-base and conflict rules apply uncha
 
 Key names are unique among a user's live keys (case-insensitive) so history can tell them
 apart; at most 10 live keys and 20 connected apps per user.
+
+## What agents can do
+
+The tool and route names below are the MCP and REST forms of the same operation.
+
+**Documents** (`documentService.js`, `documentText.js`).
+- Search and list:
+  - Search needs every term to match; a "quoted phrase" counts as one term. Case is ignored for
+    every letter: ASCII terms are a `LIKE` (which folds ASCII), others are narrowed by a `LIKE`
+    of their shape and then compared in JS lower case (`panino_folded_contains`, registered per
+    connection).
+  - It can be limited to titles or bodies, a folder and its subfolders, or `updatedAfter`. It pages with `offset`.
+  - Each hit has `matchCount` and up to three snippets with line numbers.
+  - Lists sort by updated, created or title. Each cursor carries its sort.
+- `get_document` returns metadata as well as the body:
+  - `createdAt`, `pinned`, and word, character and line counts;
+  - `revisionCount`, `imageIds` and `webUrl`;
+  - `createdBy` and `modifiedBy`, and the front matter `properties`.
+- Partial reads: lines `startLine`–`endLine`, or one `section` (a heading through to the next
+  heading of the same or a higher level). `totalLines` and `range` let a model page through a long
+  Document. `get_document_outline` lists the headings.
+- Small writes:
+  - `edit_document` replaces exact text and refuses with `EDIT_NO_MATCH` or `EDIT_AMBIGUOUS`.
+  - `insert_into_document` inserts at the start, the end, or before or after a heading or at the
+    end of its section.
+  - Both follow the same write rules as `PATCH`.
+- Slugs follow GitHub's rule, as proposed in `editor-toc-and-internal-links.md` §5.1.
+
+**Properties** (`propertyService.js`, `propertyText.js`, `authorship.js`).
+- Every Document has built-in properties: title, folder, word count (the app's rule), created
+  on, created by, modified on, modified by, and pinned.
+- Documents have no author columns. Revision history records who made each revision, so:
+  - created by is the author of the oldest revision;
+  - modified by is the author of the newest revision with an author;
+  - both use the app's wording ("by Kris via Claude (API key)").
+  - In the personal database the owner stands in when history says nothing (`inferred: true`).
+  - History may have been pruned, so created by is the earliest recorded author.
+- Front matter properties are the `key: value` lines at the top of the body, read with the shared
+  parser (`shared/frontMatter.js`). A block counts only when closed, with at least one key and
+  only YAML-shaped lines, so a `---` rule above ordinary text is not front matter.
+- `query_documents_by_property` (`GET properties/query?filter=`) takes a filter:
+  - Conditions joined by `AND`, at most five, quotes respected.
+  - Operators: `= != ~ ^= > < >= <=`, `exists` and `missing`. Comparisons ignore case; numbers
+    compare as numbers; ISO dates and times compare at the precision both sides give (a date
+    alone is a whole day, UTC).
+  - `missing` and `!=` consider every Document, since one without front matter lacks every key.
+  - Built-in names (`word_count`, `created_on`, `modified_on`, `created_by`, `modified_by`)
+    override a front matter key of the same name.
+  - Up to 5000 recently updated Documents per database (in the folder scope) are read. SQL orders
+    ids only; rows then stream one at a time with the first 16 KB of each body. Conditions run
+    cheapest first: front matter and dates, then authors (two index seeks per Document), then
+    word counts (one body at a time, for the Documents still matching).
+- `set_document_property` and `remove_document_property` are attributed, undoable edits of the
+  front matter block.
+
+**Folders and Trash** (`folderService.js`).
+- Agents can read, rename, move and trash folders. A move into the folder itself or a descendant
+  is refused (`FOLDER_CYCLE`).
+- The Trash folder (the oldest top-level folder named Trash) is protected, and no other top-level
+  folder may take that name (`TRASH_NAME_RESERVED`).
+- `list_trash` and `restore_from_trash` work for Documents and folders. A restore goes to, in
+  order:
+  1. `folderId`, if given;
+  2. where the API trashed it from, if that folder still exists outside Trash;
+  3. the top level.
+- Where an item was trashed from is kept in `ai_trash_origins`:
+  - It is a server-only table in each content database, declared in the manifest's
+    `schema.content`.
+  - A row is written when the API trashes something, including an `update_document` move into
+    Trash.
+  - It is removed on restore, or on a move out of Trash.
+  - Items the app trashed have no row.
+
+**Revisions** (`revisionService.js`, `lineDiff.js`).
+- `list_revisions` and `get_revision` (whole, or a line range) show who made each revision, in
+  the app's wording. A person is named only when they are the owner or a current space member.
+- `compare_revisions` is a unified Myers line diff. It is refused past 20000 lines or 2000 changed
+  lines (`DIFF_TOO_LARGE`).
+- `save_revision` saves a manual checkpoint; a duplicate of the newest revision is reported, not
+  saved.
+- `restore_revision` is shared with the app's restore route through core `restoreNoteRevision`:
+  - It saves a `pre-restore` revision first and records an attributed after-revision.
+  - It runs on a healthy connection, and is refused during a live session.
+  - To undo it, restore the returned `preRestoreRevisionId`.
+
+**Images** (`imageService.js`, core `image.js`).
+- Images are listed, read and checked for usage per database.
+- `get_image` returns MCP image content, except SVG, which comes back as an embedded text
+  resource.
+- Uploads go through core `storeImage`, the app's own upload path: allow-list, extension, 1 MB,
+  quota, a UUID name in the database's upload root, sha256. The API also checks that the bytes are
+  the declared type, which the app does not.
+- The Markdown returned carries the API path prefix (`/api/images/<id>` in production), as the
+  editor writes it.
+- `delete_image` is permanent. It is refused with `IMAGE_IN_USE` while any Document or template
+  references the image (core `getImageUsage` counts templates, for the app's delete and prune
+  too).
+- Usage counts for several images come from core `getImageUsageCounts`: one pass over the bodies
+  that link to any image, not a scan per image.
+
+**Templates, variables and PDF** (`libraryService.js`, core `documentPdf.js`,
+`shared/templateVariables.js`).
+- `create_document_from_template` makes a Document exactly as "New from template" does, from the
+  same shared code. It takes `inputs` for `{{input:Label}}` placeholders.
+- `list_variables` returns one database's global variables.
+- `export_pdf` builds the request the way Export does:
+  - print style resolution, the shared renderer, global variables, and DOMPurify;
+  - then `renderPdf`, with its own sanitizing, SSRF rules, queue and deadline.
+  - A personal-only credential has space images removed first.
+  - The request builder is core `documentPdf.js`, shared with the Odoo add-on, because add-ons
+    may not import each other.
+  - MCP returns an embedded `application/pdf` resource of up to 10 MB.
+  - An account keeps at most two API exports in the shared queue (`PDF_BUSY` beyond).
+
+**Load.** A Document can hold 2 MiB and the server is one Node process, so text handling that
+runs on Document lines must be linear in the line: no regular expression with two quantifiers
+that can share characters, and hand-written parsers where a pattern would backtrack (see the
+comments in `documentText.js` and `shared/frontMatter.js`). `tests/perf/load.perf.test.js`
+times every read on an 87 MB account; run it (`PANINO_PERF=1`) after changing a scan.
 
 ## MCP
 
