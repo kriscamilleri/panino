@@ -2,7 +2,7 @@
 
 - Agent: Claude Code (Opus 5.5)
 - Start: 2026-11-15, 16:30
-- Status: Done on `docs/native-local-dev`; committed, not pushed (no GitHub credentials in the agent environment)
+- Status: Done; merged into `develop` (46dc862) and pushed
 
 ## Objective
 
