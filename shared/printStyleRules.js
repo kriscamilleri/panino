@@ -23,6 +23,7 @@ export const PRINT_SETTING_KEYS = Object.freeze([
     'headerFontSize', 'headerFontColor', 'headerAlign',
     'footerFontSize', 'footerFontColor', 'footerAlign',
     'headerHeight', 'footerHeight', 'pageMargin', 'pageSize', 'enablePageNumbers',
+    'disableCoverHeaderFooter',
 ]);
 
 const LENGTH_KEYS = new Set(['pageMargin', 'headerHeight', 'footerHeight']);
@@ -30,6 +31,8 @@ const COLOR_KEYS = new Set(['headerFontColor', 'footerFontColor']);
 const FONT_SIZE_KEYS = new Set(['headerFontSize', 'footerFontSize']);
 const ALIGN_KEYS = new Set(['headerAlign', 'footerAlign']);
 const FREE_TEXT_KEYS = new Set(['customCSS', 'printHeaderHtml', 'printFooterHtml']);
+/** On/off settings: `true`, `'true'`, `1` and `'1'` are on, anything else is off. */
+const BOOLEAN_KEYS = new Set(['enablePageNumbers', 'disableCoverHeaderFooter']);
 
 const LENGTH_RE = /^(\d{1,5}(\.\d{1,3})?|\.\d{1,3})(cm|mm|in|px|pt)$/;
 const HEX_COLOR_RE = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
@@ -130,7 +133,7 @@ export function validatePrintStyleValue(key, value) {
             ? { ok: true, value }
             : { ok: false, reason: 'must be text' };
     }
-    if (key === 'enablePageNumbers') {
+    if (BOOLEAN_KEYS.has(key)) {
         return { ok: true, value: value === true || value === 'true' || value === 1 || value === '1' };
     }
     if (key === 'pageSize') {

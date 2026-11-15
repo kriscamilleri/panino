@@ -5,10 +5,13 @@ import { createTestApp, setupTestUser, cleanupTestUser, getTestToken } from '../
 
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
-import { PDFDocument } from 'pdf-lib';
+import zlib from 'node:zlib';
+import { PDFDocument, PDFArray, PDFDict, PDFName, PDFRawStream, PDFRef, PDFStream } from 'pdf-lib';
+import { DEFAULT_PRINT_STYLES as SHARED_PRINT_STYLES } from '@panino/content-merge/style-defaults';
 import {
     parseInternalImageSource,
     renderHtmlToPdf,
+    withBareFirstPage,
     sanitizeDocumentHtml,
     sanitizeHeaderFooterHtml,
     embedImagesAsDataUri,
@@ -18,6 +21,55 @@ import {
 async function pageCount(buffer) {
     return (await PDFDocument.load(buffer)).getPageCount();
 }
+
+/** Each page's content stream, inflated, as a string. */
+async function pageContents(buffer) {
+    const doc = await PDFDocument.load(buffer);
+    return doc.getPages().map((page) => {
+        const contents = page.node.Contents();
+        const streams = contents instanceof PDFArray
+            ? contents.asArray().map((ref) => doc.context.lookup(ref))
+            : [contents];
+        return streams.map((stream) => {
+            if (!(stream instanceof PDFRawStream)) throw new Error('Unexpected content stream type');
+            const bytes = Buffer.from(stream.getContents());
+            return stream.dict.toString().includes('FlateDecode') ? zlib.inflateSync(bytes).toString('latin1') : bytes.toString('latin1');
+        }).join('\n');
+    });
+}
+
+/** A PNG of random RGB noise, which barely compresses, as a data: URI. */
+function noisePngDataUri(width, height) {
+    const chunk = (type, data) => {
+        const length = Buffer.alloc(4);
+        length.writeUInt32BE(data.length);
+        const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+        const crc = Buffer.alloc(4);
+        crc.writeUInt32BE(zlib.crc32(body));
+        return Buffer.concat([length, body, crc]);
+    };
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(width, 0);
+    header.writeUInt32BE(height, 4);
+    header[8] = 8; // bit depth
+    header[9] = 2; // RGB
+    const rows = [];
+    for (let y = 0; y < height; y += 1) {
+        const row = Buffer.alloc(1 + width * 3); // filter byte 0, then pixels
+        for (let i = 1; i < row.length; i += 1) row[i] = Math.floor(Math.random() * 256);
+        rows.push(row);
+    }
+    const png = Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk('IHDR', header),
+        chunk('IDAT', zlib.deflateSync(Buffer.concat(rows))),
+        chunk('IEND', Buffer.alloc(0)),
+    ]);
+    return `data:image/png;base64,${png.toString('base64')}`;
+}
+
+const THREE_PAGES ='<!DOCTYPE html><html><head><style>@page { size: A4; margin: 2cm } .p { break-after: page }</style></head><body>'
+    + '<div class="p">Cover</div><div class="p">Two</div><div>Three</div></body></html>';
 
 /** A local HTTP server that records every request it receives. */
 async function startProbeServer() {
@@ -159,10 +211,93 @@ describe('print style defaults are self-contained', () => {
         expect(code).not.toMatch(/print-defaults\.json/);
     });
 
+    it('defines disableCoverHeaderFooter, off, in both default objects and keeps it out of CSS', () => {
+        expect(code).toMatch(/const\s+PRINT_STYLE_DEFAULTS\s*=\s*\{[\s\S]*?disableCoverHeaderFooter:\s*false,[\s\S]*?\};/);
+        expect(code).toMatch(/const\s+EXCLUDE_STYLE_KEYS\s*=\s*new Set\(\[[\s\S]*?'disableCoverHeaderFooter'[\s\S]*?\]\);/);
+        expect(SHARED_PRINT_STYLES.disableCoverHeaderFooter).toBe(false);
+    });
+
     it('derives DEFAULT_PRINT_STYLES from the constant', () => {
         expect(code).toMatch(
             /const\s+DEFAULT_PRINT_STYLES\s*=\s*\{\s*\.\.\.PRINT_STYLE_DEFAULTS\s*\}/,
         );
+    });
+});
+
+// Disable Cover Header & Footer (docs/specs/active/disable-cover-header-footer.md).
+describe('first page without header and footer', () => {
+    const render = (skipFirstPageHeaderFooter) => renderHtmlToPdf(THREE_PAGES, {
+        pdfOptions: { format: 'A4', printBackground: true, margin: { top: '2cm', bottom: '2cm', left: '2cm', right: '2cm' } },
+        headerFooter: {
+            header: () => '<div style="font-size: 10px">Proposal header</div>',
+            footer: (total) => `<div style="font-size: 10px">Page <span class="pageNumber"></span> of ${total}</div>`,
+        },
+        skipFirstPageHeaderFooter,
+    });
+
+    it('drops the header and footer from page 1 only', async () => {
+        const off = await render(false);
+        const on = await render(true);
+        expect(await pageCount(off)).toBe(3);
+        expect(await pageCount(on)).toBe(3);
+        const [offPages, onPages] = [await pageContents(off), await pageContents(on)];
+        expect(onPages[0].length).toBeLessThan(offPages[0].length);
+        expect(onPages[1]).toBe(offPages[1]);
+        expect(onPages[2]).toBe(offPages[2]);
+    }, 60000);
+
+    it('keeps the tag tree pointing at live pages', async () => {
+        const on = await render(true);
+        const doc = await PDFDocument.load(on);
+        const live = new Set(doc.getPages().map((page) => page.ref));
+        const pgRefs = [];
+        const seen = new Set();
+        const visit = (value) => {
+            if (value instanceof PDFStream) value = value.dict;
+            if (seen.has(value)) return;
+            if (value instanceof PDFDict) {
+                seen.add(value);
+                const pg = value.get(PDFName.of('Pg'));
+                if (pg instanceof PDFRef) pgRefs.push(pg);
+                for (const [, child] of value.entries()) visit(child);
+            } else if (value instanceof PDFArray) {
+                seen.add(value);
+                value.asArray().forEach(visit);
+            }
+        };
+        for (const [, object] of doc.context.enumerateIndirectObjects()) visit(object);
+        expect(pgRefs.length).toBeGreaterThan(0);
+        expect(pgRefs.filter((ref) => !live.has(ref))).toEqual([]);
+        expect(doc.getPage(0).node.get(PDFName.of('StructParents'))?.toString()).toBe('0');
+    }, 60000);
+
+    it('does not store a full-page cover image twice', async () => {
+        const html = `<!DOCTYPE html><html><head><style>@page { size: A4; margin: 2cm } .p { break-after: page }</style></head><body>
+            <div class="p"><img src="${noisePngDataUri(300, 300)}" style="width: 100%"></div><div>Two</div></body></html>`;
+        const options = (skip) => ({
+            pdfOptions: { format: 'A4', printBackground: true, margin: { top: '2cm', bottom: '2cm', left: '2cm', right: '2cm' } },
+            headerFooter: { header: () => '<div style="font-size: 10px">Head</div>', footer: () => '<div style="font-size: 10px">Foot</div>' },
+            skipFirstPageHeaderFooter: skip,
+        });
+        const off = await renderHtmlToPdf(html, options(false));
+        const on = await renderHtmlToPdf(html, options(true));
+        expect(off.length).toBeGreaterThan(200_000);
+        // A second copy of the image would add ~270 KB; fonts copied with the draft page are small.
+        expect(on.length - off.length).toBeLessThan(50_000);
+    }, 60000);
+
+    it('keeps the final PDF when draft and final page counts differ', async () => {
+        const make = async (pages) => {
+            const doc = await PDFDocument.create();
+            for (let i = 0; i < pages; i += 1) doc.addPage([200, 200]);
+            return Buffer.from(await doc.save({ addDefaultPage: false }));
+        };
+        const final = await make(3);
+        const bare = await make(2);
+        const out = await withBareFirstPage(final, bare);
+        expect(Buffer.compare(out, final)).toBe(0);
+        const empty = await make(0);
+        expect(Buffer.compare(await withBareFirstPage(empty, empty), empty)).toBe(0);
     });
 });
 
@@ -415,6 +550,33 @@ describe('POST /render-pdf', () => {
         const styled = await render('<style>@page { margin: 7cm 6cm } .two-col { columns: 2 }</style>');
         expect(styled).toBeGreaterThan(plain);
     }, 60000);
+
+    it('renders with disableCoverHeaderFooter, with and without a header and footer', async () => {
+        const token = getTestToken(testUser.userId);
+        const html = '<p>Cover</p><!-- pagebreak --><p>Two</p><!-- pagebreak --><p>Three</p>';
+        const post = async (printStyles) => {
+            const response = await request(app)
+                .post('/render-pdf')
+                .set('Authorization', `Bearer ${token}`)
+                .send({ htmlContent: html, cssStyles: 'p { margin: 0 }', printStyles })
+                .responseType('blob');
+            expect(response.status).toBe(200);
+            return response.body;
+        };
+        const withHeader = { printHeaderHtml: 'Head', printFooterHtml: 'Page %p of %P' };
+        const ticked = await post({ ...withHeader, disableCoverHeaderFooter: true });
+        const unticked = await post({ ...withHeader, disableCoverHeaderFooter: false });
+        expect(await pageCount(ticked)).toBe(3);
+        const [onPages, offPages] = [await pageContents(ticked), await pageContents(unticked)];
+        expect(onPages[0].length).toBeLessThan(offPages[0].length);
+        expect(onPages.slice(1)).toEqual(offPages.slice(1));
+
+        // No header or footer: nothing to hide, and the output matches the box unticked.
+        const bare = { printHeaderHtml: '', printFooterHtml: '' };
+        const bareOn = await pageContents(await post({ ...bare, disableCoverHeaderFooter: true }));
+        const bareOff = await pageContents(await post(bare));
+        expect(bareOn).toEqual(bareOff);
+    }, 90000);
 
     it('falls back to defaults for malformed print-style values and still renders', async () => {
         const token = getTestToken(testUser.userId);

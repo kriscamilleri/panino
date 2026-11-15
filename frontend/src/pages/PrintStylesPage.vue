@@ -228,6 +228,13 @@ const printStylesConfig = {
       modelKey: 'enablePageNumbers'
     },
     {
+      id: 'disableCoverHeaderFooter',
+      label: 'Disable Cover Header & Footer',
+      type: 'checkbox',
+      modelKey: 'disableCoverHeaderFooter',
+      help: 'Print the first page without the header and footer, for Documents that start with a cover page.'
+    },
+    {
       id: 'customCSS',
       label: 'Custom Print CSS',
       type: 'textarea',
