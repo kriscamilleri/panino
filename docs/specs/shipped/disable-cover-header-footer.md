@@ -1,8 +1,9 @@
 # Disable Cover Header & Footer — Skip the Print Header and Footer on Page 1
 
-> Status: active
+> Status: shipped
 > Created: 2026-11-12
-> Last updated: 2026-11-15
+> Last updated: 2026-11-16
+> Shipped: 2026-11-16 (branch `feature/disable-cover-header-footer`)
 > Implementation: `shared/styleDefaults.js`, `shared/printStyleRules.js`,
 > `shared/stylePresets.js`, `frontend/src/pages/PrintStylesPage.vue`,
 > `frontend/src/components/StyleCustomizer.vue`, `backend/api-service/pdf.js`,

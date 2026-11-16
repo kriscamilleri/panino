@@ -2,11 +2,11 @@
 
 - Agent: Claude Code (Opus 5.5)
 - Start: 2026-11-15, 20:30
-- Status: Implemented and validated on `feature/disable-cover-header-footer`; PR pending
+- Status: Implemented and validated; PR open against `develop`
 
 ## Objective
 
-Implement [`docs/specs/active/disable-cover-header-footer.md`](../../../specs/active/disable-cover-header-footer.md):
+Implement [`docs/specs/shipped/disable-cover-header-footer.md`](../../../specs/shipped/disable-cover-header-footer.md):
 a print-style checkbox that prints page 1 of a PDF without the Puppeteer header and footer.
 It is for Documents that open with a cover page.
 
@@ -49,7 +49,7 @@ It is for Documents that open with a cover page.
 - Tests: `shared/tests/printStyleRules.test.js`, `frontend/tests/unit/stylePresets.test.js`,
   `backend/api-service/tests/integration/pdf.test.js`,
   `backend/api-service/tests/unit/documentPdf.test.js`
-- Docs: the spec (added to `docs/specs/active/`), `docs/architecture/pdf-pipeline.md`
+- Docs: the spec (added to `docs/specs/shipped/`), `docs/architecture/pdf-pipeline.md`
 
 ## Tests
 

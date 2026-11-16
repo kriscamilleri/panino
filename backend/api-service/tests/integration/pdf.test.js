@@ -224,7 +224,7 @@ describe('print style defaults are self-contained', () => {
     });
 });
 
-// Disable Cover Header & Footer (docs/specs/active/disable-cover-header-footer.md).
+// Disable Cover Header & Footer (docs/specs/shipped/disable-cover-header-footer.md).
 describe('first page without header and footer', () => {
     const render = (skipFirstPageHeaderFooter) => renderHtmlToPdf(THREE_PAGES, {
         pdfOptions: { format: 'A4', printBackground: true, margin: { top: '2cm', bottom: '2cm', left: '2cm', right: '2cm' } },

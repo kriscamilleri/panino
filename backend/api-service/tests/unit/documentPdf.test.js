@@ -67,7 +67,7 @@ describe('documentPdf', () => {
         expect(styleLibrary(db).presets.map((p) => p.name)).toEqual(['Memo']);
     });
 
-    // Disable Cover Header & Footer (docs/specs/active/disable-cover-header-footer.md, U5/U6).
+    // Disable Cover Header & Footer (docs/specs/shipped/disable-cover-header-footer.md, U5/U6).
     it('carries disableCoverHeaderFooter from a named style, and ticking it changes the sync hash', () => {
         const insert = (name, styles) => db.prepare('INSERT INTO style_presets (id, kind, name, styles, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
             .run(uuidv4(), 'print', name, JSON.stringify(styles), now(), now());
