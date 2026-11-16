@@ -138,13 +138,16 @@ describe('hostile headings (§9)', () => {
         expect(findTocs(inserted)).toHaveLength(1);
     });
 
+    // The budget guards against a quadratic regression, which would take minutes at 2 MiB.
+    // The linear path takes about 1.4 s in plain Node but 6-11 s under vitest on CI runners,
+    // so a tight wall-clock budget made this test flaky.
     it('stays linear on a 2 MiB heading', () => {
         const started = Date.now();
         const doc = `## ${'[*_<{{&'.repeat(300000)}\n`;
         const result = insertToc(state(doc));
         expect(isTocStale(result.value)).toBe(false);
-        expect(Date.now() - started).toBeLessThan(8000);
-    });
+        expect(Date.now() - started).toBeLessThan(30000);
+    }, 40000);
 });
 
 describe('insert, refresh, options and remove', () => {
