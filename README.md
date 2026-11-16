@@ -194,6 +194,66 @@ npm install
 npm run dev
 ```
 
+#### Without Docker (native)
+
+Use this when Docker is not available, for example in a sandboxed container where the Docker
+daemon cannot start ("iptables ... Permission denied"). It needs Linux x86_64 (the vendored
+CR-SQLite extension), the exact Node version in `.nvmrc`, and a C/C++ toolchain with Python 3 to
+build `better-sqlite3`.
+
+```bash
+# 1. Node: install the version pinned in .nvmrc (nvm, fnm, or the nodejs.org tarball)
+nvm install "$(cat .nvmrc)"   # or: curl https://nodejs.org/dist/v$(cat .nvmrc)/node-v$(cat .nvmrc)-linux-x64.tar.xz
+
+# 2. Dependencies, in the same order as the backend Dockerfile
+(cd shared && npm ci --omit=dev)
+(cd backend/api-service && npm ci && npm run native:setup)   # builds better-sqlite3, fetches Puppeteer's Chrome
+(cd frontend && npm ci)
+
+# 3. Backend on :8000 (dev defaults; JWT_SECRET falls back to a dev value)
+cd backend/api-service
+NODE_ENV=development FRONTEND_URL=http://localhost:5173 \
+  PUBLIC_API_BASE_URL=http://localhost:8000 INTERNAL_API_URL=http://localhost:8000 \
+  AI_ADDON_ENABLED=true ODOO_INTEGRATION_ENABLED=true \
+  ODOO_CREDENTIAL_ENCRYPTION_KEY=dev-only-odoo-credential-key-not-for-production \
+  node index.js
+
+# 4. Frontend on :5173 (separate terminal)
+cd frontend
+VITE_API_SERVICE_URL=http://localhost:8000 VITE_TURNSTILE_SITE_KEY= npx vite --host 127.0.0.1 --port 5173
+```
+
+Notes:
+
+- The backend does not read the root `.env` itself (Docker Compose passes it in), so a native run
+  uses only the variables you set on the command line. With no `TURNSTILE_SECRET_KEY` the backend
+  skips the captcha check, and an empty `VITE_TURNSTILE_SITE_KEY` hides the widget, so local
+  signup works without Cloudflare.
+- No SMTP server runs by default, so verification and password-reset emails go nowhere. Start
+  MailHog (`localhost:1025`, web UI on `:8025`) and add `SMTP_HOST=localhost SMTP_PORT=1025` if you need them.
+- Puppeteer's Chrome (PDF export, headless browser checks) needs the shared libraries listed in
+  `backend/api-service/Dockerfile`. If it fails with `libnspr4.so: cannot open shared object file`,
+  install them with your package manager, for example
+  `sudo apt-get install libnss3 libnspr4 libgbm1 libgtk-3-0 libasound2t64 libxss1 libxtst6 fonts-liberation`.
+  Without root, unpack the same packages' `.deb` files (`dpkg-deb -x pkg.deb <dir>`) into a
+  scratch directory and start the backend and tests with
+  `LD_LIBRARY_PATH=<dir>/usr/lib/x86_64-linux-gnu`. Check what is still missing with
+  `ldd <chrome> | grep "not found"`.
+- With no fonts installed (no `/etc/fonts`), Chrome lays every PDF out as a single page, and the
+  page-count tests fail on unchanged code. Unpack `fonts-liberation` too and point
+  `FONTCONFIG_FILE` at a minimal `fonts.conf` whose `<dir>` is the unpacked
+  `usr/share/fonts`.
+- `backend/api-service/data/` is hardcoded in `db.js`. To keep a throwaway dev run away from a
+  checkout's existing databases, run the backend from a copy of `backend/api-service` (symlink
+  its `node_modules`, and put `shared/` next to it).
+
+#### Signing in locally
+
+There is no seeded account. Open `http://localhost:5173/#/signup` and create one; any email works
+because sign-up does not need email verification. The app uses hash routing, so pages are
+`/#/login`, `/#/signup`, and so on (without the `#`, `/signup` just redirects to the sign-in page).
+A successful sign-in lands on `/#/` with your name in the top bar and **Sync On**.
+
 ### Testing and code quality
 
 All commands run from the repository root:

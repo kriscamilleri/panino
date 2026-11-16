@@ -81,7 +81,8 @@ export function assignmentId(targetType, targetId, kind) {
 /**
  * A complete styles object for a kind: the stored values laid over the
  * built-in defaults. Keys the defaults do not have are dropped, values become
- * strings, and `enablePageNumbers` becomes a boolean. Unreadable JSON gives
+ * strings, and boolean settings (`enablePageNumbers`,
+ * `disableCoverHeaderFooter`) become booleans. Unreadable JSON gives
  * the defaults.
  * @param {string|object|null} stored JSON text or an object
  * @param {'preview'|'print'} kind

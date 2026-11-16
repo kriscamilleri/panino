@@ -62,13 +62,15 @@ export const DEFAULT_PRINT_STYLES = Object.freeze({
   footerHeight: '2.5cm',
   pageMargin: '2cm',
   enablePageNumbers: true,
+  // Print page 1 without the header and footer, for Documents that open with a cover.
+  disableCoverHeaderFooter: false,
 });
 
 // Print settings that are not element CSS and so stay out of the stylesheet.
 const NON_CSS_PRINT_KEYS = new Set([
   'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
   'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
-  'footerFontColor', 'footerAlign', 'enablePageNumbers',
+  'footerFontColor', 'footerAlign', 'enablePageNumbers', 'disableCoverHeaderFooter',
 ]);
 
 /**

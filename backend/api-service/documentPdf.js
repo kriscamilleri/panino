@@ -111,6 +111,19 @@ export function databaseGlobals(db) {
 }
 
 /**
+ * Print styles as the sync hash sees them. A setting added after syncs already stored
+ * hashes is left out while it has its default, so adding it does not re-send every
+ * synced PDF; switching it on still changes the hash.
+ * @param {object} printStyles
+ * @returns {object}
+ */
+function hashedPrintStyles(printStyles) {
+    if (printStyles?.disableCoverHeaderFooter === true) return printStyles;
+    const { disableCoverHeaderFooter: _omitted, ...rest } = printStyles || {};
+    return rest;
+}
+
+/**
  * @param {object} input
  * @param {import('better-sqlite3').Database} input.db the Document's database
  * @param {{ id: string, title: string, content: string, folder_id?: string|null }} input.note
@@ -151,7 +164,7 @@ export function buildDocumentPdfRequest({ db, note, globals = {}, now = new Date
     // What the PDF depends on, minus the date and time variables of the moment.
     const stable = applyDocumentVariables(markdown, { globals, now, formatDate: () => '', formatTime: () => '' });
     const hash = crypto.createHash('sha256')
-        .update(JSON.stringify([note.title, stable, request.cssStyles, request.printStyles]))
+        .update(JSON.stringify([note.title, stable, request.cssStyles, hashedPrintStyles(request.printStyles)]))
         .digest('hex');
     return { request, hash, styleSource: resolved.source, styleName: resolved.preset?.name ?? null };
 }

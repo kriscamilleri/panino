@@ -67,6 +67,33 @@ sources, Google Fonts through the font setting or `@import`, uploaded and `data:
 external images on public hosts (fetched and embedded by the server). Dropped: CSS `url()` to
 external hosts (hot-linked backgrounds), paper sizes other than A4 and Letter, and script.
 
+## First page (Disable Cover Header & Footer)
+
+The print header and footer are Puppeteer `displayHeaderFooter` templates. Chromium paints them
+over every page after the content, in a separate document, so a Document's CSS cannot hide
+them: a full-page cover background, `@page :first { margin: 0 }` and `@page` margin boxes all
+leave them in place (verified 2026-11-12).
+
+The print-style setting `disableCoverHeaderFooter` (off by default; a checkbox on the Print
+Styles page) prints page 1 without them. `renderHtmlToPdf` already makes a draft pass with
+empty templates to count pages for `%P`. It uses the same page, `@page` CSS and margins as
+the final pass, so its page 1 is the final page 1 without the header and footer.
+`withBareFirstPage` copies that page into the final PDF with pdf-lib, in place of the final
+page 1. If the two page counts differ, it logs a warning and leaves the final PDF unchanged.
+This needs no extra Chromium render. Page numbering is unchanged: page 2 still reads "2", and
+`%P` counts the cover. A style without a header or footer takes the single-pass path and the
+setting does nothing. The Odoo sync hash leaves the key out while it is off, so adding the
+setting did not re-send PDFs that were already synced.
+
+Two template gotchas cost time when building a cover-page template. Both concern the
+frontend's default `DOMPurify.sanitize`, which Export runs before the request is sent:
+
+- A `<style>` block must not be a Document's first node. It is parsed into `<head>` and
+  dropped. The backend sanitizer uses `FORCE_BODY` and keeps it, but the frontend drops it
+  first.
+- A `<style>` block is removed whole if its text contains `<` followed by a letter, `/` or
+  `!`, even inside a CSS comment.
+
 ## Puppeteer version gotchas (found bumping 22 -> 25 in DX-10)
 
 - `Browser.isConnected()` was removed; use the `browser.connected` boolean instead

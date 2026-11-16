@@ -74,6 +74,20 @@ newer npm that rejected a lockfile written by an older one. Regenerate a lockfil
 `npm ci` fails in CI but passes locally. The `node:24-*` Docker tags are still floating, so the
 backend image carries the same latent risk.
 
+If the Docker daemon cannot start (common in sandboxed agent containers: `iptables ...
+Permission denied`), run the stack natively instead; see README "Without Docker (native)". Key
+points for agents:
+
+- Install the exact `.nvmrc` Node, then `npm ci` in `shared/` (`--omit=dev`),
+  `backend/api-service/` (followed by `npm run native:setup`) and `frontend/`.
+- Start `node index.js` in `backend/api-service/` and `npx vite --port 5173` in `frontend/` as
+  background processes. A native backend does not read the root `.env`; set variables inline.
+- For browser validation, drive Puppeteer from `backend/api-service/node_modules` (its Chrome is
+  fetched by `native:setup`; it may need the system libraries listed in the backend Dockerfile).
+- Routes are hash-based (`http://localhost:5173/#/signup`). There is no seeded account: sign up a
+  throwaway user through the UI (`data-testid="signup-<field>-input"`, `signup-submit-button`).
+  With no Turnstile secret or site key set, no captcha appears.
+
 Root `.env` supplies backend settings; `frontend/.env` supplies Vite settings. Vite and the
 backend configure the cross-origin headers required by CR-SQLite WASM.
 
