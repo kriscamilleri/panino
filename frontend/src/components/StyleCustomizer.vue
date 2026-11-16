@@ -234,9 +234,19 @@
                       editableStyleMap[field.modelKey] === 'true'
                       "
                     @change="handleStyleChange(field.modelKey, $event.target.checked)"
+                    :aria-describedby="field.help ? `field-help-${field.id}` : undefined"
                     class="pn-checkbox"
                   />
                 </div>
+
+                <p
+                  v-if="field.help"
+                  :id="`field-help-${field.id}`"
+                  :data-testid="`field-help-${field.id}`"
+                  class="text-xs text-gray-500 dark:text-gray-400"
+                >
+                  {{ field.help }}
+                </p>
 
                 <p
                   v-if="fieldHint(field)"

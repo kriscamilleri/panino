@@ -98,6 +98,19 @@ describe("parseStyleValues", () => {
     expect(parseStyleValues({ headerFontSize: 12 }, "print").headerFontSize).toBe("12");
   });
 
+  it("round-trips disableCoverHeaderFooter through a named style as a boolean", () => {
+    const stored = serializeStyleValues({ disableCoverHeaderFooter: true }, "print");
+    expect(JSON.parse(stored).disableCoverHeaderFooter).toBe(true);
+    expect(parseStyleValues(stored, "print").disableCoverHeaderFooter).toBe(true);
+    expect(parseStyleValues({ disableCoverHeaderFooter: "true" }, "print").disableCoverHeaderFooter).toBe(true);
+    expect(parseStyleValues({ disableCoverHeaderFooter: "false" }, "print").disableCoverHeaderFooter).toBe(false);
+  });
+
+  it("reads disableCoverHeaderFooter as false for a style saved before it existed", () => {
+    const old = JSON.stringify({ printHeaderHtml: "Old", enablePageNumbers: true });
+    expect(parseStyleValues(old, "print").disableCoverHeaderFooter).toBe(false);
+  });
+
   it("returns the defaults for unreadable input", () => {
     expect(parseStyleValues("{not json", "preview")).toEqual({ ...DEFAULT_PREVIEW_STYLES });
     expect(parseStyleValues(null, "print")).toEqual({ ...DEFAULT_PRINT_STYLES });

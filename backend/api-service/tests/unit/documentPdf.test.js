@@ -2,6 +2,7 @@
 // the Odoo and AI agents add-ons. The Odoo add-on's own suite
 // (addons/odoo/tests/unit/syncPdf.test.js) still covers style resolution through its
 // re-export; this covers what core adds for other callers.
+import crypto from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { cleanupTestUser, setupTestUser } from '../testHelpers.js';
@@ -64,5 +65,32 @@ describe('documentPdf', () => {
         expect(buildDocumentPdfRequest({ db, note: note(markdown), pageSize: undefined }).hash).toBe(named.hash);
         expect(buildDocumentPdfRequest({ db, note: note('# A') }).styleName).toBeNull();
         expect(styleLibrary(db).presets.map((p) => p.name)).toEqual(['Memo']);
+    });
+
+    // Disable Cover Header & Footer (docs/specs/shipped/disable-cover-header-footer.md, U5/U6).
+    it('carries disableCoverHeaderFooter from a named style, and ticking it changes the sync hash', () => {
+        const insert = (name, styles) => db.prepare('INSERT INTO style_presets (id, kind, name, styles, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(uuidv4(), 'print', name, JSON.stringify(styles), now(), now());
+        insert('Proposal', { disableCoverHeaderFooter: true });
+        insert('Plain', {});
+        const proposal = buildDocumentPdfRequest({ db, note: note('---\nprint-style: Proposal\n---\n# A') });
+        const plain = buildDocumentPdfRequest({ db, note: note('---\nprint-style: Plain\n---\n# A') });
+        expect(proposal.request.printStyles.disableCoverHeaderFooter).toBe(true);
+        expect(plain.request.printStyles.disableCoverHeaderFooter).toBe(false);
+
+        db.prepare('UPDATE style_presets SET styles = ? WHERE name = ?').run(JSON.stringify({ disableCoverHeaderFooter: false }), 'Proposal');
+        const unticked = buildDocumentPdfRequest({ db, note: note('---\nprint-style: Proposal\n---\n# A') });
+        expect(unticked.hash).not.toBe(proposal.hash);
+    });
+
+    it('keeps the sync hash of an unticked style what it was before the setting existed', () => {
+        const markdown = '# Same as before';
+        const built = buildDocumentPdfRequest({ db, note: note(markdown) });
+        const { disableCoverHeaderFooter, ...previous } = built.request.printStyles;
+        expect(disableCoverHeaderFooter).toBe(false);
+        const before = crypto.createHash('sha256')
+            .update(JSON.stringify(['T', markdown, built.request.cssStyles, previous]))
+            .digest('hex');
+        expect(built.hash).toBe(before);
     });
 });

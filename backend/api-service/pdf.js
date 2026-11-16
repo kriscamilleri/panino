@@ -12,6 +12,7 @@
  * 3. Build HTML with @page rules and pagebreak helpers
  * 4. Run a draft pdf pass to resolve total pages for header/footer placeholders
  * 5. Render final PDF using Puppeteer's displayHeaderFooter templates
+ * 6. With "Disable Cover Header & Footer", swap in the draft's header-less page 1
  *
  * THREAT MODEL (docs/architecture/pdf-pipeline.md):
  * - Every authenticated user can get their own markup and CSS rendered by the
@@ -42,7 +43,7 @@ import { getDb } from './db.js';
 import { resolveSpaceAccess } from './spaces.js';
 import { resolveStoredImagePath } from './spaceStorage.js';
 import { parseInternalImageLink } from './imageLinks.js';
-import { PDFDocument } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, PDFStream } from 'pdf-lib';
 import { validatePrintStyles } from '@panino/content-merge/print-style-rules';
 import {
     sanitizeStylesheet,
@@ -167,13 +168,14 @@ const PRINT_STYLE_DEFAULTS = {
     footerHeight: '2.5cm',
     pageMargin: '2cm',
     enablePageNumbers: true,
+    disableCoverHeaderFooter: false,
 };
 
 const EXCLUDE_STYLE_KEYS = new Set([
     'customCSS', 'googleFontFamily', 'printHeaderHtml', 'printFooterHtml',
     'headerFontSize', 'headerFontColor', 'headerAlign', 'footerFontSize',
     'footerFontColor', 'footerAlign', 'enablePageNumbers', 'headerHeight',
-    'footerHeight', 'pageMargin', 'pageSize',
+    'footerHeight', 'pageMargin', 'pageSize', 'disableCoverHeaderFooter',
 ]);
 
 function fontsQuery(googleFontFamily) {
@@ -649,6 +651,91 @@ async function countPdfPages(buffer) {
 }
 
 /**
+ * The final PDF with its first page swapped for the draft's first page, which was laid
+ * out identically but with empty header and footer templates ("Disable Cover Header &
+ * Footer"). The final document is changed in place so its document-level info is kept.
+ * When the two page counts differ, or there are no pages, the final PDF is returned as it
+ * is: a page from a different layout must never replace the cover.
+ *
+ * Exported for tests.
+ *
+ * @param {Uint8Array|Buffer} final the PDF rendered with the real header and footer
+ * @param {Uint8Array|Buffer} bare the draft PDF rendered with empty templates
+ * @returns {Promise<Buffer>}
+ */
+export async function withBareFirstPage(final, bare) {
+    const [finalDoc, bareDoc] = await Promise.all([PDFDocument.load(final), PDFDocument.load(bare)]);
+    if (finalDoc.getPageCount() !== bareDoc.getPageCount() || finalDoc.getPageCount() === 0) {
+        logWarn('First page kept: draft and final page counts differ');
+        return Buffer.from(final);
+    }
+    const oldPage = finalDoc.getPage(0);
+    const [first] = await finalDoc.copyPages(bareDoc, [0]);
+    finalDoc.removePage(0);
+    finalDoc.insertPage(0, first);
+
+    // Chromium writes a tagged PDF whose structure elements name their page with /Pg.
+    // Both passes give page 1 the same StructParents and marked-content ids (the header
+    // and footer are untagged), so pointing those entries at the new page keeps the tags
+    // valid.
+    repointPageRefs(finalDoc.context, oldPage.ref, first.ref);
+    // pdf-lib writes every object it holds, so the old page and anything only it used (a
+    // full-page cover image, say) would otherwise be stored twice.
+    dropUnreachableObjects(finalDoc.context);
+    return Buffer.from(await finalDoc.save());
+}
+
+/** Visit a PDF value and everything inside it, without following references. */
+function walkPdfValue(value, onDict, onRef, seen = new Set()) {
+    if (value instanceof PDFRef) {
+        onRef(value);
+        return;
+    }
+    if (value instanceof PDFStream) value = value.dict;
+    if (!(value instanceof PDFDict) && !(value instanceof PDFArray)) return;
+    if (seen.has(value)) return;
+    seen.add(value);
+    if (value instanceof PDFDict) {
+        onDict(value);
+        for (const [, child] of value.entries()) walkPdfValue(child, onDict, onRef, seen);
+    } else {
+        for (const child of value.asArray()) walkPdfValue(child, onDict, onRef, seen);
+    }
+}
+
+/** Delete every indirect object that the trailer (catalog, info) no longer reaches. */
+function dropUnreachableObjects(context) {
+    const reached = new Set();
+    const pending = [];
+    const onRef = (ref) => {
+        if (reached.has(ref)) return;
+        reached.add(ref);
+        pending.push(ref);
+    };
+    const { Root, Info, Encrypt } = context.trailerInfo;
+    for (const root of [Root, Info, Encrypt]) {
+        if (root instanceof PDFRef) onRef(root);
+        else if (root) walkPdfValue(root, () => {}, onRef);
+    }
+    while (pending.length) {
+        walkPdfValue(context.lookup(pending.pop()), () => {}, onRef);
+    }
+    for (const [ref] of context.enumerateIndirectObjects()) {
+        if (!reached.has(ref)) context.delete(ref);
+    }
+}
+
+/** Replace every `/Pg from` entry, in any object of the document, with `/Pg to`. */
+function repointPageRefs(context, from, to) {
+    const PG = PDFName.of('Pg');
+    const seen = new Set();
+    const onDict = (dict) => {
+        if (dict.get(PG) === from) dict.set(PG, to);
+    };
+    for (const [, object] of context.enumerateIndirectObjects()) walkPdfValue(object, onDict, () => {}, seen);
+}
+
+/**
  * Render a finished HTML document to a PDF in a contained page: JavaScript off and every
  * request outside the allow-list aborted. Exported for the integration tests, which
  * feed it raw HTML to prove the containment without the sanitizers in front of it.
@@ -657,10 +744,12 @@ async function countPdfPages(buffer) {
  * @param {object} options
  * @param {object} options.pdfOptions Puppeteer `page.pdf()` options without templates
  * @param {{ header: (totalPages: string|null) => string, footer: (totalPages: string|null) => string } | null} options.headerFooter
+ * @param {boolean} [options.skipFirstPageHeaderFooter] print page 1 without the header and
+ *   footer, using the draft pass's page 1; ignored when there is no header or footer
  * @param {object|null} [job] queue job; its `aborted` flag is honoured and it owns the context
  * @returns {Promise<Buffer>}
  */
-export async function renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter }, job = null) {
+export async function renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter, skipFirstPageHeaderFooter = false }, job = null) {
     const browser = await getBrowser();
     if (job?.aborted) throw new Error('Job aborted before rendering');
     const context = await browser.createBrowserContext();
@@ -716,6 +805,9 @@ export async function renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter }, jo
             headerTemplate: headerFooter.header(totalPagesText) || '<span></span>',
             footerTemplate: headerFooter.footer(totalPagesText) || '<span></span>',
         });
+        // The draft has the same page, @page CSS and margins, so its page 1 is the final
+        // page 1 without the header and footer. No extra Chromium render is needed.
+        if (skipFirstPageHeaderFooter) return await withBareFirstPage(pdfBuffer, draftBuffer);
         return Buffer.from(pdfBuffer);
     } finally {
         if (job && job.context === context) job.context = null;
@@ -874,7 +966,9 @@ async function producePdf(job) {
         ),
     } : null;
 
-    const pdfBuffer = await renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter }, job);
+    const skipFirstPageHeaderFooter = Boolean(headerFooter) && processedPrintStyles.disableCoverHeaderFooter === true;
+
+    const pdfBuffer = await renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter, skipFirstPageHeaderFooter }, job);
 
     // The job may have been abandoned by the deadline while rendering.
     if (job.aborted) return undefined;

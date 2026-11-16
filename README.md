@@ -235,6 +235,17 @@ Notes:
   `backend/api-service/Dockerfile`. If it fails with `libnspr4.so: cannot open shared object file`,
   install them with your package manager, for example
   `sudo apt-get install libnss3 libnspr4 libgbm1 libgtk-3-0 libasound2t64 libxss1 libxtst6 fonts-liberation`.
+  Without root, unpack the same packages' `.deb` files (`dpkg-deb -x pkg.deb <dir>`) into a
+  scratch directory and start the backend and tests with
+  `LD_LIBRARY_PATH=<dir>/usr/lib/x86_64-linux-gnu`. Check what is still missing with
+  `ldd <chrome> | grep "not found"`.
+- With no fonts installed (no `/etc/fonts`), Chrome lays every PDF out as a single page, and the
+  page-count tests fail on unchanged code. Unpack `fonts-liberation` too and point
+  `FONTCONFIG_FILE` at a minimal `fonts.conf` whose `<dir>` is the unpacked
+  `usr/share/fonts`.
+- `backend/api-service/data/` is hardcoded in `db.js`. To keep a throwaway dev run away from a
+  checkout's existing databases, run the backend from a copy of `backend/api-service` (symlink
+  its `node_modules`, and put `shared/` next to it).
 
 #### Signing in locally
 

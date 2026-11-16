@@ -9,7 +9,9 @@ import {
     validatePrintStyleValue,
     validatePrintStyles,
     PRINT_ELEMENT_KEYS,
+    PRINT_SETTING_KEYS,
 } from '../printStyleRules.js';
+import { buildPrintCss, DEFAULT_PRINT_STYLES } from '../styleDefaults.js';
 
 const DEFAULTS = {
     h1: 'font-size: 2rem;',
@@ -28,6 +30,7 @@ const DEFAULTS = {
     footerHeight: '2.5cm',
     pageMargin: '2cm',
     enablePageNumbers: true,
+    disableCoverHeaderFooter: false,
 };
 
 describe('parseLength', () => {
@@ -107,6 +110,32 @@ describe('validatePrintStyleValue', () => {
     it('coerces enablePageNumbers to a boolean', () => {
         expect(validatePrintStyleValue('enablePageNumbers', 'true')).toEqual({ ok: true, value: true });
         expect(validatePrintStyleValue('enablePageNumbers', 'yes')).toEqual({ ok: true, value: false });
+    });
+
+    describe('disableCoverHeaderFooter', () => {
+        it('is an accepted setting, off by default', () => {
+            expect(PRINT_SETTING_KEYS).toContain('disableCoverHeaderFooter');
+            expect(DEFAULT_PRINT_STYLES.disableCoverHeaderFooter).toBe(false);
+        });
+        it('coerces true, "true", 1 and "1" to true', () => {
+            for (const v of [true, 'true', 1, '1']) {
+                expect(validatePrintStyleValue('disableCoverHeaderFooter', v), String(v)).toEqual({ ok: true, value: true });
+            }
+        });
+        it('coerces false and anything else to false', () => {
+            for (const v of [false, 'false', 0, '0', 'yes', 'TRUE ', 2, {}, []]) {
+                expect(validatePrintStyleValue('disableCoverHeaderFooter', v), JSON.stringify(v)).toEqual({ ok: true, value: false });
+            }
+        });
+        it('round-trips through validatePrintStyles and a missing key reads as off', () => {
+            expect(validatePrintStyles({ disableCoverHeaderFooter: 'true' }, DEFAULTS).styles.disableCoverHeaderFooter).toBe(true);
+            expect(validatePrintStyles({}, DEFAULTS).styles.disableCoverHeaderFooter).toBe(false);
+        });
+        it('never reaches the generated stylesheet', () => {
+            const css = buildPrintCss({ ...DEFAULT_PRINT_STYLES, disableCoverHeaderFooter: true });
+            expect(css).not.toMatch(/disableCoverHeaderFooter/);
+            expect(css).toMatch(/h1 \{/);
+        });
     });
 });
 
