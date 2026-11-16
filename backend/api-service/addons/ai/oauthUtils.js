@@ -1,4 +1,4 @@
-// Pure OAuth 2.1 helpers for the AI agents add-on (docs/specs/active/ai-integration.md §6).
+// Pure OAuth 2.1 helpers for the AI agents add-on (docs/specs/shipped/ai-integration.md §6).
 // No database, network or Express here, so every rule is unit tested.
 import crypto from 'crypto';
 import { validateName } from './keyUtils.js';

@@ -776,7 +776,7 @@ async function send() {
             noteId: file.value.id,
             title: file.value.title,
         }
-        if (wantsDocuments.value || wantsChatter.value) body.pdfRequest = await buildForSelected()
+        if (wantsDocuments.value || wantsChatter.value) body.pdfRequest = await buildForSelected({ documentLinks: 'pdf' })
         if (wantsDocuments.value) body.documents = documentsLink.value ? {} : { folderId: folderId.value }
         // What was ticked when Send was pressed; a sync set up below changes the computeds.
         const wanted = { documents: wantsDocuments.value, knowledge: wantsKnowledge.value, chatter: wantsChatter.value }

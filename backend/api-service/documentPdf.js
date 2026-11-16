@@ -134,9 +134,12 @@ function hashedPrintStyles(printStyles) {
  *   (pdf.js). Pass `sanitizeExportHtml` for a request identical to the browser's.
  * @param {string} [input.pageSize] 'A4' or 'Letter' for this export only; default the
  *   print style's
+ * @param {'pdf'|'text'} [input.documentLinks] how links to other Documents render
+ *   (shared/documentLinks.js): `'text'` by default; `'pdf'` marks them so `renderPdf`
+ *   can link them to the web app when its caller passes `appLinks`
  * @returns {{ request: { htmlContent: string, cssStyles: string, printStyles: object }, hash: string, styleSource: string, styleName: string|null }}
  */
-export function buildDocumentPdfRequest({ db, note, globals = {}, now = new Date(), sanitize = (fragment) => fragment, pageSize }) {
+export function buildDocumentPdfRequest({ db, note, globals = {}, now = new Date(), sanitize = (fragment) => fragment, pageSize, documentLinks = 'text' }) {
     const markdown = note.content || '';
     const names = readDocumentStyleNames(markdown);
     const library = styleLibrary(db);
@@ -149,8 +152,8 @@ export function buildDocumentPdfRequest({ db, note, globals = {}, now = new Date
     });
     const styles = resolved.preset ? resolved.preset.values : accountPrintStyles(db);
 
-    const md = applyStyleMap(createDocumentRenderer(), styles);
-    const html = md.render(applyDocumentVariables(markdown, { globals, now }));
+    const md = applyStyleMap(createDocumentRenderer({ documentLinks: documentLinks === 'pdf' ? 'pdf' : 'text' }), styles);
+    const html = md.render(applyDocumentVariables(markdown, { globals, now }), { documentId: note.id });
     const request = buildPdfRequest({
         html,
         cssStyles: buildPrintCss(styles),

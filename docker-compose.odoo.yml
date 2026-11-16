@@ -1,5 +1,5 @@
 # Local Odoo for developing the Odoo integration
-# (docs/specs/active/odoo-integration.md). Start it with `scripts/odoo-dev.sh`.
+# (docs/specs/shipped/odoo-integration.md). Start it with `scripts/odoo-dev.sh`.
 #
 # - `odoo`: Odoo 19 Community, http://localhost:8019, `http://odoo:8069` from the
 #   API container. CRM and Sales (chatter destination) and the JSON-2 API.

@@ -1,4 +1,4 @@
-// Image operations of the v1 API (docs/specs/proposed/ai-api-expansion.md §4.5): list,
+// Image operations of the v1 API (docs/specs/shipped/ai-api-expansion.md §4.5): list,
 // read, usage, upload and delete-if-unused, per database (personal or a space).
 // Storing, listing, usage and deletion are the app's own functions in image.js, so the
 // limits, quota, upload roots and UUID storage names are the app's. On top of them the

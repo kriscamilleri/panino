@@ -145,6 +145,8 @@
                     <span class="button-text">Page&nbsp;Break</span>
                 </button>
 
+                <TocMenuButton />
+
                 <div class="separator"></div>
 
                 <button
@@ -321,6 +323,7 @@
                     />
                     <span class="button-text">Scroll&nbsp;Sync</span>
                 </BaseButton>
+                <TypewriterMenuControls />
 
                 <div class="separator"></div>
 
@@ -451,6 +454,13 @@
                     <Braces class="w-4 h-4" /><span class="button-text">Variables</span>
                 </BaseButton>
 
+                <BaseButton
+                    @click="tagStore.openManager(docStore.selectedDbKey)"
+                    data-testid="submenu-tools-tags"
+                >
+                    <Tags class="w-4 h-4" /><span class="button-text">Tags</span>
+                </BaseButton>
+
                 <div class="separator" />
 
                 <BaseButton
@@ -495,7 +505,10 @@ import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useAddonsStore } from '@/store/addonsStore'
 import AddonActions from '@/components/addons/AddonActions.vue'
+import { useTagStore } from '@/store/tagStore'
+import TocMenuButton from '@/components/TocMenuButton.vue'
 import BaseButton from '@/components/BaseButton.vue'
+import TypewriterMenuControls from '@/components/TypewriterMenuControls.vue'
 import {
     Folder,
     History,
@@ -534,6 +547,7 @@ import {
     LockKeyhole,
     UnlockKeyhole,
     FileText,
+    Tags,
 } from 'lucide-vue-next'
 
 const ui = useUiStore()
@@ -541,6 +555,7 @@ const editorStore = useEditorStore()
 const router = useRouter()
 const docStore = useDocStore()
 const syncStore = useSyncStore()
+const tagStore = useTagStore()
 const { selectedFileId } = storeToRefs(docStore)
 const { isOnline } = storeToRefs(syncStore)
 const { isEditorAvailable } = storeToRefs(editorStore)

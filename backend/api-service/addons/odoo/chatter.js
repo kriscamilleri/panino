@@ -1,6 +1,6 @@
 /**
  * Send a Document's PDF to the chatter of an opportunity or a sales order
- * (docs/specs/active/odoo-integration.md §5, §6). The PDF is posted as an
+ * (docs/specs/shipped/odoo-integration.md §5, §6). The PDF is posted as an
  * internal note, so the customer is never emailed. Sending again to the same
  * record overwrites the PDF on that note and posts a short "replaced" note.
  *

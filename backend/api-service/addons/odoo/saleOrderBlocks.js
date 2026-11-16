@@ -1,5 +1,5 @@
 /**
- * Sales order blocks (docs/specs/active/odoo-sales-order-blocks.md): read a
+ * Sales order blocks (docs/specs/shipped/odoo-sales-order-blocks.md): read a
  * sales order and its lines from Odoo so the client can write them into a
  * Document as tables. Read only; nothing here writes to Odoo.
  *

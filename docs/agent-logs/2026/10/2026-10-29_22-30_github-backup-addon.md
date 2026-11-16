@@ -9,7 +9,7 @@
 Kris set a principle: every integration with an outside service is an add-on. Move GitHub
 backup out of core and onto the add-on framework built in
 [`2026-10-29_21-00_addon-folders.md`](2026-10-29_21-00_addon-folders.md). Spec:
-[`github-integration.md`](../../../specs/active/github-integration.md).
+[`github-integration.md`](../../../specs/shipped/github-integration.md).
 
 ## Progress
 
@@ -56,7 +56,7 @@ backup out of core and onto the add-on framework built in
   `schema.upgrade` in `tests/integration/addonsRegistry.test.js` and for `surfaces` in
   `frontend/tests/unit/addonContributions.test.js`; Odoo's add-on test and `db.test.js` no
   longer assume Odoo is the only add-on or that `backup_config` is core.
-- Docs: `docs/specs/active/github-integration.md` (new), `addon-folders.md`, `addons.md`,
+- Docs: `docs/specs/shipped/github-integration.md` (new), `addon-folders.md`, `addons.md`,
   `shipped/github-backup.md`, `architecture/data-model.md`, `README.md`, both `AGENTS.md` files.
 
 ## Tests

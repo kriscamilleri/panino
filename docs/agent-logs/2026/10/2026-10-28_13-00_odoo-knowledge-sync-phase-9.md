@@ -6,7 +6,7 @@
 
 ## Objective
 
-Phase 9 of [`docs/specs/active/odoo-integration.md`](../../../specs/active/odoo-integration.md) §11:
+Phase 9 of [`docs/specs/shipped/odoo-integration.md`](../../../specs/shipped/odoo-integration.md) §11:
 keep a folder or a single Document mirrored into Odoo Knowledge, one way, with change
 detection, archiving, read-only articles, a scheduler and a status card.
 

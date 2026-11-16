@@ -1,6 +1,6 @@
 /**
  * The add-ons that ship with this app, one import per add-on
- * (docs/specs/active/addon-folders.md). A manifest says how an add-on appears;
+ * (docs/specs/shipped/addon-folders.md). A manifest says how an add-on appears;
  * whether it is offered and on is the server's answer (addonsStore). Core
  * components read manifests from here and never import an add-on directly.
  *

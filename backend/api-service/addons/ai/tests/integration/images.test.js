@@ -1,4 +1,4 @@
-// Images in the v1 API and MCP (docs/specs/proposed/ai-api-expansion.md §4.5).
+// Images in the v1 API and MCP (docs/specs/shipped/ai-api-expansion.md §4.5).
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';

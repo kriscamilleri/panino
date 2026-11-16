@@ -52,7 +52,7 @@
 /**
  * The actions add-ons contribute to the desktop Add-ons menu (`surface="toolbar"`)
  * or the phone Document menu (`surface="menu"`), from their manifests
- * (docs/specs/active/addon-folders.md §6.2). An action is absent while its add-on
+ * (docs/specs/shipped/addon-folders.md §6.2). An action is absent while its add-on
  * is off, and disabled while what it `requires` is missing:
  *   online    the app has a connection (syncStore.isOnline)
  *   document  a Document is selected

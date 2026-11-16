@@ -1,0 +1,126 @@
+{
+  "results": [
+    {
+      "name": "U1 marker and outline numbers written after the H1",
+      "ok": true,
+      "detail": "\"# Plan\\n\\n<!-- panino:toc {\\\"v\\\":1,\\\"min\\\":2,\\\"max\\\":3} -->\\n**Contents**\\n\\n- 1 [Intro](#intro)\\n  - 1.1 [Background](#background)\\n- 2 [Budget](#budget)\\n<!-- /panino:toc -\""
+    },
+    {
+      "name": "U1 Preview list has no bullets and no nested gaps",
+      "ok": true,
+      "detail": "{\"list\":\"none\",\"nestedTop\":\"0px\"}"
+    },
+    {
+      "name": "U2 heading link scrolls without routing",
+      "ok": true,
+      "detail": "{\"hash\":\"#/doc/ebaff8e2-c053-44c0-8aaf-9bab5ba0cebd?dbKey=user:ca60f9db-d0ba-4038-89a1-6e06b05c9568\",\"active\":\"pn-background\"}"
+    },
+    {
+      "name": "U3 stale bar within a second",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "U3 Refresh lists Risks and the bar goes",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "U3 one Undo restores the old table",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "U7 [[#bud writes [Budget](#budget)",
+      "ok": true,
+      "detail": "\"\\nMoney.\\n\\n## Risks\\n\\nSee [Budget](#budget)\""
+    },
+    {
+      "name": "U8 [[proj writes a panino:doc link",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "U10 tooltip shows the current title and location",
+      "ok": true,
+      "detail": "Project plan — No folder"
+    },
+    {
+      "name": "U8 Document link opens the other Document with dbKey",
+      "ok": true,
+      "detail": "#/doc/d26dd509-7219-4254-bd76-9efddbb6bfe1?dbKey=user:ca60f9db-d0ba-4038-89a1-6e06b05c9568"
+    },
+    {
+      "name": "U8 Back returns to the first Document",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "U9 Document then # writes a heading link",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "U9 opens at the heading",
+      "ok": true,
+      "detail": "{\"hash\":\"#/doc/d26dd509-7219-4254-bd76-9efddbb6bfe1?dbKey=user:ca60f9db-d0ba-4038-89a1-6e06b05c9568&heading=budget\",\"active\":\"pn-budget\"}"
+    },
+    {
+      "name": "U13 Ctrl+K opens the picker with the selection",
+      "ok": true,
+      "detail": "Some"
+    },
+    {
+      "name": "U16 #/ link inert with the title, hostile heading listed as text, no script",
+      "ok": true,
+      "detail": "{\"text\":\"Click\",\"title\":\"Links to Panino screens aren't supported\"}"
+    },
+    {
+      "name": "U16 clicking it does not navigate",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "U12 PDF request marks the resolved Document link and keeps heading anchors",
+      "ok": true,
+      "detail": "9758 bytes"
+    },
+    {
+      "name": "U17 deep link without dbKey is looked up and dbKey added",
+      "ok": true,
+      "detail": "#/doc/d26dd509-7219-4254-bd76-9efddbb6bfe1?dbKey=user:ca60f9db-d0ba-4038-89a1-6e06b05c9568"
+    },
+    {
+      "name": "U17 unknown id shows \"isn't available\" with Go to Home",
+      "ok": true,
+      "detail": "This Document isn't available. It may have been deleted, or it isn't shared with you.Go to Home"
+    },
+    {
+      "name": "U6 phone menu offers Refresh table of contents",
+      "ok": true,
+      "detail": "Refresh table of contents"
+    },
+    {
+      "name": "Phone Contents options opens ?sheet=toc",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Phone heading link focuses the heading and scrolls only the Preview",
+      "ok": true,
+      "detail": "{\"before\":{\"preview\":0,\"shell\":0,\"win\":0},\"after\":{\"preview\":85,\"shell\":0,\"win\":0},\"active\":\"pn-budget\"}"
+    },
+    {
+      "name": "No unexpected console errors",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}

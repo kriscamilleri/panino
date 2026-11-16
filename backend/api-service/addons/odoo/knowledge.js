@@ -1,5 +1,5 @@
 /**
- * Send a Document to Odoo Knowledge as an article (docs/specs/active/odoo-integration.md
+ * Send a Document to Odoo Knowledge as an article (docs/specs/shipped/odoo-integration.md
  * §5, §6, §7). The client renders the Markdown the way the Preview does; this module
  * sanitizes it again, turns task lists into Knowledge checklists, drops a leading
  * heading that repeats the title, and replaces images with placeholders (Phase 6

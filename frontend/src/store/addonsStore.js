@@ -6,7 +6,7 @@ const IS_PROD = import.meta.env.PROD;
 const API_BASE = IS_PROD ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
 
 /**
- * Add-ons (docs/specs/active/addons.md): the integrations this server offers
+ * Add-ons (docs/specs/shipped/addons.md): the integrations this server offers
  * and which of them the user switched on. An add-on is active when it is in the
  * list (offered) and `enabled`; every add-on entry point renders only then.
  */

@@ -22,7 +22,7 @@ URLs.
 
 ## Changes Made
 
-- Added [`docs/specs/active/document-folder-image-import.md`](../../specs/active/document-folder-image-import.md).
+- Added [`docs/specs/shipped/document-folder-image-import.md`](../../../specs/shipped/document-folder-image-import.md).
 - Added safe local image reference parsing and selective rewriting in
   [`frontend/src/utils/importUtils.js`](../../../../frontend/src/utils/importUtils.js).
 - Added source-folder enumeration plus linked-image upload/import orchestration in

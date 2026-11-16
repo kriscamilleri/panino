@@ -49,7 +49,7 @@ Odoo frontend (`frontend/src/addons/odoo/`):
   `store.js` (`fetchOverview`, `resend`); `OdooSettingsCard.vue` (Overview, desktop and phone);
   `OdooSyncsCard.vue` (Open overview in a space, every failure named, not three).
 
-Docs: `docs/specs/proposed/odoo-overview.md` (a page; phases; limits), both Odoo READMEs.
+Docs: `docs/specs/shipped/odoo-overview.md` (a page; phases; limits), both Odoo READMEs.
 
 ## Tests
 

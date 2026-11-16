@@ -1,5 +1,5 @@
 /**
- * Odoo Knowledge syncs (docs/specs/active/odoo-integration.md §11): a folder, a
+ * Odoo Knowledge syncs (docs/specs/shipped/odoo-integration.md §11): a folder, a
  * single Document or a whole space mirrored one way into Knowledge, under one
  * parent article. A run reads the server copy of the database, renders every
  * Document the way the Preview does (shared/markdownRender.js), hashes

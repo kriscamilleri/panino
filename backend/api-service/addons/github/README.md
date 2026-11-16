@@ -3,9 +3,9 @@
 Backs up a user's personal Documents, folders and images to a GitHub repository they choose:
 by hand, or once a day after a personal sync.
 
-- Spec: [`docs/specs/active/github-integration.md`](../../../../docs/specs/active/github-integration.md);
+- Spec: [`docs/specs/shipped/github-integration.md`](../../../../docs/specs/shipped/github-integration.md);
   the backup itself in [`docs/specs/shipped/github-backup.md`](../../../../docs/specs/shipped/github-backup.md).
-- How add-ons plug into core: [`docs/specs/active/addon-folders.md`](../../../../docs/specs/active/addon-folders.md).
+- How add-ons plug into core: [`docs/specs/shipped/addon-folders.md`](../../../../docs/specs/shipped/addon-folders.md).
 - The app side lives in [`frontend/src/addons/github/`](../../../../frontend/src/addons/github/).
 
 ## Manifest (`index.js`)

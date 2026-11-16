@@ -5,9 +5,9 @@ REST API, an MCP server, and OAuth 2.1 sign-in for MCP clients ("connected apps"
 `AI_ADDON_ENABLED=true`; each user switches it on. While a user's switch is off, every key and
 connected app of theirs is refused (403 `ADDON_DISABLED`) and nothing is deleted.
 
-- Spec: [`docs/specs/active/ai-integration.md`](../../../../docs/specs/active/ai-integration.md)
-  (keys and v1 rules: [`llm-api.md`](../../../../docs/specs/active/llm-api.md); properties, folders,
-  Trash, revisions, images, templates and PDF: [`ai-api-expansion.md`](../../../../docs/specs/proposed/ai-api-expansion.md))
+- Spec: [`docs/specs/shipped/ai-integration.md`](../../../../docs/specs/shipped/ai-integration.md)
+  (keys and v1 rules: [`llm-api.md`](../../../../docs/specs/shipped/llm-api.md); properties, folders,
+  Trash, revisions, images, templates and PDF: [`ai-api-expansion.md`](../../../../docs/specs/shipped/ai-api-expansion.md))
 - How it works: [`docs/architecture/public-api.md`](../../../../docs/architecture/public-api.md)
 
 ## Manifest fields used
@@ -38,8 +38,8 @@ answers 503 without them).
 | `schema.js` | Auth database: `api_keys`, `ai_oauth_clients`, `ai_oauth_requests`, `ai_oauth_grants`, `ai_oauth_codes`. Content databases (user and space): `ai_trash_origins` |
 | `routes.js` | Composes the public and session routers |
 | `serviceCore.js` | Shared rules of every operation: databases an agent reaches, row shapes, write rules (scope, live sessions, expected versions, size, revisions, announcing changes) |
-| `documentService.js`, `documentText.js` | Documents: account, spaces, tree, search, list, read (whole, by lines, by section), outline, create, replace, exact edits, insertion, append; pure text helpers |
-| `propertyService.js`, `propertyText.js`, `authorship.js` | Properties: built-in (word count, created and modified on and by, from revision history) and front matter; the filter language |
+| `documentService.js`, `documentText.js` | Documents: account, spaces, tree, search, list, read (whole, by lines, by section), outline, create, replace, exact edits, insertion, append; pure text helpers. The search query language, its term helpers and the word count are in `shared/searchText.js`, and the Trash rule and folder walks in `shared/trashFolder.js`, so the app's search reads a query the same way; `documentText.js` and `keyUtils.js` re-export the old names |
+| `propertyService.js`, `propertyText.js`, `authorship.js` | Properties: built-in (word count, created and modified on and by, from revision history) and front matter; the filter language (in `shared/propertyFilter.js`, re-exported by `propertyText.js`); `searchByProperties`, the property scan behind a search's `prop:` parts |
 | `folderService.js` | Folders and Trash: create, read, rename, move, trash, list Trash, restore (with `ai_trash_origins`) |
 | `revisionService.js`, `lineDiff.js` | Revision history: list, read, compare (Myers line diff), save a checkpoint, restore (core `restoreNoteRevision`) |
 | `imageService.js` | Images: list, read, usage, upload (core `storeImage`, plus a content check), delete if unused |
@@ -51,3 +51,25 @@ answers 503 without them).
 | `keys.js`, `keyUtils.js` | Key management routes and lookup; pure helpers |
 | `oauth.js`, `oauthClients.js`, `oauthUtils.js` | Authorization server, client resolution (metadata documents through `safeFetch.js`, DCR), pure helpers |
 | `tests/` | `unit/` (helpers, tool schemas), `integration/` (gate, REST, MCP, OAuth), `perf/` (opt-in load benchmark on an 87 MB account: `PANINO_PERF=1`, see the file's header), `aiTestSetup.js` |
+
+## Search
+
+`search_documents` / `GET /addons/ai/v1/search?q=` read `q` with the app's query language
+(`docs/specs/active/advanced-search.md` §4, §6.5). Every part must match; existing word and
+phrase queries give the same results as before. One example per part:
+
+| Part | Example | Notes |
+|---|---|---|
+| words, `"phrases"` | `budget "quarterly review"` | the `in` parameter (`all` / `title` / `content`) still says which fields plain words must occur in |
+| `title:` | `title:"team sync"` | the title only, whatever `in` says |
+| `in:` | `in:Projects/2026`, `in:"Acme Team/Contracts"` | that folder and below; a space name may lead (`My Notes` for the personal database); with `folderId`, only Documents in both |
+| `is:checklist` | `is:checklist` | at least one checklist item (SQL function `panino_has_checklist`, the shared rule) |
+| `prop:` | `prop:status=draft`, `prop:"due <= 2026-12-01"`, `prop:status="in progress"` | one property filter condition; also `word_count`, `created_on`, `modified_on`, `created_by`, `modified_by`. Goes through the property scan (5000 Documents per database, `truncated`, `scanned`) |
+| `-` | `-"old draft"`, `-in:Archive`, `-prop:status=done` | excludes, but only before a letter or a quote: `-5`, `--` and `-` alone stay words. Quote anything to search it literally: `"title:"`, `"-draft"` |
+| `in:Trash` | `budget in:Trash` | Trash is left out unless asked: `in:Trash`, `includeTrash`, or a `folderId` inside it |
+| `tag:` | `tag:urgent`, `tag:"to do"`, `-tag:archived` | a tag of the front matter `tags` list (`readTags`, canonical: case and spacing ignored). Goes through the property scan like `prop:` (`truncated`, `scanned`); the app answers it from its metadata index |
+
+A part that cannot be read is skipped and explained in `notices`; a query of exclusions only is
+refused (400). The parity tests in `tests/integration/searchLanguage.test.js` run the app's
+engine (`@panino/content-merge/document-search`) on the same databases and expect the same
+Documents in the same order.

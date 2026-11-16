@@ -21,7 +21,7 @@ refresh. Keep the add-on self-contained so it is easy to switch off or remove.
   `price_subtotal` and `display_type` ∈ {`line_section`, `line_subsection`, `line_note`};
   descriptions contain newlines; many2many fields come back as bare ids, so names are read
   separately.
-- Spec: `docs/specs/active/odoo-sales-order-blocks.md`.
+- Spec: `docs/specs/shipped/odoo-sales-order-blocks.md`.
 - The add-ons gate test walks `odooRoutes.stack` for layers with a `.route`, so the new routes
   are registered directly on that router (via `registerSaleOrderBlockRoutes(odooRoutes, …)`), not
   on a nested router the test would not see.

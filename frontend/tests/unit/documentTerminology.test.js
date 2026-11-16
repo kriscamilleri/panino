@@ -12,7 +12,8 @@ describe("document terminology", () => {
     const treeItem = source("../../src/components/TreeItem.vue");
 
     expect(documentsPane).toContain('title="New Document"');
-    expect(documentsPane).toContain('placeholder="Search documents and folders..."');
+    // The sidebar's name filter became the search panel (advanced-search.md §5.1).
+    expect(source("../../src/components/SearchPanel.vue")).toContain('placeholder="Search Documents…"');
     expect(dashboard).toContain('title="Create New Document"');
     expect(dashboard).toContain('label="Document name"');
     expect(treeItem).toContain("<span>New Document</span>");

@@ -4,7 +4,7 @@
 - **Started:** 2026-10-26 21:30
 - **Status:** Phases 0, 1 and 2 done; Phase 3 (PDF to an opportunity or sales order) next
 - **Branch:** `feature/odoo-integration` (off `develop`)
-- **Spec:** `docs/specs/active/odoo-integration.md`
+- **Spec:** `docs/specs/shipped/odoo-integration.md`
 
 ## Objective
 
@@ -87,7 +87,7 @@ spec assumed (Phase 0), and let a user connect their account to Odoo 19+ (Phase 
 ## Open Items / Notes
 
 - Phase 3 (PDF to an opportunity or sales order) is next.
-- 2026-10-27: Odoo became an optional add-on (`docs/specs/proposed/addons.md`). The add-on
+- 2026-10-27: Odoo became an optional add-on (`docs/specs/shipped/addons.md`). The add-on
   framework is the new Phase 3 of the Odoo spec; chatter and everything after moved up one.
 - In the dev stack "Open in Odoo" points at `http://odoo-enterprise:8069`, the container address
   the connection uses; a browser on the host needs `localhost:8020`. Production connections use
@@ -100,5 +100,5 @@ spec assumed (Phase 0), and let a user connect their account to Odoo 19+ (Phase 
   probe root" articles, probe documents). Local demo data only.
 - The Enterprise `.deb` used to build `panino-odoo-enterprise:20.0` sits in the session scratchpad;
   keep a copy outside the repository to rebuild the image later.
-- `docs/specs/proposed/tag-system.md` has an unrelated uncommitted rewrite from elsewhere; left
+- `docs/specs/active/tag-system.md` has an unrelated uncommitted rewrite from elsewhere; left
   untouched.

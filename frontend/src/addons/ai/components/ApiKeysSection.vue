@@ -296,7 +296,7 @@
 
 <script setup>
 /**
- * API keys, in the AI agents add-on's settings card (docs/specs/active/llm-api.md
+ * API keys, in the AI agents add-on's settings card (docs/specs/shipped/llm-api.md
  * §5.4, ai-integration.md §9): create, list and revoke personal API keys for the
  * REST API and the MCP server. A new key's secret is shown once.
  */

@@ -6,7 +6,7 @@ const IS_PROD = import.meta.env.PROD;
 const API_BASE = IS_PROD ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
 
 /**
- * The user's Odoo connection (docs/specs/active/odoo-integration.md). The API key
+ * The user's Odoo connection (docs/specs/shipped/odoo-integration.md). The API key
  * goes to the server once, on connect, and never comes back. Whether the add-on
  * is available at all is the addonsStore's business (`isActive('odoo')`).
  */
@@ -165,7 +165,7 @@ export const useOdooStore = defineStore('odooStore', () => {
     }
 
     /**
-     * The syncs of a database (docs/specs/active/odoo-integration.md §11).
+     * The syncs of a database (docs/specs/shipped/odoo-integration.md §11).
      *
      * @param {string} dbKey
      * @returns {Promise<object[]>}
@@ -215,7 +215,7 @@ export const useOdooStore = defineStore('odooStore', () => {
 
     /**
      * Every Document with a record in Odoo, across the caller's databases, and their
-     * syncs (docs/specs/proposed/odoo-overview.md §7).
+     * syncs (docs/specs/shipped/odoo-overview.md §7).
      *
      * @returns {Promise<{ odooHost: string|null, truncated: boolean, total: number, places: object[], documents: object[], syncs: object[] }>}
      */
@@ -235,7 +235,7 @@ export const useOdooStore = defineStore('odooStore', () => {
     }
 
     /**
-     * Sales orders for the block picker (docs/specs/active/odoo-sales-order-blocks.md).
+     * Sales orders for the block picker (docs/specs/shipped/odoo-sales-order-blocks.md).
      *
      * @param {string} query reference or customer
      * @returns {Promise<{ id: number, name: string, partnerName: string|null, status: string|null }[]>}

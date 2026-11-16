@@ -1,4 +1,4 @@
-// Document properties in the v1 API and MCP (docs/specs/proposed/ai-api-expansion.md §4.6):
+// Document properties in the v1 API and MCP (docs/specs/shipped/ai-api-expansion.md §4.6):
 // built-in ones (word count, created and modified on and by) and front matter.
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';

@@ -1,4 +1,4 @@
-// Pure helpers for the AI agents add-on's API keys (docs/specs/active/llm-api.md §5.4,
+// Pure helpers for the AI agents add-on's API keys (docs/specs/shipped/llm-api.md §5.4,
 // ai-integration.md §9).
 
 export const ACCESS_OPTIONS = Object.freeze([

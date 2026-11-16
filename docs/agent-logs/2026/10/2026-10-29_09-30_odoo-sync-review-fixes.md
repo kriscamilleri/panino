@@ -52,7 +52,7 @@ Resolve the three P2 findings in [`docs/code-reviews/2026-10-28-odoo-integration
   `odooSyncPdfs.test.js` (+1: deleted PDF, replaced record, nothing to do when still there,
   failed repair reported as a PDF failure), `tests/unit/odooKnowledge.test.js` (+2 for
   `bodySignature`), `tests/unit/odooArticleImages.test.js` (asserts `failed`).
-- `docs/specs/active/odoo-integration.md` §11: the completion contract and what the daily
+- `docs/specs/shipped/odoo-integration.md` §11: the completion contract and what the daily
   reconcile compares.
 
 ## Tests

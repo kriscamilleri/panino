@@ -1,4 +1,4 @@
-// Authenticate an AI agent's request (docs/specs/active/ai-integration.md §4.4, §5.1).
+// Authenticate an AI agent's request (docs/specs/shipped/ai-integration.md §4.4, §5.1).
 // Two credentials, both `Authorization: Bearer`:
 //   pnk_…  a personal API key (keys.js): REST and MCP
 //   pna_…  an OAuth access token of a connected app (oauth.js): MCP only

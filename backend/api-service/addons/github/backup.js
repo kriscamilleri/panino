@@ -1,5 +1,5 @@
 /**
- * GitHub backup (docs/specs/active/github-integration.md): the user's GitHub
+ * GitHub backup (docs/specs/shipped/github-integration.md): the user's GitHub
  * connection in `backup_config`, the snapshot of their personal Documents,
  * folders and images, the commit that pushes it, and the daily auto backup.
  * Routes are in routes.js; the manifest in index.js.

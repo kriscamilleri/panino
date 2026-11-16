@@ -1,5 +1,5 @@
 // Pure helpers: how to connect common MCP clients to Panino
-// (docs/specs/active/ai-integration.md §9). Every client needs only the MCP URL,
+// (docs/specs/shipped/ai-integration.md §9). Every client needs only the MCP URL,
 // plus either OAuth sign-in (URL only) or an API key header.
 
 export const KEY_PLACEHOLDER = 'pnk_…';

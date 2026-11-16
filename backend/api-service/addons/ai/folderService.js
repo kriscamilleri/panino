@@ -1,5 +1,5 @@
-// Folder and Trash operations of the v1 API (docs/specs/active/ai-integration.md §7,
-// docs/specs/proposed/ai-api-expansion.md §4.2). Nothing here deletes: "trash"
+// Folder and Trash operations of the v1 API (docs/specs/shipped/ai-integration.md §7,
+// docs/specs/shipped/ai-api-expansion.md §4.2). Nothing here deletes: "trash"
 // moves into the database's Trash folder, and restore moves back out.
 //
 // Where something was before the API trashed it is kept in the server-only

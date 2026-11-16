@@ -45,6 +45,8 @@ import { resolveStoredImagePath } from './spaceStorage.js';
 import { parseInternalImageLink } from './imageLinks.js';
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRef, PDFStream } from 'pdf-lib';
 import { validatePrintStyles } from '@panino/content-merge/print-style-rules';
+import { isDocumentId } from '@panino/content-merge/document-links';
+import { isValidSlug } from '@panino/content-merge/document-outline';
 import {
     sanitizeStylesheet,
     sanitizeDeclarations,
@@ -55,6 +57,7 @@ import {
     FONT_HOSTS,
 } from './pdfSanitize.js';
 import { fetchExternalImageAsDataUri } from './imageFetch.js';
+import { appBaseUrl } from './publicUrls.js';
 
 export const pdfRoutes = express.Router();
 
@@ -77,6 +80,46 @@ purify.addHook('uponSanitizeElement', (node, data) => {
 purify.addHook('uponSanitizeAttribute', (node, data) => {
     if (data.attrName === 'style') {
         data.attrValue = sanitizeDeclarations(data.attrValue, currentCssBudget);
+    }
+});
+
+// Links to other Documents (docs/specs/active/editor-toc-and-internal-links.md §6.8). The
+// renderer marks them `<a class="pn-doc-link" data-pn-doc="<id>" data-pn-heading="<slug>">`
+// with no href. When the caller of `renderPdf` asked for app links, the href becomes the
+// web-app address of that Document, built here from `FRONTEND_URL` and the validated id and
+// slug; any href the element arrived with is replaced. Otherwise the label prints as text.
+// `data-pn-*` never reaches the PDF. Per call, like the CSS budget.
+let currentAppLinks = null;
+
+/**
+ * The web-app address of a Document, or null when the parts are not valid.
+ *
+ * @param {string} base `appBaseUrl()`
+ * @param {string|null} id
+ * @param {string|null} heading
+ * @returns {string|null}
+ */
+export function documentAppUrl(base, id, heading) {
+    if (!base || !isDocumentId(id) || (heading !== null && !isValidSlug(heading))) return null;
+    try {
+        const query = heading ? `?heading=${encodeURIComponent(heading)}` : '';
+        const url = new URL(`${base}/#/doc/${id.toLowerCase()}${query}`);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+        return url.href;
+    } catch {
+        return null;
+    }
+}
+
+purify.addHook('afterSanitizeAttributes', (node) => {
+    if (!node.attributes || !node.hasAttribute) return;
+    if (node.nodeName === 'A' && node.hasAttribute('data-pn-doc')) {
+        const href = documentAppUrl(currentAppLinks, node.getAttribute('data-pn-doc'), node.getAttribute('data-pn-heading'));
+        if (href) node.setAttribute('href', href);
+        else node.removeAttribute('href');
+    }
+    for (const name of Array.from(node.attributes, (attr) => attr.name)) {
+        if (name.startsWith('data-pn-')) node.removeAttribute(name);
     }
 });
 
@@ -514,11 +557,13 @@ async function processQueue() {
  * A full queue answers 503 at once, with `retryAfterSeconds`.
  *
  * @param {{ htmlContent?: string, cssStyles?: string, printStyles?: object }} payload
- * @param {{ userId: string, priority?: 'normal'|'low' }} options the user whose images may be
- *   embedded; `low` puts the job behind every interactive export (Odoo syncs)
+ * @param {{ userId: string, priority?: 'normal'|'low', appLinks?: string|null }} options the user
+ *   whose images may be embedded; `low` puts the job behind every interactive export (Odoo
+ *   syncs); `appLinks` is the web-app base (`appBaseUrl()`) for links to other Documents, and
+ *   without it they print as plain text
  * @returns {Promise<{ ok: true, pdf: Buffer } | { ok: false, status: number, message: string, retryAfterSeconds?: number }>}
  */
-export function renderPdf(payload, { userId, priority = 'normal' }) {
+export function renderPdf(payload, { userId, priority = 'normal', appLinks = null }) {
     const lane = priority === 'low' ? lowPriorityQueue : queue;
     if (lane.length >= PDF_RUNTIME.queueLimit) {
         logWarn(`Queue full (${queue.length}); rejecting request`);
@@ -534,6 +579,7 @@ export function renderPdf(payload, { userId, priority = 'normal' }) {
         lane.push({
             payload: payload || {},
             userId,
+            appLinks: typeof appLinks === 'string' && appLinks ? appLinks : null,
             deliver: (value) => { result = value; resolveResult(value); },
             // The queue resolves the job when it is finished with it; a result normally
             // arrived earlier, and this guards against one that never did.
@@ -552,7 +598,8 @@ pdfRoutes.post('/render-pdf', async (req, res) => {
     if (Number.isFinite(declared) && declared > CONFIG.MAX_REQUEST_BYTES) {
         return res.status(413).send('Request too large');
     }
-    const result = await renderPdf(req.body, { userId: req.user?.user_id });
+    // The address comes from FRONTEND_URL only, never from this request's headers.
+    const result = await renderPdf(req.body, { userId: req.user?.user_id, appLinks: appBaseUrl() });
     if (res.headersSent) return undefined;
     if (!result.ok) {
         if (result.retryAfterSeconds) res.setHeader('Retry-After', String(result.retryAfterSeconds));
@@ -638,6 +685,7 @@ function buildHtmlDocument(content, css, printStyles) {
             break-before: page !important;
             page-break-before: always !important;
         }
+        ${TOC_PRINT_CSS}
         ${css}
     </style>
 </head>
@@ -817,16 +865,31 @@ export async function renderHtmlToPdf(fullHtml, { pdfOptions, headerFooter, skip
     }
 }
 
+/**
+ * The table of contents in every PDF (docs/specs/active/editor-toc-and-internal-links.md
+ * §4.6): a numbered table carries its numbers as text, so its bullets are hidden, and nested
+ * levels lose the 1rem list margins. `!important` beats the named style's inline `ul` style,
+ * and nothing outside a table is touched.
+ */
+export const TOC_PRINT_CSS = `.pn-toc { break-inside: avoid-page; }
+        .pn-toc-numbered { font-variant-numeric: tabular-nums; }
+        .pn-toc-numbered ul { list-style-type: none !important; }
+        .pn-toc ul ul { margin-top: 0 !important; margin-bottom: 0 !important; }`;
+
 const PAGEBREAK_DIV = '<div class="pagebreak" style="break-after: page; page-break-after: always; clear: both;"></div>';
 
 /**
  * Sanitize Document HTML for rendering: DOMPurify with `style` attributes kept, and
  * `<style>` text and `style` values run through the CSS sanitizer by the hooks above.
+ * Links to other Documents get a web-app href only with `appLinks`.
  * @param {unknown} html
+ * @param {CssBudget|null} [budget]
+ * @param {{ appLinks?: string|null }} [options]
  * @returns {string}
  */
-export function sanitizeDocumentHtml(html, budget = null) {
+export function sanitizeDocumentHtml(html, budget = null, { appLinks = null } = {}) {
     currentCssBudget = budget;
+    currentAppLinks = appLinks;
     try {
         return purify.sanitize(typeof html === 'string' ? html : '', {
             ADD_ATTR: ['style'],
@@ -836,6 +899,7 @@ export function sanitizeDocumentHtml(html, budget = null) {
         });
     } finally {
         currentCssBudget = null;
+        currentAppLinks = null;
     }
 }
 
@@ -899,7 +963,7 @@ async function producePdf(job) {
         .replace(/<!--\s*pagebreak\s*-->/g, PAGEBREAK_DIV)
         .replace(/---\s*pagebreak\s*---/gi, PAGEBREAK_DIV);
 
-    const cleanHtml = sanitizeDocumentHtml(markedHtml, budget);
+    const cleanHtml = sanitizeDocumentHtml(markedHtml, budget, { appLinks: job.appLinks });
 
     if (!cleanHtml) {
         return refuse(400, 'Invalid htmlContent');

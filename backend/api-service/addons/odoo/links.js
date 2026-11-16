@@ -1,7 +1,7 @@
 /**
  * The `odoo_links` table: which Odoo record Panino made for which Document, per
  * destination and Odoo database. It is the only source of record ids Panino may
- * write to (docs/specs/active/odoo-integration.md §6). Rows live in the database
+ * write to (docs/specs/shipped/odoo-integration.md §6). Rows live in the database
  * the Document lives in (personal or space), so a space shares them.
  */
 

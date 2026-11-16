@@ -109,7 +109,7 @@
 
 <script setup>
 /**
- * Settings → Add-ons (docs/specs/active/addons.md): the add-ons this server
+ * Settings → Add-ons (docs/specs/shipped/addons.md): the add-ons this server
  * offers, each with a switch. An add-on's own card (its manifest's
  * `settingsCard`) renders under the switch only while the add-on is on.
  */

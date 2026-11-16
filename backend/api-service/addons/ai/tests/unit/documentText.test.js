@@ -1,4 +1,4 @@
-// Pure text helpers of the Documents area (docs/specs/proposed/ai-api-expansion.md §4.1).
+// Pure text helpers of the Documents area (docs/specs/shipped/ai-api-expansion.md §4.1).
 import { describe, expect, it } from 'vitest';
 import {
     applyEdit,

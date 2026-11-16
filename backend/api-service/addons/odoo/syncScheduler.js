@@ -1,5 +1,5 @@
 /**
- * When Odoo Knowledge syncs run (docs/specs/active/odoo-integration.md §11, "When
+ * When Odoo Knowledge syncs run (docs/specs/shipped/odoo-integration.md §11, "When
  * it runs"): three minutes after the last change in a synced database, on "Sync
  * now", and once a day as a full reconcile. One run per sync at a time, in a job
  * map like `backupJobs`; calls to one Odoo target are capped at 60 a minute so a
@@ -17,6 +17,7 @@ import { OdooError } from './client.js';
 import { rememberConnectionError, senderConnection } from './connection.js';
 import { listSyncs, readSync, runSync, saveSyncRun, setSyncStatus } from './sync.js';
 import { parseInternalImageSource, readInternalImage, renderPdf } from '../../pdf.js';
+import { appBaseUrl } from '../../publicUrls.js';
 
 export const SYNC_DEBOUNCE_MS = 3 * 60 * 1000;
 export const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -252,7 +253,7 @@ async function runOne(dbKey, syncId, { reconcile }) {
             renderPdf: sync.documents_folder_id
                 ? (request) => renderPdf(
                     parsed.kind === 'space' ? { ...request, htmlContent: withoutPersonalImages(request.htmlContent) } : request,
-                    { userId: sync.run_as, priority: 'low' },
+                    { userId: sync.run_as, priority: 'low', appLinks: appBaseUrl() },
                 )
                 : null,
         });

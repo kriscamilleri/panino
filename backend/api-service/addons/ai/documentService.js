@@ -1,5 +1,5 @@
-// The v1 Document operations, without HTTP (docs/specs/active/ai-integration.md §7,
-// docs/specs/proposed/ai-api-expansion.md §4.1): account, spaces, tree, search, list,
+// The v1 Document operations, without HTTP (docs/specs/shipped/ai-integration.md §7,
+// docs/specs/shipped/ai-api-expansion.md §4.1): account, spaces, tree, search, list,
 // read (whole, by lines or by section), outline, create, update, exact edits, insertion
 // and append. REST and MCP (api/documents.js) are two adapters over these functions, so
 // every rule has one implementation; the shared rules are in serviceCore.js and the pure
@@ -54,7 +54,6 @@ import {
     MAX_OUTLINE_HEADINGS,
     MAX_SEARCH_TERMS,
     parseHeadings,
-    parseSearchTerms,
     referencedImageIds,
     SEARCH_FIELDS,
     sliceLines,
@@ -63,6 +62,14 @@ import {
     trimBlankLines,
 } from './documentText.js';
 import { buildFolderIndex, makeSnippet, parseLimit } from './keyUtils.js';
+import { searchByProperties } from './propertyService.js';
+import {
+    hasChecklistItem,
+    MAX_QUERY_LENGTH,
+    parseSearchQuery,
+    quoteSearchValue,
+} from '@panino/content-merge/search-text';
+import { compareSearchRows, PERSONAL_LABELS, resolveFolderScope } from '@panino/content-merge/document-search';
 
 export { ApiError, MAX_DOCUMENT_BYTES, requireAgentScope } from './serviceCore.js';
 
@@ -209,46 +216,103 @@ function termCondition(column, term) {
     };
 }
 
+const HAS_CHECKLIST = 'panino_has_checklist';
+const withChecklist = new WeakSet();
+
+/** `db`, with the SQL function `panino_has_checklist(text)` registered (the shared rule of `is:checklist`). */
+function withChecklistFunction(db) {
+    if (!withChecklist.has(db)) {
+        db.function(HAS_CHECKLIST, { deterministic: true }, (text) => (hasChecklistItem(text) ? 1 : 0));
+        withChecklist.add(db);
+    }
+    return db;
+}
+
+const TITLE_COLUMN = "coalesce(title, '')";
+const BODY_COLUMN = "coalesce(content, '')";
+
+/** The SQL condition "a word or phrase part occurs where it must", with its parameters. */
+function textPartCondition(part) {
+    const title = termCondition(TITLE_COLUMN, part.value);
+    if (part.field === 'title') return title;
+    const body = termCondition(BODY_COLUMN, part.value);
+    if (part.field === 'content') return body;
+    return { sql: `(${title.sql} OR ${body.sql})`, params: [...title.params, ...body.params] };
+}
+
+function negate(condition) {
+    return { sql: `NOT (${condition.sql})`, params: condition.params };
+}
+
 /**
- * Search titles and bodies across databases. Every term must match (a "quoted phrase" is
- * one term), case-insensitively; Documents matching more terms in the title come first,
- * then the most recently updated. SQL filters and orders on metadata only; bodies are read
- * for the page alone, to count matches and cut snippets.
+ * Search titles and bodies across databases with the shared query language
+ * (docs/specs/active/advanced-search.md §4, §6.5): every part must match; words and
+ * "quoted phrases" anywhere (or where `in` says), `title:`, `in:` folders, `is:checklist`,
+ * `prop:` conditions and `-` before any of them. Case is ignored for every letter; Documents
+ * with more of the words in the title come first, then the most recently updated. SQL filters
+ * and orders on metadata only; bodies are read for the page alone, to count matches and cut
+ * snippets. A query with `prop:` goes through the property scan (`searchByProperties`), with
+ * its cap and its `truncated` / `scanned` answers.
  */
 export function searchDocuments(ctx, {
     query, space, limit, includeTrash = false, in: field, folderId, updatedAfter, offset,
 } = {}) {
     requireAgentScope(ctx, 'read');
     const q = typeof query === 'string' ? query.trim() : '';
-    if (q.length < 2 || q.length > 200) {
-        throw new ApiError(400, 'INVALID_INPUT', 'The search text must be 2 to 200 characters.');
-    }
-    const terms = parseSearchTerms(q);
-    if (terms.length === 0) throw new ApiError(400, 'INVALID_INPUT', 'The search text has no words to look for.');
-    if (terms.length > MAX_SEARCH_TERMS) {
-        throw new ApiError(400, 'INVALID_INPUT', `Search for at most ${MAX_SEARCH_TERMS} words or phrases at once.`);
+    if (q.length < 2 || q.length > MAX_QUERY_LENGTH) {
+        throw new ApiError(400, 'INVALID_INPUT', `The search text must be 2 to ${MAX_QUERY_LENGTH} characters.`);
     }
     const where = oneOf(field, SEARCH_FIELDS, 'all', 'in');
+    const parsed = parseSearchQuery(q, { context: 'api', field: where === 'all' ? 'any' : where });
+    if (parsed.partCount > MAX_SEARCH_TERMS) {
+        throw new ApiError(400, 'INVALID_INPUT', `Search for at most ${MAX_SEARCH_TERMS} words or phrases at once.`);
+    }
+    if (!parsed.hasPositive && !parsed.onlyUnavailable) {
+        throw new ApiError(400, 'INVALID_INPUT', parsed.notices.length ? parsed.notices.join(' ') : 'The search text has no words to look for.');
+    }
     const max = parseLimit(limit, 20, 100);
     const skip = wholeNumber(offset, 'offset') ?? 0;
     if (skip > MAX_SEARCH_OFFSET) throw new ApiError(400, 'INVALID_INPUT', `offset can be at most ${MAX_SEARCH_OFFSET}.`);
+    if (parsed.onlyUnavailable) {
+        // `tag:urgent` before tags exist: a valid search that finds nothing, and says why.
+        return { query: q, terms: [], in: where, offset: skip, results: [], nextOffset: null, notices: parsed.notices };
+    }
     const after = isoTime(updatedAfter, 'updated_after');
     const folder = typeof folderId === 'string' && folderId ? folderId : null;
     const withTrash = includeTrash === true || folder !== null;
+    const { parts, terms } = parsed;
+    const notices = [...parsed.notices];
 
-    // Fixed SQL fragments, one per term; the terms themselves are bound parameters.
-    const title = terms.map((term) => termCondition("coalesce(title, '')", term));
-    const body = terms.map((term) => termCondition("coalesce(content, '')", term));
-    const filters = terms.map((_, i) => (where === 'title' ? title[i].sql : where === 'content' ? body[i].sql : `(${title[i].sql} OR ${body[i].sql})`));
-    const filterParams = terms.flatMap((_, i) => (where === 'title' ? title[i].params : where === 'content' ? body[i].params : [...title[i].params, ...body[i].params]));
-    const titleScore = where === 'content' ? '0' : title.map((condition) => `(${condition.sql})`).join(' + ');
-    const titleParams = where === 'content' ? [] : title.flatMap((condition) => condition.params);
-    const folding = terms.some(hasCasedNonAscii);
+    // Fixed SQL fragments chosen by each part's type; the values are bound parameters.
+    const textParts = parts.filter((part) => part.type === 'text');
+    const conditions = textParts.map((part) => (part.negated ? negate(textPartCondition(part)) : textPartCondition(part)));
+    for (const part of parts.filter((item) => item.type === 'is')) {
+        // A checklist item has a box, `[ ]` or `[x]` (LIKE folds the X): the function runs only
+        // on bodies that have one, not on every body with a bracket (links).
+        const has = {
+            sql: `(CASE WHEN ${BODY_COLUMN} LIKE '%[ ]%' OR ${BODY_COLUMN} LIKE '%[x]%' THEN ${HAS_CHECKLIST}(${BODY_COLUMN}) ELSE 0 END)`,
+            params: [],
+        };
+        conditions.push(part.negated ? negate(has) : has);
+    }
+    const scored = textParts.filter((part) => !part.negated && part.field !== 'content')
+        .map((part) => termCondition(TITLE_COLUMN, part.value));
+    const titleScore = scored.length ? scored.map((condition) => `(${condition.sql})`).join(' + ') : '0';
+    const titleParams = scored.flatMap((condition) => condition.params);
+    const folding = textParts.some((part) => hasCasedNonAscii(part.value));
+    const checklist = parts.some((part) => part.type === 'is');
+    const inParts = parts.filter((part) => part.type === 'in');
+    const propParts = parts.filter((part) => part.type === 'prop');
+    const tagParts = parts.filter((part) => part.type === 'tag');
+    const named = inParts.map(() => false);
 
     const hits = [];
     let folderSeen = folder === null;
+    let truncated = false;
+    let scanned = 'front_matter';
     for (const target of resolveMany(ctx, space)) {
-        const db = folding ? withFoldedContains(target.db) : target.db;
+        let db = folding ? withFoldedContains(target.db) : target.db;
+        if (checklist) db = withChecklistFunction(db);
         const folders = readFolders(db);
         let inFolders = null;
         if (folder !== null) {
@@ -256,29 +320,56 @@ export function searchDocuments(ctx, {
             folderSeen = true;
             inFolders = folderSubtree(folders, folder);
         }
+        const labels = target.kind === 'space' ? [target.name] : [...PERSONAL_LABELS];
+        const scope = resolveFolderScope(folders, inParts, labels, { includeTrash: withTrash });
+        scope.resolved.forEach((resolved, index) => { if (resolved) named[index] = true; });
+        if (scope.skip) continue;
+        const scopeConditions = [
+            ...scope.include.map((ids) => ({ sql: 'folder_id IN (SELECT value FROM json_each(?))', params: [JSON.stringify(ids)] })),
+            ...(scope.exclude.length
+                ? [{ sql: '(folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))', params: [JSON.stringify(scope.exclude)] }]
+                : []),
+            ...(after ? [{ sql: 'updated_at > ?', params: [after] }] : []),
+        ];
+
+        if (propParts.length || tagParts.length) {
+            // A property or tag condition reads front matter: the property scan, capped, decides.
+            const found = searchByProperties(ctx, { ...target, db }, {
+                parts: propParts,
+                tagParts,
+                includeTrash: true,
+                folderId: folder,
+                filters: [...conditions, ...scopeConditions],
+                score: { sql: titleScore, params: titleParams },
+            });
+            truncated ||= found.truncated;
+            if (found.scanned === 'all') scanned = 'all';
+            for (const row of found.rows) hits.push({ row, target, folderIndex: found.folderIndex });
+            continue;
+        }
+
         const folderIndex = buildFolderIndex(folders);
-        const excluded = withTrash ? [] : trashFolderIds(folders, folderIndex);
+        const filters = [...conditions, ...scopeConditions];
         const rows = db.prepare(`
             SELECT id, title, folder_id, pinned, created_at, updated_at, ${titleScore} AS title_score
               FROM notes
-             WHERE ${filters.join(' AND ')}
-               AND (folder_id IS NULL OR folder_id NOT IN (SELECT value FROM json_each(?)))
+             WHERE ${filters.length ? filters.map((condition) => condition.sql).join(' AND ') : '1'}
                AND (? IS NULL OR folder_id IN (SELECT value FROM json_each(?)))
-               AND (? IS NULL OR updated_at > ?)
              ORDER BY title_score DESC, coalesce(updated_at, '') DESC, id DESC
              LIMIT ?
         `).all(
-            ...titleParams, ...filterParams, JSON.stringify(excluded),
+            ...titleParams, ...filters.flatMap((condition) => condition.params),
             inFolders ? 1 : null, JSON.stringify(inFolders ?? []),
-            after, after, skip + max + 1,
+            skip + max + 1,
         );
         for (const row of rows) hits.push({ row, target, folderIndex });
     }
     if (!folderSeen) throw new ApiError(400, 'FOLDER_NOT_FOUND', 'Folder not found in this database.');
+    inParts.forEach((part, index) => {
+        if (!named[index] && !part.negated) notices.push(`No folder matches in:${quoteSearchValue(part.value)}`);
+    });
 
-    hits.sort((a, b) => b.row.title_score - a.row.title_score
-        || compareBinary(b.row.updated_at ?? '', a.row.updated_at ?? '')
-        || compareBinary(b.row.id, a.row.id));
+    hits.sort((a, b) => compareSearchRows(a.row, b.row));
     const page = hits.slice(skip, skip + max);
 
     // Bodies for this page only.
@@ -301,7 +392,7 @@ export function searchDocuments(ctx, {
         return {
             ...listedDocument(row, target, folderIndex),
             spaceName: target.name,
-            matchedTitle: where !== 'content' && termsIn(row.title, terms) === terms.length,
+            matchedTitle: where !== 'content' && terms.length > 0 && termsIn(row.title, terms) === terms.length,
             matchCount: inBody.matchCount + inTitle,
             snippet: makeSnippet(content, firstInBody),
             snippets: inBody.snippets,
@@ -314,6 +405,8 @@ export function searchDocuments(ctx, {
         offset: skip,
         results,
         nextOffset: hits.length > skip + max ? skip + max : null,
+        notices,
+        ...(propParts.length || tagParts.length ? { truncated, scanned } : {}),
     };
 }
 

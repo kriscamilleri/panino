@@ -1,4 +1,4 @@
-// Folders and Trash in the v1 API and MCP (docs/specs/proposed/ai-api-expansion.md §4.2).
+// Folders and Trash in the v1 API and MCP (docs/specs/shipped/ai-api-expansion.md §4.2).
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { deleteTestDb, getDb, getSpacesDb, getUserDb } from '../../../../db.js';

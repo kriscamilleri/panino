@@ -358,7 +358,7 @@ import { useUiStore } from '@/store/uiStore'
 import { sentAgo } from '@/addons/odoo/utils/connection'
 
 /**
- * The person's Knowledge syncs (docs/specs/active/odoo-integration.md §11):
+ * The person's Knowledge syncs (docs/specs/shipped/odoo-integration.md §11):
  * what is kept in sync, how the last run went, Sync now, Remove, and Add sync
  * for a folder. Single Documents are added from the Send to Odoo sheet.
  */

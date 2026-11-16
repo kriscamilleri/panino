@@ -3,8 +3,8 @@
 Outside agents (LLM assistants, scripts) read and write a user's Documents through the **AI
 agents** add-on (`id: ai`, `backend/api-service/addons/ai/`, `frontend/src/addons/ai/`). The
 operator offers it with `AI_ADDON_ENABLED=true`; each user switches it on in Settings →
-Add-ons. Intent and decisions: [`docs/specs/active/ai-integration.md`](../specs/active/ai-integration.md)
-and, for the v1 rules, [`docs/specs/active/llm-api.md`](../specs/active/llm-api.md).
+Add-ons. Intent and decisions: [`docs/specs/shipped/ai-integration.md`](../specs/shipped/ai-integration.md)
+and, for the v1 rules, [`docs/specs/shipped/llm-api.md`](../specs/shipped/llm-api.md).
 
 | Surface | URL (production) | Credential |
 |---|---|---|
@@ -78,8 +78,9 @@ concurrent remote change; the existing merge-base and conflict rules apply uncha
   unless asked. Folders cannot be deleted through the API.
 - **Finding a Document.** An existing Document may be addressed without `space`; the service
   tries the personal database and then each reachable space. Space membership is resolved on
-  every request, so removal from a space cuts access at once. Search is `instr(lower(…))` over
-  title and body; revisit with FTS5 if databases grow far beyond thousands of Documents.
+  every request, so removal from a space cuts access at once. Search is a `LIKE` per term over
+  title and body (see Search below); revisit with FTS5 if databases grow far beyond thousands
+  of Documents.
 
 Key names are unique among a user's live keys (case-insensitive) so history can tell them
 apart; at most 10 live keys and 20 connected apps per user.
@@ -90,11 +91,25 @@ The tool and route names below are the MCP and REST forms of the same operation.
 
 **Documents** (`documentService.js`, `documentText.js`).
 - Search and list:
-  - Search needs every term to match; a "quoted phrase" counts as one term. Case is ignored for
-    every letter: ASCII terms are a `LIKE` (which folds ASCII), others are narrowed by a `LIKE`
-    of their shape and then compared in JS lower case (`panino_folded_contains`, registered per
-    connection).
-  - It can be limited to titles or bodies, a folder and its subfolders, or `updatedAfter`. It pages with `offset`.
+  - Search reads `q` with the app's query language, parsed by `shared/searchText.js`
+    (`parseSearchQuery`), so the app and the API read a query alike
+    (`docs/specs/active/advanced-search.md` §4, §6.5): words and "quoted phrases", `title:`,
+    `in:` folder paths (a space name may lead), `is:checklist`, `tag:` (a front matter tag,
+    canonical, read with `readTags`) and `prop:` (one property filter condition) — both through
+    the property scan with its cap, `truncated` and `scanned` — and `-` before any part. Every part must match. Parts that cannot be read come back in `notices`.
+  - Case is ignored for every letter: ASCII terms are a `LIKE` (which folds ASCII), others are
+    narrowed by a `LIKE` of their shape and then compared in JS lower case
+    (`panino_folded_contains`, registered per connection). `is:checklist` is the shared
+    `hasChecklistItem` rule (`panino_has_checklist`).
+  - Trash is left out unless `q` has `in:Trash`, `includeTrash` is true or `folderId` is inside
+    it: the same rule as the app (`shared/trashFolder.js`, `resolveFolderScope` in
+    `shared/documentSearch.js`).
+  - It can be limited to titles or bodies (`in`, which is about fields; the `in:` part is about
+    folders), a folder and its subfolders, or `updatedAfter`. It pages with `offset`.
+  - Order: words found in the title, then `updated_at`, then id, all descending. The app's
+    engine (`shared/documentSearch.js`) orders the same way, and
+    `addons/ai/tests/integration/searchLanguage.test.js` checks both give the same Documents in
+    the same order.
   - Each hit has `matchCount` and up to three snippets with line numbers.
   - Lists sort by updated, created or title. Each cursor carries its sort.
 - `get_document` returns metadata as well as the body:

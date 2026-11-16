@@ -1,7 +1,7 @@
 # AI agents add-on (frontend)
 
 The browser side of the AI agents add-on
-([`docs/specs/active/ai-integration.md`](../../../../docs/specs/active/ai-integration.md)).
+([`docs/specs/shipped/ai-integration.md`](../../../../docs/specs/shipped/ai-integration.md)).
 
 ## Contribution points
 

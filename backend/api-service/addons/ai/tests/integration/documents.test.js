@@ -1,4 +1,4 @@
-// The Documents area of the v1 API on REST and MCP (docs/specs/proposed/ai-api-expansion.md
+// The Documents area of the v1 API on REST and MCP (docs/specs/shipped/ai-api-expansion.md
 // §4.1): metadata, partial reads, outline, exact edits, insertion, search and list options.
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';

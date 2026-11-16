@@ -31,3 +31,11 @@ const x = 1;
 Smart quotes "here" and dashes -- and --- and https://panino.sh autolink.
 
 <div class="raw">Raw <em>HTML</em> stays</div>
+
+<!-- panino:toc {"v":1,"min":2,"max":3} -->
+**Contents**
+
+- 1 [Checklist](#checklist)
+<!-- /panino:toc -->
+
+See [the checklist](#checklist), [the plan](panino:doc/6f1c2a3b-0000-4000-8000-000000000001#budget) and [a screen](#/settings).

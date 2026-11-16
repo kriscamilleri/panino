@@ -16,6 +16,7 @@ import { pdfRoutes } from './pdf.js'; // Import the new route
 import { signupRoutes } from './signup.js';
 import { passwordResetRoutes } from './passwordReset.js';
 import { emailVerificationRoutes } from './emailVerification.js';
+import { publicUrlWarnings } from './publicUrls.js';
 import { addonConfigWarnings, addonsRoutes, mountAddonPublicRoutes, mountAddonRoutes, mountAddonWellKnown } from './addons/registry.js';
 import { closeAllConnections, initDb, isDatabaseBusyError, respondDatabaseBusy } from './db.js';
 import { revisionRoutes, startRevisionMaintenanceJob } from './revision.js';
@@ -116,6 +117,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         console.log(`API and WebSocket services listening on port ${PORT}`);
     });
     for (const warning of addonConfigWarnings()) console.warn(warning);
+    for (const warning of publicUrlWarnings()) console.warn(warning);
 
     let shuttingDown = false;
     process.on('SIGTERM', async () => {

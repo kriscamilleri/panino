@@ -40,7 +40,7 @@
 
 <script setup>
 /**
- * The page an add-on contributes (docs/specs/active/addon-folders.md §6.2.5), at
+ * The page an add-on contributes (docs/specs/shipped/addon-folders.md §6.2.5), at
  * `#/addons/:addonId/:pageId`. One fixed route serves every add-on page, so a
  * reload or a shared link works before the add-on list has loaded. The page is
  * looked up in the registry and rendered in the shared page shell; its code loads

@@ -1,5 +1,5 @@
 // Folders and Trash in the v1 API, as MCP tools, REST routes and OpenAPI paths
-// (docs/specs/active/ai-integration.md §5.3, docs/specs/proposed/ai-api-expansion.md
+// (docs/specs/shipped/ai-integration.md §5.3, docs/specs/shipped/ai-api-expansion.md
 // §4.2). The rules are in folderService.js.
 import {
     createFolder,

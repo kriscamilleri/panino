@@ -14,6 +14,7 @@
         </template>
 
         <div class="ph-export-body">
+            <TocStaleNotice testid="phone-export-toc" />
             <div
                 ref="frameBoxRef"
                 class="ph-export-page"
@@ -104,6 +105,7 @@ import DOMPurify from 'dompurify'
 import { Download, Share2, Loader2 } from 'lucide-vue-next'
 import BottomSheet from '@/components/phone/BottomSheet.vue'
 import SegmentedControl from '@/components/phone/SegmentedControl.vue'
+import TocStaleNotice from '@/components/TocStaleNotice.vue'
 import { useAuthStore } from '@/store/authStore'
 import { useDocStore } from '@/store/docStore'
 import { useDraftStore } from '@/store/draftStore'
@@ -113,6 +115,7 @@ import { useSyncStore } from '@/store/syncStore'
 import { useUiStore } from '@/store/uiStore'
 import { useEditorStore } from '@/store/editorStore'
 import { useSheetRoute } from '@/composables/useSheetRoute'
+import { usePdfDocumentLinks } from '@/composables/usePdfDocumentLinks'
 import { buildPdfRequest, requestPdf, normalizePaperSize, pdfFileName } from '@/utils/pdfExport'
 
 const PAPER_OPTIONS = [
@@ -133,6 +136,7 @@ const docStore = useDocStore()
 const draftStore = useDraftStore()
 const editorStore = useEditorStore()
 const markdownStore = useMarkdownStore()
+const { renderPdfHtml } = usePdfDocumentLinks()
 const stylePresetStore = useStylePresetStore()
 const syncStore = useSyncStore()
 const ui = useUiStore()
@@ -182,8 +186,8 @@ const previewVersion = ref(0)
 watch(previewDoc, () => { previewVersion.value += 1 })
 
 async function renderHtml() {
-    const md = await markdownStore.getPrintMarkdownIt(printStyles.value)
-    return DOMPurify.sanitize(md.render(markdownStore.applyMetadataVariables(currentMarkdown())))
+    const md = await markdownStore.getPrintMarkdownIt(printStyles.value, { documentLinks: 'pdf' })
+    return DOMPurify.sanitize(await renderPdfHtml(md, currentMarkdown(), file.value))
 }
 
 // Also when the Document arrives: a reload or link can open the sheet before it loads.

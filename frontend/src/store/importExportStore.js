@@ -7,6 +7,7 @@ import { useSyncStore } from './syncStore';
 import { useDocStore } from './docStore';
 import { useAuthStore } from './authStore';
 import { blobToBase64, replaceImageReferences } from '../utils/exportUtils';
+import { rewriteLinksForExport, rewriteLinksForImport } from '../utils/documentLinkPaths';
 import {
     sanitizePathSegments,
     getTextByteLength,
@@ -178,6 +179,8 @@ export const useImportExportStore = defineStore('importExportStore', () => {
                 folderPath,
                 createdAt: note[noteCreatedAtKey] || null,
                 updatedAt: note[noteUpdatedAtKey] || null,
+                // The id it had where it came from, so links to it can follow it.
+                sourceId: typeof note.id === 'string' ? note.id : null,
             });
         }
 
@@ -440,10 +443,73 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         return payload;
     }
 
+    /**
+     * The `notes` list of a Panino ZIP's metadata: exported file path → old id.
+     *
+     * @param {JSZip} zip
+     * @returns {Promise<Map<string, string>>}
+     */
+    async function readExportedNoteIds(zip) {
+        const map = new Map();
+        try {
+            const entry = zip.file('_panino_metadata.json');
+            if (!entry) return map;
+            const metadata = JSON.parse(await entry.async('string'));
+            for (const item of Array.isArray(metadata?.notes) ? metadata.notes.slice(0, 20000) : []) {
+                if (typeof item?.id !== 'string' || typeof item?.path !== 'string') continue;
+                const path = sanitizePathSegments(item.path.replace(/\\/g, '/')).join('/');
+                if (path) map.set(path, item.id);
+            }
+        } catch (error) {
+            console.warn('[import] Could not read Document ids from the ZIP metadata:', error);
+        }
+        return map;
+    }
+
+    /**
+     * Before an import writes anything: give every incoming Document the id it will
+     * have (an existing Document it overwrites keeps its own), then point links between
+     * the imported files, and links to their old ids, at those ids (§6.7).
+     */
+    async function planImportedLinks(notes) {
+        const folderLookupCache = new Map();
+        const folderPathIdCache = new Map();
+        const noteLookupCache = new Map();
+        const plannedByKey = new Map();
+        const idForFile = new Map();
+        const idForOldId = new Map();
+        for (const note of notes) {
+            const key = `${note.folderPath ?? ''}\u0000${note.title}`;
+            let id = plannedByKey.get(key);
+            if (!id) {
+                const folderId = note.folderPath
+                    ? await resolveFolderPathId(note.folderPath, folderLookupCache, folderPathIdCache, { createMissing: false })
+                    : null;
+                const existing = (!note.folderPath || folderId)
+                    ? await findExistingNote(folderId, note.title, noteLookupCache)
+                    : null;
+                id = existing?.id || uuidv4();
+                plannedByKey.set(key, id);
+            }
+            note.plannedId = id;
+            if (note.sourcePath) idForFile.set(note.sourcePath.normalize('NFC'), id);
+            if (note.sourceId) idForOldId.set(String(note.sourceId).toLowerCase(), id);
+        }
+        if (!idForFile.size && !idForOldId.size) return;
+        for (const note of notes) {
+            note.content = rewriteLinksForImport(note.content, note.sourcePath ?? null, {
+                idForFile: (path) => idForFile.get(path.normalize('NFC')) || null,
+                idForOldId: (oldId) => idForOldId.get(oldId) || null,
+            });
+        }
+    }
+
     async function applyImportTree({ folderMap, notes, skippedItems = [] }, options = {}) {
         const { allowUnsafeOverwrite = false, onProgress = null } = options;
         const authStore = useAuthStore();
         const now = new Date().toISOString();
+
+        await planImportedLinks(notes);
 
         const overwriteCandidates = await collectOverwriteCandidates(notes);
         const requiresGuaranteedRevisions = overwriteCandidates.length > 0;
@@ -527,7 +593,7 @@ export const useImportExportStore = defineStore('importExportStore', () => {
                         result.updated += 1;
                     }
                 } else {
-                    const noteId = uuidv4();
+                    const noteId = note.plannedId || uuidv4();
                     const createdAt = note.createdAt || now;
                     const updatedAt = note.updatedAt || createdAt;
                     await personalRepo().exec(
@@ -818,6 +884,10 @@ export const useImportExportStore = defineStore('importExportStore', () => {
         for (const folderPath of derivedTree.folders.keys()) {
             addFolderPathToMap(folderMap, folderPath);
         }
+        const oldIdByPath = await readExportedNoteIds(zip);
+        for (const note of derivedTree.notes) {
+            note.sourceId = oldIdByPath.get(note.sourcePath) || null;
+        }
 
         validateImportLimits(derivedTree.notes.length, folderMap.size, totalBytes);
         return {
@@ -902,11 +972,17 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             }
         }
 
-        // Add notes to zip
+        // Add notes to zip. Links to exported Documents become relative `.md` paths,
+        // which Obsidian, VS Code and GitHub follow (TOC and links spec §6.7).
+        const fileById = new Map();
         for (const note of notes) {
             const path = getPath(note.id, false);
-            if (path) {
-                zip.file(`${path}.md`, note.content || '');
+            if (path) fileById.set(String(note.id).toLowerCase(), `${path}.md`);
+        }
+        for (const note of notes) {
+            const file = fileById.get(String(note.id).toLowerCase());
+            if (file) {
+                zip.file(file, rewriteLinksForExport(note.content || '', file, (id) => fileById.get(id) || null));
             }
         }
 
@@ -944,6 +1020,10 @@ export const useImportExportStore = defineStore('importExportStore', () => {
             settings,
             globals,
             images: imageMetadata,
+            // Each Document's id and file, so a re-import can remap links to it.
+            notes: notes
+                .filter((note) => fileById.has(String(note.id).toLowerCase()))
+                .map((note) => ({ id: note.id, path: fileById.get(String(note.id).toLowerCase()) })),
         }, null, 2));
 
         const blob = await zip.generateAsync({ type: 'blob' });

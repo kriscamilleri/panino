@@ -6,7 +6,7 @@
 
 ## Objective
 
-Phase 6 of [`docs/specs/active/odoo-integration.md`](../../../specs/active/odoo-integration.md):
+Phase 6 of [`docs/specs/shipped/odoo-integration.md`](../../../specs/shipped/odoo-integration.md):
 replace the "Image not sent" placeholders of Phase 5 with the Document's own images, uploaded
 onto the Knowledge article.
 

@@ -5,9 +5,14 @@
  * checklist items keep their state so a card can draw a tick.
  */
 
+import { parseMarkerLine } from '@panino/content-merge/marker-blocks';
+
 /**
  * @typedef {{ kind: 'text'|'bullet'|'task', text: string, checked?: boolean }} SnippetLine
  */
+
+/** A table of contents (TOC and links spec §4.7): its list would start every card. */
+const TOC_MARKER = 'panino:toc';
 
 const FENCE = /^\s*(`{3,}|~{3,})/;
 const TASK = /^\s*(?:[-*+]|\d{1,9}[.)])\s+\[([ xX])\]\s+(.*)$/;
@@ -20,8 +25,15 @@ const TABLE_RULE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
  * @param {string} text
  * @returns {string}
  */
+// A snippet shows a few hundred characters of a line; the patterns below
+// backtrack on long hostile lines (a 32 KB line of `{{ ` took 656 ms, a 2 MiB
+// one would take hours), so only this much of a line is stripped. The search
+// snippet window is the same size, so search snippets are unchanged.
+export const STRIP_INLINE_MAX = 2400;
+
 export function stripInline(text) {
-    return String(text ?? '')
+    const source = String(text ?? '');
+    return (source.length > STRIP_INLINE_MAX ? source.slice(0, STRIP_INLINE_MAX) : source)
         .replace(/!\[[^\]]*\]\([^)]*\)/g, '')            // images
         .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')         // links → their text
         .replace(/\[([^\]]+)\]\[[^\]]*\]/g, '$1')        // reference links
@@ -62,6 +74,7 @@ export function toSnippetLines(markdown, { title = '', maxLines = 8 } = {}) {
     }
 
     let titleChecked = false;
+    let inToc = false;
     for (; index < lines.length && result.length < maxLines; index += 1) {
         const raw = lines[index];
         const fenceMatch = raw.match(FENCE);
@@ -73,6 +86,12 @@ export function toSnippetLines(markdown, { title = '', maxLines = 8 } = {}) {
             fence = fenceMatch[1];
             continue;
         }
+        const marker = raw[0] === '<' ? parseMarkerLine(raw) : null;
+        if (marker?.name === TOC_MARKER) {
+            inToc = marker.kind === 'open';
+            continue;
+        }
+        if (inToc) continue;
         let line = raw.replace(/^\s*(>\s*)+/, '');
         if (!line.trim()) continue;
         if (/^\s*(\\pagebreak|<!--.*-->|---\s*pagebreak\s*---|[-*_]{3,})\s*$/i.test(line)) continue;

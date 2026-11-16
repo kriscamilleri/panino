@@ -77,7 +77,7 @@
 </template>
 
 <script setup>
-/** How to point an MCP client at Panino (docs/specs/active/ai-integration.md §9). */
+/** How to point an MCP client at Panino (docs/specs/shipped/ai-integration.md §9). */
 import { computed, ref } from 'vue';
 import { Copy } from 'lucide-vue-next';
 import BaseButton from '@/components/BaseButton.vue';

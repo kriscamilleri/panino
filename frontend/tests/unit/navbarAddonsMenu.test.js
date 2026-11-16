@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // The Navbar's Add-ons button: present while an add-on that is on has a toolbar
-// action, and it opens the Add-ons submenu (docs/specs/active/addon-folders.md §6.2).
+// action, and it opens the Add-ons submenu (docs/specs/shipped/addon-folders.md §6.2).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'

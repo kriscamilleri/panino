@@ -1,4 +1,4 @@
-// Revision history in the v1 API (docs/specs/proposed/ai-api-expansion.md §4.4):
+// Revision history in the v1 API (docs/specs/shipped/ai-api-expansion.md §4.4):
 // list, read, compare, save a checkpoint and restore, as MCP tools, REST routes and
 // OpenAPI paths. The rules are in revisionService.js; this file only adapts.
 import { MAX_CONTEXT } from '../lineDiff.js';

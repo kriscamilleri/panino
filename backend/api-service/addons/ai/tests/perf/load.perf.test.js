@@ -41,6 +41,9 @@ function makeBody(rand, targetBytes, { frontMatter, imageIds, rare }) {
     if (frontMatter) {
         parts.push('---', `status: ${rand() < 0.5 ? 'draft' : 'final'}`, `priority: ${Math.floor(rand() * 10)}`);
         if (rand() < 0.5) parts.push(`owner: ${rand() < 0.5 ? 'Kris' : 'Sam'}`);
+        // Tags without drawing from the generator: every front matter block has `report`, and
+        // those with priority 0 or 7 (about one in five) also `alpha`, for the tag: rows.
+        parts.push(`tags: [report${parts[2] === 'priority: 0' || parts[2] === 'priority: 7' ? ', alpha' : ''}]`);
         parts.push(`due: 2026-${String(1 + Math.floor(rand() * 12)).padStart(2, '0')}-15`, '---', '');
     }
     let size = 0;
@@ -54,6 +57,10 @@ function makeBody(rand, targetBytes, { frontMatter, imageIds, rare }) {
         else {
             const words = Array.from({ length: 40 + Math.floor(rand() * 80) }, () => WORDS[Math.floor(rand() * WORDS.length)]);
             if (rand() < 0.05) words.push('Über');
+            // A link in two of three paragraphs, without drawing from the generator (so the
+            // account is otherwise the same): brackets in most bodies, as real notes have, so
+            // `is:checklist` has to run its checklist rule on them.
+            if (words.length % 3 !== 0) words.push('see [the notes](https://example.test/notes)');
             block = words.join(' ');
         }
         parts.push(block, '');
@@ -201,5 +208,19 @@ describe.skipIf(!RUN)('v1 API load on a large account', () => {
         await measure('query modified_by = Bench agent', `/properties/query?filter=${q('modified_by = Bench agent')}`, (b) => `${b.total}`);
         await measure('query status = draft AND word_count > 2000', `/properties/query?filter=${q('status = draft AND word_count > 2000')}`, (b) => `${b.total}`);
         await measure('query word_count >= 1000', `/properties/query?filter=${q('word_count >= 1000')}`, (b) => `${b.total}`);
+        // The search query language (docs/specs/active/advanced-search.md §6.5). Last, so the
+        // reads above are measured as they were before it.
+        await measure('search lorem in:"Folder 3"', `/search?q=${q('lorem in:"Folder 3"')}`, (b) => `${b.results.length}`);
+        await measure('search lorem -in:"Folder 3"', `/search?q=${q('lorem -in:"Folder 3"')}`, (b) => `${b.results.length}`);
+        await measure('search lorem in:Trash', `/search?q=${q('lorem in:Trash')}`, (b) => `${b.results.length}`);
+        await measure('search lorem -dolor', `/search?q=${q('lorem -dolor')}`, (b) => `${b.results.length}`);
+        await measure('search lorem is:checklist', `/search?q=${q('lorem is:checklist')}`, (b) => `${b.results.length}`);
+        await measure('search lorem prop:status=draft', `/search?q=${q('lorem prop:status=draft')}`, (b) => `${b.results.length}, ${b.scanned}`);
+        await measure('search prop:status=draft (no word)', `/search?q=${q('prop:status=draft')}`, (b) => `${b.results.length}, truncated ${b.truncated}`);
+        await measure('search lorem prop:word_count>2000', `/search?q=${q('lorem prop:word_count>2000')}`, (b) => `${b.results.length}`);
+        await measure('search tag:report (no word)', `/search?q=${q('tag:report')}`, (b) => `${b.results.length}, ${b.scanned}`);
+        await measure('search tag:alpha (rarer)', `/search?q=${q('tag:alpha')}`, (b) => `${b.results.length}`);
+        await measure('search lorem tag:report', `/search?q=${q('lorem tag:report')}`, (b) => `${b.results.length}`);
+        await measure('search lorem -tag:report', `/search?q=${q('lorem -tag:report')}`, (b) => `${b.results.length}, ${b.scanned}`);
     }, 600_000);
 });

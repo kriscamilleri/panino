@@ -1,4 +1,4 @@
-// Operator settings for the AI agents add-on (docs/specs/active/ai-integration.md §6.1, §10).
+// Operator settings for the AI agents add-on (docs/specs/shipped/ai-integration.md §6.1, §10).
 //
 // The public URLs come from the variables the server already uses:
 //   PUBLIC_API_BASE_URL  the API as browsers reach it (production https://panino.sh/api)

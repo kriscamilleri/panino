@@ -1,5 +1,5 @@
 // The MCP tool definitions stay portable: every function-calling model must
-// accept them (docs/specs/active/ai-integration.md §5.3).
+// accept them (docs/specs/shipped/ai-integration.md §5.3).
 import { describe, expect, it } from 'vitest';
 import { listTools, PORTABLE_SCHEMA_KEYS, SERVER_INSTRUCTIONS } from '../../mcpTools.js';
 

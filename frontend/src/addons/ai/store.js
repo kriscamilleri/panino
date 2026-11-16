@@ -7,7 +7,7 @@ const API_BASE = IS_PROD ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'ht
 const BASE = '/addons/ai';
 
 /**
- * The AI agents add-on (docs/specs/active/ai-integration.md §9): API keys,
+ * The AI agents add-on (docs/specs/shipped/ai-integration.md §9): API keys,
  * connected apps (OAuth grants), the MCP setup details, and the consent calls.
  * A newly created key's secret is held only in `createdSecret` until the user
  * dismisses it.

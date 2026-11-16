@@ -1,5 +1,5 @@
 /**
- * Sales order blocks (docs/specs/active/odoo-sales-order-blocks.md): a sales
+ * Sales order blocks (docs/specs/shipped/odoo-sales-order-blocks.md): a sales
  * order from Odoo, stored in the Document as plain Markdown tables between two
  * marker comments. The opening marker holds the block's settings, so the block
  * can be refreshed; everything between the markers is Panino's and is replaced

@@ -1,4 +1,4 @@
-// The v1 REST API (docs/specs/active/llm-api.md §7), thin adapters over the
+// The v1 REST API (docs/specs/shipped/llm-api.md §7), thin adapters over the
 // *Service.js operations. Mounted at /addons/ai/v1 as a public route of the
 // add-on: it authenticates with API keys, never a session, and agentAuth.js
 // checks the owner's switch. OAuth access tokens are refused here (their

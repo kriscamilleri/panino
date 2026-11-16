@@ -58,6 +58,9 @@ vi.mock('@/store/spaceTransferStore', () => ({
   useSpaceTransferStore: () => ({ begin: vi.fn(), recoverable: [], loadRecoverable: vi.fn() }),
 }));
 vi.mock('@/store/conflictStore', () => ({ useConflictStore: () => ({ hasConflict: () => false }) }));
+// The tag stores (tag-system.md): no tags here, and no Pinia.
+vi.mock('@/store/tagStore', () => ({ useTagStore: () => ({ hasFilters: false, filters: [], styles: {}, loadStyles: async () => {}, styleRow: () => null, addFilter: () => {}, tagLook: (_dbKey, name) => ({ name, label: name, hex: '#78716c', colorKey: 'neutral', styled: false }) }) }));
+vi.mock('@/store/documentIndexStore', () => ({ useDocumentIndexStore: () => ({ version: 0, ensure: async () => {}, entry: () => null, versionOf: () => 0 }) }));
 vi.mock('@/composables/usePhoneStatus', () => ({
   usePhoneStatus: () => ({ sync: { state: 'synced', detail: 'Synced' } }),
 }));

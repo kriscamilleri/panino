@@ -1,4 +1,4 @@
-// The MCP endpoint of the AI agents add-on (docs/specs/active/ai-integration.md §5):
+// The MCP endpoint of the AI agents add-on (docs/specs/shipped/ai-integration.md §5):
 // Streamable HTTP, stateless, JSON responses only, tools only. Serves two
 // protocol eras from one handler:
 //   2025  (2025-06-18, 2025-11-25)  initialize handshake, no session issued

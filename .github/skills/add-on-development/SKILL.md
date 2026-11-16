@@ -10,9 +10,9 @@ switches it on, and it is off by default. Each add-on lives in **one folder per 
 core reaches it only through the add-on registries.
 
 - Framework (offered / enabled / connected, the gate, Settings → Add-ons):
-  [`docs/specs/active/addons.md`](../../../docs/specs/active/addons.md)
+  [`docs/specs/shipped/addons.md`](../../../docs/specs/shipped/addons.md)
 - Folder layout and extension points:
-  [`docs/specs/active/addon-folders.md`](../../../docs/specs/active/addon-folders.md)
+  [`docs/specs/shipped/addon-folders.md`](../../../docs/specs/shipped/addon-folders.md)
 - Worked example: Odoo, in `backend/api-service/addons/odoo/` and `frontend/src/addons/odoo/`
   (read both `README.md` files first)
 

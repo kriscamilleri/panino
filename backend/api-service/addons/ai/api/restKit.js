@@ -1,4 +1,4 @@
-// Building blocks for the v1 REST routes (docs/specs/active/llm-api.md §7): the
+// Building blocks for the v1 REST routes (docs/specs/shipped/llm-api.md §7): the
 // operation context, query and body reading, and one error mapping. Each area
 // file in this folder registers its routes with them; restRoutes.js mounts them.
 import { isDatabaseBusyError, respondDatabaseBusy } from '../../../db.js';

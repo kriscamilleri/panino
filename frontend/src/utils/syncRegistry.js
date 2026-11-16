@@ -111,6 +111,8 @@ const SPACE_OUTGOING_COLUMNS = new Map([
   ['templates', new Set(['id', 'name', 'content', 'title_pattern', 'default_folder_id', 'created_at', 'updated_at'])],
   ['style_presets', new Set(['id', 'kind', 'name', 'styles', 'created_at', 'updated_at'])],
   ['style_assignments', new Set(['id', 'target_type', 'target_id', 'kind', 'preset_id', 'updated_at'])],
+  // Tag styling (docs/specs/active/tag-system.md §6.1).
+  ['tags', new Set(['name', 'display_name', 'color', 'created_at', 'updated_at'])],
 ]);
 
 /**

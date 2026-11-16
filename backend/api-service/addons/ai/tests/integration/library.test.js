@@ -1,5 +1,5 @@
 // Templates, global variables and PDF export in the v1 API, on REST and MCP
-// (docs/specs/proposed/ai-api-expansion.md §4.3).
+// (docs/specs/shipped/ai-api-expansion.md §4.3).
 //
 // renderPdf is wrapped in a spy that calls the real renderer (Chromium is in the
 // test image), so the happy path makes a real PDF; failure cases replace one call
@@ -331,7 +331,7 @@ describe('AI agents add-on: templates, variables and PDF export', () => {
             expect(renderPdf).toHaveBeenCalledTimes(1);
             const [payload, options] = renderPdf.mock.calls[0];
             expect(options).toEqual({ userId: user.userId });
-            expect(payload.htmlContent).toContain('<h1 style="color: green">Report for Acme BV</h1>');
+            expect(payload.htmlContent).toContain('<h1 id="pn-report-for-acme-bv" style="color: green">Report for Acme BV</h1>');
             expect(payload.htmlContent).not.toContain('<script');
             expect(payload.htmlContent).not.toContain('onerror');
             expect(payload.htmlContent).toContain(`src="/api/images/${imageId}"`);

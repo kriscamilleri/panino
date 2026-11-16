@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The add-on return on Settings (docs/specs/active/addon-folders.md §6.2), with no real add-on.
+// The add-on return on Settings (docs/specs/shipped/addon-folders.md §6.2), with no real add-on.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';

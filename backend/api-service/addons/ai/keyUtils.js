@@ -1,4 +1,4 @@
-// Pure helpers for API keys and the v1 API (docs/specs/active/llm-api.md,
+// Pure helpers for API keys and the v1 API (docs/specs/shipped/llm-api.md,
 // ai-integration.md).
 // No database or Express access here, so every rule can be unit tested.
 import crypto from 'crypto';
@@ -179,80 +179,11 @@ export function validateName(value, label) {
     return { ok: true, value: trimmed };
 }
 
-/**
- * A short excerpt of `content` around the first case-insensitive match of
- * `query`, or the opening of the content when the match is only in the title.
- * @param {string} content
- * @param {string} query
- * @param {number} [width]
- * @returns {string}
- */
-export function makeSnippet(content, query, width = 160) {
-    const text = String(content || '').replace(/\s+/g, ' ').trim();
-    if (!text) return '';
-    const index = query ? text.toLowerCase().indexOf(String(query).toLowerCase()) : -1;
-    if (index < 0) return text.length > width ? `${text.slice(0, width).trimEnd()}…` : text;
-    const half = Math.floor((width - query.length) / 2);
-    const start = Math.max(0, index - Math.max(half, 0));
-    const end = Math.min(text.length, start + width);
-    return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`;
-}
-
-/**
- * Build lookups over a database's folders: each folder's slash-joined path
- * from the root, and the set of folders inside a root "Trash" folder.
- * Cycles in corrupted data stop the walk instead of looping.
- * @param {Array<{ id: string, name: string|null, parent_id: string|null, created_at?: string|null }>} folders
- * @returns {{ pathOf: (folderId: string|null) => string, trashFolderId: string|null, isInTrash: (folderId: string|null) => boolean }}
- */
-export function buildFolderIndex(folders) {
-    const byId = new Map(folders.map((folder) => [folder.id, folder]));
-    const pathCache = new Map();
-
-    function chain(folderId) {
-        const seen = new Set();
-        const out = [];
-        let current = folderId ? byId.get(folderId) : null;
-        while (current && !seen.has(current.id)) {
-            seen.add(current.id);
-            out.push(current);
-            current = current.parent_id ? byId.get(current.parent_id) : null;
-        }
-        return out;
-    }
-
-    const trashFolderId = findTrashFolderId(folders);
-
-    return {
-        pathOf(folderId) {
-            if (!folderId) return '';
-            if (!pathCache.has(folderId)) {
-                pathCache.set(folderId, chain(folderId).reverse().map((folder) => folder.name || 'Untitled').join('/'));
-            }
-            return pathCache.get(folderId);
-        },
-        trashFolderId,
-        isInTrash(folderId) {
-            if (!trashFolderId || !folderId) return false;
-            return chain(folderId).some((folder) => folder.id === trashFolderId);
-        },
-    };
-}
-
-/** Name of the folder API deletes move Documents into. */
-export const TRASH_FOLDER_NAME = 'Trash';
-
-/**
- * The oldest root folder named "Trash" (any case), or null.
- * @param {Array<{ id: string, name: string|null, parent_id: string|null, created_at?: string|null }>} folders
- * @returns {string|null}
- */
-export function findTrashFolderId(folders) {
-    const candidates = folders
-        .filter((folder) => !folder.parent_id && String(folder.name || '').trim().toLowerCase() === 'trash')
-        .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')) || a.id.localeCompare(b.id));
-    return candidates[0]?.id ?? null;
-}
+// The snippet, the folder index and the Trash rule moved to shared/ so the app's search agrees
+// with the API on paths and on which Documents are in Trash
+// (docs/specs/active/advanced-search.md §6.1); they are re-exported here under their old names.
+export { makeSnippet } from '@panino/content-merge/search-text';
+export { buildFolderIndex, findTrashFolderId, TRASH_FOLDER_NAME } from '@panino/content-merge/trash-folder';
 
 /**
  * Encode and decode the opaque pagination cursor of `GET /v1/documents`.

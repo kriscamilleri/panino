@@ -12,7 +12,7 @@
 <script setup>
 /**
  * Under the AI agents switch in Settings, desktop and phone
- * (docs/specs/active/ai-integration.md §9). The core host gives the root
+ * (docs/specs/shipped/ai-integration.md §9). The core host gives the root
  * data-testid="settings-addon-ai".
  */
 import { onMounted } from 'vue';

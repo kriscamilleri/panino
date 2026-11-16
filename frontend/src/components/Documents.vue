@@ -12,11 +12,14 @@
             >
                 Documents
             </h2>
-            <div class="flex space-x-2">
+            <div
+                ref="headerButtonsRef"
+                class="flex space-x-2"
+            >
                 <BaseButton
-                    :isActive="showSearch"
+                    :isActive="searchOpen"
                     @click="toggleSearch"
-                    title="Toggle Search"
+                    title="Search (Ctrl+Shift+F)"
                     data-testid="documents-search-toggle"
                 >
                     <Search class="w-4 h-4" />
@@ -48,33 +51,16 @@
             </div>
         </div>
 
+        <!-- Tag filters and search both replace the tree; an open search wins. -->
+        <TagFilterBar v-if="!searchOpen" />
         <div
-            v-if="showSearch"
-            class="mb-4 overflow-hidden transition-all duration-200"
-            :class="{ 'opacity-100': showSearch, 'opacity-0': !showSearch }"
+            v-if="tagStore.hasFilters && !searchOpen"
+            class="flex-1 overflow-y-auto"
         >
-            <div class="relative">
-                <Search class="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" />
-                <input
-                    v-model="searchQuery"
-                    type="text"
-                    placeholder="Search documents and folders..."
-                    class="w-full px-8 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
-                    ref="searchInput"
-                    data-testid="documents-search-input"
-                />
-                <button
-                    v-if="searchQuery"
-                    @click="clearSearch"
-                    class="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600"
-                    data-testid="documents-search-clear"
-                >
-                    <X class="w-4 h-4" />
-                </button>
-            </div>
+            <DocumentTransferPanel />
+            <TagFilterResults />
         </div>
-
-        <div class="flex-1 overflow-y-auto">
+        <div v-else class="flex-1 overflow-y-auto">
             <DocumentTransferPanel />
             <div
                 v-if="docStore.syncStore.bootstrapState.status === 'loading'"
@@ -93,32 +79,10 @@
             >
                 {{ docStore.syncStore.bootstrapState.error }}
             </div>
-            <div
-                v-if="searchQuery"
-                data-testid="documents-tree-search"
-            >
-                <div v-if="filteredStructure.length > 0">
-                    <ul class="space-y-1">
-                        <li
-                            v-for="item in filteredStructure"
-                            :key="item.treeKey || item.id"
-                        >
-                            <TreeItem
-                                :item="item"
-                                :is-filtered="true"
-                                :matching-files="getMatchingFilesForItem(item)"
-                            />
-                        </li>
-                    </ul>
-                </div>
-                <div
-                    v-else
-                    class="text-gray-500 text-center py-4"
-                    data-testid="documents-no-matches"
-                >
-                    No matches found for "{{ searchQuery }}"
-                </div>
-            </div>
+            <SearchPanel
+                v-if="searchOpen"
+                @close="closeSearch"
+            />
             <div
                 v-else
                 data-testid="documents-tree-normal"
@@ -229,23 +193,29 @@
 </template>
 
 <script setup>
-import { computed, ref, watch, nextTick, provide } from 'vue';
+import { computed, ref, nextTick, provide } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDocStore } from '@/store/docStore';
 import { useUiStore } from '@/store/uiStore';
 import TreeItem from './TreeItem.vue'
 import BaseButton from './BaseButton.vue'
-import { Search, X, FilePlus, FolderPlus, FileText, ChevronDown, ChevronRight, User } from 'lucide-vue-next'
+import { Search, FilePlus, FolderPlus, FileText, ChevronDown, ChevronRight, User } from 'lucide-vue-next'
 import TemplatePickerModal from '@/components/TemplatePickerModal.vue'
 import PromptModal from '@/components/PromptModal.vue'
 import { useStructureStore } from '@/store/structureStore'
 import { useSpaceTransferStore } from '@/store/spaceTransferStore'
 import DocumentTransferPanel from '@/components/DocumentTransferPanel.vue'
+import TagFilterBar from '@/components/tags/TagFilterBar.vue'
+import TagFilterResults from '@/components/tags/TagFilterResults.vue'
+import { useTagStore } from '@/store/tagStore'
+import SearchPanel from '@/components/SearchPanel.vue'
+import { useDesktopSearchState } from '@/composables/useDocumentSearch'
 
 const docStore = useDocStore()
 const ui = useUiStore();
 const structureStore = useStructureStore()
 const transferStore = useSpaceTransferStore()
+const tagStore = useTagStore()
 const router = useRouter();
 
 const rootItems = computed(() => docStore.rootItems)
@@ -257,77 +227,20 @@ const personalItems = computed(() => rootItems.value.filter((item) => item.type 
 provide('refreshParent', docStore.loadRootItems);
 provide('requestDatabaseTransfer', (details) => transferStore.begin(details));
 
-/* search / ui refs */
-const searchQuery = ref('')
-const showSearch = ref(false)
-const searchInput = ref(null)
+/* search: the panel replaces the tree while open (advanced-search.md §5.1) */
+const desktopSearch = useDesktopSearchState()
+const searchOpen = computed(() => desktopSearch.open.value)
 
 function toggleSearch() {
-    showSearch.value = !showSearch.value
-    showSearch.value && nextTick(() => searchInput.value?.focus())
-    !showSearch.value && clearSearch()
+    if (desktopSearch.open.value) desktopSearch.closeSearch()
+    else desktopSearch.openSearch()
 }
-function clearSearch() { searchQuery.value = '' }
-
-/* filtering helpers */
-function matchesSearch(text, query) { return (text || '').toLowerCase().includes(query.toLowerCase()) }
-
-async function getAllFilesInFolder(f) {
-    let res = [];
-    const children = await docStore.getChildren(f.id, f.dbKey);
-    for (const c of children) {
-        if (c.type === 'file') {
-            res.push(c);
-        } else {
-            res.push(...(await getAllFilesInFolder(c)));
-        }
-    }
-    return res;
-}
-
-async function getImmediateFiles(f) {
-    return (await docStore.getChildren(f.id, f.dbKey)).filter(c => c.type === 'file')
-}
-
-const filteredStructure = ref([])
-const matchingFilesMap = ref({})
-
-let searchVersion = 0
-watch(searchQuery, async (query) => {
-    if (!query) {
-        filteredStructure.value = []
-        matchingFilesMap.value = {}
-        return
-    }
-    const version = ++searchVersion
-    const results = []
-    const filesMap = {}
-    for (const item of rootItems.value) {
-        if (version !== searchVersion) return
-        if (item.type === 'file') {
-            if (matchesSearch(item.name, query)) results.push(item)
-        } else {
-            const folderNameMatches = matchesSearch(item.name, query)
-            let files
-            if (folderNameMatches) {
-                files = await getImmediateFiles(item)
-            } else {
-                files = (await getAllFilesInFolder(item)).filter(fi => matchesSearch(fi.name, query))
-            }
-            if (version !== searchVersion) return
-            if (folderNameMatches || files.length > 0) {
-                results.push(item)
-                filesMap[item.id] = files
-            }
-        }
-    }
-    if (version !== searchVersion) return
-    filteredStructure.value = results
-    matchingFilesMap.value = filesMap
-})
-
-function getMatchingFilesForItem(item) {
-    return matchingFilesMap.value[item.id] || []
+// Closing the panel (Esc or its close button) puts focus back on the search button.
+// (BaseButton renders a fragment, so the button is found in the header rather than by a ref.)
+const headerButtonsRef = ref(null)
+function closeSearch() {
+    desktopSearch.closeSearch()
+    nextTick(() => headerButtonsRef.value?.querySelector('[data-testid="documents-search-toggle"]')?.focus())
 }
 
 

@@ -347,3 +347,99 @@ html[data-theme='dark'] .pagebreak-banner {
 }
 html[data-theme='dark'] .pagebreak-banner::before,
 html[data-theme='dark'] .pagebreak-banner::after { background-color: var(--pn-border) !important; }
+
+/*
+ * Typewriter mode (docs/specs/active/typewriter-mode.md §6.3, §7.4). The
+ * overlay lives inside OverType's wrapper (components/TypewriterLayer.vue):
+ * over the text, under the caret and selection. The band is neutral, never
+ * blue; the scrim takes the editor's own background colour, set inline.
+ */
+:root {
+    --pn-typewriter-line: rgb(17 24 39 / 0.05);
+}
+
+html[data-theme='dark'] {
+    --pn-typewriter-line: rgb(212 212 212 / 0.07);
+}
+
+.pn-typewriter-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.pn-typewriter-band,
+.pn-typewriter-scrim {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: none;
+}
+
+.pn-typewriter-band {
+    background: var(--pn-typewriter-line);
+}
+
+.pn-typewriter-scrim {
+    transition: background-color 150ms ease-out;
+}
+
+.pn-typewriter-fade-enter-active,
+.pn-typewriter-fade-leave-active {
+    transition: opacity 150ms ease-out;
+}
+
+.pn-typewriter-fade-enter-from,
+.pn-typewriter-fade-leave-to {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pn-typewriter-scrim,
+    .pn-typewriter-fade-enter-active,
+    .pn-typewriter-fade-leave-active {
+        transition: none;
+    }
+}
+
+/* Forced colours would turn the translucent fills into solid blocks. */
+/* A tag colour as a swatch (manager, suggestions): the pastel fill ringed by
+   its ink, in either theme. Set the variables with tagColorStyle(). */
+.pn-tag-swatch {
+    background: var(--tag-fill);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tag-ink) 55%, var(--tag-fill));
+}
+
+/* TagChip in dark mode: the deep fill and pastel ink. Global, because a scoped
+   :global() keeps only its own selector. Outranks the chip's scoped rule. */
+html[data-theme='dark'] .pn-tag-chip {
+    --chip-fill: var(--tag-fill-dark);
+    --chip-ink: var(--tag-ink-dark);
+}
+
+html[data-theme='dark'] .pn-tag-swatch-chosen {
+    border-color: #f5f5f5;
+}
+
+html[data-theme='dark'] .pn-tag-swatch {
+    background: var(--tag-fill-dark);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tag-ink-dark) 55%, var(--tag-fill-dark));
+}
+
+@media (forced-colors: active) {
+    .pn-typewriter-layer {
+        display: none !important;
+    }
+
+    /* Forced colours drop the backgrounds that show a switch or choice is on. */
+    .tw-switch[aria-checked='true'],
+    .ph-switch[aria-checked='true'],
+    .tw-options [aria-pressed='true'],
+    .ph-tw [aria-pressed='true'],
+    .ph-tw [aria-checked='true'] {
+        outline: 2px solid Highlight;
+        outline-offset: 2px;
+    }
+}

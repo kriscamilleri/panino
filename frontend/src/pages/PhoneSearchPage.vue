@@ -31,8 +31,9 @@
                         enterkeyhint="search"
                         placeholder="Search your notes"
                         autocomplete="off"
+                        maxlength="200"
                         data-testid="phone-search-input"
-                        @keydown.enter="remember(text)"
+                        @keydown.enter="onEnter"
                     >
                     <button
                         v-if="text"
@@ -57,15 +58,34 @@
                         :key="chip.value"
                         type="button"
                         class="ph-chip"
-                        :aria-pressed="scope === chip.value"
+                        :aria-pressed="chip.on"
                         :data-testid="`phone-search-scope-${chip.value}`"
-                        @click="setScope(chip.value)"
+                        @click="toggleChip(chip.value)"
                     >{{ chip.label }}</button>
+                    <button
+                        type="button"
+                        class="ph-chip"
+                        aria-haspopup="dialog"
+                        :aria-expanded="picker.open.value"
+                        data-testid="phone-search-scope-property"
+                        @click="picker.openPicker()"
+                    >Property…</button>
                 </div>
             </header>
 
             <main class="ph-search-results">
-                <template v-if="!term">
+                <ul
+                    v-if="notices.length"
+                    class="ph-search-notices"
+                    data-testid="phone-search-notices"
+                >
+                    <li
+                        v-for="notice in notices"
+                        :key="notice"
+                    >{{ notice }}</li>
+                </ul>
+
+                <template v-if="!query">
                     <div
                         v-if="recent.length"
                         class="ph-recent"
@@ -79,7 +99,7 @@
                                 <button
                                     type="button"
                                     class="ph-row"
-                                    @click="text = item"
+                                    @click="useRecent(item)"
                                 >
                                     <History
                                         class="h-5 w-5"
@@ -100,7 +120,7 @@
                     <p
                         class="sr-only"
                         aria-live="polite"
-                    >{{ searching ? 'Searching' : `${results.length} ${results.length === 1 ? 'result' : 'results'}` }}</p>
+                    >{{ searching ? 'Searching' : countLabel }}</p>
                     <ul
                         v-if="results.length"
                         data-testid="phone-search-list"
@@ -108,6 +128,7 @@
                         <li
                             v-for="doc in results"
                             :key="`${doc.dbKey}:${doc.id}`"
+                            class="ph-result-item"
                         >
                             <a
                                 :href="`#/doc/${encodeURIComponent(doc.id)}?dbKey=${encodeURIComponent(doc.dbKey)}`"
@@ -117,20 +138,27 @@
                             >
                                 <span class="ph-result-title">
                                     <template
-                                        v-for="(segment, index) in highlightSegments(doc.name, term)"
+                                        v-for="(segment, index) in highlightSegments(doc.name, terms)"
                                         :key="index"
                                     >
                                         <mark v-if="segment.match">{{ segment.text }}</mark>
                                         <template v-else>{{ segment.text }}</template>
                                     </template>
                                 </span>
-                                <span class="ph-result-meta">{{ locationOf(doc) }} · {{ formatRelativeTime(doc.displayedDate) }}</span>
+                                <span class="ph-result-meta">
+                                    <span
+                                        v-if="doc.inTrash"
+                                        class="ph-result-trash"
+                                        :data-testid="`phone-search-trash-${doc.id}`"
+                                    >In Trash</span>
+                                    {{ locationOf(doc) }} · {{ formatRelativeTime(doc.displayedDate) }}
+                                </span>
                                 <span
-                                    v-if="scope !== 'titles'"
+                                    v-if="!chipsOn.titles"
                                     class="ph-result-snippet"
                                 >
                                     <template
-                                        v-for="(segment, index) in searchSnippet(doc.content, term, { title: doc.name })"
+                                        v-for="(segment, index) in searchSnippet(doc.content, terms, { title: doc.name })"
                                         :key="index"
                                     >
                                         <mark v-if="segment.match">{{ segment.text }}</mark>
@@ -138,16 +166,55 @@
                                     </template>
                                 </span>
                             </a>
+                            <DocumentTagChips
+                                class="ph-result-tags"
+                                :db-key="doc.dbKey"
+                                :note-id="doc.id"
+                                :filterable="false"
+                                selectable
+                                @select="addTag"
+                            />
                         </li>
                     </ul>
                     <p
                         v-else-if="!searching"
                         class="ph-muted ph-search-hint"
                         data-testid="phone-search-none"
-                    >No notes match “{{ term }}”.</p>
+                    >No notes match “{{ query }}”.</p>
+                    <div
+                        v-if="nextCursor"
+                        class="ph-search-more"
+                    >
+                        <button
+                            type="button"
+                            class="ph-chip"
+                            :disabled="loadingMore"
+                            data-testid="phone-search-more"
+                            @click="loadMore"
+                        >{{ loadingMore ? 'Loading…' : 'Show more' }}</button>
+                    </div>
                 </template>
             </main>
         </div>
+        <BottomSheet
+            :open="picker.open.value"
+            label="Filter by property"
+            testid="phone-search-property-sheet"
+            @close="picker.closePicker()"
+        >
+            <template #header>
+                <h2 class="ph-sheet-title">Filter by property</h2>
+            </template>
+            <PropertyPicker
+                v-if="picker.open.value"
+                layout="phone"
+                :keys="picker.keys.value"
+                :loading="picker.loading.value"
+                :values-for="picker.valuesFor"
+                @add="addPropertyPart"
+                @close="picker.closePicker()"
+            />
+        </BottomSheet>
     </PhoneShell>
 </template>
 
@@ -156,13 +223,28 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, X, History } from 'lucide-vue-next'
 import PhoneShell from '@/components/phone/PhoneShell.vue'
+import BottomSheet from '@/components/phone/BottomSheet.vue'
+import PropertyPicker from '@/components/PropertyPicker.vue'
+import DocumentTagChips from '@/components/tags/DocumentTagChips.vue'
+import { usePropertyPicker } from '@/composables/usePropertyPicker'
+import { appendPart } from '@/utils/propertyPicker'
 import { useDocStore } from '@/store/docStore'
 import { useSyncStore } from '@/store/syncStore'
 import { useViewport } from '@/composables/useViewport'
-import { highlightSegments, searchSnippet, normalizeScope, readRecentSearches, rememberSearch } from '@/utils/searchQuery'
+import { resultCountLabel, useDocumentSearch } from '@/composables/useDocumentSearch'
+import {
+    addTagPart,
+    chipState,
+    clearChips,
+    folderSearchPath,
+    highlightSegments,
+    normalizeScope,
+    searchSnippet,
+    setChecklistChip,
+    setFolderChip,
+    setTitlesChip,
+} from '@/utils/searchQuery'
 import { formatRelativeTime } from '@/utils/recentDocuments'
-
-const DEBOUNCE_MS = 150
 
 const route = useRoute()
 const router = useRouter()
@@ -171,34 +253,28 @@ const syncStore = useSyncStore()
 const { isPhone } = useViewport()
 
 const inputRef = ref(null)
-const text = ref(typeof route.query.q === 'string' ? route.query.q : '')
-const term = ref(text.value.trim())
-const results = ref([])
-const searching = ref(false)
-const recent = ref(readRecentSearches(safeStorage()))
 const folderName = ref('')
+const folderPath = ref('')
+
+const {
+    text, query, results, notices, terms, nextCursor, searching, loadingMore, recent,
+    flush, loadMore, remember, setText,
+} = useDocumentSearch({
+    initialText: typeof route.query.q === 'string' ? route.query.q : '',
+    onQuery: (value) => router.replace({ query: { ...route.query, q: value || undefined } }),
+})
 
 const folderId = computed(() => (typeof route.query.folder === 'string' ? route.query.folder : ''))
 const folderDbKey = computed(() => (typeof route.query.dbKey === 'string' ? route.query.dbKey : ''))
-const scope = computed(() => {
-    const value = normalizeScope(route.query.scope)
-    return value === 'folder' && !folderId.value ? 'everything' : value
-})
 
+const chipsOn = computed(() => chipState(text.value, folderPath.value))
 const chips = computed(() => [
-    { value: 'everything', label: 'Everything' },
-    { value: 'titles', label: 'Titles' },
-    { value: 'checklists', label: 'Checklists' },
-    ...(folderId.value ? [{ value: 'folder', label: folderName.value || 'This folder' }] : []),
+    { value: 'everything', label: 'Everything', on: chipsOn.value.everything },
+    { value: 'titles', label: 'Titles', on: chipsOn.value.titles },
+    { value: 'checklists', label: 'Checklists', on: chipsOn.value.checklists },
+    ...(folderPath.value ? [{ value: 'folder', label: folderName.value || 'This folder', on: chipsOn.value.folder }] : []),
 ])
-
-function safeStorage() {
-    try {
-        return window.localStorage
-    } catch {
-        return { getItem: () => null, setItem: () => {} }
-    }
-}
+const countLabel = computed(() => resultCountLabel(results.value.length, Boolean(nextCursor.value)))
 
 // Desktop has no Search screen; its sidebar search covers it.
 watch(isPhone, (phone) => { if (!phone) router.replace({ name: 'home' }) }, { immediate: true })
@@ -206,69 +282,74 @@ watch(isPhone, (phone) => { if (!phone) router.replace({ name: 'home' }) }, { im
 onMounted(async () => {
     await nextTick()
     inputRef.value?.focus()
-    if (folderId.value && folderDbKey.value) {
-        if (folderId.value === folderDbKey.value) {
-            folderName.value = syncStore.databases.get(folderDbKey.value)?.name || 'This space'
-        } else {
-            try {
-                const trail = await docStore.getFolderTrail(folderId.value, folderDbKey.value)
-                folderName.value = trail[trail.length - 1]?.name || ''
-            } catch {
-                folderName.value = ''
-            }
+    if (!folderId.value || !folderDbKey.value) return
+    const entry = syncStore.databases.get(folderDbKey.value)
+    const spaceName = entry?.kind === 'space' ? entry.name : null
+    let segments = []
+    if (folderId.value === folderDbKey.value) {
+        folderName.value = spaceName || 'This space'
+    } else {
+        try {
+            const trail = await docStore.getFolderTrail(folderId.value, folderDbKey.value)
+            segments = trail.map((folder) => folder.name)
+            folderName.value = trail[trail.length - 1]?.name || ''
+        } catch {
+            folderName.value = ''
         }
     }
-})
-
-let timer = null
-let runId = 0
-watch(text, (value) => {
-    clearTimeout(timer)
-    timer = setTimeout(() => {
-        term.value = value.trim()
-        router.replace({ query: { ...route.query, q: value || undefined } })
-    }, DEBOUNCE_MS)
-})
-
-watch(() => [term.value, scope.value, syncStore.isInitialized], async () => {
-    const run = ++runId
-    if (!term.value || !syncStore.isInitialized) {
-        results.value = []
-        return
+    folderPath.value = folderSearchPath({ spaceName, segments })
+    // Opened from a folder: the page starts with that folder's in: part.
+    if (folderPath.value && normalizeScope(route.query.scope) === 'folder' && !text.value.trim()) {
+        setText(`${setFolderChip('', folderPath.value, true)} `)
+        flush()
     }
-    searching.value = true
-    const found = await docStore.searchDocuments({
-        query: term.value,
-        scope: scope.value,
-        folderId: folderId.value || null,
-        dbKey: folderDbKey.value || null,
-    })
-    // A slower, older search must not replace a newer one.
-    if (run !== runId) return
-    results.value = found
-    searching.value = false
-}, { immediate: true })
+})
 
-function setScope(value) {
-    router.replace({ query: { ...route.query, scope: value === 'everything' ? undefined : value } })
+function toggleChip(value) {
+    const on = chipsOn.value
+    if (value === 'everything') setText(clearChips(text.value, folderPath.value))
+    else if (value === 'titles') setText(setTitlesChip(text.value, !on.titles))
+    else if (value === 'checklists') setText(setChecklistChip(text.value, !on.checklists))
+    else if (value === 'folder') setText(setFolderChip(text.value, folderPath.value, !on.folder))
+    flush()
+}
+
+const picker = usePropertyPicker()
+
+function addPropertyPart(part) {
+    setText(appendPart(text.value, part))
+    picker.closePicker()
+    flush()
+}
+
+function addTag(name) {
+    setText(addTagPart(text.value, name))
+    flush()
+}
+
+function onEnter() {
+    flush()
+    remember()
+}
+
+function useRecent(item) {
+    setText(item)
+    flush()
 }
 
 function clear() {
-    text.value = ''
+    setText('')
+    flush()
     inputRef.value?.focus()
 }
 
-function remember(value) {
-    recent.value = rememberSearch(safeStorage(), value)
-}
-
 function locationOf(doc) {
-    if (doc.folderId) return doc.folderName
+    if (doc.folderId) return doc.spaceName ? `${doc.spaceName} · ${doc.folderName}` : doc.folderName
     return doc.spaceName || 'No folder'
 }
 
 function open(doc) {
-    remember(text.value)
+    remember()
     router.push({ name: 'doc', params: { fileId: doc.id }, query: { dbKey: doc.dbKey } })
 }
 
@@ -350,7 +431,6 @@ function goBack() {
     flex-direction: column;
     gap: 2px;
     padding: 12px 20px;
-    border-bottom: 1px solid var(--ph-line);
     color: var(--ph-ink);
     text-decoration: none;
 }
@@ -378,6 +458,48 @@ function goBack() {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+}
+
+.ph-search-notices {
+    margin: 4px 20px 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+    color: var(--ph-muted);
+}
+
+.ph-result-trash {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--ph-canvas);
+    border: 1px solid var(--ph-line);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.ph-result-item {
+    border-bottom: 1px solid var(--ph-line);
+}
+
+.ph-sheet-title {
+    margin: 0;
+    padding: 4px 20px 0;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.ph-result-tags {
+    display: flex;
+    padding: 0 20px 10px;
+    margin-top: -6px;
+}
+
+.ph-search-more {
+    display: flex;
+    justify-content: center;
+    padding: 16px 0 8px;
 }
 
 .ph-result mark {

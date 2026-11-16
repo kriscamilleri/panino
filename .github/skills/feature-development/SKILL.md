@@ -254,7 +254,7 @@ gh run view --log-failed       # logs for whatever failed
 | Frontend integration tests | `frontend/tests/unit/` (no separate integration dir yet) |
 | Backend unit tests | `backend/api-service/tests/unit/` |
 | Backend integration tests | `backend/api-service/tests/integration/` |
-| Specs | `docs/specs/` (`proposed/`, `active/`, `shipped/`, `dx/`) |
+| Specs | `docs/specs/` (`proposed/`, `active/`, `shipped/`, `deprecated/`, `dx/`) |
 | Agent logs | `docs/agent-logs/` (`YYYY/MM/` plus `archive/`) |
 
 ## Anti-Patterns

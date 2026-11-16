@@ -1,5 +1,5 @@
 // Templates, global variables and PDF export in the v1 API
-// (docs/specs/proposed/ai-api-expansion.md §4.3), as plain operations taking
+// (docs/specs/shipped/ai-api-expansion.md §4.3), as plain operations taking
 // `ctx` (see serviceCore.js). Templates and variables are read only; a Document
 // made from a template goes through createDocument, so it follows the same write
 // rules. PDFs are built like the app's Export (core documentPdf.js) and rendered

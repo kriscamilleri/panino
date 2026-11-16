@@ -6,7 +6,7 @@ import { applyDocumentVariables, renderDocumentHtml } from '@panino/content-merg
 import { articleBody } from '../../knowledge.js';
 
 /**
- * Renderer parity (docs/specs/active/odoo-integration.md §13): the API renders the
+ * Renderer parity (docs/specs/shipped/odoo-integration.md §13): the API renders the
  * shared fixture to the HTML recorded in shared/tests/fixtures, the same bytes the
  * frontend's test checks, so a server-rendered article matches the Preview.
  */

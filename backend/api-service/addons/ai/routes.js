@@ -1,4 +1,4 @@
-// Routes of the AI agents add-on (docs/specs/active/ai-integration.md §4.2).
+// Routes of the AI agents add-on (docs/specs/shipped/ai-integration.md §4.2).
 //
 //   publicRoutes (before sign-in, offered check only; each authenticates itself)
 //     /addons/ai/v1/mcp      MCP endpoint        API key or OAuth access token

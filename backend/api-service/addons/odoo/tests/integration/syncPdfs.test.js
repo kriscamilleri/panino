@@ -8,6 +8,7 @@ import { resetFileFieldCache } from '../../client.js';
 import { createSync, readSync } from '../../sync.js';
 import { __configureSyncSchedulerForTests, runSyncNow } from '../../syncScheduler.js';
 import { API_KEY, resetFakeOdoo, startFakeOdoo } from '../fakeOdoo.js';
+import { LINKED_DOCUMENT, pdfLinkUris, withEnv } from '../pdfLinks.js';
 
 describe('PDFs filed by a sync (Phase 12)', () => {
     let app;
@@ -111,6 +112,36 @@ describe('PDFs filed by a sync (Phase 12)', () => {
         expect(calls('/knowledge.article/write')).toHaveLength(0);
         expect(calls('/documents.document/write')).toHaveLength(2);
     });
+
+    it('links other Documents in the filed PDF to the Panino web app, and Knowledge gets the label as text', async () => {
+        await connect();
+        const folderId = folder('Docs');
+        const linked = note('Linked', `# Linked\n\n## Budget\n\nSee [the plan](panino:doc/${LINKED_DOCUMENT}#budget) and [above](#budget).`, folderId);
+        const sync = createSync(db, { scope: 'folder', sourceId: folderId, odooTarget: target(), parentArticleId: 10, documentsFolderId: 41, runAs: user.userId, createdBy: user.userId });
+        const result = await withEnv({ FRONTEND_URL: 'https://app.example.test' }, () => run(sync.id));
+        expect(result).toMatchObject({ created: 1, pdfs: 1, failures: [] });
+        const [doc] = docs();
+        expect(await pdfLinkUris(odoo.state.attachments.get(doc.attachment_id))).toEqual([`https://app.example.test/#/doc/${LINKED_DOCUMENT}?heading=budget`]);
+        const article = JSON.stringify(calls('/knowledge.article/create').at(-1).params);
+        expect(article).toContain('the plan');
+        expect(article).not.toContain('panino:');
+        expect(article).not.toContain('data-pn-');
+        expect(article).not.toContain('id=\\"pn-');
+        expect(pdfLink(linked).content_hash).toMatch(/^[0-9a-f]{64}$/);
+    }, 60000);
+
+    it('keeps the "already filed" hash whatever FRONTEND_URL says, and prints text without it in production', async () => {
+        await connect();
+        const folderId = folder('Docs');
+        const linked = note('Linked', `See [the plan](panino:doc/${LINKED_DOCUMENT}).`, folderId);
+        const sync = createSync(db, { scope: 'folder', sourceId: folderId, odooTarget: target(), parentArticleId: 10, documentsFolderId: 41, runAs: user.userId, createdBy: user.userId });
+        await withEnv({ FRONTEND_URL: undefined, NODE_ENV: 'production' }, () => run(sync.id));
+        const [doc] = docs();
+        expect(await pdfLinkUris(odoo.state.attachments.get(doc.attachment_id))).toEqual([]);
+        const hash = pdfLink(linked).content_hash;
+        expect(await withEnv({ FRONTEND_URL: 'https://elsewhere.example' }, () => run(sync.id))).toMatchObject({ unchanged: 1, pdfs: 0 });
+        expect(pdfLink(linked).content_hash).toBe(hash);
+    }, 60000);
 
     it('is off unless a folder was chosen, and reports a PDF that could not be filed', async () => {
         await connect();

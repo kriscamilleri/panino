@@ -150,7 +150,7 @@ describe('sales order layouts', () => {
 
         it('render the Quotation layout as heading, address lines and two tables', () => {
             const html = renderDocumentHtml(buildBlockMarkdown(snapshot(), { ...OPTIONS, layout }));
-            expect(html).toContain('<h2>Quotation S00020</h2>');
+            expect(html).toContain('<h2 id="pn-quotation-s00020">Quotation S00020</h2>');
             expect(html).toContain('<strong>Joel Willis</strong><br>');
             expect(html.match(/<table>/g)).toHaveLength(2);
             expect(html).toContain('<td><strong>Total</strong></td>');

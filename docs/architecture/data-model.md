@@ -16,6 +16,8 @@ backend-only operational tables. The backend also has a separate authentication 
 | `settings` | CRR | JSON-encoded user settings |
 | `globals` | CRR | Global template variables |
 | `templates` | CRR | Document templates |
+| `style_presets`, `style_assignments` | CRR | Named preview and print styles and their folder/template defaults |
+| `tags` | CRR | Tag styling: canonical name (primary key), `display_name`, palette-key `color`, timestamps. Which tags a Document has lives in its front matter, never here ([tag system](../specs/active/tag-system.md)) |
 | `backup_config` | Local/backend-only | GitHub add-on (`addons/github/schema.js`): GitHub credentials and backup state |
 | `note_revisions` | Local/backend-only | Compressed revision snapshots |
 | `note_revision_meta` | Local/backend-only | Revision pruning metadata |
@@ -59,7 +61,10 @@ database) and completing a password reset, whose link is mailed to the stored ad
 through the mailed invitation link does not: the owner who created the invitation is shown the
 same link. An unverified account can always accept through the link.
 
-Schema v3 adds server-owned cross-database transfer checkpoints. A transfer records the actor,
+Content schema v3 adds the `tags` CRR (`ensureTagsSchema` repairs an older table); the client
+floor `MINIMUM_CLIENT_SCHEMA_VERSION` stays 1 until the frontend that knows `tags` is released.
+
+Spaces metadata schema v3 adds server-owned cross-database transfer checkpoints. A transfer records the actor,
 source/destination database keys and Document ids, source content hash/timestamp, stable image-id
 map, visible warnings, stage, and confirmation/deletion timestamps. The API reauthorizes both
 databases on every resume/recovery action. Destination rows and copied bytes are hash/size verified
@@ -75,7 +80,9 @@ ends at `kept_both` as soon as the destination is verified and never touches the
 revision history or its images. A move goes on to delete the source and ends at `complete`. The
 choice is stored on the row (`space_transfers.keep_source`) and read from there on every resume,
 so retrying an interrupted copy cannot turn it into a move, and `delete-source` is refused for a
-copy. `keep_source` was added without raising the metadata schema version: a build that does not
+copy. A transfer also copies the styles (`tags` rows) of the moved Document's tags that the
+destination does not have, never overwriting one, and records them in `copied_tags_json` (`NULL`
+until that step ran) so a resume does not repeat it; added the same way as `keep_source`. `keep_source` was added without raising the metadata schema version: a build that does not
 know the column still opens the database, and the rows it writes default to a move, which is what
 that build does.
 
@@ -219,6 +226,13 @@ Frontend repositories require a database key at their public boundary. Tree node
 in-memory node-to-database index, dashboard rows are tagged before their per-database result sets
 are merged, and global limits are applied only after that merge. A revoked membership closes and
 removes the local handle from the active registry and unsubscribes its WebSocket key.
+
+In-memory views of a database subscribe to `syncStore.onRemoteChangesApplied(listener)`, which
+is called with `(dbKey, changes)` after every committed remote change set. The Document metadata
+index (`documentIndexStore`: each Document's tags and front matter properties, for tags and
+search) uses it and the database's update hook to refresh changed Documents only, and drops a
+database's index when it leaves the registry; `tagStore` reloads a database's `tags` rows when a
+change set touches them. Neither is ever written to a database or synced.
 
 A space's local database is named `pn-s-<space id without dashes>-<first 12 hex digits of the
 account id>.db`, so two accounts on one browser never open each other's replica. The name is short

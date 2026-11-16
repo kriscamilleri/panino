@@ -1,4 +1,4 @@
-// The v1 revision operations, without HTTP (docs/specs/proposed/ai-api-expansion.md
+// The v1 revision operations, without HTTP (docs/specs/shipped/ai-api-expansion.md
 // §4.4): list, read, compare, save a checkpoint and restore. REST and MCP
 // (api/revisions.js) are two adapters over these functions; the shared rules are in
 // serviceCore.js, and the restore itself is core's restoreNoteRevision, which the

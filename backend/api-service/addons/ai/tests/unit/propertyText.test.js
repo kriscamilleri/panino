@@ -1,4 +1,4 @@
-// Pure helpers for Document properties (docs/specs/proposed/ai-api-expansion.md §4.6).
+// Pure helpers for Document properties (docs/specs/shipped/ai-api-expansion.md §4.6).
 import { describe, expect, it } from 'vitest';
 import {
     builtInKeysIn,

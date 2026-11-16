@@ -22,6 +22,12 @@
         </div>
       </template>
 
+      <!-- A table of contents out of date: offer Refresh, never block the export. -->
+      <TocStaleNotice
+        v-if="docStore.selectedFileContent"
+        testid="print-toc"
+        class="m-3"
+      />
       <!-- iPhones draw only the first page of a PDF inside a page. -->
       <a
         v-if="isPhone && pdfUrl"
@@ -69,6 +75,7 @@ import { useStyleEditing } from '@/composables/useStyleEditing';
 import { Palette, Edit3 } from 'lucide-vue-next';
 import Editor from '@/components/Editor.vue';
 import BaseButton from '@/components/BaseButton.vue';
+import TocStaleNotice from '@/components/TocStaleNotice.vue';
 import { useDocStore } from '@/store/docStore';
 import { useMarkdownStore } from '@/store/markdownStore';
 import { useAuthStore } from '@/store/authStore';
@@ -76,11 +83,13 @@ import DOMPurify from 'dompurify';
 import { buildPdfRequest, requestPdf } from '@/utils/pdfExport';
 import { printStyleFieldHint } from '@/utils/printStyleValidation';
 import { useViewport } from '@/composables/useViewport';
+import { usePdfDocumentLinks } from '@/composables/usePdfDocumentLinks';
 
 const router = useRouter();
 const { isPhone } = useViewport();
 const docStore = useDocStore();
 const markdownStore = useMarkdownStore();
+const { renderPdfHtml } = usePdfDocumentLinks();
 const authStore = useAuthStore();
 const isProd = import.meta.env.PROD;
 const API_URL = isProd ? '/api' : (import.meta.env.VITE_API_SERVICE_URL || 'http://localhost:8000');
@@ -292,10 +301,9 @@ async function regeneratePdf() {
 
   try {
     const styles = editingValues.value;
-    const md = await markdownStore.getPrintMarkdownIt(styles);
-    const processedMarkdown = markdownStore.applyMetadataVariables(docStore.selectedFileContent);
+    const md = await markdownStore.getPrintMarkdownIt(styles, { documentLinks: 'pdf' });
     const body = buildPdfRequest({
-      html: md.render(processedMarkdown),
+      html: await renderPdfHtml(md, docStore.selectedFileContent, docStore.selectedFile),
       cssStyles: markdownStore.buildPrintCss(styles),
       printStyles: styles,
       sanitize: (html) => DOMPurify.sanitize(html),

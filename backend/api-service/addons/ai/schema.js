@@ -2,7 +2,7 @@
 // browser schema) and idempotent.
 //
 // Server-wide tables, on the auth database (`_users.db`), because a credential
-// arrives without saying whose it is (docs/specs/active/ai-integration.md §6.7).
+// arrives without saying whose it is (docs/specs/shipped/ai-integration.md §6.7).
 
 export const AI_AUTH_SCHEMA = `
   -- Personal API keys (llm-api.md §5). Only the SHA-256 of a key is stored;
@@ -91,7 +91,7 @@ export const AI_AUTH_SCHEMA = `
 // Content tables, on every content database (user and space).
 export const AI_CONTENT_SCHEMA = `
   -- Where a Document or folder was before the v1 API moved it into Trash, so
-  -- restore_from_trash can put it back (docs/specs/proposed/ai-api-expansion.md
+  -- restore_from_trash can put it back (docs/specs/shipped/ai-api-expansion.md
   -- §4.2). previous_parent_id is the folder it was in; NULL is the top level.
   -- Written when the API trashes something, deleted when the API restores or
   -- moves it. Items moved into Trash any other way have no row and restore to

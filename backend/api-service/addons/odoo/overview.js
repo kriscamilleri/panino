@@ -1,5 +1,5 @@
 /**
- * The Odoo overview (docs/specs/proposed/odoo-overview.md): every Document with a
+ * The Odoo overview (docs/specs/shipped/odoo-overview.md): every Document with a
  * record in Odoo, per database, with the state the overview page sorts and filters
  * by. Read-only; the route gathers the caller's databases and calls this per database.
  */

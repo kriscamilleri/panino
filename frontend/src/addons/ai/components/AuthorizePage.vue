@@ -129,7 +129,7 @@
 
 <script setup>
 /**
- * The OAuth consent page (docs/specs/active/ai-integration.md §6.4), at
+ * The OAuth consent page (docs/specs/shipped/ai-integration.md §6.4), at
  * #/addons/ai/authorize?request=<id>. An app's sign-in lands here; the user
  * picks the access and Documents, then the browser goes back to the app.
  */

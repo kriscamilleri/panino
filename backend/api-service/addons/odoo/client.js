@@ -9,7 +9,7 @@
  * server logs only, the Odoo exception class in `odooName`.
  *
  * Behaviour this relies on was verified against Odoo 19 and 20 (see
- * docs/specs/active/odoo-integration.md §4).
+ * docs/specs/shipped/odoo-integration.md §4).
  */
 
 import crypto from 'crypto';

@@ -1,4 +1,4 @@
-// Shared rules of the v1 operations (docs/specs/active/ai-integration.md §7): which
+// Shared rules of the v1 operations (docs/specs/shipped/ai-integration.md §7): which
 // databases an agent reaches, the row shapes, and the write rules (scope, live
 // sessions, expected versions, size, revisions, announcing changes). The
 // operations live in the *Service.js files; REST and MCP adapters live in api/.

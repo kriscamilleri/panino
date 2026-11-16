@@ -1,4 +1,4 @@
-// OAuth 2.1 for MCP clients, end to end (docs/specs/active/ai-integration.md §6).
+// OAuth 2.1 for MCP clients, end to end (docs/specs/shipped/ai-integration.md §6).
 import crypto from 'crypto';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';

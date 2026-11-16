@@ -15,7 +15,7 @@ spec in the abstract.
 
 - Re-read the landed Phase 1 code (`db.js`, `spaces.js`, `sync.js`, `backup.js`) and the sync,
   data-model, auth, and deployment architecture docs to ground every claim.
-- Wrote `docs/specs/proposed/collab-04-phase-0-design-artifacts.md` with the five artifacts,
+- Wrote `docs/specs/shipped/collab-04-phase-0-design-artifacts.md` with the five artifacts,
   each marked **implemented** or **specified, not yet implemented** against the current code.
 - Verified a durable gap in the production database backup path: it does not capture space
   content databases or uploads (details below).
@@ -23,7 +23,7 @@ spec in the abstract.
 
 ## Changes Made
 
-- `docs/specs/proposed/collab-04-phase-0-design-artifacts.md` — new. Five sections:
+- `docs/specs/shipped/collab-04-phase-0-design-artifacts.md` — new. Five sections:
   1. Authorization matrix — 26 operations across owner/editor/non-member/anonymous with failure
      modes (404 vs 403 vs 409 vs 401 vs 426), plus the server-enforcement and auth-source rules.
   2. `_spaces.db` invariants — 12 invariants with enforcement points; documents the missing

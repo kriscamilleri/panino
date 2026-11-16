@@ -3,11 +3,11 @@
 The app side of the Odoo add-on: sending a Document to Odoo, the connection and syncs in
 Settings and on the Spaces page, and sales order blocks.
 
-- Spec: [`docs/specs/active/odoo-integration.md`](../../../../docs/specs/active/odoo-integration.md),
+- Spec: [`docs/specs/shipped/odoo-integration.md`](../../../../docs/specs/shipped/odoo-integration.md),
   sales order blocks in
-  [`docs/specs/active/odoo-sales-order-blocks.md`](../../../../docs/specs/active/odoo-sales-order-blocks.md).
+  [`docs/specs/shipped/odoo-sales-order-blocks.md`](../../../../docs/specs/shipped/odoo-sales-order-blocks.md).
 - How add-ons plug into core:
-  [`docs/specs/active/addon-folders.md`](../../../../docs/specs/active/addon-folders.md).
+  [`docs/specs/shipped/addon-folders.md`](../../../../docs/specs/shipped/addon-folders.md).
 - The API side lives in [`backend/api-service/addons/odoo/`](../../../../backend/api-service/addons/odoo/).
 
 ## Manifest (`manifest.js`)
@@ -16,7 +16,7 @@ Settings and on the Spaces page, and sales order blocks.
 |---|---|
 | `actions` | **send** ("Odoo" / "Send to Odoo") and **data** ("Odoo data" / "Sales orders from Odoo"), both need a connection and a selected Document; **overview** ("Odoo overview", desktop Add-ons menu only) opens the overview page |
 | `modals` | `send` → `OdooSendModal`, `data` → `OdooDataBlockModal` |
-| `pages` | `overview` → `OdooOverviewPage` at `#/addons/odoo/overview` ([spec](../../../../docs/specs/proposed/odoo-overview.md)) |
+| `pages` | `overview` → `OdooOverviewPage` at `#/addons/odoo/overview` ([spec](../../../../docs/specs/shipped/odoo-overview.md)) |
 | `settingsCard` | `OdooSettingsCard` (desktop and phone): connection, Overview, key notice, syncs |
 | `spaceCard` | `OdooSyncsCard` in space mode (with Open overview for that space), with a hint while the add-on is off |
 
